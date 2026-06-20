@@ -3,6 +3,8 @@ Rails.application.routes.draw do
     namespace :demo do
       get "profile", to: "households#profile"
       get "dashboard", to: "households#dashboard"
+      get "budget", to: "households#budget"
+      get "wealth", to: "households#wealth"
       get "optionality", to: "households#optionality"
       get "cfo-filter", to: "households#cfo_filter"
       resources :mia, only: [] do

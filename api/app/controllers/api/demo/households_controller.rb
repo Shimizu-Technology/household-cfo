@@ -9,6 +9,14 @@ module Api
         render json: ::Demo::HouseholdData.dashboard
       end
 
+      def budget
+        render json: ::Demo::HouseholdData.budget
+      end
+
+      def wealth
+        render json: ::Demo::HouseholdData.wealth
+      end
+
       def optionality
         render json: ::Demo::HouseholdData.optionality
       end

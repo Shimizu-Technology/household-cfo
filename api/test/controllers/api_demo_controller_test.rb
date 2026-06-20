@@ -20,6 +20,27 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert body.fetch("alerts").any?
   end
 
+  test "budget returns expense stack categories" do
+    get "/api/demo/budget"
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "Expense Stack", body.fetch("framework")
+    labels = body.fetch("stacks").map { |stack| stack.fetch("label") }
+    assert_includes labels, "Non-discretionary"
+    assert_includes labels, "Sinking Fund — Expected"
+    assert_includes labels, "Sinking Fund — Unexpected"
+  end
+
+  test "wealth returns simplified net worth snapshot" do
+    get "/api/demo/wealth"
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_operator body.fetch("summary").fetch("net_worth"), :>, 0
+    assert body.fetch("milestones").any?
+  end
+
   test "optionality returns choices with readiness scores" do
     get "/api/demo/optionality"
 
