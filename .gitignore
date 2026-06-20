@@ -1,0 +1,50 @@
+# macOS
+.DS_Store
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+api/config/master.key
+api/config/credentials.yml.enc
+api/config/credentials/*.key
+api/.kamal/secrets
+api/.kamal/secrets.*
+
+# Rails
+api/log/*
+!api/log/.keep
+api/tmp/*
+!api/tmp/.keep
+!api/tmp/pids/
+!api/tmp/pids/.keep
+api/storage/*
+!api/storage/.keep
+api/public/assets
+api/public/packs
+api/node_modules
+
+# Ruby
+api/.bundle
+api/vendor/bundle
+api/coverage
+
+# Node/Vite
+web/node_modules
+web/dist
+web/.vite
+web/.env
+web/.env.*
+!web/.env.example
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local/editor
+.idea
+.vscode
+*.swp
