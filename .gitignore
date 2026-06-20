@@ -17,6 +17,7 @@ api/log/*
 api/tmp/*
 !api/tmp/.keep
 !api/tmp/pids/
+api/tmp/pids/*
 !api/tmp/pids/.keep
 api/storage/*
 !api/storage/.keep
