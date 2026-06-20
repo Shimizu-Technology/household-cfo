@@ -47,7 +47,7 @@ function App() {
         setData(payload)
         setMessages(payload.mia.messages)
       })
-      .catch(() => setError('API is not running yet. Start Rails on port 3000 to load live demo data.'))
+      .catch(() => setError('Mia’s workspace is offline for a moment. Start the Rails API on port 3000 to load preview data.'))
   }, [])
 
   const surplus = useMemo(() => {
@@ -91,7 +91,7 @@ function App() {
         <section className="hero-panel">
           <p className="eyebrow">Household CFO powered by VERA</p>
           <h1>Loading Mia’s first cohort workspace.</h1>
-          <p>{error ?? 'Pulling real demo data from the Rails API...'}</p>
+          <p>{error ?? 'Pulling first cohort preview data...'}</p>
         </section>
       </main>
     )
@@ -104,10 +104,10 @@ function App() {
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
         </ul>
         <div>
-          <p className="eyebrow">Household CFO Method</p>
-          <h1>Run your home like the C-Suite — not the unpaid maintenance staff.</h1>
+          <p className="eyebrow">First cohort preview</p>
+          <h1>Meet Mia, your calm household money coach.</h1>
           <p className="hero-copy">
-            Mia turns budget stress into a calm operating rhythm: know the numbers, choose the next move,
+            Turn budget stress into a simple operating rhythm: know the numbers, choose the next move,
             and protect the dream without living in a spreadsheet.
           </p>
         </div>
@@ -194,7 +194,7 @@ function App() {
             <article className="mia-context panel">
               <span className="spark">✦</span>
               <h3>Context loaded</h3>
-              <p>Profile, Expense Stack, runway, debt pressure, and Optionality scenario are available for this demo.</p>
+              <p>Profile, Expense Stack, runway, debt pressure, and Optionality scenario are ready for Mia to use.</p>
               <div className="upload-strip">
                 <button type="button">📎 Upload spreadsheet</button>
                 <button type="button">📷 Upload statement</button>
