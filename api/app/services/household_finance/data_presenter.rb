@@ -163,8 +163,38 @@ module HouseholdFinance
 
     attr_reader :household, :user, :snapshot_builder, :snapshot
 
+    def memberships
+      @memberships ||= household.household_memberships.includes(:user).to_a
+    end
+
+    def income_sources
+      @income_sources ||= household.income_sources.where(active: true).order(:source_type, :label).to_a
+    end
+
+    def expense_items
+      @expense_items ||= household.expense_items.where(active: true).order(:stack_key, :label).to_a
+    end
+
+    def accounts
+      @accounts ||= household.accounts.order(:account_type, :label).to_a
+    end
+
+    def debts
+      @debts ||= household.debts.order(:debt_type, :label).to_a
+    end
+
+    def goals
+      @goals ||= household.goals.order(:priority).to_a
+    end
+
+    def chat_session
+      return nil unless user
+
+      @chat_session ||= household.chat_sessions.find_by(user: user)
+    end
+
     def members
-      household.household_memberships.includes(:user).map do |membership|
+      memberships.map do |membership|
         {
           name: membership.user.full_name,
           role: membership.role.titleize,
@@ -195,12 +225,12 @@ module HouseholdFinance
         {
           label: "Income",
           summary: "Base pay, business income, rental income, bonuses, and other monthly money coming in.",
-          items: household.income_sources.where(active: true).order(:source_type, :label).map { |income| { label: income.label, amount: dollars(Money.monthly_cents(income.amount_cents, income.cadence)) } }
+          items: income_sources.map { |income| { label: income.label, amount: dollars(Money.monthly_cents(income.amount_cents, income.cadence)) } }
         },
         {
           label: "Expenses",
           summary: "Bills, choices, and the things life always seems to throw at you.",
-          items: household.expense_items.where(active: true).order(:stack_key, :label).map { |expense| { label: expense.label, amount: dollars(Money.monthly_cents(expense.amount_cents, expense.cadence)) } }
+          items: expense_items.map { |expense| { label: expense.label, amount: dollars(Money.monthly_cents(expense.amount_cents, expense.cadence)) } }
         },
         {
           label: "Savings & Debt",
@@ -211,8 +241,8 @@ module HouseholdFinance
     end
 
     def savings_and_debt_items
-      account_items = household.accounts.order(:account_type, :label).map { |account| { label: account.label, amount: dollars(account.balance_cents) } }
-      debt_items = household.debts.order(:debt_type, :label).map { |debt| { label: debt.label, amount: -dollars(debt.balance_cents) } }
+      account_items = accounts.map { |account| { label: account.label, amount: dollars(account.balance_cents) } }
+      debt_items = debts.map { |debt| { label: debt.label, amount: -dollars(debt.balance_cents) } }
       account_items + debt_items
     end
 
@@ -224,9 +254,9 @@ module HouseholdFinance
     end
 
     def account_rows
-      household.accounts.order(:account_type, :label).map do |account|
+      accounts.map do |account|
         { name: account.label, type: account.account_type, balance: dollars(account.balance_cents) }
-      end + household.debts.order(:debt_type, :label).map do |debt|
+      end + debts.map do |debt|
         { name: debt.label, type: "debt", balance: -dollars(debt.balance_cents) }
       end
     end
@@ -273,7 +303,7 @@ module HouseholdFinance
     end
 
     def retirement_projection_cents
-      retirement_accounts = household.accounts.select { |account| account.account_type == "retirement" }.sum(&:balance_cents)
+      retirement_accounts = accounts.select { |account| account.account_type == "retirement" }.sum(&:balance_cents)
       retirement_accounts + (monthly_wealth_building_cents * 12 * 10)
     end
 
@@ -292,16 +322,16 @@ module HouseholdFinance
     end
 
     def transition_goal
-      household.goals.where(goal_type: "transition").order(:priority).first
+      goals.find { |stored_goal| stored_goal.goal_type == "transition" }
     end
 
     def target_runway_months
-      goal = household.goals.where(goal_type: "runway").order(:priority).first
+      goal = goals.find { |stored_goal| stored_goal.goal_type == "runway" }
       (goal&.target_months || 6).to_f
     end
 
     def stable_income_cents
-      household.income_sources.where(active: true).reject { |income| income.source_type == "business" }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
+      income_sources.reject { |income| income.source_type == "business" }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
     end
 
     def monthly_business_income_cents
@@ -368,34 +398,33 @@ module HouseholdFinance
     def chat_messages
       return [] unless user
 
-      session = household.chat_sessions.find_by(user: user)
-      return [] unless session
+      return [] unless chat_session
 
-      session.chat_messages.order(:created_at).last(24).map(&:as_api_json)
+      chat_session.chat_messages.order(:created_at).last(24).map(&:as_api_json)
     end
 
     def income_by_type(source_type)
-      household.income_sources.where(active: true, source_type: source_type).sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
+      income_sources.select { |income| income.source_type == source_type }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
     end
 
     def expenses_by_stack(stack_key)
-      household.expense_items.where(active: true, stack_key: stack_key).sum { |expense| Money.monthly_cents(expense.amount_cents, expense.cadence) }
+      expense_items.select { |expense| expense.stack_key == stack_key }.sum { |expense| Money.monthly_cents(expense.amount_cents, expense.cadence) }
     end
 
     def account_by_type(account_type)
-      household.accounts.where(account_type: account_type).sum(&:balance_cents)
+      accounts.select { |account| account.account_type == account_type }.sum(&:balance_cents)
     end
 
     def non_emergency_assets_cents
-      household.accounts.where.not(account_type: "emergency_fund").sum(&:balance_cents)
+      accounts.reject { |account| account.account_type == "emergency_fund" }.sum(&:balance_cents)
     end
 
     def debt_by_type(debt_type)
-      household.debts.where(debt_type: debt_type).sum(&:balance_cents)
+      debts.select { |debt| debt.debt_type == debt_type }.sum(&:balance_cents)
     end
 
     def debt_payments_by_type(debt_type)
-      household.debts.where(debt_type: debt_type).sum(&:minimum_payment_cents)
+      debts.select { |debt| debt.debt_type == debt_type }.sum(&:minimum_payment_cents)
     end
 
     def dollars(cents)

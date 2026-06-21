@@ -42,7 +42,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.string "title"
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
-    t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id"
+    t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true
     t.index ["household_id"], name: "index_chat_sessions_on_household_id"
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
   end
@@ -98,6 +98,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "user_id"], name: "index_household_memberships_on_household_id_and_user_id", unique: true
     t.index ["household_id"], name: "index_household_memberships_on_household_id"
     t.index ["role"], name: "index_household_memberships_on_role"
+    t.index ["user_id"], name: "index_household_memberships_on_one_owner_per_user", unique: true, where: "((role)::text = 'owner'::text)"
     t.index ["user_id"], name: "index_household_memberships_on_user_id"
   end
 

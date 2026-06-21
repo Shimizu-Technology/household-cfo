@@ -19,6 +19,10 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     end
     add_index :household_memberships, [ :household_id, :user_id ], unique: true
     add_index :household_memberships, :role
+    add_index :household_memberships, :user_id,
+      unique: true,
+      where: "role = 'owner'",
+      name: "index_household_memberships_on_one_owner_per_user"
 
     create_table :household_profiles do |t|
       t.references :household, null: false, foreign_key: true, index: { unique: true }
@@ -99,7 +103,7 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
 
       t.timestamps
     end
-    add_index :chat_sessions, [ :household_id, :user_id ]
+    add_index :chat_sessions, [ :household_id, :user_id ], unique: true
 
     create_table :chat_messages do |t|
       t.references :chat_session, null: false, foreign_key: true

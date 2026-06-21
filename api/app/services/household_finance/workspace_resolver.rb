@@ -5,7 +5,11 @@ module HouseholdFinance
     end
 
     def household
-      existing_household || create_household
+      user.with_lock do
+        existing_household || create_household
+      end
+    rescue ActiveRecord::RecordNotUnique
+      existing_household || raise
     end
 
     private
@@ -17,17 +21,15 @@ module HouseholdFinance
     end
 
     def create_household
-      Household.transaction do
-        household = Household.create!(
-          created_by_user: user,
-          name: default_household_name,
-          location: "Guam",
-          stage: "First cohort",
-          primary_goal: "Build a clear monthly money rhythm."
-        )
-        household.household_memberships.create!(user: user, role: "owner")
-        household
-      end
+      household = Household.create!(
+        created_by_user: user,
+        name: default_household_name,
+        location: "Guam",
+        stage: "First cohort",
+        primary_goal: "Build a clear monthly money rhythm."
+      )
+      household.household_memberships.create!(user: user, role: "owner")
+      household
     end
 
     def default_household_name

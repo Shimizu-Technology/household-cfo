@@ -2,7 +2,6 @@ module HouseholdFinance
   class MiaContextBuilder
     def initialize(household)
       @household = household
-      @presenter = DataPresenter.new(household)
       @snapshot = SnapshotBuilder.new(household).call
     end
 
@@ -20,10 +19,12 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :presenter, :snapshot
+    attr_reader :household, :snapshot
 
     def expense_stack_summary
-      presenter.budget.fetch(:stacks).map { |stack| "#{stack.fetch(:label)} #{money_dollars(stack.fetch(:amount))}" }.join("; ")
+      snapshot.fetch(:stack_totals_cents).map do |stack_key, cents|
+        "#{SnapshotBuilder::STACK_LABELS.fetch(stack_key)} #{money(cents)}"
+      end.join("; ")
     end
 
     def money(cents)

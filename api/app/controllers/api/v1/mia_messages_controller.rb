@@ -31,9 +31,10 @@ module Api
       private
 
       def current_chat_session
-        current_household.chat_sessions.find_or_create_by!(user: current_user) do |session|
-          session.title = "Ask Mia"
-        end
+        current_household.chat_sessions.find_by(user: current_user) ||
+          current_household.chat_sessions.create!(user: current_user, title: "Ask Mia")
+      rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+        current_household.chat_sessions.find_by!(user: current_user)
       end
     end
   end

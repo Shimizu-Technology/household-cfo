@@ -2,6 +2,7 @@ module Api
   module V1
     module Admin
       class UsersController < BaseController
+        before_action :authenticate_user!
         before_action :require_staff!
 
         def index
@@ -9,7 +10,18 @@ module Api
         end
 
         def create
-          user = User.create!(user_params.merge(clerk_id: pending_clerk_id, invitation_status: "pending", invited_at: Time.current))
+          role = requested_role
+          return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
+
+          user = User.create!(
+            email: user_params[:email],
+            first_name: user_params[:first_name],
+            last_name: user_params[:last_name],
+            role: role,
+            clerk_id: pending_clerk_id,
+            invitation_status: "pending",
+            invited_at: Time.current
+          )
           render json: { user: user.as_api_json }, status: :created
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
@@ -18,7 +30,11 @@ module Api
         private
 
         def user_params
-          params.require(:user).permit(:email, :first_name, :last_name, :role)
+          params.require(:user).permit(:email, :first_name, :last_name)
+        end
+
+        def requested_role
+          params.dig(:user, :role).presence || "participant"
         end
 
         def pending_clerk_id
