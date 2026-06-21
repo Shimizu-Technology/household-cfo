@@ -91,8 +91,8 @@ module HouseholdFinance
     def upsert_transition_goal
       return if attributes[:primary_goal].blank?
 
-      goal = household.goals.find_or_initialize_by(goal_type: "transition", label: attributes[:primary_goal].to_s.truncate(80))
-      goal.update!(priority: 2)
+      goal = household.goals.where(goal_type: "transition").order(:priority, :created_at).first_or_initialize
+      goal.update!(label: attributes[:primary_goal].to_s.truncate(80), priority: 2)
     end
   end
 end

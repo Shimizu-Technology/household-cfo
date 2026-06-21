@@ -46,6 +46,25 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
   end
 
+  test "workspace setup updates transition goal instead of duplicating it" do
+    user = create_user(email: "goal@example.com")
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_goal: "Leave my job safely" } },
+          headers: auth_headers(user),
+          as: :json
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_goal: "Buy a rental property" } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :success
+    household = user.households.first
+    transition_goals = household.goals.where(goal_type: "transition")
+    assert_equal 1, transition_goals.count
+    assert_equal "Buy a rental property", transition_goals.first.label
+  end
+
   test "workspaces are isolated per user" do
     first_user = create_user(email: "first@example.com")
     second_user = create_user(email: "second@example.com")
