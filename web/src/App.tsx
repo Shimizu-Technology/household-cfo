@@ -44,7 +44,8 @@ function App() {
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const messagesEndRef = useRef<HTMLDivElement | null>(null)
+  const chatCardRef = useRef<HTMLElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     if (!canLoadWorkspace) return
@@ -55,7 +56,7 @@ function App() {
       .then((payload) => {
         if (cancelled) return
         setData(payload)
-        setMessages(payload.mia.messages)
+        setMessages([])
       })
       .catch(() => {
         if (cancelled) return
@@ -74,7 +75,11 @@ function App() {
 
   useEffect(() => {
     if (active !== 'Ask Mia') return
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
+
+    const chatCard = chatCardRef.current
+    if (!chatCard) return
+
+    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
   }, [active, messages.length, miaLoading])
 
   function switchSection(section: string) {
@@ -106,6 +111,7 @@ function App() {
       ])
     } finally {
       setMiaLoading(false)
+      requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
     }
   }
 
@@ -289,7 +295,14 @@ function App() {
                 ))}
               </div>
 
-              <article className="chat-card" aria-live="polite" aria-busy={miaLoading}>
+              <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading}>
+                {messages.length === 0 && !miaLoading && (
+                  <div className="empty-chat-state">
+                    <span className="message-avatar" aria-hidden="true">M</span>
+                    <h3>Mia is ready when you are.</h3>
+                    <p>Choose a quick question or ask what you want to decide next. Mia will use the household context already loaded here.</p>
+                  </div>
+                )}
                 {messages.map((message, index) => (
                   <div className={`message-row ${message.role}`} key={`${message.author}-${index}`}>
                     {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
@@ -314,7 +327,6 @@ function App() {
                     </div>
                   </div>
                 )}
-                <div ref={messagesEndRef} />
               </article>
 
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
@@ -332,8 +344,9 @@ function App() {
                   onChange={(event) => setQuestion(event.target.value)}
                   onKeyDown={handleAskMiaKeyDown}
                   aria-label="Ask Mia"
-                  placeholder="Ask about runway, debt, budget, or your next move..."
+                  placeholder="Ask Mia..."
                   rows={1}
+                  ref={composerRef}
                 />
                 <button
                   className="send-button"

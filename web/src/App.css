@@ -267,16 +267,16 @@ h3 {
   background: rgba(255, 255, 255, 0.1);
 }
 
-.account-pill span,
-.account-pill small {
+.account-pill > span,
+.account-pill > small {
   line-height: 1;
 }
 
-.account-pill span {
+.account-pill > span {
   font-size: 0.86rem;
 }
 
-.account-pill small {
+.account-pill > small {
   color: rgba(255, 255, 255, 0.62);
   font-size: 0.64rem;
   font-weight: 800;
@@ -817,8 +817,8 @@ h3 {
     background: rgba(255, 255, 255, 0.08);
   }
 
-  .account-pill span,
-  .account-pill small {
+  .account-pill > span,
+  .account-pill > small {
     display: none;
   }
 
@@ -1175,6 +1175,27 @@ h3 {
   margin: 0;
 }
 
+.empty-chat-state {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  margin: auto;
+  max-width: 360px;
+  padding: 28px 18px;
+  text-align: center;
+}
+
+.empty-chat-state h3 {
+  margin: 0;
+}
+
+.empty-chat-state p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
 .message-row .message p + p {
   margin-top: 10px;
 }
@@ -1360,10 +1381,9 @@ h3 {
   }
 
   .mia-chat-shell .chat-card {
-    min-height: 52vh;
-    min-height: 52svh;
-    max-height: 52vh;
-    max-height: 52svh;
+    min-height: 230px;
+    max-height: 34vh;
+    max-height: 34svh;
     padding: 14px;
   }
 

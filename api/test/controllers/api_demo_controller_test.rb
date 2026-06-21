@@ -76,6 +76,15 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert body.fetch("messages").any? { |message| message.fetch("role") == "assistant" }
   end
 
+  test "mia chat handles low signal test messages without over coaching" do
+    post "/api/demo/mia/messages", params: { message: "test" }, as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "Your test came through"
+    assert_not_includes content.downcase, "great question"
+  end
+
   test "mia chat post returns a response without requiring external llm" do
     post "/api/demo/mia/messages", params: { message: "Can I take the leap?" }, as: :json
 

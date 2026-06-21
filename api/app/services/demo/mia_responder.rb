@@ -3,8 +3,12 @@ require "json"
 
 module Demo
   class MiaResponder
+    LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey" ].freeze
+    TEST_MESSAGES = [ "test", "testing" ].freeze
+
     SYSTEM_PROMPT = <<~PROMPT.squish
       You are Mia, the warm and practical Household CFO coach inside Household CFO powered by VERA.
+      Do not over-praise inputs. If a user sends a test, greeting, fragment, or unclear phrase, briefly acknowledge and ask what money decision they want help with.
       Validate before coaching, then give one clear next money move. Use plain text only: no markdown,
       no bullet lists, and do not prefix your answer with "Mia:". Keep replies to 3-5 short sentences.
       You are not a licensed financial, legal, tax, or investment advisor. Use education/coaching language.
@@ -21,6 +25,7 @@ module Demo
     def call(message)
       clean_message = message.to_s.strip
       return fallback_response("What are we trying to decide?") if clean_message.empty?
+      return low_signal_response(clean_message) if low_signal_message?(clean_message)
       return fallback_response(clean_message) if @api_key.to_s.strip.empty?
 
       openrouter_response(clean_message)
@@ -58,6 +63,22 @@ module Demo
       return fallback_response(message) unless content
 
       content.sub(/\AMia:\s*/i, "")
+    end
+
+    def low_signal_message?(message)
+      normalized = message.downcase.gsub(/[^a-z0-9\s]/, "").squish
+      return true if normalized.in?(LOW_SIGNAL_EXACT_MESSAGES)
+
+      normalized.length < 4 && normalized.exclude?("?")
+    end
+
+    def low_signal_response(message)
+      normalized = message.downcase.gsub(/[^a-z0-9\s]/, "").squish
+      if normalized.in?(TEST_MESSAGES)
+        return "Your test came through. Ask me a real money question like “Can I leave my job?” or “Should I pay debt first?” and I’ll use your Household CFO context."
+      end
+
+      "Håfa Adai. I’m ready — tell me the money decision you want to work through, or choose one of the quick questions."
     end
 
     def fallback_response(message)
