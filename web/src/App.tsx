@@ -50,8 +50,10 @@ function App() {
     const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
     return `${MIA_CHAT_STORAGE_PREFIX}:${owner}`
   }, [auth.currentUser?.id])
+  const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
 
   useEffect(() => {
     if (!canLoadWorkspace) return
@@ -61,8 +63,10 @@ function App() {
     fetchAppData()
       .then((payload) => {
         if (cancelled) return
+        const storedMessages = loadStoredMiaMessages(chatStorageKey)
+        setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setMessages(loadStoredMiaMessages(chatStorageKey))
+        setMessages(storedMessages)
       })
       .catch(() => {
         if (cancelled) return
@@ -81,9 +85,10 @@ function App() {
 
   useEffect(() => {
     if (!data) return
+    if (messagesStorageKey !== chatStorageKey) return
 
     saveStoredMiaMessages(chatStorageKey, messages)
-  }, [chatStorageKey, data, messages])
+  }, [chatStorageKey, data, messages, messagesStorageKey])
 
   useEffect(() => {
     document.body.classList.toggle('mia-chat-expanded', isChatExpanded)
@@ -109,7 +114,7 @@ function App() {
     if (!chatCard) return
 
     chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
-  }, [active, messages.length, miaLoading])
+  }, [active, currentMessages.length, miaLoading])
 
   function switchSection(section: string) {
     setActive(section)
@@ -123,7 +128,7 @@ function App() {
 
     setMiaLoading(true)
     setQuestion('')
-    const priorMessages = messages
+    const priorMessages = currentMessages
     const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
     setMessages((current) => [...current, userMessage])
 
@@ -316,7 +321,7 @@ function App() {
                   <p>Quick, plain-English coaching from your Household CFO context.</p>
                 </div>
                 <div className="chat-actions">
-                  {messages.length > 0 && (
+                  {currentMessages.length > 0 && (
                     <button type="button" className="chat-clear-button" onClick={() => setMessages([])}>
                       Clear
                     </button>
@@ -343,14 +348,14 @@ function App() {
               </div>
 
               <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading}>
-                {messages.length === 0 && !miaLoading && (
+                {currentMessages.length === 0 && !miaLoading && (
                   <div className="empty-chat-state">
                     <span className="message-avatar" aria-hidden="true">M</span>
                     <h3>Mia is ready when you are.</h3>
                     <p>Choose a quick question or ask what you want to decide next. Mia will use the household context already loaded here.</p>
                   </div>
                 )}
-                {messages.map((message, index) => (
+                {currentMessages.map((message, index) => (
                   <div className={`message-row ${message.role}`} key={`${message.author}-${index}`}>
                     {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
                     <div className={`message ${message.role}`}>
