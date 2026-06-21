@@ -34,6 +34,19 @@ class HouseholdWorkspaceTest < ActiveSupport::TestCase
     assert_includes duplicate.errors[:user_id], "has already been taken"
   end
 
+  test "income source amounts must be non-negative" do
+    household = HouseholdFinance::WorkspaceResolver.new(create_user).household
+    income_source = household.income_sources.build(
+      label: "Primary income",
+      source_type: "job",
+      cadence: "monthly",
+      amount_cents: -1
+    )
+
+    assert_not income_source.valid?
+    assert_includes income_source.errors[:amount_cents], "must be greater than or equal to 0"
+  end
+
   private
 
   def create_user

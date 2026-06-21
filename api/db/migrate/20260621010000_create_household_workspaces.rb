@@ -46,6 +46,7 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     end
     add_index :income_sources, [ :household_id, :active ]
     add_index :income_sources, [ :household_id, :source_type ]
+    add_check_constraint :income_sources, "amount_cents >= 0", name: "income_sources_amount_cents_non_negative"
 
     create_table :expense_items do |t|
       t.references :household, null: false, foreign_key: true

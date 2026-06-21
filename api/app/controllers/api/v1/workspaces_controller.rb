@@ -10,6 +10,8 @@ module Api
       def setup
         HouseholdFinance::SetupUpdater.new(current_household, setup_params).call
         render_current_workspace
+      rescue ActiveRecord::RecordInvalid => e
+        render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
       private

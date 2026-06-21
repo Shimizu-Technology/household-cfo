@@ -46,6 +46,20 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
   end
 
+  test "workspace setup rejects negative income values" do
+    user = create_user(email: "negative-income@example.com")
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_income: -500 } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert body.fetch("errors").any? { |error| error.include?("Amount cents") }
+    assert_empty user.households.first.income_sources
+  end
+
   test "workspace setup updates transition goal instead of duplicating it" do
     user = create_user(email: "goal@example.com")
 

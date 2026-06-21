@@ -136,6 +136,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "active"], name: "index_income_sources_on_household_id_and_active"
     t.index ["household_id", "source_type"], name: "index_income_sources_on_household_id_and_source_type"
     t.index ["household_id"], name: "index_income_sources_on_household_id"
+    t.check_constraint "amount_cents >= 0", name: "income_sources_amount_cents_non_negative"
   end
 
   create_table "users", force: :cascade do |t|
