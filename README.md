@@ -2,37 +2,24 @@
 
 Phase 1 Household CFO cohort MVP and FinCon-ready VERA foundation for Melanie Mendiola / Household CFO Method.
 
-This repo is intentionally production-shaped, not a throwaway prototype:
+This repo is production-shaped while the visible data remains demo-safe:
 
 ```text
 household-cfo/
-  api/   Rails API + PostgreSQL
-  web/   React + Vite + TypeScript
+  api/   Rails API + PostgreSQL + Clerk JWT verification
+  web/   React + Vite + TypeScript + optional ClerkProvider
   docs/  build plans, product notes, screenshots
 ```
 
-## Tuesday sprint goal
+## Current status
 
-By Tuesday, produce a working local vertical slice with polished screenshot-ready screens:
+The app is a polished first-cohort preview, not a full production financial platform yet. It includes:
 
-- Coming Soon / Landing
-- Home Dashboard
-- My Profile
-- Ask Mia
-- Optionality
-- CFO Filter
-- simple Admin/Cohort preview if time allows
-
-The Tuesday target is demo/screenshot readiness from the real app foundation, not full production SaaS.
-
-## Deferred until after Tuesday
-
-- Stripe subscriptions
-- Twilio/SMS reminders
-- real OCR/document parsing
-- full production auth hardening
-- full white-label skin engine
-- coach onboarding
+- Home, Ask Mia, My Profile, Budget, Wealth, CFO Filter, and Optionality screens
+- Demo-safe Household CFO sample data
+- Clerk auth plumbing with invite-only local `users` records
+- PostgreSQL database configuration for local, test, and production-like environments
+- CI checks for Rails security/lint/tests and web lint/test/build/audit
 
 ## Local setup
 
@@ -41,6 +28,7 @@ The Tuesday target is demo/screenshot readiness from the real app foundation, no
 ```bash
 cd api
 bundle install
+cp .env.example .env # optional
 bin/rails db:prepare
 bin/rails server -p 3000
 ```
@@ -50,6 +38,7 @@ bin/rails server -p 3000
 ```bash
 cd web
 npm install
+cp .env.example .env.local # optional
 npm run dev
 ```
 
@@ -60,6 +49,24 @@ API: http://localhost:3000
 Web: http://localhost:5173
 ```
 
+## Clerk auth
+
+Local preview works without Clerk. For hosted/cohort environments:
+
+1. Set `VITE_CLERK_PUBLISHABLE_KEY` in the web app.
+2. Set `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API.
+3. Prefer a Clerk JWT template with email claims and set `VITE_CLERK_JWT_TEMPLATE`.
+4. Seed or invite local users before access; uninvited Clerk sessions are rejected by `/api/v1/auth/me`.
+
 ## Safety / data rule
 
-Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, or private documents.
+Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, statements, pay stubs, or private documents.
+
+## Deferred until a later phase
+
+- Stripe subscriptions
+- SMS reminders
+- Real OCR/document parsing
+- Full participant household persistence
+- Full white-label skin engine
+- Coach/admin onboarding workflows

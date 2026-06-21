@@ -105,28 +105,28 @@ module Demo
             color: "green",
             amount: 4625,
             description: "Fixed, non-negotiable monthly obligations.",
-            examples: ["Mortgage/rent", "utilities", "insurance", "loan minimums"]
+            examples: [ "Mortgage/rent", "utilities", "insurance", "loan minimums" ]
           },
           {
             label: "Discretionary",
             color: "yellow",
             amount: 1380,
             description: "Choices that still matter, but can be shaped.",
-            examples: ["groceries", "coffee", "eating out", "subscriptions"]
+            examples: [ "groceries", "coffee", "eating out", "subscriptions" ]
           },
           {
             label: "Sinking Fund — Expected",
             color: "gold",
             amount: 560,
             description: "Known irregular expenses that should stop feeling like surprises.",
-            examples: ["car registration", "back to school", "holidays"]
+            examples: [ "car registration", "back to school", "holidays" ]
           },
           {
             label: "Sinking Fund — Unexpected",
             color: "red",
             amount: 360,
             description: "Life-happens money for repairs, medical, and family support.",
-            examples: ["car repair", "clinic visit", "appliance replacement"]
+            examples: [ "car repair", "clinic visit", "appliance replacement" ]
           }
         ],
         custom_categories_note: "Defaults are a starting point. Users should be able to rename categories into the language of their household."
@@ -214,7 +214,7 @@ module Demo
           { label: "Credit card payoff", current: 7350, target: 0 },
           { label: "Monthly business revenue", current: 3200, target: 6000 }
         ],
-        priority_stack: ["Protect the roof", "Protect food/gas", "Protect runway", "Attack high-interest debt", "Fund the dream with evidence"]
+        priority_stack: [ "Protect the roof", "Protect food/gas", "Protect runway", "Attack high-interest debt", "Fund the dream with evidence" ]
       }
     end
 
