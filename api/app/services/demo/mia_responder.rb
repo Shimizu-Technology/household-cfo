@@ -9,7 +9,7 @@ module Demo
       Do not claim to be a licensed financial advisor. Focus on stability, optionality, and next actions.
     PROMPT
 
-    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", "google/gemini-2.5-flash-lite"))
+    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", "google/gemini-2.5-flash"))
       @api_key = api_key
       @model = model
     end

@@ -131,7 +131,29 @@ function App() {
 
   return (
     <main className="app">
-      <header className="shell-header">
+      <header className="app-topbar">
+        <div className="topbar-row">
+          <div>
+            <p className="topbar-kicker">2026 cohort dashboard</p>
+            <h1 className="brand-title">The <em>Household CFO</em></h1>
+          </div>
+          <span className="topbar-badge">First cohort</span>
+        </div>
+        <nav className="tabs" aria-label="Household CFO participant sections">
+          {sections.map((section) => (
+            <button
+              key={section}
+              type="button"
+              className={active === section ? 'active' : ''}
+              onClick={() => switchSection(section)}
+            >
+              {section}
+            </button>
+          ))}
+        </nav>
+      </header>
+
+      <section className="shell-header">
         <ul className="sr-only" aria-label="Source-derived design requirements">
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
         </ul>
@@ -156,20 +178,7 @@ function App() {
           )}
           <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia what this means</button>
         </aside>
-      </header>
-
-      <nav className="tabs" aria-label="Household CFO participant sections">
-        {sections.map((section) => (
-          <button
-            key={section}
-            type="button"
-            className={active === section ? 'active' : ''}
-            onClick={() => switchSection(section)}
-          >
-            {section}
-          </button>
-        ))}
-      </nav>
+      </section>
 
       {active === 'Home' && (
         <section className="screen-grid home-screen">
