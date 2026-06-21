@@ -31,14 +31,24 @@ module Api
 
       def conversation_history
         Array(params[:messages]).filter_map do |message|
-          permitted = message.respond_to?(:permit) ? message.permit(:role, :content).to_h : message.to_h
-          role = permitted["role"].to_s
-          content = permitted["content"].to_s.strip
+          permitted = history_message_attributes(message)
+          next unless permitted
+
+          role = (permitted["role"] || permitted[:role]).to_s
+          content = (permitted["content"] || permitted[:content]).to_s.strip
 
           next unless role.in?([ "assistant", "user" ]) && content.present?
 
           { role: role, content: content }
         end.last(12)
+      end
+
+      def history_message_attributes(message)
+        if message.respond_to?(:permit)
+          message.permit(:role, :content).to_h
+        elsif message.is_a?(Hash)
+          message
+        end
       end
     end
   end
