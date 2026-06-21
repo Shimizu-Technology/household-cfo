@@ -69,6 +69,21 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "first-user bootstrap only grants the first empty-database sign in" do
+    with_auth_env("ALLOW_FIRST_USER_BOOTSTRAP" => "true") do
+      get "/api/v1/auth/me", headers: auth_headers("clerk_first_123", "first@example.com", "First", "Admin")
+      assert_response :success
+      assert_equal "admin", JSON.parse(response.body).dig("user", "role")
+
+      get "/api/v1/auth/me", headers: auth_headers("clerk_second_123", "second@example.com", "Second", "Admin")
+      assert_response :forbidden
+      assert_includes JSON.parse(response.body).fetch("error"), "not been invited"
+
+      assert_equal 1, User.where(role: "admin").count
+      assert_equal "first@example.com", User.find_by!(role: "admin").email
+    end
+  end
+
   test "revoked invitations cannot authenticate" do
     User.create!(
       clerk_id: "pending_revoked",

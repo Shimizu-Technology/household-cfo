@@ -1,6 +1,8 @@
 module ClerkAuthenticatable
   extend ActiveSupport::Concern
 
+  FIRST_USER_BOOTSTRAP_LOCK_SQL = "SELECT pg_advisory_xact_lock(2026062101)".freeze
+
   private
 
   def authenticate_user!
@@ -161,18 +163,26 @@ module ClerkAuthenticatable
   end
 
   def create_first_user_admin(clerk_id:, email:, first_name:, last_name:)
-    return nil unless User.count.zero?
+    User.transaction(requires_new: true) do
+      # Serialize the opt-in first-user bootstrap path so two fresh sign-ins cannot
+      # both observe an empty users table and mint separate admin accounts.
+      User.connection.execute(FIRST_USER_BOOTSTRAP_LOCK_SQL)
+      if User.exists?
+        @authorization_failure_message = "This Household CFO account has not been invited yet."
+        next nil
+      end
 
-    User.create!(
-      clerk_id: clerk_id,
-      email: email.presence || "#{clerk_id}@clerk.local",
-      first_name: first_name,
-      last_name: last_name,
-      role: "admin",
-      invitation_status: "accepted",
-      accepted_at: Time.current,
-      last_sign_in_at: Time.current
-    )
+      User.create!(
+        clerk_id: clerk_id,
+        email: email.presence || "#{clerk_id}@clerk.local",
+        first_name: first_name,
+        last_name: last_name,
+        role: "admin",
+        invitation_status: "accepted",
+        accepted_at: Time.current,
+        last_sign_in_at: Time.current
+      )
+    end
   end
 
   def first_user_bootstrap_allowed?

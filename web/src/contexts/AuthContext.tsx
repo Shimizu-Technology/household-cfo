@@ -52,8 +52,15 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   }, [isLoaded, isSignedIn])
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    void refreshCurrentUser()
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (!cancelled) void refreshCurrentUser()
+    })
+
+    return () => {
+      cancelled = true
+    }
   }, [refreshCurrentUser, clerkUser?.id])
 
   const value = useMemo<AuthContextValue>(() => ({
