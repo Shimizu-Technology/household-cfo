@@ -85,6 +85,29 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes content.downcase, "great question"
   end
 
+  test "mia chat does not treat short questions as low signal" do
+    post "/api/demo/mia/messages", params: { message: "why?" }, as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_not_includes content, "I’m ready"
+  end
+
+  test "mia chat accepts prior conversation history" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "What next?",
+           messages: [
+             { role: "user", content: "Can I leave my job?" },
+             { role: "assistant", content: "Hybrid first." }
+           ]
+         },
+         as: :json
+
+    assert_response :created
+    assert_equal "assistant", JSON.parse(response.body).fetch("assistant_message").fetch("role")
+  end
+
   test "mia chat post returns a response without requiring external llm" do
     post "/api/demo/mia/messages", params: { message: "Can I take the leap?" }, as: :json
 

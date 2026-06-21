@@ -996,12 +996,14 @@ h3 {
   border-radius: 999px !important;
 }
 
-.account-pill :where(.cl-userButtonAvatarBox, .cl-avatarBox, .cl-avatarFallback) {
+.account-pill :where(.cl-userButtonAvatarBox, .cl-avatarBox, .cl-avatarFallback, .cl-avatarInitials) {
+  display: grid !important;
+  place-items: center !important;
   background: var(--emerald) !important;
   color: white !important;
 }
 
-.account-pill :where(.cl-avatarFallback) {
+.account-pill :where(.cl-avatarFallback, .cl-avatarInitials) {
   font-weight: 900 !important;
 }
 
@@ -1048,7 +1050,13 @@ h3 {
   margin: 0;
 }
 
+.mia-chat-expanded {
+  overflow: hidden;
+}
+
 .mia-chat-shell {
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 24px;
@@ -1056,7 +1064,17 @@ h3 {
   box-shadow: 0 18px 42px rgba(47, 38, 28, 0.08);
 }
 
+.mia-chat-shell.is-expanded {
+  position: fixed;
+  inset: 18px;
+  z-index: 60;
+  max-width: 1040px;
+  max-height: calc(100vh - 36px);
+  margin: auto;
+}
+
 .chat-shell-header {
+  flex: 0 0 auto;
   justify-content: space-between;
   padding: 18px 20px 14px;
   border-bottom: 1px solid rgba(226, 217, 203, 0.72);
@@ -1074,6 +1092,15 @@ h3 {
   line-height: 1.45;
 }
 
+.chat-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 8px;
+  align-items: center;
+}
+
+.chat-clear-button,
+.chat-expand-button,
 .chat-context-pill {
   flex: 0 0 auto;
   padding: 7px 10px;
@@ -1081,6 +1108,27 @@ h3 {
   border-radius: 999px;
   background: rgba(15, 76, 58, 0.08);
   color: var(--emerald);
+  font-size: 0.66rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.chat-clear-button,
+.chat-expand-button {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-clear-button {
+  background: white;
+  color: var(--muted);
+}
+
+.chat-expand-button svg {
+  width: 15px;
+  height: 15px;
 }
 
 .message-avatar {
@@ -1099,6 +1147,7 @@ h3 {
 }
 
 .chat-prompts {
+  flex: 0 0 auto;
   flex-wrap: nowrap;
   overflow-x: auto;
   padding: 0 20px 14px;
@@ -1120,6 +1169,7 @@ h3 {
 
 .mia-chat-shell .chat-card {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 12px;
   min-height: 420px;
@@ -1204,6 +1254,11 @@ h3 {
   color: rgba(255, 255, 255, 0.84);
 }
 
+.mia-chat-shell.is-expanded .chat-card {
+  min-height: 0;
+  max-height: none;
+}
+
 .typing-dots {
   display: flex;
   gap: 5px;
@@ -1241,6 +1296,7 @@ h3 {
 
 .mia-chat-shell .ask-row {
   display: grid;
+  flex: 0 0 auto;
   grid-template-columns: auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
@@ -1360,8 +1416,24 @@ h3 {
     font-size: 0.78rem;
   }
 
-  .chat-context-pill {
+  .chat-actions {
+    gap: 6px;
+  }
+
+  .chat-clear-button,
+  .chat-expand-button {
+    min-height: 34px;
+    padding: 7px 9px;
+    font-size: 0.6rem;
+  }
+
+  .chat-clear-button {
     display: none;
+  }
+
+  .chat-expand-button svg {
+    width: 14px;
+    height: 14px;
   }
 
   .message-avatar {
@@ -1407,10 +1479,31 @@ h3 {
     line-height: 1.52;
   }
 
+  .mia-chat-shell.is-expanded {
+    inset: 0;
+    width: 100%;
+    height: 100dvh;
+    max-height: none;
+    border-radius: 0;
+  }
+
+  .mia-chat-shell.is-expanded .chat-shell-header {
+    padding-top: max(13px, env(safe-area-inset-top));
+  }
+
+  .mia-chat-shell.is-expanded .chat-card {
+    min-height: 0;
+    max-height: none;
+  }
+
   .mia-chat-shell .ask-row {
     grid-template-columns: auto minmax(0, 1fr) auto;
     gap: 6px;
     padding: 10px;
+  }
+
+  .mia-chat-shell.is-expanded .ask-row {
+    padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
   .composer-attach,

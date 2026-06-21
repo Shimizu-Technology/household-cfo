@@ -11,7 +11,7 @@ module Api
 
       def create
         content = params.require(:message)
-        assistant_content = ::Demo::MiaResponder.new.call(content)
+        assistant_content = ::Demo::MiaResponder.new.call(content, history: conversation_history)
 
         render json: {
           user_message: {
@@ -25,6 +25,20 @@ module Api
             content: assistant_content
           }
         }, status: :created
+      end
+
+      private
+
+      def conversation_history
+        Array(params[:messages]).filter_map do |message|
+          permitted = message.respond_to?(:permit) ? message.permit(:role, :content).to_h : message.to_h
+          role = permitted["role"].to_s
+          content = permitted["content"].to_s.strip
+
+          next unless role.in?([ "assistant", "user" ]) && content.present?
+
+          { role: role, content: content }
+        end.last(12)
       end
     end
   end

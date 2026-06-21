@@ -22,20 +22,20 @@ module Demo
       @model = model
     end
 
-    def call(message)
+    def call(message, history: [])
       clean_message = message.to_s.strip
       return fallback_response("What are we trying to decide?") if clean_message.empty?
       return low_signal_response(clean_message) if low_signal_message?(clean_message)
       return fallback_response(clean_message) if @api_key.to_s.strip.empty?
 
-      openrouter_response(clean_message)
+      openrouter_response(clean_message, history)
     rescue StandardError
       fallback_response(clean_message)
     end
 
     private
 
-    def openrouter_response(message)
+    def openrouter_response(message, history)
       uri = URI("https://openrouter.ai/api/v1/chat/completions")
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{@api_key}"
@@ -46,6 +46,7 @@ module Demo
         model: @model,
         messages: [
           { role: "system", content: SYSTEM_PROMPT },
+          *conversation_history(history),
           { role: "user", content: message }
         ],
         max_tokens: 220,
@@ -65,11 +66,21 @@ module Demo
       content.sub(/\AMia:\s*/i, "")
     end
 
+    def conversation_history(history)
+      Array(history).filter_map do |message|
+        role = message[:role] || message["role"]
+        content = message[:content] || message["content"]
+        next unless role.to_s.in?([ "assistant", "user" ]) && content.to_s.strip.present?
+
+        { role: role.to_s, content: content.to_s.strip }
+      end.last(12)
+    end
+
     def low_signal_message?(message)
       normalized = message.downcase.gsub(/[^a-z0-9\s]/, "").squish
       return true if normalized.in?(LOW_SIGNAL_EXACT_MESSAGES)
 
-      normalized.length < 4 && normalized.exclude?("?")
+      normalized.length < 4 && !message.include?("?")
     end
 
     def low_signal_response(message)

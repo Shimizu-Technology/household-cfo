@@ -12,6 +12,7 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
+const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 
 const sourceDerivedCopy = [
   'Expense Stack',
@@ -43,7 +44,12 @@ function App() {
   const [messages, setMessages] = useState<MiaMessage[]>([])
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
+  const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const chatStorageKey = useMemo(() => {
+    const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
+    return `${MIA_CHAT_STORAGE_PREFIX}:${owner}`
+  }, [auth.currentUser?.id])
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
 
@@ -56,7 +62,7 @@ function App() {
       .then((payload) => {
         if (cancelled) return
         setData(payload)
-        setMessages([])
+        setMessages(loadStoredMiaMessages(chatStorageKey))
       })
       .catch(() => {
         if (cancelled) return
@@ -66,12 +72,35 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace])
+  }, [canLoadWorkspace, chatStorageKey])
 
   const surplus = useMemo(() => {
     if (!data) return 0
     return data.budget.monthly_income - data.budget.total_monthly_outflow
   }, [data])
+
+  useEffect(() => {
+    if (!data) return
+
+    saveStoredMiaMessages(chatStorageKey, messages)
+  }, [chatStorageKey, data, messages])
+
+  useEffect(() => {
+    document.body.classList.toggle('mia-chat-expanded', isChatExpanded)
+
+    return () => document.body.classList.remove('mia-chat-expanded')
+  }, [isChatExpanded])
+
+  useEffect(() => {
+    if (!isChatExpanded) return
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') setIsChatExpanded(false)
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isChatExpanded])
 
   useEffect(() => {
     if (active !== 'Ask Mia') return
@@ -84,6 +113,7 @@ function App() {
 
   function switchSection(section: string) {
     setActive(section)
+    if (section !== 'Ask Mia') setIsChatExpanded(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
   }
 
@@ -93,11 +123,12 @@ function App() {
 
     setMiaLoading(true)
     setQuestion('')
+    const priorMessages = messages
     const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
     setMessages((current) => [...current, userMessage])
 
     try {
-      const assistantMessage = await sendMiaMessage(cleanPrompt)
+      const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages)
       setMessages((current) => [...current, assistantMessage])
     } catch {
       setMessages((current) => [
@@ -277,14 +308,29 @@ function App() {
               </div>
             </article>
 
-            <section className="mia-chat-shell" aria-label="Ask Mia conversation">
+            <section className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`} aria-label="Ask Mia conversation">
               <div className="chat-shell-header">
                 <span className="message-avatar" aria-hidden="true">M</span>
                 <div>
                   <h3>Ask Mia</h3>
                   <p>Quick, plain-English coaching from your Household CFO context.</p>
                 </div>
-                <span className="chat-context-pill">Context live</span>
+                <div className="chat-actions">
+                  {messages.length > 0 && (
+                    <button type="button" className="chat-clear-button" onClick={() => setMessages([])}>
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="chat-expand-button"
+                    aria-pressed={isChatExpanded}
+                    onClick={() => setIsChatExpanded((expanded) => !expanded)}
+                  >
+                    <span>{isChatExpanded ? 'Close' : 'Expand'}</span>
+                    {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
+                  </button>
+                </div>
               </div>
 
               <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
@@ -607,6 +653,38 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
+function loadStoredMiaMessages(storageKey: string) {
+  try {
+    const stored = window.localStorage.getItem(storageKey)
+    if (!stored) return []
+
+    const parsed = JSON.parse(stored) as MiaMessage[]
+    if (!Array.isArray(parsed)) return []
+
+    return parsed.filter((message) => (
+      (message.role === 'assistant' || message.role === 'user')
+      && typeof message.author === 'string'
+      && typeof message.content === 'string'
+      && message.content.trim().length > 0
+    )).slice(-24)
+  } catch {
+    return []
+  }
+}
+
+function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
+  try {
+    if (messages.length === 0) {
+      window.localStorage.removeItem(storageKey)
+      return
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(messages.slice(-24)))
+  } catch {
+    // Ignore private browsing/storage quota issues. Chat still works in memory.
+  }
+}
+
 function messageParagraphs(message: MiaMessage) {
   const speakerlessContent = message.role === 'assistant'
     ? message.content.replace(/^Mia:\s*/i, '')
@@ -641,6 +719,28 @@ function SendIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="M3.75 20.25 21 12 3.75 3.75v6.45L15.8 12 3.75 13.8v6.45Z" />
+    </svg>
+  )
+}
+
+function ExpandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 4H4v4" className="icon-stroke" />
+      <path d="M4 4l6 6" className="icon-stroke" />
+      <path d="M16 20h4v-4" className="icon-stroke" />
+      <path d="m20 20-6-6" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function CollapseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 4v6H4" className="icon-stroke" />
+      <path d="M4 10 10 4" className="icon-stroke" />
+      <path d="M14 20v-6h6" className="icon-stroke" />
+      <path d="m20 14-6 6" className="icon-stroke" />
     </svg>
   )
 }
