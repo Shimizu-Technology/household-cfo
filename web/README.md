@@ -1,6 +1,6 @@
 # Household CFO Web
 
-React/Vite participant workspace for Household CFO powered by VERA. The UI is a polished first-cohort preview with Clerk auth support when configured.
+React/Vite participant workspace for Household CFO powered by VERA. The UI supports safe demo preview mode locally and real participant workspaces when Clerk is configured.
 
 ## Local setup
 
@@ -23,7 +23,7 @@ VITE_API_BASE_URL=http://localhost:3000
 # VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 ```
 
-When `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs in local preview mode without auth. Hosted/cohort environments should configure Clerk and rely on `/api/v1/auth/me` to verify the invited local user.
+When `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs in local preview mode without auth and fetches `/api/demo/*`. Hosted/cohort environments should configure Clerk, rely on `/api/v1/auth/me` to verify the invited local user, and fetch the user's real `/api/v1/workspace` data.
 
 ## PWA
 

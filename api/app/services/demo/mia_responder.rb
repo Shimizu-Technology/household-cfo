@@ -6,12 +6,17 @@ module Demo
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
 
-    SYSTEM_PROMPT = <<~PROMPT.squish
+    BASE_SYSTEM_PROMPT = <<~PROMPT.squish
       You are Mia, the warm and practical Household CFO coach inside Household CFO powered by VERA.
+      Your voice is direct, local, culturally grounded, and kind: accountability with love, never shame.
       Do not over-praise inputs. If a user sends a test, greeting, fragment, or unclear phrase, briefly acknowledge and ask what money decision they want help with.
       Validate before coaching, then give one clear next money move. Use plain text only: no markdown,
       no bullet lists, and do not prefix your answer with "Mia:". Keep replies to 3-5 short sentences.
+      Use "che’lu" sparingly. Use "lanya" only for a genuine surprise, win, or accountability moment.
       You are not a licensed financial, legal, tax, or investment advisor. Use education/coaching language.
+    PROMPT
+
+    DEMO_CONTEXT = <<~PROMPT.squish
       Current demo context: monthly income is $8,250, runway is 4.6 months, safe-to-spend is $540,
       baseline surplus is $1,325, the emergency fund is not fully funded, card payoff is moving,
       and Optionality should stay hybrid-first until recurring income improves.
@@ -22,20 +27,21 @@ module Demo
       @model = model
     end
 
-    def call(message, history: [])
+    def call(message, history: [], context: nil)
       clean_message = message.to_s.strip
-      return fallback_response("What are we trying to decide?") if clean_message.empty?
+      prompt_context = context.presence || DEMO_CONTEXT
+      return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
       return low_signal_response(clean_message) if low_signal_message?(clean_message)
-      return fallback_response(clean_message) if @api_key.to_s.strip.empty?
+      return fallback_response(clean_message, context: prompt_context) if @api_key.to_s.strip.empty?
 
-      openrouter_response(clean_message, history)
+      openrouter_response(clean_message, history, context: prompt_context)
     rescue StandardError
-      fallback_response(clean_message)
+      fallback_response(clean_message, context: context.presence || DEMO_CONTEXT)
     end
 
     private
 
-    def openrouter_response(message, history)
+    def openrouter_response(message, history, context:)
       uri = URI("https://openrouter.ai/api/v1/chat/completions")
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{@api_key}"
@@ -45,7 +51,7 @@ module Demo
       request.body = {
         model: @model,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: system_prompt(context) },
           *conversation_history(history),
           { role: "user", content: message }
         ],
@@ -57,13 +63,17 @@ module Demo
         http.request(request)
       end
 
-      return fallback_response(message) unless response.is_a?(Net::HTTPSuccess)
+      return fallback_response(message, context: context) unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
       content = parsed.dig("choices", 0, "message", "content").presence
-      return fallback_response(message) unless content
+      return fallback_response(message, context: context) unless content
 
       content.sub(/\AMia:\s*/i, "")
+    end
+
+    def system_prompt(context)
+      "#{BASE_SYSTEM_PROMPT} #{context}"
     end
 
     def conversation_history(history)
@@ -92,8 +102,24 @@ module Demo
       "Håfa Adai. I’m ready — tell me the money decision you want to work through, or choose one of the quick questions."
     end
 
-    def fallback_response(message)
-      "I’d start by protecting the household baseline first. For \"#{message}\", check three numbers: monthly cushion, emergency runway, and whether this move creates more optionality than stress."
+    def fallback_response(message, context:)
+      return spending_response if spending_question?(message)
+
+      "I’d start by protecting the household baseline first. For \"#{message}\", check three numbers: monthly cushion, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
+    end
+
+    def spending_question?(message)
+      message.to_s.downcase.match?(/\b(buy|spend|purchase|purse|bag|shoes|trip|vacation|upgrade)\b/)
+    end
+
+    def spending_response
+      "Lanya, che’lu — pause before you swipe. If the purchase is not protecting the roof, food, runway, or the dream, it does not get to jump the line today. Put it on a 30-day list, then fund it from true surplus instead of emergency money."
+    end
+
+    def contextual_next_step(context)
+      return "Add your real numbers first so I can coach from the household picture, not a guess." if context.to_s.include?("monthly income is $0")
+
+      "Your next move is one clean choice that protects the baseline."
     end
   end
 end

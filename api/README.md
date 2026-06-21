@@ -48,5 +48,9 @@ bundle exec bundler-audit check --update
 ## Current API shape
 
 - `GET /api/v1/auth/me` — verifies the Clerk bearer token and returns the local user.
+- `GET /api/v1/workspace` — returns the authenticated user's real Household CFO workspace from Postgres.
+- `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
+- `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
+- `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.
-- `POST /api/demo/mia/messages` — Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.
+- `POST /api/demo/mia/messages` — demo Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.

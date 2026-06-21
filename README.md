@@ -13,10 +13,14 @@ household-cfo/
 
 ## Current status
 
-The app is a polished first-cohort preview, not a full production financial platform yet. It includes:
+The app is now moving from polished preview toward real cohort MVP. It includes:
 
 - Home, Ask Mia, My Profile, Budget, Wealth, CFO Filter, and Optionality screens
-- Demo-safe Household CFO sample data
+- Demo-safe Household CFO sample data for preview/screenshot mode
+- Real authenticated participant workspaces backed by PostgreSQL
+- Manual-entry household setup for income, Expense Stack, emergency fund, debt, assets, and runway target
+- Dashboard/Budget/Wealth/CFO Filter/Optionality calculations from saved user data
+- Server-persisted Mia chat for signed-in users, with dynamic household context
 - Clerk auth plumbing with invite-only local `users` records
 - PostgreSQL database configuration for local, test, and production-like environments
 - CI checks for Rails security/lint/tests and web lint/test/build/audit
@@ -62,11 +66,18 @@ Local preview works without Clerk. For hosted/cohort environments:
 
 Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, statements, pay stubs, or private documents.
 
-## Deferred until a later phase
+## Next phase
+
+The active real-mode build plan lives at:
+
+```text
+docs/real-mode-build-plan.md
+```
+
+## Deferred until after the real-mode MVP
 
 - Stripe subscriptions
 - SMS reminders
 - Real OCR/document parsing
-- Full participant household persistence
 - Full white-label skin engine
-- Coach/admin onboarding workflows
+- Advanced coach/admin onboarding workflows

@@ -9,6 +9,11 @@ class User < ApplicationRecord
   validates :role, inclusion: { in: ROLES }
   validates :invitation_status, inclusion: { in: INVITATION_STATUSES }
 
+  has_many :household_memberships, dependent: :destroy
+  has_many :households, through: :household_memberships
+  has_many :created_households, class_name: "Household", foreign_key: :created_by_user_id, dependent: :restrict_with_exception, inverse_of: :created_by_user
+  has_many :chat_sessions, dependent: :destroy
+
   before_validation :set_defaults
 
   def admin?
