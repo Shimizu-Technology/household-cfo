@@ -12,7 +12,7 @@
   --status-green: #19734f;
   --status-yellow: #b88716;
   --status-red: #9d3434;
-  font-family: Montserrat, Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--cream);
 }
@@ -32,7 +32,8 @@ body {
 }
 
 button,
-input {
+input,
+textarea {
   font: inherit;
 }
 
@@ -686,48 +687,155 @@ h3 {
 }
 
 @media (max-width: 620px) {
+  body {
+    background:
+      radial-gradient(circle at top left, rgba(15, 76, 58, 0.09), transparent 18rem),
+      linear-gradient(180deg, #fbf8f1 0%, var(--cream) 46%, #efe6da 100%);
+  }
+
   .app {
-    padding: 12px 10px 40px;
+    padding: 10px 10px 40px;
     overflow: hidden;
   }
 
+  .loading-state {
+    padding: 10px;
+  }
+
   h1 {
-    font-size: clamp(1.95rem, 8vw, 2.3rem);
-    line-height: 1;
-    letter-spacing: -0.02em;
+    margin-bottom: 9px;
+    font-size: clamp(1.95rem, 9vw, 2.45rem);
+    line-height: 0.98;
+    letter-spacing: -0.03em;
     max-width: 100%;
   }
 
   h2 {
-    font-size: clamp(1.75rem, 7vw, 2.15rem);
-    line-height: 1.04;
-    letter-spacing: -0.02em;
+    font-size: clamp(1.85rem, 8vw, 2.28rem);
+    line-height: 1.02;
+    letter-spacing: -0.03em;
     max-width: 100%;
+  }
+
+  .eyebrow {
+    margin-bottom: 6px;
+    font-size: 0.64rem;
+    letter-spacing: 0.13em;
   }
 
   .shell-header,
   .hero-panel {
     width: 100%;
-    max-width: calc(100vw - 20px);
+    max-width: 100%;
     grid-template-columns: minmax(0, 1fr);
-    padding: 18px;
-    border-radius: 24px;
+    gap: 12px;
+    padding: 14px;
+    border-radius: 22px;
+    box-shadow: 0 14px 38px rgba(47, 38, 28, 0.1);
   }
 
-  .shell-header > div,
-  .mia-status-card,
-  .screen-heading,
-  .status-ribbon {
-    max-width: calc(100vw - 56px);
+  .hero-copy {
+    display: -webkit-box;
+    margin-bottom: 0;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+    font-size: 0.93rem;
+    line-height: 1.45;
+  }
+
+  .mia-status-card {
+    grid-template-columns: auto 1fr;
+    gap: 7px 11px;
+    align-items: center;
+    padding: 13px;
+    border-radius: 18px;
+  }
+
+  .mia-status-card .spark {
+    grid-row: span 2;
+  }
+
+  .mia-status-card strong,
+  .mia-status-card p {
+    margin: 0;
+  }
+
+  .mia-status-card strong {
+    font-size: 0.98rem;
+  }
+
+  .mia-status-card p {
+    font-size: 0.83rem;
+    line-height: 1.4;
+  }
+
+  .spark {
+    width: 32px;
+    height: 32px;
+  }
+
+  .spark svg,
+  .upload-strip svg {
+    width: 16px;
+    height: 16px;
+  }
+
+  .account-pill,
+  .mia-status-card button {
+    grid-column: 1 / -1;
+  }
+
+  .account-pill {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .mia-status-card button,
+  .coach-panel button,
+  .ask-row button {
+    min-height: 40px;
+    padding: 10px 14px;
   }
 
   .tabs {
-    margin-inline: -2px;
-    border-radius: 22px;
+    top: 0;
+    margin: 10px -2px 14px;
+    padding: 6px;
+    border-radius: 20px;
+    background: rgba(255, 253, 248, 0.94);
+  }
+
+  .tabs button {
+    min-height: 38px;
+    padding: 8px 12px;
+    font-size: 0.76rem;
+  }
+
+  .screen-grid {
+    gap: 13px;
+  }
+
+  .screen-heading {
+    padding: 2px 2px 0;
+  }
+
+  .screen-heading p {
+    font-size: 0.95rem;
+    line-height: 1.5;
+  }
+
+  .status-ribbon {
+    padding: 13px 14px;
+    border-radius: 16px;
   }
 
   .metric-row,
-  .lever-row,
+  .lever-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+
   .profile-section-grid,
   .upload-grid,
   .stack-grid,
@@ -736,16 +844,89 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .ask-row {
-    grid-template-columns: 1fr;
-    border-radius: 22px;
+  .panel,
+  .chat-card,
+  .insight-card,
+  .stack-card,
+  .choice-card,
+  .decision-card,
+  .upload-card,
+  .milestone-card {
+    padding: 16px;
+    border-radius: 18px;
   }
 
-  .ask-row button {
-    width: 100%;
+  .metric-card {
+    padding: 14px;
+    border-radius: 18px;
+  }
+
+  .metric-card span {
+    font-size: 0.62rem;
+    letter-spacing: 0.07em;
+  }
+
+  .metric-card strong {
+    margin-top: 8px;
+    font-size: clamp(1.45rem, 8vw, 1.95rem);
+  }
+
+  .decision-card {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-card {
+    max-height: 46svh;
   }
 
   .message {
     max-width: 96%;
+    padding: 12px 14px;
+  }
+
+  .quick-prompts,
+  .upload-strip {
+    gap: 7px;
+  }
+
+  .quick-prompts button,
+  .upload-strip button,
+  .profile-section button {
+    min-height: 38px;
+    padding: 9px 12px;
+  }
+
+  .ask-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 8px;
+  }
+
+  .ask-row input {
+    min-height: 40px;
+  }
+
+  .ask-row button {
+    width: auto;
+    white-space: nowrap;
+  }
+}
+
+@media (max-width: 380px) {
+  .metric-row,
+  .lever-row {
+    gap: 8px;
+  }
+
+  .metric-card {
+    padding: 12px;
+  }
+
+  .metric-card strong {
+    font-size: clamp(1.32rem, 7vw, 1.7rem);
+  }
+
+  .tabs button {
+    padding-inline: 11px;
   }
 }
