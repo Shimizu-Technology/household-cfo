@@ -218,7 +218,13 @@ export async function fetchAppData(): Promise<AppData> {
   return { profile, dashboard, budget, wealth, optionality, cfoFilter, mia }
 }
 
-export async function sendMiaMessage(message: string): Promise<MiaMessage> {
-  const body = await postJson<{ assistant_message: MiaMessage }>('/api/demo/mia/messages', { message })
+export async function sendMiaMessage(message: string, history: MiaMessage[] = []): Promise<MiaMessage> {
+  const body = await postJson<{ assistant_message: MiaMessage }>('/api/demo/mia/messages', {
+    message,
+    messages: history.slice(-12).map((entry) => ({
+      role: entry.role,
+      content: entry.content,
+    })),
+  })
   return body.assistant_message
 }

@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import './App.css'
 import { fetchAppData, sendMiaMessage } from './api'
 import type { AppData, MiaMessage } from './api'
@@ -12,6 +12,7 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
+const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 
 const sourceDerivedCopy = [
   'Expense Stack',
@@ -41,9 +42,18 @@ function App() {
     return sections.includes(hashSection) ? hashSection : sections[0]
   })
   const [messages, setMessages] = useState<MiaMessage[]>([])
-  const [question, setQuestion] = useState('Can I take the leap?')
+  const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
+  const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const chatStorageKey = useMemo(() => {
+    const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
+    return `${MIA_CHAT_STORAGE_PREFIX}:${owner}`
+  }, [auth.currentUser?.id])
+  const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
+  const chatCardRef = useRef<HTMLElement | null>(null)
+  const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
 
   useEffect(() => {
     if (!canLoadWorkspace) return
@@ -53,8 +63,10 @@ function App() {
     fetchAppData()
       .then((payload) => {
         if (cancelled) return
+        const storedMessages = loadStoredMiaMessages(chatStorageKey)
+        setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setMessages(payload.mia.messages)
+        setMessages(storedMessages)
       })
       .catch(() => {
         if (cancelled) return
@@ -64,28 +76,65 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace])
+  }, [canLoadWorkspace, chatStorageKey])
 
   const surplus = useMemo(() => {
     if (!data) return 0
     return data.budget.monthly_income - data.budget.total_monthly_outflow
   }, [data])
 
+  useEffect(() => {
+    if (!data) return
+    if (messagesStorageKey !== chatStorageKey) return
+
+    saveStoredMiaMessages(chatStorageKey, messages)
+  }, [chatStorageKey, data, messages, messagesStorageKey])
+
+  useEffect(() => {
+    document.body.classList.toggle('mia-chat-expanded', isChatExpanded)
+
+    return () => document.body.classList.remove('mia-chat-expanded')
+  }, [isChatExpanded])
+
+  useEffect(() => {
+    if (!isChatExpanded) return
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') setIsChatExpanded(false)
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [isChatExpanded])
+
+  useEffect(() => {
+    if (active !== 'Ask Mia') return
+
+    const chatCard = chatCardRef.current
+    if (!chatCard) return
+
+    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
+  }, [active, currentMessages.length, miaLoading])
+
   function switchSection(section: string) {
     setActive(section)
+    if (section !== 'Ask Mia') setIsChatExpanded(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
   }
 
   async function handleAskMia(prompt = question) {
-    if (!prompt.trim()) return
+    const cleanPrompt = prompt.trim()
+    if (!cleanPrompt || miaLoading) return
+
     setMiaLoading(true)
-    const userMessage: MiaMessage = { role: 'user', author: 'You', content: prompt }
+    setQuestion('')
+    const priorMessages = currentMessages
+    const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
     setMessages((current) => [...current, userMessage])
 
     try {
-      const assistantMessage = await sendMiaMessage(prompt)
+      const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages)
       setMessages((current) => [...current, assistantMessage])
-      setQuestion('')
     } catch {
       setMessages((current) => [
         ...current,
@@ -93,12 +142,25 @@ function App() {
           role: 'assistant',
           author: 'Mia',
           content:
-            'Mia: I can still coach the framework. Your next move is to protect fixed bills, keep the Expense Stack honest, then decide what creates real optionality.',
+            'I can still coach the framework. Your next move is to protect fixed bills, keep the Expense Stack honest, then decide what creates real optionality.',
         },
       ])
     } finally {
       setMiaLoading(false)
+      requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
     }
+  }
+
+  function handleAskMiaSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    void handleAskMia()
+  }
+
+  function handleAskMiaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key !== 'Enter' || event.shiftKey) return
+
+    event.preventDefault()
+    void handleAskMia()
   }
 
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
@@ -137,7 +199,7 @@ function App() {
         </ul>
         <div>
           <p className="eyebrow">First cohort preview</p>
-          <h1>Meet Mia, your calm household money coach.</h1>
+          <h1>Mia, your household CFO.</h1>
           <p className="hero-copy">
             Turn budget stress into a simple operating rhythm: know the numbers, choose the next move,
             and protect the dream without living in a spreadsheet.
@@ -145,7 +207,7 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>Context loaded</strong>
+          <strong>Mia is ready</strong>
           <p>{data.profile.completeness}% profile complete · {data.dashboard.summary.readiness_label}</p>
           {auth.currentUser && (
             <div className="account-pill">
@@ -225,14 +287,19 @@ function App() {
         <section className="screen-grid mia-screen">
           <ScreenHeading
             eyebrow="Ask Mia"
-            title="Coaching that starts with your real household context."
-            copy="Mia validates first, then helps you choose one next money move. No shame, no spreadsheet spiral."
+            title="Ask Mia about the next move."
+            copy="Mia uses your profile, Expense Stack, runway, debt, and Optionality context."
           />
 
           <div className="mia-layout">
             <article className="mia-context panel">
-              <span className="spark" aria-hidden="true"><MiaMark /></span>
-              <h3>Context loaded</h3>
+              <div className="mia-context-heading">
+                <span className="spark" aria-hidden="true"><MiaMark /></span>
+                <div>
+                  <span>What Mia sees</span>
+                  <h3>Context loaded</h3>
+                </div>
+              </div>
               <p>Profile, Expense Stack, runway, debt pressure, and Optionality scenario are ready for Mia to use.</p>
               <div className="upload-strip" aria-label="Demo-only upload affordances">
                 <button type="button" disabled title="Uploads are a demo placeholder until privacy and OCR scope are approved.">
@@ -246,29 +313,104 @@ function App() {
               </div>
             </article>
 
-            <article className="chat-card">
-              {messages.map((message, index) => (
-                <div className={`message ${message.role}`} key={`${message.author}-${index}`}>
-                  <strong>{message.author}</strong>
-                  <p>{message.content}</p>
+            <section className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`} aria-label="Ask Mia conversation">
+              <div className="chat-shell-header">
+                <span className="message-avatar" aria-hidden="true">M</span>
+                <div className="chat-shell-copy">
+                  <h3>Ask Mia</h3>
+                  <p>Quick, plain-English coaching from your Household CFO context.</p>
                 </div>
-              ))}
-            </article>
-          </div>
+                <div className="chat-actions">
+                  {currentMessages.length > 0 && (
+                    <button type="button" className="chat-clear-button" onClick={() => setMessages([])}>
+                      Clear
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="chat-expand-button"
+                    aria-label={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
+                    aria-pressed={isChatExpanded}
+                    title={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
+                    onClick={() => setIsChatExpanded((expanded) => !expanded)}
+                  >
+                    {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
+                  </button>
+                </div>
+              </div>
 
-          <div className="quick-prompts">
-            {data.mia.quick_prompts.map((prompt) => (
-              <button type="button" key={prompt} onClick={() => handleAskMia(prompt)} disabled={miaLoading}>
-                {prompt}
-              </button>
-            ))}
-          </div>
+              <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
+                {data.mia.quick_prompts.map((prompt) => (
+                  <button type="button" key={prompt} onClick={() => void handleAskMia(prompt)} disabled={miaLoading}>
+                    {prompt}
+                  </button>
+                ))}
+              </div>
 
-          <div className="ask-row">
-            <input value={question} onChange={(event) => setQuestion(event.target.value)} aria-label="Ask Mia" />
-            <button type="button" onClick={() => handleAskMia()} disabled={miaLoading}>
-              {miaLoading ? 'Thinking...' : 'Ask Mia'}
-            </button>
+              <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading}>
+                {currentMessages.length === 0 && !miaLoading && (
+                  <div className="empty-chat-state">
+                    <span className="message-avatar" aria-hidden="true">M</span>
+                    <h3>Mia is ready when you are.</h3>
+                    <p>Choose a quick question or ask what you want to decide next. Mia will use the household context already loaded here.</p>
+                  </div>
+                )}
+                {currentMessages.map((message, index) => (
+                  <div className={`message-row ${message.role}`} key={`${message.author}-${index}`}>
+                    {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
+                    <div className={`message ${message.role}`}>
+                      <strong>{message.author}</strong>
+                      {messageParagraphs(message).map((paragraph, paragraphIndex) => (
+                        <p key={`${message.author}-${index}-${paragraphIndex}`}>{paragraph}</p>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+                {miaLoading && (
+                  <div className="message-row assistant typing-row">
+                    <span className="message-avatar" aria-hidden="true">M</span>
+                    <div className="message assistant">
+                      <strong>Mia</strong>
+                      <div className="typing-dots" aria-label="Mia is thinking">
+                        <span />
+                        <span />
+                        <span />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </article>
+
+              <form className="ask-row" onSubmit={handleAskMiaSubmit}>
+                <button
+                  className="composer-attach"
+                  type="button"
+                  disabled
+                  title="Uploads are demo-only until privacy and OCR scope are approved."
+                  aria-label="Attach financial document"
+                >
+                  <AttachmentIcon />
+                </button>
+                <textarea
+                  value={question}
+                  onChange={(event) => setQuestion(event.target.value)}
+                  onKeyDown={handleAskMiaKeyDown}
+                  aria-label="Ask Mia"
+                  placeholder="Ask Mia..."
+                  rows={1}
+                  ref={composerRef}
+                />
+                <button
+                  className="send-button"
+                  type="submit"
+                  disabled={miaLoading || !question.trim()}
+                  aria-label={miaLoading ? 'Mia is thinking' : 'Send message to Mia'}
+                >
+                  <span>{miaLoading ? 'Thinking' : 'Send'}</span>
+                  <SendIcon />
+                </button>
+              </form>
+            </section>
           </div>
           <p className="disclaimer">{data.mia.disclaimer}</p>
         </section>
@@ -517,6 +659,51 @@ function Metric({ label, value }: { label: string; value: string }) {
   )
 }
 
+function loadStoredMiaMessages(storageKey: string) {
+  try {
+    const stored = window.localStorage.getItem(storageKey)
+    if (!stored) return []
+
+    const parsed = JSON.parse(stored) as MiaMessage[]
+    if (!Array.isArray(parsed)) return []
+
+    return parsed.filter((message) => (
+      (message.role === 'assistant' || message.role === 'user')
+      && typeof message.author === 'string'
+      && typeof message.content === 'string'
+      && message.content.trim().length > 0
+    )).slice(-24)
+  } catch {
+    return []
+  }
+}
+
+function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
+  try {
+    if (messages.length === 0) {
+      window.localStorage.removeItem(storageKey)
+      return
+    }
+
+    window.localStorage.setItem(storageKey, JSON.stringify(messages.slice(-24)))
+  } catch {
+    // Ignore private browsing/storage quota issues. Chat still works in memory.
+  }
+}
+
+function messageParagraphs(message: MiaMessage) {
+  const speakerlessContent = message.role === 'assistant'
+    ? message.content.replace(/^Mia:\s*/i, '')
+    : message.content
+
+  return speakerlessContent
+    .replace(/\*\*(.*?)\*\*/g, '$1')
+    .replace(/^\s*[-*]\s+/gm, '')
+    .split(/\n{2,}/)
+    .map((paragraph) => paragraph.trim())
+    .filter(Boolean)
+}
+
 function MiaMark() {
   return (
     <svg viewBox="0 0 24 24" role="img" aria-label="Mia mark">
@@ -530,6 +717,36 @@ function ShieldIcon() {
     <svg viewBox="0 0 24 24" role="img" aria-label="Secure access">
       <path d="M12 2.7 19 5.4v5.25c0 4.45-2.8 8.5-7 10.05-4.2-1.55-7-5.6-7-10.05V5.4l7-2.7Z" />
       <path d="m8.9 12.05 2 2 4.2-4.45" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M3.75 20.25 21 12 3.75 3.75v6.45L15.8 12 3.75 13.8v6.45Z" />
+    </svg>
+  )
+}
+
+function ExpandIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 4H4v4" className="icon-stroke" />
+      <path d="M4 4l6 6" className="icon-stroke" />
+      <path d="M16 20h4v-4" className="icon-stroke" />
+      <path d="m20 20-6-6" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function CollapseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 4v6H4" className="icon-stroke" />
+      <path d="M4 10 10 4" className="icon-stroke" />
+      <path d="M14 20v-6h6" className="icon-stroke" />
+      <path d="m20 14-6 6" className="icon-stroke" />
     </svg>
   )
 }

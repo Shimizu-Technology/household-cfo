@@ -6,8 +6,6 @@ import type { CurrentUser } from '../api'
 import { AuthContext } from './authContextValue'
 import type { AuthContextValue } from './authContextValue'
 
-const CLERK_JWT_TEMPLATE = import.meta.env.VITE_CLERK_JWT_TEMPLATE
-
 function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn, signOut } = useAuth()
   const { user: clerkUser } = useUser()
@@ -18,7 +16,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   useEffect(() => {
     setAuthTokenGetter(async () => {
       try {
-        return await getToken(CLERK_JWT_TEMPLATE ? { template: CLERK_JWT_TEMPLATE } : undefined)
+        return await getToken()
       } catch (error) {
         console.warn('Unable to load Clerk token', error)
         return null
