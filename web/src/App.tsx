@@ -137,7 +137,7 @@ function App() {
         </ul>
         <div>
           <p className="eyebrow">First cohort preview</p>
-          <h1>Meet Mia, your calm household money coach.</h1>
+          <h1>Mia, your household CFO.</h1>
           <p className="hero-copy">
             Turn budget stress into a simple operating rhythm: know the numbers, choose the next move,
             and protect the dream without living in a spreadsheet.
@@ -145,7 +145,7 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>Context loaded</strong>
+          <strong>Mia is ready</strong>
           <p>{data.profile.completeness}% profile complete · {data.dashboard.summary.readiness_label}</p>
           {auth.currentUser && (
             <div className="account-pill">

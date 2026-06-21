@@ -49,7 +49,8 @@ button:disabled {
 }
 
 button:focus-visible,
-input:focus-visible {
+input:focus-visible,
+textarea:focus-visible {
   outline: 3px solid rgba(197, 162, 71, 0.55);
   outline-offset: 3px;
 }
@@ -82,9 +83,9 @@ input:focus-visible {
 .shell-header,
 .hero-panel {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
   gap: 22px;
-  align-items: stretch;
+  align-items: center;
   max-width: 100%;
   overflow: hidden;
   padding: clamp(24px, 5vw, 48px);
@@ -191,16 +192,25 @@ h3 {
 
 .mia-status-card {
   display: grid;
+  align-self: center;
   align-content: center;
-  gap: 10px;
-  padding: 24px;
+  gap: 8px;
+  padding: 20px;
+  border-radius: 22px;
   background: #0f4c3a;
   color: white;
+  box-shadow: 0 14px 34px rgba(15, 76, 58, 0.16);
+}
+
+.mia-status-card strong {
+  font-size: 0.98rem;
 }
 
 .mia-status-card p {
-  color: rgba(255, 255, 255, 0.78);
-  line-height: 1.5;
+  margin-bottom: 2px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 0.92rem;
+  line-height: 1.45;
 }
 
 .mia-status-card button,
@@ -215,14 +225,16 @@ h3 {
 }
 
 .mia-status-card button {
+  padding: 10px 14px;
   background: white;
   color: var(--emerald);
+  font-size: 0.86rem;
 }
 
 .spark {
   display: inline-grid;
-  width: 38px;
-  height: 38px;
+  width: 34px;
+  height: 34px;
   place-items: center;
   border-radius: 50%;
   background: rgba(212, 175, 55, 0.2);
@@ -246,11 +258,11 @@ h3 {
 
 .account-pill {
   display: flex;
-  gap: 10px;
+  gap: 8px;
   align-items: center;
   width: fit-content;
-  padding: 8px 10px 8px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 6px 8px 6px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.1);
 }
@@ -260,12 +272,26 @@ h3 {
   line-height: 1;
 }
 
+.account-pill span {
+  font-size: 0.86rem;
+}
+
 .account-pill small {
   color: rgba(255, 255, 255, 0.62);
-  font-size: 0.7rem;
+  font-size: 0.64rem;
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
+}
+
+.account-pill :where(.cl-userButtonTrigger),
+.account-pill :where(.cl-avatarBox) {
+  width: 32px;
+  height: 32px;
+}
+
+.account-pill :where(.cl-userButtonTrigger) {
+  min-width: 32px;
 }
 
 .tabs {
@@ -273,10 +299,10 @@ h3 {
   top: 0;
   z-index: 10;
   display: flex;
-  gap: 8px;
+  gap: 6px;
   overflow-x: auto;
-  margin: 18px 0;
-  padding: 10px;
+  margin: 16px 0;
+  padding: 7px;
   border: 1px solid rgba(31, 36, 33, 0.08);
   border-radius: 999px;
   background: rgba(255, 253, 248, 0.86);
@@ -290,11 +316,12 @@ h3 {
 
 .tabs button {
   flex: 0 0 auto;
-  padding: 11px 16px;
+  min-height: 38px;
+  padding: 8px 13px;
   border-radius: 999px;
   background: transparent;
   color: #5d5850;
-  font-size: 0.82rem;
+  font-size: 0.78rem;
   font-weight: 800;
   white-space: nowrap;
 }
@@ -745,15 +772,15 @@ h3 {
   }
 
   .mia-status-card {
-    grid-template-columns: auto 1fr;
-    gap: 7px 11px;
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 4px 9px;
     align-items: center;
-    padding: 13px;
-    border-radius: 18px;
+    padding: 11px;
+    border-radius: 17px;
   }
 
   .mia-status-card .spark {
-    grid-row: span 2;
+    grid-row: 1 / 3;
   }
 
   .mia-status-card strong,
@@ -762,17 +789,17 @@ h3 {
   }
 
   .mia-status-card strong {
-    font-size: 0.98rem;
+    font-size: 0.86rem;
   }
 
   .mia-status-card p {
-    font-size: 0.83rem;
-    line-height: 1.4;
+    font-size: 0.76rem;
+    line-height: 1.35;
   }
 
   .spark {
-    width: 32px;
-    height: 32px;
+    width: 30px;
+    height: 30px;
   }
 
   .spark svg,
@@ -781,17 +808,39 @@ h3 {
     height: 16px;
   }
 
-  .account-pill,
+  .account-pill {
+    grid-column: 3;
+    grid-row: 1 / 3;
+    width: auto;
+    padding: 4px;
+    border-color: rgba(255, 255, 255, 0.14);
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .account-pill span,
+  .account-pill small {
+    display: none;
+  }
+
+  .account-pill :where(.cl-userButtonTrigger),
+  .account-pill :where(.cl-avatarBox) {
+    width: 28px;
+    height: 28px;
+  }
+
+  .account-pill :where(.cl-userButtonTrigger) {
+    min-width: 28px;
+  }
+
   .mia-status-card button {
     grid-column: 1 / -1;
-  }
-
-  .account-pill {
     width: 100%;
-    justify-content: space-between;
+    min-height: 36px;
+    margin-top: 4px;
+    padding: 8px 12px;
+    font-size: 0.82rem;
   }
 
-  .mia-status-card button,
   .coach-panel button,
   .ask-row button {
     min-height: 40px;
@@ -800,16 +849,16 @@ h3 {
 
   .tabs {
     top: 0;
-    margin: 10px -2px 14px;
-    padding: 6px;
-    border-radius: 20px;
+    margin: 8px -2px 12px;
+    padding: 4px;
+    border-radius: 18px;
     background: rgba(255, 253, 248, 0.94);
   }
 
   .tabs button {
-    min-height: 38px;
-    padding: 8px 12px;
-    font-size: 0.76rem;
+    min-height: 36px;
+    padding: 7px 11px;
+    font-size: 0.72rem;
   }
 
   .screen-grid {
@@ -876,6 +925,7 @@ h3 {
   }
 
   .chat-card {
+    max-height: 46vh;
     max-height: 46svh;
   }
 
