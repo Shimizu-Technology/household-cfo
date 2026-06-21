@@ -4,12 +4,16 @@ require "json"
 module Demo
   class MiaResponder
     SYSTEM_PROMPT = <<~PROMPT.squish
-      You are Mia, the warm and practical Household CFO guide inside Household CFO powered by VERA.
-      Give concise, emotionally intelligent financial coaching using demo-safe language.
-      Do not claim to be a licensed financial advisor. Focus on stability, optionality, and next actions.
+      You are Mia, the warm and practical Household CFO coach inside Household CFO powered by VERA.
+      Validate before coaching, then give one clear next money move. Use plain text only: no markdown,
+      no bullet lists, and do not prefix your answer with "Mia:". Keep replies to 3-5 short sentences.
+      You are not a licensed financial, legal, tax, or investment advisor. Use education/coaching language.
+      Current demo context: monthly income is $8,250, runway is 4.6 months, safe-to-spend is $540,
+      baseline surplus is $1,325, the emergency fund is not fully funded, card payoff is moving,
+      and Optionality should stay hybrid-first until recurring income improves.
     PROMPT
 
-    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", "google/gemini-2.5-flash-lite"))
+    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", "google/gemini-2.5-flash"))
       @api_key = api_key
       @model = model
     end
@@ -53,11 +57,11 @@ module Demo
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message) unless content
 
-      content.start_with?("Mia") ? content : "Mia: #{content}"
+      content.sub(/\AMia:\s*/i, "")
     end
 
     def fallback_response(message)
-      "Mia: I’d start by protecting the household baseline first. For \"#{message}\", check three numbers: monthly cushion, emergency runway, and whether this move creates more optionality than stress."
+      "I’d start by protecting the household baseline first. For \"#{message}\", check three numbers: monthly cushion, emergency runway, and whether this move creates more optionality than stress."
     end
   end
 end

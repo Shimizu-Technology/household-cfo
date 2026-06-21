@@ -55,7 +55,7 @@ Local preview works without Clerk. For hosted/cohort environments:
 
 1. Set `VITE_CLERK_PUBLISHABLE_KEY` in the web app.
 2. Set `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API.
-3. Prefer a Clerk JWT template with email claims and set `VITE_CLERK_JWT_TEMPLATE`.
+3. Set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
 4. Seed or invite local users before access; uninvited Clerk sessions are rejected by `/api/v1/auth/me`.
 
 ## Safety / data rule

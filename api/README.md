@@ -23,7 +23,7 @@ If your local PostgreSQL server needs explicit credentials, set `DATABASE_HOST`,
 
 ## Clerk setup
 
-Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite-only linking by email, configure a Clerk JWT template that includes email/email_address claims and set the matching frontend `VITE_CLERK_JWT_TEMPLATE`.
+Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite-only linking by email, also set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
 
 Useful local bootstrap options:
 
