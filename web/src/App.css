@@ -538,7 +538,12 @@ h3 {
   background: white;
 }
 
-.ask-row input {
+.ask-row:focus-within {
+  border-color: rgba(197, 162, 71, 0.58);
+  box-shadow: 0 0 0 3px rgba(197, 162, 71, 0.18);
+}
+
+.ask-row textarea {
   min-width: 0;
   border: 0;
   outline: none;
@@ -952,7 +957,7 @@ h3 {
     padding: 8px;
   }
 
-  .ask-row input {
+  .ask-row textarea {
     min-height: 40px;
   }
 
