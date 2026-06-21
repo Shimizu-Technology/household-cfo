@@ -1,6 +1,15 @@
 require "test_helper"
 
 class ApiDemoControllerTest < ActionDispatch::IntegrationTest
+  test "demo endpoints require auth when Clerk is configured" do
+    with_clerk_jwks_url do
+      get "/api/demo/profile"
+
+      assert_response :unauthorized
+      assert_equal "Missing bearer token", JSON.parse(response.body).fetch("error")
+    end
+  end
+
   test "profile returns demo household profile" do
     get "/api/demo/profile"
 
@@ -75,5 +84,15 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal "user", body.fetch("user_message").fetch("role")
     assert_equal "assistant", body.fetch("assistant_message").fetch("role")
     assert_includes body.fetch("assistant_message").fetch("content"), "Mia"
+  end
+
+  private
+
+  def with_clerk_jwks_url
+    previous_url = ENV["CLERK_JWKS_URL"]
+    ENV["CLERK_JWKS_URL"] = "https://clerk.example.test/.well-known/jwks.json"
+    yield
+  ensure
+    previous_url.nil? ? ENV.delete("CLERK_JWKS_URL") : ENV["CLERK_JWKS_URL"] = previous_url
   end
 end

@@ -26,6 +26,10 @@ gem "kamal", require: false
 # Add HTTP asset caching/compression and X-Sendfile acceleration to Puma [https://github.com/basecamp/thruster/]
 gem "thruster", require: false
 
+# Verify Clerk JWTs and fetch public signing keys/profile fallbacks
+gem "httparty", "~> 0.24.2"
+gem "jwt", "~> 3.2"
+
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 gem "rack-cors"
 

@@ -119,6 +119,25 @@ export type MiaMessagesData = {
   disclaimer: string
 }
 
+export type CurrentUser = {
+  id: number
+  clerk_id: string
+  email: string
+  first_name: string | null
+  last_name: string | null
+  full_name: string
+  role: 'admin' | 'coach' | 'participant'
+  invitation_status: 'pending' | 'accepted' | 'revoked'
+  invited_at: string | null
+  accepted_at: string | null
+  last_sign_in_at: string | null
+  created_at: string
+  is_admin: boolean
+  is_coach: boolean
+  is_participant: boolean
+  is_staff: boolean
+}
+
 export type AppData = {
   profile: ProfileData
   dashboard: DashboardData
@@ -129,14 +148,60 @@ export type AppData = {
   mia: MiaMessagesData
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+type AuthTokenGetter = () => Promise<string | null>
 
-async function fetchJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`)
-  if (!response.ok) {
-    throw new Error(`API request failed: ${response.status}`)
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+let authTokenGetter: AuthTokenGetter | null = null
+
+export function setAuthTokenGetter(getter: AuthTokenGetter | null) {
+  authTokenGetter = getter
+}
+
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!authTokenGetter) return {}
+
+  const token = await authTokenGetter()
+  return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const headers = {
+    ...(await authHeaders()),
+    ...(options.headers as Record<string, string> | undefined),
   }
+
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...options,
+    headers,
+  })
+
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, 'API request failed'))
+  }
+
   return response.json() as Promise<T>
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  return fetchJson<T>(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+async function responseErrorMessage(response: Response, fallback: string) {
+  try {
+    const payload = (await response.json()) as { error?: string; errors?: string[] }
+    return payload.error ?? payload.errors?.join(', ') ?? `${fallback}: ${response.status}`
+  } catch {
+    return `${fallback}: ${response.status}`
+  }
+}
+
+export async function fetchCurrentUser(): Promise<CurrentUser> {
+  const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
+  return payload.user
 }
 
 export async function fetchAppData(): Promise<AppData> {
@@ -154,16 +219,6 @@ export async function fetchAppData(): Promise<AppData> {
 }
 
 export async function sendMiaMessage(message: string): Promise<MiaMessage> {
-  const response = await fetch(`${API_BASE}/api/demo/mia/messages`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ message }),
-  })
-
-  if (!response.ok) {
-    throw new Error(`Mia request failed: ${response.status}`)
-  }
-
-  const body = (await response.json()) as { assistant_message: MiaMessage }
+  const body = await postJson<{ assistant_message: MiaMessage }>('/api/demo/mia/messages', { message })
   return body.assistant_message
 }

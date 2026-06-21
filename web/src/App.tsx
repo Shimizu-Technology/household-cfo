@@ -1,7 +1,9 @@
+import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useEffect, useMemo, useState } from 'react'
 import './App.css'
 import { fetchAppData, sendMiaMessage } from './api'
 import type { AppData, MiaMessage } from './api'
+import { useAuthContext } from './contexts/authContextValue'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -31,6 +33,8 @@ const statusCopy = {
 } as Record<string, string>
 
 function App() {
+  const auth = useAuthContext()
+  const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
   const [active, setActive] = useState(() => {
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
@@ -42,13 +46,25 @@ function App() {
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
+    if (!canLoadWorkspace) return
+
+    let cancelled = false
+
     fetchAppData()
       .then((payload) => {
+        if (cancelled) return
         setData(payload)
         setMessages(payload.mia.messages)
       })
-      .catch(() => setError('Mia’s workspace is offline for a moment. Start the Rails API on port 3000 to load preview data.'))
-  }, [])
+      .catch(() => {
+        if (cancelled) return
+        setError('Mia’s workspace is offline for a moment. Start the Rails API on port 3000 to load preview data.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [canLoadWorkspace])
 
   const surplus = useMemo(() => {
     if (!data) return 0
@@ -85,6 +101,22 @@ function App() {
     }
   }
 
+  if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
+    return <AuthStatePanel title="Verifying your Household CFO access" copy="Mia is checking your secure cohort invitation before opening the workspace." />
+  }
+
+  if (auth.isClerkEnabled && !auth.isSignedIn) {
+    return <AuthLanding />
+  }
+
+  if (auth.isClerkEnabled && auth.authError) {
+    return <AccessDenied message={auth.authError} onSignOut={auth.signOut} />
+  }
+
+  if (auth.isClerkEnabled && !auth.currentUser) {
+    return <AuthStatePanel title="Preparing your workspace" copy="Your Clerk session is ready. Household CFO is waiting for the cohort invitation check to finish." />
+  }
+
   if (!data) {
     return (
       <main className="app loading-state">
@@ -112,9 +144,16 @@ function App() {
           </p>
         </div>
         <aside className="mia-status-card">
-          <span className="spark">✦</span>
+          <span className="spark" aria-hidden="true"><MiaMark /></span>
           <strong>Context loaded</strong>
           <p>{data.profile.completeness}% profile complete · {data.dashboard.summary.readiness_label}</p>
+          {auth.currentUser && (
+            <div className="account-pill">
+              <span>{auth.currentUser.full_name}</span>
+              <small>{auth.currentUser.role}</small>
+              <UserButton afterSignOutUrl="/" />
+            </div>
+          )}
           <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia what this means</button>
         </aside>
       </header>
@@ -192,12 +231,18 @@ function App() {
 
           <div className="mia-layout">
             <article className="mia-context panel">
-              <span className="spark">✦</span>
+              <span className="spark" aria-hidden="true"><MiaMark /></span>
               <h3>Context loaded</h3>
               <p>Profile, Expense Stack, runway, debt pressure, and Optionality scenario are ready for Mia to use.</p>
-              <div className="upload-strip">
-                <button type="button">📎 Upload spreadsheet</button>
-                <button type="button">📷 Upload statement</button>
+              <div className="upload-strip" aria-label="Demo-only upload affordances">
+                <button type="button" disabled title="Uploads are a demo placeholder until privacy and OCR scope are approved.">
+                  <AttachmentIcon />
+                  Spreadsheet import demo-only
+                </button>
+                <button type="button" disabled title="Uploads are a demo placeholder until privacy and OCR scope are approved.">
+                  <StatementIcon />
+                  Statement import demo-only
+                </button>
               </div>
             </article>
 
@@ -399,6 +444,60 @@ function App() {
   )
 }
 
+function AuthLanding() {
+  return (
+    <main className="app loading-state auth-state">
+      <section className="hero-panel auth-panel">
+        <span className="spark" aria-hidden="true"><ShieldIcon /></span>
+        <p className="eyebrow">Secure cohort access</p>
+        <h1>Sign in to open Mia’s Household CFO workspace.</h1>
+        <p>
+          Household CFO now uses Clerk authentication backed by the Rails/PostgreSQL user table.
+          Sign in with the email invited to the first cohort.
+        </p>
+        <div className="auth-actions">
+          <SignInButton mode="modal">
+            <button type="button">Sign in</button>
+          </SignInButton>
+          <SignUpButton mode="modal">
+            <button type="button" className="secondary">Create invited account</button>
+          </SignUpButton>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function AccessDenied({ message, onSignOut }: { message: string; onSignOut?: () => Promise<void> }) {
+  return (
+    <main className="app loading-state auth-state">
+      <section className="hero-panel auth-panel">
+        <span className="spark" aria-hidden="true"><ShieldIcon /></span>
+        <p className="eyebrow">Access needs an invitation</p>
+        <h1>Your Clerk session is active, but this app has not linked your cohort seat.</h1>
+        <p>{message}</p>
+        <div className="auth-actions">
+          <button type="button" onClick={() => void onSignOut?.()}>Sign out</button>
+          <div className="user-button-wrap"><UserButton afterSignOutUrl="/" /></div>
+        </div>
+      </section>
+    </main>
+  )
+}
+
+function AuthStatePanel({ title, copy }: { title: string; copy: string }) {
+  return (
+    <main className="app loading-state auth-state">
+      <section className="hero-panel auth-panel">
+        <span className="spark" aria-hidden="true"><MiaMark /></span>
+        <p className="eyebrow">Household CFO powered by VERA</p>
+        <h1>{title}</h1>
+        <p>{copy}</p>
+      </section>
+    </main>
+  )
+}
+
 function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: string; copy: string }) {
   return (
     <div className="screen-heading">
@@ -415,6 +514,42 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </article>
+  )
+}
+
+function MiaMark() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label="Mia mark">
+      <path d="M12 2.75 14.42 9.2l6.83 2.8-6.83 2.8L12 21.25 9.58 14.8 2.75 12l6.83-2.8L12 2.75Z" />
+    </svg>
+  )
+}
+
+function ShieldIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label="Secure access">
+      <path d="M12 2.7 19 5.4v5.25c0 4.45-2.8 8.5-7 10.05-4.2-1.55-7-5.6-7-10.05V5.4l7-2.7Z" />
+      <path d="m8.9 12.05 2 2 4.2-4.45" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function AttachmentIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 7.5h8M8 11.5h8M8 15.5h5" className="icon-stroke" />
+      <path d="M6.5 3.5h8.25L18.5 7.25V20.5h-12v-17Z" className="icon-stroke" />
+      <path d="M14.5 3.5v4h4" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function StatementIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 7.25A2.25 2.25 0 0 1 7.25 5h9.5A2.25 2.25 0 0 1 19 7.25v9.5A2.25 2.25 0 0 1 16.75 19h-9.5A2.25 2.25 0 0 1 5 16.75v-9.5Z" className="icon-stroke" />
+      <path d="M8 9.25h8M8 12h8M8 14.75h4.75" className="icon-stroke" />
+    </svg>
   )
 }
 
