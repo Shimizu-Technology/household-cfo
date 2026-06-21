@@ -11,7 +11,8 @@ class Household < ApplicationRecord
   has_many :goals, dependent: :destroy
   has_many :chat_sessions, dependent: :destroy
 
-  validates :name, presence: true
+  validates :name, presence: true, length: { maximum: 120 }
+  validates :primary_goal, length: { maximum: 500 }, allow_blank: true
 
   after_create :ensure_profile
 

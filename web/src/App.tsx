@@ -39,6 +39,7 @@ function App() {
   const [data, setData] = useState<AppData | null>(null)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupValues | null>(null)
   const [setupSaving, setSetupSaving] = useState(false)
+  const [setupError, setSetupError] = useState<string | null>(null)
   const [active, setActive] = useState(() => {
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
     return sections.includes(hashSection) ? hashSection : sections[0]
@@ -179,18 +180,22 @@ function App() {
     if (!setupDraft || setupSaving) return
 
     setSetupSaving(true)
+    setSetupError(null)
     try {
       const payload = await saveWorkspaceSetup(setupDraft)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
       setMessages(payload.mia.messages)
       setMessagesStorageKey(chatStorageKey)
+    } catch (caught) {
+      setSetupError(caught instanceof Error ? caught.message : 'Your numbers could not be saved. Please try again.')
     } finally {
       setSetupSaving(false)
     }
   }
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
+    setSetupError(null)
     setSetupDraft((current) => {
       if (!current) return current
       if (key === 'household_name' || key === 'primary_goal') return { ...current, [key]: value }
@@ -473,6 +478,7 @@ function App() {
             <WorkspaceSetupForm
               values={setupDraft}
               saving={setupSaving}
+              error={setupError}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
             />
@@ -707,11 +713,13 @@ function Metric({ label, value }: { label: string; value: string }) {
 function WorkspaceSetupForm({
   values,
   saving,
+  error,
   onChange,
   onSubmit,
 }: {
   values: WorkspaceSetupValues
   saving: boolean
+  error: string | null
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
@@ -756,6 +764,8 @@ function WorkspaceSetupForm({
           />
         </label>
       </div>
+
+      {error && <p className="setup-error" role="alert">{error}</p>}
     </form>
   )
 }

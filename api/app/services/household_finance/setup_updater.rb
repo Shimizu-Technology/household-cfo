@@ -46,8 +46,8 @@ module HouseholdFinance
 
     def update_household
       household.update!(
-        name: attributes[:household_name].presence || household.name,
-        primary_goal: attributes[:primary_goal].presence || household.primary_goal,
+        name: bounded_text(attributes[:household_name], fallback: household.name, max_length: 120),
+        primary_goal: bounded_text(attributes[:primary_goal], fallback: household.primary_goal, max_length: 500),
         location: household.location.presence || "Guam",
         stage: household.stage.presence || "First cohort"
       )
@@ -92,7 +92,11 @@ module HouseholdFinance
       return if attributes[:primary_goal].blank?
 
       goal = household.goals.where(goal_type: "transition").order(:priority, :created_at).first_or_initialize
-      goal.update!(label: attributes[:primary_goal].to_s.truncate(80), priority: 2)
+      goal.update!(label: bounded_text(attributes[:primary_goal], fallback: "Transition goal", max_length: 80), priority: 2)
+    end
+
+    def bounded_text(value, fallback:, max_length:)
+      value.to_s.presence&.squish&.truncate(max_length, omission: "…") || fallback
     end
   end
 end
