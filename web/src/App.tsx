@@ -311,7 +311,7 @@ function App() {
             <section className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`} aria-label="Ask Mia conversation">
               <div className="chat-shell-header">
                 <span className="message-avatar" aria-hidden="true">M</span>
-                <div>
+                <div className="chat-shell-copy">
                   <h3>Ask Mia</h3>
                   <p>Quick, plain-English coaching from your Household CFO context.</p>
                 </div>
@@ -324,10 +324,11 @@ function App() {
                   <button
                     type="button"
                     className="chat-expand-button"
+                    aria-label={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
                     aria-pressed={isChatExpanded}
+                    title={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
                     onClick={() => setIsChatExpanded((expanded) => !expanded)}
                   >
-                    <span>{isChatExpanded ? 'Close' : 'Expand'}</span>
                     {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
                   </button>
                 </div>

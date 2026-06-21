@@ -1054,13 +1054,22 @@ h3 {
   overflow: hidden;
 }
 
+.mia-chat-expanded::before {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: rgba(30, 42, 61, 0.52);
+  backdrop-filter: blur(7px);
+  content: "";
+}
+
 .mia-chat-shell {
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid var(--line);
   border-radius: 24px;
-  background: rgba(255, 253, 248, 0.94);
+  background: #fffdf8;
   box-shadow: 0 18px 42px rgba(47, 38, 28, 0.08);
 }
 
@@ -1074,14 +1083,15 @@ h3 {
 }
 
 .chat-shell-header {
+  display: grid;
   flex: 0 0 auto;
-  justify-content: space-between;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   padding: 18px 20px 14px;
   border-bottom: 1px solid rgba(226, 217, 203, 0.72);
+  background: #fffdf8;
 }
 
-.chat-shell-header > div {
-  flex: 1;
+.chat-shell-copy {
   min-width: 0;
 }
 
@@ -1092,18 +1102,18 @@ h3 {
   line-height: 1.45;
 }
 
-.chat-actions {
+.chat-shell-header .chat-actions {
   display: flex;
   flex: 0 0 auto;
   gap: 8px;
   align-items: center;
+  justify-self: end;
 }
 
 .chat-clear-button,
 .chat-expand-button,
 .chat-context-pill {
   flex: 0 0 auto;
-  padding: 7px 10px;
   border: 1px solid rgba(15, 76, 58, 0.18);
   border-radius: 999px;
   background: rgba(15, 76, 58, 0.08);
@@ -1117,18 +1127,26 @@ h3 {
 .chat-clear-button,
 .chat-expand-button {
   display: inline-flex;
-  gap: 6px;
   align-items: center;
+  justify-content: center;
 }
 
 .chat-clear-button {
+  min-height: 38px;
+  padding: 7px 10px;
   background: white;
   color: var(--muted);
 }
 
+.chat-expand-button {
+  width: 40px;
+  height: 40px;
+  padding: 0;
+}
+
 .chat-expand-button svg {
-  width: 15px;
-  height: 15px;
+  width: 17px;
+  height: 17px;
 }
 
 .message-avatar {
@@ -1151,6 +1169,7 @@ h3 {
   flex-wrap: nowrap;
   overflow-x: auto;
   padding: 0 20px 14px;
+  background: #fffdf8;
   scrollbar-width: none;
   -webkit-overflow-scrolling: touch;
 }
@@ -1416,24 +1435,23 @@ h3 {
     font-size: 0.78rem;
   }
 
-  .chat-actions {
+  .chat-shell-header .chat-actions {
     gap: 6px;
-  }
-
-  .chat-clear-button,
-  .chat-expand-button {
-    min-height: 34px;
-    padding: 7px 9px;
-    font-size: 0.6rem;
   }
 
   .chat-clear-button {
     display: none;
   }
 
+  .chat-expand-button {
+    width: 38px;
+    height: 38px;
+    padding: 0;
+  }
+
   .chat-expand-button svg {
-    width: 14px;
-    height: 14px;
+    width: 15px;
+    height: 15px;
   }
 
   .message-avatar {
