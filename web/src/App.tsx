@@ -1,8 +1,8 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import './App.css'
-import { fetchAppData, sendMiaMessage } from './api'
-import type { AppData, MiaMessage } from './api'
+import { clearMiaMessages, fetchAppData, saveWorkspaceSetup, sendMiaMessage } from './api'
+import type { AppData, MiaMessage, WorkspaceSetupValues } from './api'
 import { useAuthContext } from './contexts/authContextValue'
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -13,6 +13,7 @@ const currency = new Intl.NumberFormat('en-US', {
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
+const MIA_MESSAGE_MAX_LENGTH = 2_000
 
 const sourceDerivedCopy = [
   'Expense Stack',
@@ -37,6 +38,9 @@ function App() {
   const auth = useAuthContext()
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
+  const [setupDraft, setSetupDraft] = useState<WorkspaceSetupValues | null>(null)
+  const [setupSaving, setSetupSaving] = useState(false)
+  const [setupError, setSetupError] = useState<string | null>(null)
   const [active, setActive] = useState(() => {
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
     return sections.includes(hashSection) ? hashSection : sections[0]
@@ -44,6 +48,8 @@ function App() {
   const [messages, setMessages] = useState<MiaMessage[]>([])
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
+  const [miaClearing, setMiaClearing] = useState(false)
+  const [miaError, setMiaError] = useState<string | null>(null)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const chatStorageKey = useMemo(() => {
@@ -54,19 +60,23 @@ function App() {
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
+  const shouldUseRealWorkspace = auth.isClerkEnabled
+  const isRealWorkspace = data?.workspace?.mode === 'real'
 
   useEffect(() => {
     if (!canLoadWorkspace) return
 
     let cancelled = false
 
-    fetchAppData()
+    fetchAppData(shouldUseRealWorkspace)
       .then((payload) => {
         if (cancelled) return
-        const storedMessages = loadStoredMiaMessages(chatStorageKey)
+        const realWorkspace = payload.workspace?.mode === 'real'
+        const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(chatStorageKey)
         setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setMessages(storedMessages)
+        setSetupDraft(payload.workspace?.setup_values ?? null)
+        setMessages(restoredMessages)
       })
       .catch(() => {
         if (cancelled) return
@@ -76,7 +86,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, chatStorageKey])
+  }, [canLoadWorkspace, chatStorageKey, shouldUseRealWorkspace])
 
   const surplus = useMemo(() => {
     if (!data) return 0
@@ -84,11 +94,11 @@ function App() {
   }, [data])
 
   useEffect(() => {
-    if (!data) return
+    if (!data || isRealWorkspace) return
     if (messagesStorageKey !== chatStorageKey) return
 
     saveStoredMiaMessages(chatStorageKey, messages)
-  }, [chatStorageKey, data, messages, messagesStorageKey])
+  }, [chatStorageKey, data, isRealWorkspace, messages, messagesStorageKey])
 
   useEffect(() => {
     document.body.classList.toggle('mia-chat-expanded', isChatExpanded)
@@ -125,15 +135,20 @@ function App() {
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
     if (!cleanPrompt || miaLoading) return
+    if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
+      setMiaError(`Mia messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
+      return
+    }
 
     setMiaLoading(true)
+    setMiaError(null)
     setQuestion('')
     const priorMessages = currentMessages
     const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
     setMessages((current) => [...current, userMessage])
 
     try {
-      const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages)
+      const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace)
       setMessages((current) => [...current, assistantMessage])
     } catch {
       setMessages((current) => [
@@ -161,6 +176,50 @@ function App() {
 
     event.preventDefault()
     void handleAskMia()
+  }
+
+  async function handleClearMessages() {
+    if (miaClearing) return
+
+    setMiaClearing(true)
+    setMiaError(null)
+    try {
+      if (isRealWorkspace) await clearMiaMessages(true)
+      setMessages([])
+    } catch (caught) {
+      setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
+    } finally {
+      setMiaClearing(false)
+    }
+  }
+
+  async function handleSetupSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!setupDraft || setupSaving) return
+
+    setSetupSaving(true)
+    setSetupError(null)
+    try {
+      const payload = await saveWorkspaceSetup(setupDraft)
+      setData(payload)
+      setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
+      setMessages(payload.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+    } catch (caught) {
+      setSetupError(caught instanceof Error ? caught.message : 'Your numbers could not be saved. Please try again.')
+    } finally {
+      setSetupSaving(false)
+    }
+  }
+
+  function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
+    setSetupError(null)
+    setSetupDraft((current) => {
+      if (!current) return current
+      if (key === 'household_name' || key === 'primary_goal') return { ...current, [key]: value }
+
+      return { ...current, [key]: Number(value) || 0 }
+    })
   }
 
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
@@ -322,8 +381,8 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={() => setMessages([])}>
-                      Clear
+                    <button type="button" className="chat-clear-button" onClick={() => void handleClearMessages()} disabled={miaClearing}>
+                      {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
                   <button
@@ -381,6 +440,8 @@ function App() {
                 )}
               </article>
 
+              {miaError && <p className="chat-error" role="alert">{miaError}</p>}
+
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
                 <button
                   className="composer-attach"
@@ -393,11 +454,15 @@ function App() {
                 </button>
                 <textarea
                   value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
+                  onChange={(event) => {
+                    setMiaError(null)
+                    setQuestion(event.target.value)
+                  }}
                   onKeyDown={handleAskMiaKeyDown}
                   aria-label="Ask Mia"
                   placeholder="Ask Mia..."
                   rows={1}
+                  maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
                 />
                 <button
@@ -430,8 +495,18 @@ function App() {
               <strong>{data.profile.completeness}%</strong>
             </div>
             <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
-            <p>Manual entry works today. Uploads are shown as the next natural path so users do not feel trapped in Excel.</p>
+            <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
           </article>
+
+          {isRealWorkspace && setupDraft && (
+            <WorkspaceSetupForm
+              values={setupDraft}
+              saving={setupSaving}
+              error={setupError}
+              onChange={updateSetupDraft}
+              onSubmit={handleSetupSubmit}
+            />
+          )}
 
           <div className="profile-section-grid">
             {data.profile.sections.map((section) => (
@@ -656,6 +731,75 @@ function Metric({ label, value }: { label: string; value: string }) {
       <span>{label}</span>
       <strong>{value}</strong>
     </article>
+  )
+}
+
+function WorkspaceSetupForm({
+  values,
+  saving,
+  error,
+  onChange,
+  onSubmit,
+}: {
+  values: WorkspaceSetupValues
+  saving: boolean
+  error: string | null
+  onChange: (key: keyof WorkspaceSetupValues, value: string) => void
+  onSubmit: (event: FormEvent<HTMLFormElement>) => void
+}) {
+  return (
+    <form className="panel setup-form" onSubmit={onSubmit}>
+      <div className="row-between setup-form-heading">
+        <div>
+          <p className="eyebrow">Real workspace</p>
+          <h3>Plug in your household numbers</h3>
+          <p>Mia will recalculate the screens and use these numbers as context.</p>
+        </div>
+        <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
+      </div>
+
+      <div className="setup-field-grid">
+        <label className="setup-field text-wide">
+          <span>Household name</span>
+          <input value={values.household_name} onChange={(event) => onChange('household_name', event.target.value)} />
+        </label>
+        <label className="setup-field text-wide">
+          <span>Primary goal</span>
+          <input value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
+        </label>
+        <MoneyInput label="Primary monthly income" value={values.primary_income} onChange={(value) => onChange('primary_income', value)} />
+        <MoneyInput label="Business monthly income" value={values.business_income} onChange={(value) => onChange('business_income', value)} />
+        <MoneyInput label="Fixed essentials" value={values.fixed_expenses} onChange={(value) => onChange('fixed_expenses', value)} />
+        <MoneyInput label="Flexible spending" value={values.flexible_spend} onChange={(value) => onChange('flexible_spend', value)} />
+        <MoneyInput label="Expected sinking fund" value={values.expected_sinking_fund} onChange={(value) => onChange('expected_sinking_fund', value)} />
+        <MoneyInput label="Unexpected sinking fund" value={values.unexpected_sinking_fund} onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+        <MoneyInput label="Emergency fund" value={values.emergency_fund} onChange={(value) => onChange('emergency_fund', value)} />
+        <MoneyInput label="Other assets" value={values.other_assets} onChange={(value) => onChange('other_assets', value)} />
+        <MoneyInput label="Credit card debt" value={values.credit_card_debt} onChange={(value) => onChange('credit_card_debt', value)} />
+        <MoneyInput label="Debt minimum payment" value={values.debt_payment} onChange={(value) => onChange('debt_payment', value)} />
+        <label className="setup-field">
+          <span>Target runway months</span>
+          <input
+            type="number"
+            min="0"
+            step="0.5"
+            value={values.target_runway_months}
+            onChange={(event) => onChange('target_runway_months', event.target.value)}
+          />
+        </label>
+      </div>
+
+      {error && <p className="setup-error" role="alert">{error}</p>}
+    </form>
+  )
+}
+
+function MoneyInput({ label, value, onChange }: { label: string; value: number; onChange: (value: string) => void }) {
+  return (
+    <label className="setup-field">
+      <span>{label}</span>
+      <input type="number" min="0" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
+    </label>
   )
 }
 

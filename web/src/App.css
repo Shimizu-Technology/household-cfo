@@ -660,6 +660,73 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.setup-form {
+  display: grid;
+  gap: 16px;
+}
+
+.setup-form-heading {
+  align-items: flex-start;
+}
+
+.setup-form-heading h3,
+.setup-form-heading p {
+  margin-bottom: 0;
+}
+
+.setup-form-heading button {
+  flex: 0 0 auto;
+  padding: 12px 16px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-weight: 900;
+}
+
+.setup-field-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.setup-field {
+  display: grid;
+  gap: 7px;
+}
+
+.setup-field.text-wide {
+  grid-column: span 2;
+}
+
+.setup-field span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-field input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid rgba(226, 217, 203, 0.95);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fffdf8;
+  color: var(--ink);
+}
+
+.setup-error {
+  margin: 0;
+  padding: 11px 13px;
+  border: 1px solid rgba(157, 52, 52, 0.22);
+  border-radius: 14px;
+  background: rgba(157, 52, 52, 0.08);
+  color: var(--status-red);
+  font-size: 0.88rem;
+  font-weight: 800;
+}
+
 .money-row {
   padding: 11px 0;
   border-top: 1px solid rgba(226, 217, 203, 0.7);
@@ -713,7 +780,8 @@ h3 {
   .upload-grid,
   .stack-grid,
   .choice-grid,
-  .milestone-list {
+  .milestone-list,
+  .setup-field-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -894,8 +962,21 @@ h3 {
   .upload-grid,
   .stack-grid,
   .choice-grid,
-  .milestone-list {
+  .milestone-list,
+  .setup-field-grid {
     grid-template-columns: 1fr;
+  }
+
+  .setup-field.text-wide {
+    grid-column: span 1;
+  }
+
+  .setup-form-heading {
+    display: grid;
+  }
+
+  .setup-form-heading button {
+    width: 100%;
   }
 
   .panel,
@@ -1316,6 +1397,17 @@ h3 {
     opacity: 1;
     transform: translateY(-3px);
   }
+}
+
+.chat-error {
+  margin: 0 12px 12px;
+  padding: 10px 12px;
+  border: 1px solid rgba(157, 52, 52, 0.22);
+  border-radius: 14px;
+  background: rgba(157, 52, 52, 0.08);
+  color: var(--status-red);
+  font-size: 0.84rem;
+  font-weight: 800;
 }
 
 .mia-chat-shell .ask-row {

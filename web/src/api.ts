@@ -1,3 +1,26 @@
+export type WorkspaceSetupValues = {
+  household_name: string
+  primary_goal: string
+  primary_income: number
+  business_income: number
+  fixed_expenses: number
+  flexible_spend: number
+  expected_sinking_fund: number
+  unexpected_sinking_fund: number
+  emergency_fund: number
+  other_assets: number
+  credit_card_debt: number
+  debt_payment: number
+  target_runway_months: number
+}
+
+export type WorkspaceData = {
+  mode: 'demo' | 'real'
+  household_id: number | null
+  setup_complete: boolean
+  setup_values: WorkspaceSetupValues
+}
+
 export type ProfileSection = {
   label: string
   summary: string
@@ -139,6 +162,7 @@ export type CurrentUser = {
 }
 
 export type AppData = {
+  workspace?: WorkspaceData
   profile: ProfileData
   dashboard: DashboardData
   budget: BudgetData
@@ -179,6 +203,8 @@ async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T>
     throw new Error(await responseErrorMessage(response, 'API request failed'))
   }
 
+  if (response.status === 204) return undefined as T
+
   return response.json() as Promise<T>
 }
 
@@ -204,7 +230,11 @@ export async function fetchCurrentUser(): Promise<CurrentUser> {
   return payload.user
 }
 
-export async function fetchAppData(): Promise<AppData> {
+export async function fetchAppData(realWorkspace = false): Promise<AppData> {
+  if (realWorkspace) {
+    return fetchJson<AppData>('/api/v1/workspace')
+  }
+
   const [profile, dashboard, budget, wealth, optionality, cfoFilter, mia] = await Promise.all([
     fetchJson<ProfileData>('/api/demo/profile'),
     fetchJson<DashboardData>('/api/demo/dashboard'),
@@ -215,11 +245,33 @@ export async function fetchAppData(): Promise<AppData> {
     fetchJson<MiaMessagesData>('/api/demo/mia/messages'),
   ])
 
-  return { profile, dashboard, budget, wealth, optionality, cfoFilter, mia }
+  return {
+    workspace: {
+      mode: 'demo',
+      household_id: null,
+      setup_complete: true,
+      setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
+    },
+    profile,
+    dashboard,
+    budget,
+    wealth,
+    optionality,
+    cfoFilter,
+    mia,
+  }
 }
 
-export async function sendMiaMessage(message: string, history: MiaMessage[] = []): Promise<MiaMessage> {
-  const body = await postJson<{ assistant_message: MiaMessage }>('/api/demo/mia/messages', {
+export async function saveWorkspaceSetup(values: WorkspaceSetupValues): Promise<AppData> {
+  return fetchJson<AppData>('/api/v1/workspace/setup', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace: values }),
+  })
+}
+
+export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false): Promise<MiaMessage> {
+  const body = await postJson<{ assistant_message: MiaMessage }>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
     message,
     messages: history.slice(-12).map((entry) => ({
       role: entry.role,
@@ -227,4 +279,28 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
     })),
   })
   return body.assistant_message
+}
+
+export async function clearMiaMessages(realWorkspace = false): Promise<void> {
+  if (!realWorkspace) return
+
+  await fetchJson<unknown>('/api/v1/mia/messages', { method: 'DELETE' })
+}
+
+function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {
+  return {
+    household_name: profile.household.name,
+    primary_goal: profile.household.primary_goal,
+    primary_income: dashboard.summary.monthly_income,
+    business_income: 0,
+    fixed_expenses: budget.stacks.find((stack) => stack.label === 'Non-discretionary')?.amount ?? 0,
+    flexible_spend: budget.stacks.find((stack) => stack.label === 'Discretionary')?.amount ?? 0,
+    expected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Expected')?.amount ?? 0,
+    unexpected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Unexpected')?.amount ?? 0,
+    emergency_fund: dashboard.accounts.find((account) => account.name === 'Emergency Fund')?.balance ?? 0,
+    other_assets: wealth.summary.net_worth,
+    credit_card_debt: Math.abs(dashboard.accounts.find((account) => account.type === 'debt')?.balance ?? 0),
+    debt_payment: dashboard.summary.debt_payments,
+    target_runway_months: 6,
+  }
 }
