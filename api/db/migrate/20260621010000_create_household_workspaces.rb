@@ -62,6 +62,7 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     add_index :expense_items, [ :household_id, :active ]
     add_index :expense_items, [ :household_id, :stack_key ]
     add_index :expense_items, [ :household_id, :stack_key, :label ], unique: true, name: "index_expense_items_on_household_stack_key_label"
+    add_check_constraint :expense_items, "amount_cents >= 0", name: "expense_items_amount_cents_non_negative"
 
     create_table :debts do |t|
       t.references :household, null: false, foreign_key: true
@@ -75,6 +76,8 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     end
     add_index :debts, [ :household_id, :debt_type ]
     add_index :debts, [ :household_id, :debt_type, :label ], unique: true, name: "index_debts_on_household_debt_type_label"
+    add_check_constraint :debts, "balance_cents >= 0", name: "debts_balance_cents_non_negative"
+    add_check_constraint :debts, "minimum_payment_cents >= 0", name: "debts_minimum_payment_cents_non_negative"
 
     create_table :accounts do |t|
       t.references :household, null: false, foreign_key: true
@@ -86,6 +89,7 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     end
     add_index :accounts, [ :household_id, :account_type ]
     add_index :accounts, [ :household_id, :account_type, :label ], unique: true, name: "index_accounts_on_household_account_type_label"
+    add_check_constraint :accounts, "balance_cents >= 0", name: "accounts_balance_cents_non_negative"
 
     create_table :goals do |t|
       t.references :household, null: false, foreign_key: true
@@ -102,6 +106,8 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     add_index :goals, [ :household_id, :priority ]
     add_index :goals, :household_id, unique: true, where: "goal_type = 'runway'", name: "index_goals_on_one_runway_per_household"
     add_index :goals, :household_id, unique: true, where: "goal_type = 'transition'", name: "index_goals_on_one_transition_per_household"
+    add_check_constraint :goals, "target_amount_cents >= 0", name: "goals_target_amount_cents_non_negative"
+    add_check_constraint :goals, "current_amount_cents >= 0", name: "goals_current_amount_cents_non_negative"
 
     create_table :chat_sessions do |t|
       t.references :household, null: false, foreign_key: true
@@ -121,5 +127,6 @@ class CreateHouseholdWorkspaces < ActiveRecord::Migration[8.1]
     end
     add_index :chat_messages, [ :chat_session_id, :created_at ]
     add_index :chat_messages, :role
+    add_check_constraint :chat_messages, "char_length(content) <= 2000", name: "chat_messages_content_length"
   end
 end

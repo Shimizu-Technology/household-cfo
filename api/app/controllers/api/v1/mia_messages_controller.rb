@@ -31,7 +31,7 @@ module Api
       end
 
       def destroy
-        current_chat_session.chat_messages.delete_all
+        current_household.chat_sessions.find_by(user: current_user)&.chat_messages&.delete_all
         head :no_content
       end
 

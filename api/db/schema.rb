@@ -24,6 +24,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "account_type", "label"], name: "index_accounts_on_household_account_type_label", unique: true
     t.index ["household_id", "account_type"], name: "index_accounts_on_household_id_and_account_type"
     t.index ["household_id"], name: "index_accounts_on_household_id"
+    t.check_constraint "balance_cents >= 0", name: "accounts_balance_cents_non_negative"
   end
 
   create_table "chat_messages", force: :cascade do |t|
@@ -35,6 +36,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["chat_session_id", "created_at"], name: "index_chat_messages_on_chat_session_id_and_created_at"
     t.index ["chat_session_id"], name: "index_chat_messages_on_chat_session_id"
     t.index ["role"], name: "index_chat_messages_on_role"
+    t.check_constraint "char_length(content) <= 2000", name: "chat_messages_content_length"
   end
 
   create_table "chat_sessions", force: :cascade do |t|
@@ -60,6 +62,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "debt_type", "label"], name: "index_debts_on_household_debt_type_label", unique: true
     t.index ["household_id", "debt_type"], name: "index_debts_on_household_id_and_debt_type"
     t.index ["household_id"], name: "index_debts_on_household_id"
+    t.check_constraint "balance_cents >= 0", name: "debts_balance_cents_non_negative"
+    t.check_constraint "minimum_payment_cents >= 0", name: "debts_minimum_payment_cents_non_negative"
   end
 
   create_table "expense_items", force: :cascade do |t|
@@ -75,6 +79,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "stack_key", "label"], name: "index_expense_items_on_household_stack_key_label", unique: true
     t.index ["household_id", "stack_key"], name: "index_expense_items_on_household_id_and_stack_key"
     t.index ["household_id"], name: "index_expense_items_on_household_id"
+    t.check_constraint "amount_cents >= 0", name: "expense_items_amount_cents_non_negative"
   end
 
   create_table "goals", force: :cascade do |t|
@@ -92,6 +97,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id"], name: "index_goals_on_household_id"
     t.index ["household_id"], name: "index_goals_on_one_runway_per_household", unique: true, where: "((goal_type)::text = 'runway'::text)"
     t.index ["household_id"], name: "index_goals_on_one_transition_per_household", unique: true, where: "((goal_type)::text = 'transition'::text)"
+    t.check_constraint "current_amount_cents >= 0", name: "goals_current_amount_cents_non_negative"
+    t.check_constraint "target_amount_cents >= 0", name: "goals_target_amount_cents_non_negative"
   end
 
   create_table "household_memberships", force: :cascade do |t|

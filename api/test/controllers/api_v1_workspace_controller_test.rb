@@ -242,6 +242,16 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty JSON.parse(response.body).fetch("messages")
   end
 
+  test "clearing empty Mia chat does not create a chat session" do
+    user = create_user(email: "no-session-clear@example.com")
+
+    assert_no_difference("ChatSession.count") do
+      delete "/api/v1/mia/messages", headers: auth_headers(user)
+    end
+
+    assert_response :no_content
+  end
+
   private
 
   def create_user(email:, first_name: nil, role: "participant")

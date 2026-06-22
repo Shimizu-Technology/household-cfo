@@ -11,7 +11,6 @@ module HouseholdFinance
       @household = household
       @user = user
       @snapshot_builder = SnapshotBuilder.new(household)
-      @snapshot = @snapshot_builder.call
     end
 
     def app_data
@@ -161,7 +160,11 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :user, :snapshot_builder, :snapshot
+    attr_reader :household, :user, :snapshot_builder
+
+    def snapshot
+      @snapshot ||= snapshot_builder.call
+    end
 
     def memberships
       @memberships ||= household.household_memberships.includes(:user).to_a
