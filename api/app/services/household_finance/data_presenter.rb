@@ -326,8 +326,7 @@ module HouseholdFinance
     end
 
     def target_runway_months
-      goal = goals.find { |stored_goal| stored_goal.goal_type == "runway" }
-      (goal&.target_months || 6).to_f
+      snapshot.fetch(:target_runway_months)
     end
 
     def stable_income_cents

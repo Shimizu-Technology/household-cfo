@@ -28,6 +28,8 @@ module HouseholdFinance
       "sinking_unexpected" => [ "car repair", "clinic visit", "appliance replacement" ]
     }.freeze
 
+    DEFAULT_RUNWAY_TARGET_MONTHS = 6.0
+
     def initialize(household)
       @household = household
     end
@@ -45,6 +47,7 @@ module HouseholdFinance
         total_debt_cents: total_debt_cents,
         net_worth_cents: net_worth_cents,
         runway_months: runway_months,
+        target_runway_months: target_runway_months,
         safe_to_spend_cents: safe_to_spend_cents,
         readiness_label: readiness_label,
         readiness_tone: readiness_tone,
@@ -140,9 +143,17 @@ module HouseholdFinance
       (baseline_surplus_cents * 0.4).round
     end
 
+    def target_runway_months
+      @target_runway_months ||= begin
+        target_months = household.goals.where(goal_type: "runway").order(:priority, :created_at).first&.target_months
+        parsed_months = target_months.to_f
+        parsed_months.positive? ? parsed_months : DEFAULT_RUNWAY_TARGET_MONTHS
+      end
+    end
+
     def readiness_tone
-      return "green" if runway_months >= 6 && baseline_surplus_cents.positive?
-      return "yellow" if runway_months >= 3 && baseline_surplus_cents >= 0
+      return "green" if runway_months >= target_runway_months && baseline_surplus_cents.positive?
+      return "yellow" if runway_months >= (target_runway_months / 2.0) && baseline_surplus_cents >= 0
 
       "red"
     end
