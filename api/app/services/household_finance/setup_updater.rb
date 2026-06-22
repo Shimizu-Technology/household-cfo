@@ -15,6 +15,7 @@ module HouseholdFinance
       debt_payment
       target_runway_months
     ].freeze
+    MISSING_VALUE = Object.new.freeze
 
     def initialize(household, attributes)
       @household = household
@@ -24,16 +25,16 @@ module HouseholdFinance
     def call
       household.with_lock do
         update_household
-        upsert_income("Primary income", "job", attributes[:primary_income])
-        upsert_income("Business income", "business", attributes[:business_income])
-        upsert_expense("Fixed essentials", "non_discretionary", attributes[:fixed_expenses])
-        upsert_expense("Flexible spending", "discretionary", attributes[:flexible_spend])
-        upsert_expense("Expected sinking fund", "sinking_expected", attributes[:expected_sinking_fund])
-        upsert_expense("Unexpected sinking fund", "sinking_unexpected", attributes[:unexpected_sinking_fund])
-        upsert_account("Emergency fund", "emergency_fund", attributes[:emergency_fund])
-        upsert_account("Other assets", "other", attributes[:other_assets])
-        upsert_debt("Credit card debt", "credit_card", attributes[:credit_card_debt], attributes[:debt_payment])
-        upsert_runway_goal
+        upsert_income("Primary income", "job", attributes[:primary_income]) if attributes.key?(:primary_income)
+        upsert_income("Business income", "business", attributes[:business_income]) if attributes.key?(:business_income)
+        upsert_expense("Fixed essentials", "non_discretionary", attributes[:fixed_expenses]) if attributes.key?(:fixed_expenses)
+        upsert_expense("Flexible spending", "discretionary", attributes[:flexible_spend]) if attributes.key?(:flexible_spend)
+        upsert_expense("Expected sinking fund", "sinking_expected", attributes[:expected_sinking_fund]) if attributes.key?(:expected_sinking_fund)
+        upsert_expense("Unexpected sinking fund", "sinking_unexpected", attributes[:unexpected_sinking_fund]) if attributes.key?(:unexpected_sinking_fund)
+        upsert_account("Emergency fund", "emergency_fund", attributes[:emergency_fund]) if attributes.key?(:emergency_fund)
+        upsert_account("Other assets", "other", attributes[:other_assets]) if attributes.key?(:other_assets)
+        upsert_credit_card_debt if attributes.key?(:credit_card_debt) || attributes.key?(:debt_payment)
+        upsert_runway_goal if attributes.key?(:target_runway_months)
         upsert_transition_goal
       end
 
@@ -72,10 +73,19 @@ module HouseholdFinance
       record.update!(balance_cents: cents)
     end
 
+    def upsert_credit_card_debt
+      upsert_debt(
+        "Credit card debt",
+        "credit_card",
+        attributes.fetch(:credit_card_debt, MISSING_VALUE),
+        attributes.fetch(:debt_payment, MISSING_VALUE)
+      )
+    end
+
     def upsert_debt(label, debt_type, balance, payment)
-      balance_cents = Money.cents(balance)
-      payment_cents = Money.cents(payment)
       record = household.debts.find_or_initialize_by(label: label, debt_type: debt_type)
+      balance_cents = missing_value?(balance) ? existing_cents(record, :balance_cents) : Money.cents(balance)
+      payment_cents = missing_value?(payment) ? existing_cents(record, :minimum_payment_cents) : Money.cents(payment)
       return record.destroy! if record.persisted? && balance_cents.zero?
       return if balance_cents.zero?
 
@@ -109,6 +119,14 @@ module HouseholdFinance
       return nil if allow_blank && text.blank?
 
       text
+    end
+
+    def existing_cents(record, attribute)
+      record.persisted? ? record.public_send(attribute) : 0
+    end
+
+    def missing_value?(value)
+      value.equal?(MISSING_VALUE)
     end
   end
 end

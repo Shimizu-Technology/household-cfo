@@ -46,6 +46,47 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
   end
 
+  test "workspace setup partial patch preserves omitted financial values" do
+    user = create_user(email: "partial-setup@example.com")
+
+    patch "/api/v1/workspace/setup",
+          params: {
+            workspace: {
+              primary_income: 8_000,
+              fixed_expenses: 4_500,
+              emergency_fund: 18_000,
+              credit_card_debt: 7_000,
+              debt_payment: 700,
+              target_runway_months: 12
+            }
+          },
+          headers: auth_headers(user),
+          as: :json
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { household_name: "Renamed Household" } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :success
+    household = user.households.first
+    assert_equal "Renamed Household", household.name
+    assert_equal 800_000, household.income_sources.find_by!(source_type: "job").amount_cents
+    assert_equal 450_000, household.expense_items.find_by!(stack_key: "non_discretionary").amount_cents
+    assert_equal 1_800_000, household.accounts.find_by!(account_type: "emergency_fund").balance_cents
+    assert_equal 700_000, household.debts.find_by!(debt_type: "credit_card").balance_cents
+    assert_equal 12, household.goals.find_by!(goal_type: "runway").target_months
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { debt_payment: 900 } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :success
+    debt = household.debts.find_by!(debt_type: "credit_card")
+    assert_equal 700_000, debt.balance_cents
+    assert_equal 90_000, debt.minimum_payment_cents
+  end
+
   test "workspace setup removes cleared credit card debt" do
     user = create_user(email: "clear-debt@example.com")
 
