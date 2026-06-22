@@ -22,6 +22,7 @@ module ActiveSupport
         CLERK_BOOTSTRAP_ADMIN_EMAILS
         ALLOW_FIRST_USER_BOOTSTRAP
         OPENROUTER_API_KEY
+        MIA_PERSONA_ID
       ].each { |key| ENV.delete(key) }
     end
   end

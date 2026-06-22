@@ -1,5 +1,9 @@
 module Demo
   class HouseholdData
+    def self.persona
+      ::Mia::Persona.default
+    end
+
     def self.profile
       {
         household: {
@@ -9,9 +13,9 @@ module Demo
           primary_goal: "Build a clear monthly money rhythm before making a major career move"
         },
         coach: {
-          name: "Mia",
-          role: "Money Interactive Assistant",
-          voice: "direct, warm, culturally grounded, CBT-informed"
+          name: persona.name,
+          role: persona.role,
+          voice: persona.voice_summary
         },
         members: [
           { name: "Ariana", role: "Primary household CFO", age_range: "30s" },
@@ -243,7 +247,7 @@ module Demo
           "Emergency fund or debt first?",
           "What should I do with a bonus?"
         ],
-        disclaimer: "Mia is a coaching and education tool powered by VERA. She does not replace legal, tax, investment, or financial advice."
+        disclaimer: persona.disclaimer
       }
     end
   end

@@ -11,6 +11,7 @@ module HouseholdFinance
       @household = household
       @user = user
       @snapshot_builder = SnapshotBuilder.new(household)
+      @persona = ::Mia::Persona.default
     end
 
     def app_data
@@ -44,9 +45,9 @@ module HouseholdFinance
           primary_goal: household.primary_goal.presence || "Build a clear monthly money rhythm."
         },
         coach: {
-          name: "Mia",
-          role: "Money Interactive Assistant",
-          voice: "direct, warm, culturally grounded, CBT-informed"
+          name: persona.name,
+          role: persona.role,
+          voice: persona.voice_summary
         },
         members: members,
         priorities: priorities,
@@ -136,7 +137,7 @@ module HouseholdFinance
       {
         messages: chat_messages,
         quick_prompts: QUICK_PROMPTS,
-        disclaimer: "Mia is a coaching and education tool powered by VERA. She does not replace legal, tax, investment, or financial advice."
+        disclaimer: persona.disclaimer
       }
     end
 
@@ -160,7 +161,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :user, :snapshot_builder
+    attr_reader :household, :user, :snapshot_builder, :persona
 
     def snapshot
       @snapshot ||= snapshot_builder.call

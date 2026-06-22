@@ -68,10 +68,11 @@ Use demo-safe sample data only. Do not commit real client financial data, creden
 
 ## Next phase
 
-The active real-mode build plan lives at:
+The active real-mode build plan and Mia persona template live at:
 
 ```text
 docs/real-mode-build-plan.md
+docs/mia-persona-template.md
 ```
 
 ## Deferred until after the real-mode MVP
