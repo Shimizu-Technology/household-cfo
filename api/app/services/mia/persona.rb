@@ -13,9 +13,9 @@ module Mia
 
       def find(id)
         personas = config.fetch("personas")
-        new(id, personas.fetch(id))
-      rescue KeyError
-        new(DEFAULT_ID, personas.fetch(DEFAULT_ID))
+        default_data = personas.fetch(DEFAULT_ID)
+        data = personas.fetch(id) { default_data }
+        new(data.equal?(default_data) ? DEFAULT_ID : id, data)
       end
 
       def reset_cache!
@@ -49,7 +49,7 @@ module Mia
     end
 
     def disclaimer
-      "#{name} is a coaching and education tool powered by VERA. She does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
+      "#{name} is a coaching and education tool inside #{data.fetch("product")}. She does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
     end
 
     def fallback_response(key)

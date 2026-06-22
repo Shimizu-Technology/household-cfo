@@ -1,7 +1,7 @@
 module Demo
   class HouseholdData
     def self.persona
-      @persona ||= ::Mia::Persona.default
+      ::Mia::Persona.default
     end
 
     def self.profile
