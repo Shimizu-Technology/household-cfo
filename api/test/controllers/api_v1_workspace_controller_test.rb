@@ -124,6 +124,36 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
+  test "mia chat does not persist orphaned user message if assistant message fails" do
+    user = create_user(email: "atomic-mia@example.com")
+
+    failing_responder = Class.new do
+      def call(*)
+        ""
+      end
+    end.new
+
+    original_responder = Demo::MiaResponder.method(:new)
+    begin
+      Demo::MiaResponder.define_singleton_method(:new) { failing_responder }
+
+      assert_no_difference("ChatMessage.count") do
+        post "/api/v1/mia/messages",
+             params: { message: "Can Mia save atomically?" },
+             headers: auth_headers(user),
+             as: :json
+      rescue ActiveRecord::RecordInvalid
+        nil
+      end
+    ensure
+      Demo::MiaResponder.define_singleton_method(:new, original_responder)
+    end
+
+    session = user.households.first.chat_sessions.find_by(user: user)
+    assert session.present?
+    assert_empty session.chat_messages
+  end
+
   test "mia chat history can be cleared" do
     user = create_user(email: "clear@example.com")
     post "/api/v1/mia/messages", params: { message: "test" }, headers: auth_headers(user), as: :json

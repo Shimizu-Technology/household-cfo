@@ -14,8 +14,12 @@ module Api
         context = HouseholdFinance::MiaContextBuilder.new(current_household).call
         assistant_content = ::Demo::MiaResponder.new.call(content, history: history, context: context)
 
-        user_message = session.chat_messages.create!(role: "user", content: content)
-        assistant_message = session.chat_messages.create!(role: "assistant", content: assistant_content)
+        user_message, assistant_message = ApplicationRecord.transaction do
+          [
+            session.chat_messages.create!(role: "user", content: content),
+            session.chat_messages.create!(role: "assistant", content: assistant_content)
+          ]
+        end
 
         render json: {
           user_message: user_message.as_api_json(author: "You"),
