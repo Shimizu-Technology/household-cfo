@@ -45,12 +45,13 @@ module HouseholdFinance
     attr_reader :household, :attributes
 
     def update_household
-      household.update!(
-        name: bounded_text(attributes[:household_name], fallback: household.name, max_length: 120),
-        primary_goal: bounded_text(attributes[:primary_goal], fallback: household.primary_goal, max_length: 500),
+      household.assign_attributes(
         location: household.location.presence || "Guam",
         stage: household.stage.presence || "First cohort"
       )
+      household.name = bounded_text(attributes[:household_name], max_length: 120, allow_blank: false) if attributes.key?(:household_name)
+      household.primary_goal = bounded_text(attributes[:primary_goal], max_length: 500, allow_blank: true) if attributes.key?(:primary_goal)
+      household.save!
     end
 
     def upsert_income(label, source_type, value)
@@ -92,14 +93,22 @@ module HouseholdFinance
     end
 
     def upsert_transition_goal
-      return if attributes[:primary_goal].blank?
+      return unless attributes.key?(:primary_goal)
+
+      if attributes[:primary_goal].blank?
+        household.goals.where(goal_type: "transition").destroy_all
+        return
+      end
 
       goal = household.goals.where(goal_type: "transition").order(:priority, :created_at).first_or_initialize
-      goal.update!(label: bounded_text(attributes[:primary_goal], fallback: "Transition goal", max_length: 80), priority: 2)
+      goal.update!(label: bounded_text(attributes[:primary_goal], max_length: 80, allow_blank: false), priority: 2)
     end
 
-    def bounded_text(value, fallback:, max_length:)
-      value.to_s.presence&.squish&.truncate(max_length, omission: "…") || fallback
+    def bounded_text(value, max_length:, allow_blank:)
+      text = value.to_s.squish.truncate(max_length, omission: "…")
+      return nil if allow_blank && text.blank?
+
+      text
     end
   end
 end

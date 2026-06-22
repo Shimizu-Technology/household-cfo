@@ -105,6 +105,40 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty user.households.first.income_sources
   end
 
+  test "workspace setup rejects blank household names" do
+    user = create_user(email: "blank-name@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.update!(name: "Original Household")
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { household_name: "" } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Name can't be blank"
+    assert_equal "Original Household", household.reload.name
+  end
+
+  test "workspace setup can clear the primary goal" do
+    user = create_user(email: "clear-goal@example.com")
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_goal: "Leave my job safely" } },
+          headers: auth_headers(user),
+          as: :json
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_goal: "" } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :success
+    household = user.households.first
+    assert_nil household.reload.primary_goal
+    assert_empty household.goals.where(goal_type: "transition")
+    assert_equal "", JSON.parse(response.body).fetch("workspace").fetch("setup_values").fetch("primary_goal")
+  end
+
   test "workspace setup updates transition goal instead of duplicating it" do
     user = create_user(email: "goal@example.com")
 
