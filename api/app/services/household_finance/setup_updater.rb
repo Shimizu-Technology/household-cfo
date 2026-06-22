@@ -22,7 +22,7 @@ module HouseholdFinance
     end
 
     def call
-      Household.transaction do
+      household.with_lock do
         update_household
         upsert_income("Primary income", "job", attributes[:primary_income])
         upsert_income("Business income", "business", attributes[:business_income])

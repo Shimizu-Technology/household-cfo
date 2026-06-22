@@ -21,6 +21,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.datetime "updated_at", null: false
+    t.index ["household_id", "account_type", "label"], name: "index_accounts_on_household_account_type_label", unique: true
     t.index ["household_id", "account_type"], name: "index_accounts_on_household_id_and_account_type"
     t.index ["household_id"], name: "index_accounts_on_household_id"
   end
@@ -56,6 +57,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.string "label", null: false
     t.integer "minimum_payment_cents", default: 0, null: false
     t.datetime "updated_at", null: false
+    t.index ["household_id", "debt_type", "label"], name: "index_debts_on_household_debt_type_label", unique: true
     t.index ["household_id", "debt_type"], name: "index_debts_on_household_id_and_debt_type"
     t.index ["household_id"], name: "index_debts_on_household_id"
   end
@@ -70,6 +72,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.string "stack_key", null: false
     t.datetime "updated_at", null: false
     t.index ["household_id", "active"], name: "index_expense_items_on_household_id_and_active"
+    t.index ["household_id", "stack_key", "label"], name: "index_expense_items_on_household_stack_key_label", unique: true
     t.index ["household_id", "stack_key"], name: "index_expense_items_on_household_id_and_stack_key"
     t.index ["household_id"], name: "index_expense_items_on_household_id"
   end
@@ -87,6 +90,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "goal_type"], name: "index_goals_on_household_id_and_goal_type"
     t.index ["household_id", "priority"], name: "index_goals_on_household_id_and_priority"
     t.index ["household_id"], name: "index_goals_on_household_id"
+    t.index ["household_id"], name: "index_goals_on_one_runway_per_household", unique: true, where: "((goal_type)::text = 'runway'::text)"
+    t.index ["household_id"], name: "index_goals_on_one_transition_per_household", unique: true, where: "((goal_type)::text = 'transition'::text)"
   end
 
   create_table "household_memberships", force: :cascade do |t|
@@ -134,6 +139,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.string "source_type", default: "other", null: false
     t.datetime "updated_at", null: false
     t.index ["household_id", "active"], name: "index_income_sources_on_household_id_and_active"
+    t.index ["household_id", "source_type", "label"], name: "index_income_sources_on_household_source_type_label", unique: true
     t.index ["household_id", "source_type"], name: "index_income_sources_on_household_id_and_source_type"
     t.index ["household_id"], name: "index_income_sources_on_household_id"
     t.check_constraint "amount_cents >= 0", name: "income_sources_amount_cents_non_negative"

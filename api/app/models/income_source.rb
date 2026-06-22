@@ -4,7 +4,7 @@ class IncomeSource < ApplicationRecord
 
   belongs_to :household
 
-  validates :label, presence: true
+  validates :label, presence: true, uniqueness: { scope: [ :household_id, :source_type ] }
   validates :cadence, inclusion: { in: CADENCES }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }

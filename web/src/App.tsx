@@ -47,6 +47,8 @@ function App() {
   const [messages, setMessages] = useState<MiaMessage[]>([])
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
+  const [miaClearing, setMiaClearing] = useState(false)
+  const [miaError, setMiaError] = useState<string | null>(null)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const chatStorageKey = useMemo(() => {
@@ -134,6 +136,7 @@ function App() {
     if (!cleanPrompt || miaLoading) return
 
     setMiaLoading(true)
+    setMiaError(null)
     setQuestion('')
     const priorMessages = currentMessages
     const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
@@ -171,8 +174,18 @@ function App() {
   }
 
   async function handleClearMessages() {
-    if (isRealWorkspace) await clearMiaMessages(true)
-    setMessages([])
+    if (miaClearing) return
+
+    setMiaClearing(true)
+    setMiaError(null)
+    try {
+      if (isRealWorkspace) await clearMiaMessages(true)
+      setMessages([])
+    } catch (caught) {
+      setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
+    } finally {
+      setMiaClearing(false)
+    }
   }
 
   async function handleSetupSubmit(event: FormEvent<HTMLFormElement>) {
@@ -363,8 +376,8 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={() => void handleClearMessages()}>
-                      Clear
+                    <button type="button" className="chat-clear-button" onClick={() => void handleClearMessages()} disabled={miaClearing}>
+                      {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
                   <button
@@ -422,6 +435,8 @@ function App() {
                 )}
               </article>
 
+              {miaError && <p className="chat-error" role="alert">{miaError}</p>}
+
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
                 <button
                   className="composer-attach"
@@ -434,7 +449,10 @@ function App() {
                 </button>
                 <textarea
                   value={question}
-                  onChange={(event) => setQuestion(event.target.value)}
+                  onChange={(event) => {
+                    setMiaError(null)
+                    setQuestion(event.target.value)
+                  }}
                   onKeyDown={handleAskMiaKeyDown}
                   aria-label="Ask Mia"
                   placeholder="Ask Mia..."

@@ -4,7 +4,7 @@ class Account < ApplicationRecord
 
   belongs_to :household
 
-  validates :label, presence: true
+  validates :label, presence: true, uniqueness: { scope: [ :household_id, :account_type ] }
   validates :account_type, inclusion: { in: ACCOUNT_TYPES }
   validates :balance_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
 

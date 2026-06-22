@@ -34,6 +34,21 @@ class HouseholdWorkspaceTest < ActiveSupport::TestCase
     assert_includes duplicate.errors[:user_id], "has already been taken"
   end
 
+  test "setup-managed rows are unique per household" do
+    household = HouseholdFinance::WorkspaceResolver.new(create_user).household
+    household.income_sources.create!(label: "Primary income", source_type: "job", cadence: "monthly", amount_cents: 100_000)
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", cadence: "monthly", amount_cents: 50_000)
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 1_000_000)
+    household.debts.create!(label: "Credit card debt", debt_type: "credit_card", balance_cents: 200_000)
+    household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 6)
+
+    assert_not household.income_sources.build(label: "Primary income", source_type: "job", cadence: "monthly", amount_cents: 100_000).valid?
+    assert_not household.expense_items.build(label: "Fixed essentials", stack_key: "non_discretionary", cadence: "monthly", amount_cents: 50_000).valid?
+    assert_not household.accounts.build(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 1_000_000).valid?
+    assert_not household.debts.build(label: "Credit card debt", debt_type: "credit_card", balance_cents: 200_000).valid?
+    assert_not household.goals.build(label: "Different runway target", goal_type: "runway", target_months: 12).valid?
+  end
+
   test "income source amounts must be non-negative" do
     household = HouseholdFinance::WorkspaceResolver.new(create_user).household
     income_source = household.income_sources.build(
