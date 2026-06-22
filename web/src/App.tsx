@@ -13,6 +13,7 @@ const currency = new Intl.NumberFormat('en-US', {
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
+const MIA_MESSAGE_MAX_LENGTH = 2_000
 
 const sourceDerivedCopy = [
   'Expense Stack',
@@ -134,6 +135,10 @@ function App() {
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
     if (!cleanPrompt || miaLoading) return
+    if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
+      setMiaError(`Mia messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
+      return
+    }
 
     setMiaLoading(true)
     setMiaError(null)
@@ -457,6 +462,7 @@ function App() {
                   aria-label="Ask Mia"
                   placeholder="Ask Mia..."
                   rows={1}
+                  maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
                 />
                 <button

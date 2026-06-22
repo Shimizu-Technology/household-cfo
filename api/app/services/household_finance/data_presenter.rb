@@ -91,7 +91,7 @@ module HouseholdFinance
       {
         summary: {
           net_worth: dollars(snapshot.fetch(:net_worth_cents)),
-          liquid_net_worth: dollars(snapshot.fetch(:liquid_assets_cents) - snapshot.fetch(:total_debt_cents)),
+          liquid_net_worth: dollars(snapshot.fetch(:liquid_assets_cents) - liquid_liabilities_cents),
           retirement_projection: dollars(retirement_projection_cents),
           monthly_wealth_building: dollars(monthly_wealth_building_cents)
         },
@@ -416,6 +416,10 @@ module HouseholdFinance
 
     def debt_by_type(debt_type)
       debts.select { |debt| debt.debt_type == debt_type }.sum(&:balance_cents)
+    end
+
+    def liquid_liabilities_cents
+      debt_by_type("credit_card")
     end
 
     def debt_payments_by_type(debt_type)

@@ -9,6 +9,9 @@ module Api
 
       def create
         content = params.require(:message).to_s.strip
+        return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
+        return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
+
         session = current_chat_session
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
         context = HouseholdFinance::MiaContextBuilder.new(current_household).call

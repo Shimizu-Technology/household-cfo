@@ -46,6 +46,25 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
   end
 
+  test "workspace setup removes cleared credit card debt" do
+    user = create_user(email: "clear-debt@example.com")
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { credit_card_debt: 7_000, debt_payment: 700 } },
+          headers: auth_headers(user),
+          as: :json
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { credit_card_debt: 0, debt_payment: 0 } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :success
+    household = user.households.first
+    assert_empty household.debts.where(debt_type: "credit_card")
+    savings_section = JSON.parse(response.body).fetch("profile").fetch("sections").find { |section| section.fetch("label") == "Savings & Debt" }
+    assert savings_section.fetch("items").none? { |item| item.fetch("label") == "Credit card debt" }
+  end
+
   test "workspace setup values keep other assets separate from typed accounts" do
     user = create_user(email: "assets@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -126,6 +145,21 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 5_000, body.fetch("dashboard").fetch("summary").fetch("monthly_income")
   end
 
+  test "wealth liquid net worth excludes long-term debt" do
+    user = create_user(email: "liquid@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 10_000_000)
+    household.debts.create!(label: "Credit card debt", debt_type: "credit_card", balance_cents: 2_000_000)
+    household.debts.create!(label: "Mortgage", debt_type: "mortgage", balance_cents: 50_000_000)
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+
+    assert_response :success
+    wealth = JSON.parse(response.body).fetch("wealth").fetch("summary")
+    assert_equal(-420_000, wealth.fetch("net_worth"))
+    assert_equal 80_000, wealth.fetch("liquid_net_worth")
+  end
+
   test "mia chat uses real workspace context and persists messages" do
     user = create_user(email: "mia@example.com")
     patch "/api/v1/workspace/setup",
@@ -148,6 +182,20 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     messages = JSON.parse(response.body).fetch("messages")
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
+  end
+
+  test "mia chat rejects messages above the storage limit" do
+    user = create_user(email: "long-mia@example.com")
+
+    assert_no_difference("ChatMessage.count") do
+      post "/api/v1/mia/messages",
+           params: { message: "a" * (ChatMessage::MAX_CONTENT_LENGTH + 1) },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)"
   end
 
   test "mia chat does not persist orphaned user message if assistant message fails" do

@@ -75,6 +75,9 @@ module HouseholdFinance
       balance_cents = Money.cents(balance)
       payment_cents = Money.cents(payment)
       record = household.debts.find_or_initialize_by(label: label, debt_type: debt_type)
+      return record.destroy! if record.persisted? && balance_cents.zero?
+      return if balance_cents.zero?
+
       record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents)
     end
 
