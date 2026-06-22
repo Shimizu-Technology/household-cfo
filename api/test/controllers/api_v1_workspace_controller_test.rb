@@ -249,8 +249,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "Lanya"
-    assert_includes content, "che’lu"
+    assert_includes content, "Lanya chelu"
+    assert_includes content, "that purse isn’t in the cards right now"
 
     get "/api/v1/mia/messages", headers: auth_headers(user)
 

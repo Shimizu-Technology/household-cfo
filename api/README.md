@@ -21,6 +21,10 @@ bin/rails server -p 3000
 
 If your local PostgreSQL server needs explicit credentials, set `DATABASE_HOST`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` in `api/.env`.
 
+## Mia persona setup
+
+The default Mia coach persona lives in `config/mia_personas.yml`. Set `MIA_PERSONA_ID` to select a different configured persona at runtime; safety and financial-boundary rules stay in code and cannot be overridden by persona config.
+
 ## Clerk setup
 
 Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite-only linking by email, also set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
