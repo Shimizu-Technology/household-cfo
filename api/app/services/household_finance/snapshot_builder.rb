@@ -88,6 +88,10 @@ module HouseholdFinance
       @accounts ||= household.accounts.to_a
     end
 
+    def goals
+      @goals ||= household.goals.order(:priority, :created_at).to_a
+    end
+
     def monthly_income_cents
       @monthly_income_cents ||= active_income_sources.sum { |income| monthly_cents(income.amount_cents, income.cadence) }
     end
@@ -145,7 +149,7 @@ module HouseholdFinance
 
     def target_runway_months
       @target_runway_months ||= begin
-        target_months = household.goals.where(goal_type: "runway").order(:priority, :created_at).first&.target_months
+        target_months = goals.find { |goal| goal.goal_type == "runway" }&.target_months
         parsed_months = target_months.to_f
         parsed_months.positive? ? parsed_months : DEFAULT_RUNWAY_TARGET_MONTHS
       end
@@ -177,7 +181,7 @@ module HouseholdFinance
         active_expenses.any? { |expense| expense.amount_cents.positive? },
         accounts.any? { |account| account.balance_cents.positive? },
         debts.any? || accounts.any?,
-        household.goals.any?
+        goals.any?
       ]
 
       ((checks.count(true) / checks.length.to_f) * 100).round

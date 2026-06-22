@@ -152,7 +152,7 @@ module HouseholdFinance
         expected_sinking_fund: dollars(expenses_by_stack("sinking_expected")),
         unexpected_sinking_fund: dollars(expenses_by_stack("sinking_unexpected")),
         emergency_fund: dollars(account_by_type("emergency_fund")),
-        other_assets: dollars(non_emergency_assets_cents),
+        other_assets: dollars(account_by_type("other")),
         credit_card_debt: dollars(debt_by_type("credit_card")),
         debt_payment: dollars(debt_payments_by_type("credit_card")),
         target_runway_months: target_runway_months
@@ -412,10 +412,6 @@ module HouseholdFinance
 
     def account_by_type(account_type)
       accounts.select { |account| account.account_type == account_type }.sum(&:balance_cents)
-    end
-
-    def non_emergency_assets_cents
-      accounts.reject { |account| account.account_type == "emergency_fund" }.sum(&:balance_cents)
     end
 
     def debt_by_type(debt_type)

@@ -46,6 +46,32 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
   end
 
+  test "workspace setup values keep other assets separate from typed accounts" do
+    user = create_user(email: "assets@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 500_000)
+    household.accounts.create!(label: "Other assets", account_type: "other", balance_cents: 1_200_000)
+    household.accounts.create!(label: "Investment account", account_type: "investment", balance_cents: 3_000_000)
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+
+    assert_response :success
+    setup_values = JSON.parse(response.body).fetch("workspace").fetch("setup_values")
+    assert_equal 5_000, setup_values.fetch("emergency_fund")
+    assert_equal 12_000, setup_values.fetch("other_assets")
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: setup_values },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :success
+    household.reload
+    assert_equal 1_200_000, household.accounts.find_by!(account_type: "other").balance_cents
+    assert_equal 3_000_000, household.accounts.find_by!(account_type: "investment").balance_cents
+    assert_equal 47_000, JSON.parse(response.body).fetch("wealth").fetch("summary").fetch("net_worth")
+  end
+
   test "workspace setup rejects negative income values" do
     user = create_user(email: "negative-income@example.com")
 
