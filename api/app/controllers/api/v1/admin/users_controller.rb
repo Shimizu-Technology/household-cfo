@@ -12,6 +12,7 @@ module Api
         def create
           role = requested_role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
+          return render_forbidden("Role assignment not permitted") unless role_assignable_by_current_user?(role)
 
           user = User.create!(
             email: user_params[:email],
@@ -35,6 +36,12 @@ module Api
 
         def requested_role
           params.dig(:user, :role).presence || "participant"
+        end
+
+        def role_assignable_by_current_user?(role)
+          return true if current_user.admin?
+
+          current_user.coach? && role == "participant"
         end
 
         def pending_clerk_id
