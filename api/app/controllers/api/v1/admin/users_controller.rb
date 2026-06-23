@@ -270,16 +270,39 @@ module Api
           result
         rescue ActiveRecord::ActiveRecordError => e
           Rails.logger.error("[InviteEmail] Audit recording failed for #{user.email}: #{e.class} #{e.message}")
-          audit_recording_failure_result(result, e)
+          fallback_result = audit_recording_failure_result(result, e)
+          record_invitation_email_summary_after_audit_failure(user, fallback_result)
+          fallback_result
         end
 
         def audit_recording_failure_result(result, error)
+          delivered = result&.fetch(:sent, false) == true
+          original_error = result&.fetch(:error, nil)
+          audit_error = "delivery audit could not be recorded: #{error.message}"
           {
-            sent: false,
-            status: "failed",
+            sent: delivered,
+            status: delivered ? "sent" : "failed",
             provider_message_id: result&.fetch(:provider_message_id, nil),
-            error: "Invite was saved, but delivery audit could not be recorded: #{error.message}"
+            error: [ original_error, audit_error ].compact_blank.join("; ")
           }
+        end
+
+        def record_invitation_email_summary_after_audit_failure(user, fallback_result)
+          attempted_at = Time.current
+          user.with_lock do
+            user.update!(
+              invited_at: user.invited_at || attempted_at,
+              invited_by_user: user.invited_by_user || current_user,
+              invitation_email_status: fallback_result.fetch(:status),
+              invitation_email_provider_id: fallback_result[:provider_message_id],
+              invitation_email_error: fallback_result[:error],
+              last_invite_email_attempted_at: attempted_at,
+              last_invite_email_sent_at: fallback_result[:sent] ? attempted_at : user.last_invite_email_sent_at,
+              last_invite_email_sent_by_user: fallback_result[:sent] ? current_user : user.last_invite_email_sent_by_user
+            )
+          end
+        rescue ActiveRecord::ActiveRecordError => e
+          Rails.logger.error("[InviteEmail] Summary fallback failed for #{user.email}: #{e.class} #{e.message}")
         end
 
         def record_invitation_email_attempt(user, result)

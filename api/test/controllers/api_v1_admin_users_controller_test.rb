@@ -155,11 +155,11 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Tuesday Pilot" ], body.fetch("user").fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
   end
 
-  test "admin invite succeeds with a saved user when invite audit recording fails" do
+  test "admin invite preserves delivered status when invite audit recording fails" do
     admin = create_user(email: "audit-fallback-admin@example.com", role: "admin")
     cohort = Cohort.create!(name: "Audit Fallback Pilot", status: "enrolling", created_by_user: admin)
 
-    with_user_invite_email_stub(sent: false, status: "invalid_status", provider_message_id: nil, error: "invalid status") do
+    with_user_invite_email_stub(sent: true, status: "invalid_status", provider_message_id: "email_delivered_123", error: nil) do
       post "/api/v1/admin/users",
            params: { user: { email: "audit-fallback@example.com", role: "participant", cohort_id: cohort.id } },
            headers: auth_headers(admin),
@@ -170,9 +170,13 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     user = User.find_by!(email: "audit-fallback@example.com")
     assert_equal cohort, user.cohorts.first
     assert_empty user.invitation_email_attempts
+    assert_equal "sent", user.invitation_email_status
+    assert_equal "email_delivered_123", user.invitation_email_provider_id
+    assert_not_nil user.last_invite_email_sent_at
+    assert_equal admin, user.last_invite_email_sent_by_user
     body = JSON.parse(response.body)
-    assert_equal false, body.fetch("invitation_sent")
-    assert_equal "failed", body.fetch("invitation_status")
+    assert_equal true, body.fetch("invitation_sent")
+    assert_equal "sent", body.fetch("invitation_status")
     assert_includes body.fetch("invitation_error"), "delivery audit could not be recorded"
   end
 
