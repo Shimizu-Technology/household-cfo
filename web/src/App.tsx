@@ -8,6 +8,7 @@ import {
   fetchAdminCohorts,
   fetchAdminUsers,
   fetchAppData,
+  resendAdminUserInvitation,
   saveWorkspaceSetup,
   sendMiaMessage,
   updateAdminCohort,
@@ -19,6 +20,7 @@ import type {
   AdminCohortStatus,
   AdminUser,
   AdminUserInput,
+  AdminUserMutationResponse,
   AppData,
   CurrentUser,
   InvitationStatus,
@@ -799,6 +801,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [cohortSaving, setCohortSaving] = useState(false)
   const [inviteSaving, setInviteSaving] = useState(false)
   const [savingUserId, setSavingUserId] = useState<number | null>(null)
+  const [resendingUserId, setResendingUserId] = useState<number | null>(null)
+  const [roleMatrixOpen, setRoleMatrixOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const selectedCohortIdRef = useRef<number | null>(null)
@@ -912,8 +916,15 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
   async function handleInviteUser(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
+    const inviteRole = inviteDraft.role ?? 'participant'
+    const cohortId = String(inviteDraft.cohort_id ?? '')
+
     if (!inviteDraft.email?.trim()) {
       setError('Email is required before creating an invite.')
+      return
+    }
+    if (roleRequiresCohort(inviteRole) && !cohortId) {
+      setError(`${titleize(inviteRole)} users must be assigned to at least one cohort.`)
       return
     }
 
@@ -921,14 +932,14 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     setError(null)
     setNotice(null)
     try {
-      const user = await createAdminUser({
+      const response = await createAdminUser({
         email: inviteDraft.email.trim(),
         first_name: inviteDraft.first_name?.trim(),
         last_name: inviteDraft.last_name?.trim(),
-        role: inviteDraft.role ?? 'participant',
-        cohort_id: inviteDraft.cohort_id || undefined,
+        role: inviteRole,
+        cohort_id: cohortId || undefined,
       })
-      setNotice(`${user.email} is invited${inviteDraft.cohort_id ? ' and assigned to the selected cohort' : ''}.`)
+      setNotice(`${response.user.email} is invited${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
       setInviteDraft({ email: '', first_name: '', last_name: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '' })
       await loadAdminData()
     } catch (caught) {
@@ -941,6 +952,10 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   async function handleSaveUser(user: AdminUser) {
     const draft = userDrafts[user.id]
     if (!draft || savingUserId) return
+    if (roleRequiresCohort(draft.role) && draft.cohort_ids.length === 0) {
+      setError(`${titleize(draft.role)} users must be assigned to at least one cohort before saving.`)
+      return
+    }
 
     setSavingUserId(user.id)
     setError(null)
@@ -957,6 +972,23 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       setError(caught instanceof Error ? caught.message : 'User could not be saved.')
     } finally {
       setSavingUserId(null)
+    }
+  }
+
+  async function handleResendInvitation(user: AdminUser) {
+    if (resendingUserId) return
+
+    setResendingUserId(user.id)
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await resendAdminUserInvitation(user.id)
+      setNotice(`${response.user.email} invitation refreshed. ${inviteDeliveryNotice(response)}`)
+      await loadAdminData()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invitation email could not be resent.')
+    } finally {
+      setResendingUserId(null)
     }
   }
 
@@ -989,6 +1021,9 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     })
   }
 
+  const inviteRole = inviteDraft.role ?? 'participant'
+  const inviteRequiresCohort = roleRequiresCohort(inviteRole)
+
   return (
     <section className="screen-grid admin-screen">
       <ScreenHeading
@@ -1006,6 +1041,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
         <AdminStat label="Pending" value={adminStats.pending.toString()} />
         <AdminStat label="Setup complete" value={adminStats.setupComplete.toString()} />
       </div>
+
+      <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
 
       <div className="admin-layout">
         <article className="panel admin-card">
@@ -1143,17 +1180,18 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
             </label>
             <label className="admin-field">
               <span>Role</span>
-              <select value={inviteDraft.role ?? 'participant'} onChange={(event) => setInviteDraft((current) => ({ ...current, role: event.target.value as UserRole }))}>
+              <select value={inviteRole} onChange={(event) => setInviteDraft((current) => ({ ...current, role: event.target.value as UserRole }))}>
                 {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
               </select>
             </label>
             <label className="admin-field">
-              <span>Cohort</span>
-              <select value={String(inviteDraft.cohort_id ?? '')} onChange={(event) => setInviteDraft((current) => ({ ...current, cohort_id: event.target.value }))}>
-                <option value="">No cohort yet</option>
+              <span>Cohort {inviteRequiresCohort ? '(required)' : '(optional)'}</span>
+              <select required={inviteRequiresCohort} value={String(inviteDraft.cohort_id ?? '')} onChange={(event) => setInviteDraft((current) => ({ ...current, cohort_id: event.target.value }))}>
+                <option value="">{inviteRequiresCohort ? 'Select a cohort' : 'No cohort for admin'}</option>
                 {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
               </select>
             </label>
+            <p className="admin-field-note wide">Admins can manage across cohorts without assignment. Coaches and participants must belong to at least one cohort.</p>
             <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
           </form>
         </article>
@@ -1176,6 +1214,9 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               const draft = userDrafts[user.id] ?? adminDraftForUser(user)
               const isSelf = user.id === currentUser.id
 
+              const draftNeedsCohort = roleRequiresCohort(draft.role) && draft.cohort_ids.length === 0
+              const canResendInvite = user.invitation_status === 'pending'
+
               return (
                 <article className="admin-user-row" key={user.id}>
                   <div className="admin-user-main">
@@ -1186,9 +1227,13 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                     <div className="admin-badge-row">
                       <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
                       <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
+                      <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />
                       <AdminBadge value={`${user.workspace.profile_completeness}% setup`} tone={user.workspace.setup_complete ? 'green' : 'neutral'} />
                     </div>
-                    <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || 'No cohort assigned yet'}</p>
+                    <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
+                    {user.invite_email.last_attempted_at && (
+                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
+                    )}
                   </div>
 
                   <div className="admin-user-controls">
@@ -1204,10 +1249,10 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                         {invitationStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
                       </select>
                     </label>
-                    <div className="admin-field compact cohort-select">
-                      <span>Cohorts</span>
+                    <div className={`admin-field compact cohort-select ${draftNeedsCohort ? 'needs-attention' : ''}`}>
+                      <span>Cohorts {roleRequiresCohort(draft.role) ? '(required)' : '(optional)'}</span>
                       <div className="admin-cohort-checks">
-                        {cohorts.length === 0 && <small>No cohorts yet</small>}
+                        {cohorts.length === 0 && <small>No cohorts yet. Create one before adding coaches or participants.</small>}
                         {cohorts.map((cohort) => (
                           <label className="admin-cohort-check" key={cohort.id}>
                             <input
@@ -1219,8 +1264,12 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                           </label>
                         ))}
                       </div>
+                      {draftNeedsCohort && <small className="admin-field-warning">Required before saving.</small>}
                     </div>
-                    <button type="button" onClick={() => void handleSaveUser(user)} disabled={savingUserId === user.id}>{savingUserId === user.id ? 'Saving' : 'Save'}</button>
+                    <div className="admin-user-actions">
+                      <button type="button" onClick={() => void handleSaveUser(user)} disabled={savingUserId === user.id || draftNeedsCohort}>{savingUserId === user.id ? 'Saving' : 'Save'}</button>
+                      <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={!canResendInvite || resendingUserId === user.id}>{resendingUserId === user.id ? 'Sending' : 'Resend email'}</button>
+                    </div>
                   </div>
                 </article>
               )
@@ -1245,6 +1294,36 @@ function AdminBadge({ value, tone }: { value: string; tone: 'green' | 'gold' | '
   return <span className={`admin-badge ${tone}`}>{value}</span>
 }
 
+function RoleMatrix({ open, onToggle }: { open: boolean; onToggle: (open: boolean) => void }) {
+  return (
+    <details className="role-matrix panel" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
+      <summary>
+        <span>
+          <strong>Role and cohort rules</strong>
+          <small>Backend-enforced policy for admin, coach, and participant users.</small>
+        </span>
+      </summary>
+      <div className="role-matrix-grid">
+        <article>
+          <strong>Admin</strong>
+          <span>May have no cohort</span>
+          <p>Can manage cohorts, users, invitations, and staff access. Admins are not limited to a single participant group.</p>
+        </article>
+        <article>
+          <strong>Coach</strong>
+          <span>Requires at least one cohort</span>
+          <p>Supports assigned groups and can create participant invites, but cannot manage admin or coach accounts.</p>
+        </article>
+        <article>
+          <strong>Participant</strong>
+          <span>Requires at least one cohort</span>
+          <p>Uses the household workspace and Mia coaching flow. Their detailed financial rows stay out of admin lists.</p>
+        </article>
+      </div>
+    </details>
+  )
+}
+
 function adminDraftsForUsers(users: AdminUser[]) {
   return users.reduce<Record<number, AdminUserDraft>>((drafts, user) => {
     drafts[user.id] = adminDraftForUser(user)
@@ -1258,6 +1337,35 @@ function adminDraftForUser(user: AdminUser): AdminUserDraft {
     invitation_status: user.invitation_status,
     cohort_ids: user.cohorts.map((membership) => String(membership.cohort.id)),
   }
+}
+
+function roleRequiresCohort(role: UserRole) {
+  return role !== 'admin'
+}
+
+function inviteDeliveryNotice(response: AdminUserMutationResponse) {
+  if (response.invitation_sent) return 'Invite email sent through Resend.'
+  if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
+  if (response.invitation_status === 'skipped') return 'Invite saved; email delivery is skipped until Resend is configured.'
+
+  return 'Invite saved.'
+}
+
+function inviteEmailTone(status: AdminUser['invite_email']['status']): 'green' | 'gold' | 'red' | 'neutral' {
+  if (status === 'sent') return 'green'
+  if (status === 'failed') return 'red'
+  if (status === 'skipped') return 'gold'
+
+  return 'neutral'
+}
+
+function shortDateTime(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
 }
 
 function cleanCohortDraft(draft: AdminCohortInput): AdminCohortInput {

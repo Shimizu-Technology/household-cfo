@@ -38,7 +38,7 @@ Implemented on `feature/real-workspace-mvp`:
 - Mia uses a dynamic household context builder for real `/api/v1/mia/messages` requests.
 - Signed-in Mia chat is persisted in server-side `chat_sessions` / `chat_messages`.
 - A minimal staff/admin users endpoint exists for invite records.
-- Admin cohort management now has a browser UI for creating cohorts, inviting admins/coaches/participants, assigning users to cohorts, and seeing high-level setup/readiness status.
+- Admin cohort management now has a browser UI for creating cohorts, inviting admins/coaches/participants, enforcing role/cohort requirements, sending/resending Resend invite emails when configured, assigning users to cohorts, and seeing high-level setup/readiness status.
 
 Still not real yet:
 

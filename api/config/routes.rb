@@ -20,7 +20,9 @@ Rails.application.routes.draw do
       end
       namespace :admin do
         resources :cohorts, only: %i[index show create update]
-        resources :users, only: %i[index create update]
+        resources :users, only: %i[index create update] do
+          post :resend_invitation, on: :member
+        end
       end
     end
 

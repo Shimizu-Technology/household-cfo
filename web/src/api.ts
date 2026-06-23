@@ -197,11 +197,34 @@ export type AdminCohort = {
   }>
 }
 
+export type AdminInviteEmailStatus = 'not_sent' | 'skipped' | 'sent' | 'failed'
+
 export type AdminUser = CurrentUser & {
   invited_by: null | {
     id: number
     email: string
     full_name: string
+  }
+  invite_email: {
+    status: AdminInviteEmailStatus
+    provider_message_id: string | null
+    error: string | null
+    last_attempted_at: string | null
+    last_sent_at: string | null
+    last_sent_by: null | {
+      id: number
+      email: string
+      full_name: string
+    }
+    delivery_log: Array<{
+      status: AdminInviteEmailStatus
+      attempted_at: string
+      sent_at: string | null
+      sent_by_user_id: number
+      provider: string
+      provider_message_id: string | null
+      error: string | null
+    }>
   }
   cohorts: Array<{
     id: number
@@ -227,6 +250,13 @@ export type AdminCohortInput = {
   starts_on?: string
   ends_on?: string
   notes?: string
+}
+
+export type AdminUserMutationResponse = {
+  user: AdminUser
+  invitation_sent?: boolean
+  invitation_status?: AdminInviteEmailStatus
+  invitation_error?: string | null
 }
 
 export type AdminUserInput = {
@@ -332,9 +362,8 @@ export async function updateAdminCohort(id: number, values: AdminCohortInput): P
   return payload.cohort
 }
 
-export async function createAdminUser(values: AdminUserInput): Promise<AdminUser> {
-  const payload = await postJson<{ user: AdminUser }>('/api/v1/admin/users', { user: values })
-  return payload.user
+export async function createAdminUser(values: AdminUserInput): Promise<AdminUserMutationResponse> {
+  return postJson<AdminUserMutationResponse>('/api/v1/admin/users', { user: values })
 }
 
 export async function updateAdminUser(id: number, values: AdminUserInput): Promise<AdminUser> {
@@ -344,6 +373,10 @@ export async function updateAdminUser(id: number, values: AdminUserInput): Promi
     body: JSON.stringify({ user: values }),
   })
   return payload.user
+}
+
+export async function resendAdminUserInvitation(id: number): Promise<AdminUserMutationResponse> {
+  return postJson<AdminUserMutationResponse>(`/api/v1/admin/users/${id}/resend_invitation`, {})
 }
 
 export async function fetchAppData(realWorkspace = false): Promise<AppData> {

@@ -1,6 +1,7 @@
 class User < ApplicationRecord
   ROLES = %w[admin coach participant].freeze
   INVITATION_STATUSES = %w[pending accepted revoked].freeze
+  INVITATION_EMAIL_STATUSES = %w[not_sent skipped sent failed].freeze
 
   normalizes :email, with: ->(email) { email.to_s.strip.downcase }
 
@@ -8,10 +9,13 @@ class User < ApplicationRecord
   validates :email, presence: true, uniqueness: { case_sensitive: false }
   validates :role, inclusion: { in: ROLES }
   validates :invitation_status, inclusion: { in: INVITATION_STATUSES }
+  validates :invitation_email_status, inclusion: { in: INVITATION_EMAIL_STATUSES }, allow_nil: true
 
   belongs_to :invited_by_user, class_name: "User", optional: true
+  belongs_to :last_invite_email_sent_by_user, class_name: "User", optional: true
 
   has_many :invited_users, class_name: "User", foreign_key: :invited_by_user_id, dependent: :nullify, inverse_of: :invited_by_user
+  has_many :sent_invite_emails, class_name: "User", foreign_key: :last_invite_email_sent_by_user_id, dependent: :nullify, inverse_of: :last_invite_email_sent_by_user
   has_many :household_memberships, dependent: :destroy
   has_many :households, through: :household_memberships
   has_many :created_households, class_name: "Household", foreign_key: :created_by_user_id, dependent: :restrict_with_exception, inverse_of: :created_by_user
@@ -80,5 +84,6 @@ class User < ApplicationRecord
   def set_defaults
     self.role ||= "participant"
     self.invitation_status ||= "accepted"
+    self.invitation_email_status ||= "not_sent"
   end
 end

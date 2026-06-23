@@ -29,9 +29,17 @@ Admins can:
 - create cohorts,
 - set cohort status/dates/notes,
 - invite users as `admin`, `coach`, or `participant`,
+- send/resend invitation emails through Resend when configured,
 - assign invited users to one or more cohorts,
 - update user role/status/cohort assignments,
+- review the collapsible role matrix that explains cohort requirements,
 - see high-level setup completion/readiness without exposing detailed household financial rows.
+
+Role/cohort policy is backend-enforced:
+
+- `admin`: cohort assignment is optional.
+- `coach`: at least one cohort is required.
+- `participant`: at least one cohort is required.
 
 ## API shape
 
@@ -45,13 +53,27 @@ PATCH  /api/v1/admin/cohorts/:id
 GET    /api/v1/admin/users
 POST   /api/v1/admin/users
 PATCH  /api/v1/admin/users/:id
+POST   /api/v1/admin/users/:id/resend_invitation
 ```
 
-`/api/v1/admin/cohorts` is admin-only. User invite management remains staff-aware at the API layer, but the current web Admin tab is shown only to admins.
+`/api/v1/admin/cohorts` is admin-only. User invite management remains staff-aware at the API layer, but the current web Admin tab is shown only to admins. Create/resend responses include `invitation_sent`, `invitation_status`, and `invitation_error` so the UI can report whether Resend actually delivered the email.
+
+## Invitation emails
+
+Invite emails use Resend directly from the Rails API. Local development can keep these unset; invites are still created and marked as `skipped`.
+
+```bash
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL="Household CFO <noreply@example.com>"
+# or MAILER_FROM_EMAIL=noreply@example.com
+FRONTEND_URL=http://localhost:5173
+```
+
+Email delivery metadata is stored on the invited user (`invitation_email_status`, provider id, last attempt/sent timestamps, last sender, and a short delivery log) so admins can see and retry delivery without Rails console commands.
 
 ## Safety constraints
 
-- The UI does not send real invitation emails yet; it creates invite records that Clerk sign-in can link by email.
+- The UI sends real invitation emails only when Resend is configured; otherwise invite records are still created for Clerk email linking.
 - The UI blocks self-demotion/revocation at the backend.
 - The backend prevents removing the last active admin.
 - Cohort dashboards show completion/readiness summaries, not detailed financial entries.
@@ -72,4 +94,5 @@ PATCH  /api/v1/admin/users/:id
 5. Open the `Admin` tab.
 6. Create a test cohort.
 7. Invite a fake participant email into that cohort.
-8. Sign out, sign in as the participant, and test the blank workspace/setup/Mia flow.
+8. If Resend is configured, confirm the invite email arrives; otherwise confirm the UI reports email delivery as skipped.
+9. Sign out, sign in as the participant, and test the blank workspace/setup/Mia flow.

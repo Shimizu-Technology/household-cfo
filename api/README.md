@@ -7,6 +7,7 @@ Rails API for Household CFO powered by VERA. It serves the demo-safe Mia/Househo
 - Ruby/Rails API
 - PostgreSQL
 - Clerk JWT verification through JWKS
+- Resend invite email delivery for admin-created invitations
 - OpenRouter optional fallback for Mia responses
 
 ## Local setup
@@ -39,7 +40,20 @@ SEED_ADMIN_EMAILS=you@example.com,partner@example.com bin/rails db:seed
 CLERK_BOOTSTRAP_ADMIN_EMAILS=you@example.com
 ```
 
-After the owner admin signs in, use the Admin tab in the web app to create cohorts and invite additional admins, coaches, and participants. Do not commit Clerk keys, participant financial data, or private documents.
+After the owner admin signs in, use the Admin tab in the web app to create cohorts and invite additional admins, coaches, and participants. Do not commit Clerk keys, Resend keys, participant financial data, or private documents.
+
+## Resend invite emails
+
+Admin-created invites and resend actions call Resend directly when configured:
+
+```bash
+RESEND_API_KEY=re_...
+RESEND_FROM_EMAIL="Household CFO <noreply@example.com>"
+# or MAILER_FROM_EMAIL=noreply@example.com
+FRONTEND_URL=http://localhost:5173
+```
+
+If Resend is not configured, invitation records are still created for Clerk email-linking and the email status is stored as `skipped`.
 
 ## Tests and checks
 
@@ -58,7 +72,7 @@ bundle exec bundler-audit check --update
 - `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
 - `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
 - `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context.
-- `GET/POST/PATCH /api/v1/admin/users` — staff/admin invite records, role/status management, and cohort assignment.
+- `GET/POST/PATCH /api/v1/admin/users` and `POST /api/v1/admin/users/:id/resend_invitation` — staff/admin invite records, Resend delivery status, role/status management, and cohort assignment.
 - `GET/POST/PATCH /api/v1/admin/cohorts` — admin-only cohort creation and cohort metadata management.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.
 - `POST /api/demo/mia/messages` — demo Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.

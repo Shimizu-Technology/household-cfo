@@ -30,6 +30,9 @@ gem "thruster", require: false
 gem "httparty", "~> 0.24.2"
 gem "jwt", "~> 3.2"
 
+# Transactional email delivery for cohort invitations
+gem "resend", "~> 0.16.0"
+
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 gem "rack-cors"
 

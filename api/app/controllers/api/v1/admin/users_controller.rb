@@ -6,31 +6,41 @@ module Api
         before_action :require_staff!
 
         def index
-          users = User.includes(:invited_by_user, cohort_memberships: :cohort, household_memberships: :household).order(:email)
+          users = User.includes(
+            :invited_by_user,
+            :last_invite_email_sent_by_user,
+            cohort_memberships: :cohort,
+            household_memberships: :household
+          ).order(:email)
           render json: { users: users.map { |user| serialize_user(user) } }
         end
 
         def create
-          role = requested_role
+          attributes = user_params
+          role = attributes[:role].presence || "participant"
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
           return render_forbidden("Role assignment not permitted") unless role_assignable_by_current_user?(role)
+
+          cohort_ids = cohort_ids_from_attributes(attributes)
+          return render_cohort_required(role) if cohort_required?(role) && cohort_ids.empty?
 
           user = nil
           User.transaction do
             user = User.create!(
-              email: user_params[:email],
-              first_name: bounded_text(user_params[:first_name], 80),
-              last_name: bounded_text(user_params[:last_name], 80),
+              email: attributes[:email],
+              first_name: bounded_text(attributes[:first_name], 80),
+              last_name: bounded_text(attributes[:last_name], 80),
               role: role,
               clerk_id: pending_clerk_id,
               invitation_status: "pending",
               invited_at: Time.current,
               invited_by_user: current_user
             )
-            sync_cohort_memberships(user, cohort_ids_from_params, role: cohort_role_for(role))
+            sync_cohort_memberships(user, cohort_ids, role: cohort_role_for(role))
           end
 
-          render json: { user: serialize_user(user.reload) }, status: :created
+          invitation_result = send_invitation_email(user)
+          render json: invite_response_payload(user.reload, invitation_result), status: :created
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         rescue ActiveRecord::RecordNotFound => e
@@ -43,6 +53,10 @@ module Api
           role = attributes[:role].presence || user.role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
+
+          membership_params_present = cohort_membership_params_present?(attributes)
+          cohort_ids = membership_params_present ? cohort_ids_from_attributes(attributes) : user.cohort_memberships.pluck(:cohort_id)
+          return render_cohort_required(role) if cohort_required?(role) && cohort_ids.empty?
 
           admin_guard_error = nil
           User.transaction do
@@ -66,8 +80,8 @@ module Api
             user.invited_at ||= Time.current if user.invitation_status == "pending"
             user.save!
 
-            if cohort_membership_params_present?
-              sync_cohort_memberships(user, cohort_ids_from_params, role: cohort_role_for(user.role))
+            if membership_params_present
+              sync_cohort_memberships(user, cohort_ids, role: cohort_role_for(user.role))
             else
               user.cohort_memberships.update_all(role: cohort_role_for(user.role), updated_at: Time.current)
             end
@@ -79,6 +93,20 @@ module Api
           end
 
           render json: { user: serialize_user(user.reload) }
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+        rescue ActiveRecord::RecordNotFound => e
+          render json: { errors: [ e.message ] }, status: :unprocessable_entity
+        end
+
+        def resend_invitation
+          user = User.find(params[:id])
+          return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, user.role)
+          return render json: { errors: [ "Accepted users do not need another invitation" ] }, status: :unprocessable_entity if user.invitation_accepted?
+          return render json: { errors: [ "Reactivate this user before resending an invitation" ] }, status: :unprocessable_entity if user.revoked?
+
+          result = send_invitation_email(user)
+          render json: invite_response_payload(user.reload, result)
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         rescue ActiveRecord::RecordNotFound => e
@@ -100,10 +128,6 @@ module Api
           permitted[:role] = payload[:role] if payload.key?(:role)
           permitted[:invitation_status] = payload[:invitation_status] if payload.key?(:invitation_status)
           permitted.compact
-        end
-
-        def requested_role
-          user_params[:role].presence || "participant"
         end
 
         def role_assignable_by_current_user?(role)
@@ -159,16 +183,13 @@ module Api
           user.clerk_id.present? && !user.clerk_id.start_with?("pending_")
         end
 
-        def cohort_membership_params_present?
-          user_payload = params[:user]
-          return false unless user_payload.respond_to?(:key?)
-
-          user_payload.key?(:cohort_id) || user_payload.key?(:cohort_ids)
+        def cohort_membership_params_present?(attributes)
+          attributes.key?(:cohort_id) || attributes.key?(:cohort_ids)
         end
 
-        def cohort_ids_from_params
-          raw_ids = Array(params.dig(:user, :cohort_ids))
-          raw_ids << params.dig(:user, :cohort_id)
+        def cohort_ids_from_attributes(attributes)
+          raw_ids = Array(attributes[:cohort_ids])
+          raw_ids << attributes[:cohort_id]
           ids = raw_ids.filter_map { |value| value.to_s.presence }.map(&:to_i).uniq
           return [] if ids.empty?
 
@@ -177,6 +198,14 @@ module Api
           raise ActiveRecord::RecordNotFound, "Cohort not found: #{missing_ids.join(', ')}" if missing_ids.any?
 
           ids
+        end
+
+        def cohort_required?(role)
+          role != "admin"
+        end
+
+        def render_cohort_required(role)
+          render json: { errors: [ "#{role.titleize} users must be assigned to at least one cohort" ] }, status: :unprocessable_entity
         end
 
         def sync_cohort_memberships(user, cohort_ids, role:)
@@ -204,12 +233,58 @@ module Api
           value.to_s.squish.truncate(max_length, omission: "…")
         end
 
+        def send_invitation_email(user)
+          result = UserInviteEmailService.send_invite(user: user, invited_by: current_user)
+          record_invitation_email_attempt(user, result)
+          result
+        end
+
+        def record_invitation_email_attempt(user, result)
+          attempted_at = Time.current
+          sent_at = result[:sent] ? attempted_at : user.last_invite_email_sent_at
+          user.update!(
+            invited_at: attempted_at,
+            invited_by_user: current_user,
+            invitation_email_status: result.fetch(:status),
+            invitation_email_provider_id: result[:provider_message_id],
+            invitation_email_error: result[:error],
+            last_invite_email_attempted_at: attempted_at,
+            last_invite_email_sent_at: sent_at,
+            last_invite_email_sent_by_user: result[:sent] ? current_user : user.last_invite_email_sent_by_user,
+            invitation_email_delivery_log: next_invitation_email_log(user, result, attempted_at: attempted_at, sent_at: sent_at)
+          )
+        end
+
+        def next_invitation_email_log(user, result, attempted_at:, sent_at:)
+          Array(user.invitation_email_delivery_log).last(19) + [
+            {
+              status: result.fetch(:status),
+              attempted_at: attempted_at.iso8601,
+              sent_at: result[:sent] ? sent_at&.iso8601 : nil,
+              sent_by_user_id: current_user.id,
+              provider: "resend",
+              provider_message_id: result[:provider_message_id],
+              error: result[:error]
+            }
+          ]
+        end
+
+        def invite_response_payload(user, result)
+          {
+            user: serialize_user(user),
+            invitation_sent: result[:sent],
+            invitation_status: result[:status],
+            invitation_error: result[:error]
+          }
+        end
+
         def serialize_user(user)
           household = user.household_memberships.sort_by(&:created_at).first&.household
           snapshot = household ? HouseholdFinance::SnapshotBuilder.new(household).call : nil
 
           user.as_api_json.merge(
             invited_by: serialize_inviter(user.invited_by_user),
+            invite_email: serialize_invite_email(user),
             cohorts: user.cohort_memberships.sort_by { |membership| membership.cohort.name.downcase }.map { |membership| serialize_membership(membership) },
             workspace: {
               household_id: household&.id,
@@ -228,6 +303,18 @@ module Api
             id: inviter.id,
             email: inviter.email,
             full_name: inviter.full_name
+          }
+        end
+
+        def serialize_invite_email(user)
+          {
+            status: user.invitation_email_status.presence || "not_sent",
+            provider_message_id: user.invitation_email_provider_id,
+            error: user.invitation_email_error,
+            last_attempted_at: user.last_invite_email_attempted_at,
+            last_sent_at: user.last_invite_email_sent_at,
+            last_sent_by: serialize_inviter(user.last_invite_email_sent_by_user),
+            delivery_log: Array(user.invitation_email_delivery_log).last(5)
           }
         end
 

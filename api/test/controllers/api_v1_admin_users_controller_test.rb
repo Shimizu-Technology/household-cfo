@@ -17,6 +17,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
 
   test "admin can create staff invited users" do
     admin = create_user(email: "owner@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Coach Pilot", status: "enrolling", created_by_user: admin)
 
     post "/api/v1/admin/users",
          params: {
@@ -24,7 +25,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
              email: "new-coach@example.com",
              first_name: "New",
              last_name: "Coach",
-             role: "coach"
+             role: "coach",
+             cohort_id: cohort.id
            }
          },
          headers: auth_headers(admin),
@@ -38,7 +40,9 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "staff can create pending invited users" do
+    admin = create_user(email: "coach-admin@example.com", role: "admin")
     coach = create_user(email: "coach@example.com", role: "coach")
+    cohort = Cohort.create!(name: "Participant Pilot", status: "enrolling", created_by_user: admin)
 
     post "/api/v1/admin/users",
          params: {
@@ -46,7 +50,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
              email: "new-participant@example.com",
              first_name: "New",
              last_name: "Participant",
-             role: "participant"
+             role: "participant",
+             cohort_id: cohort.id
            }
          },
          headers: auth_headers(coach),
@@ -105,8 +110,31 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     user = User.find_by!(email: "pilot@example.com")
     assert_equal admin, user.invited_by_user
     assert_equal cohort, user.cohorts.first
-    body = JSON.parse(response.body).fetch("user")
-    assert_equal [ "Tuesday Pilot" ], body.fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
+    assert_equal "skipped", user.invitation_email_status
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("invitation_sent")
+    assert_equal "skipped", body.fetch("invitation_status")
+    assert_equal [ "Tuesday Pilot" ], body.fetch("user").fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
+  end
+
+  test "admins can be invited without a cohort but participants cannot" do
+    admin = create_user(email: "no-cohort-admin@example.com", role: "admin")
+
+    post "/api/v1/admin/users",
+         params: { user: { email: "new-admin@example.com", role: "admin" } },
+         headers: auth_headers(admin),
+         as: :json
+
+    assert_response :created
+    assert_empty User.find_by!(email: "new-admin@example.com").cohorts
+
+    post "/api/v1/admin/users",
+         params: { user: { email: "no-cohort-participant@example.com", role: "participant" } },
+         headers: auth_headers(admin),
+         as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Participant users must be assigned to at least one cohort"
   end
 
   test "admin can update a user's role status and cohort assignment" do
@@ -144,6 +172,37 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_equal [ first_cohort, second_cohort ].map(&:id).sort, user.reload.cohorts.pluck(:id).sort
+  end
+
+  test "admin cannot save coach or participant users without cohorts" do
+    admin = create_user(email: "require-cohort-owner@example.com", role: "admin")
+    user = create_user(email: "require-cohort-user@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Required Pilot", status: "draft", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "participant", cohort_ids: [] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Participant users must be assigned to at least one cohort"
+    assert_equal [ cohort ], user.reload.cohorts.to_a
+  end
+
+  test "admin users can be saved without cohorts" do
+    primary_admin = create_user(email: "primary-admin@example.com", role: "admin")
+    secondary_admin = create_user(email: "secondary-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Admin Optional Pilot", status: "draft", created_by_user: primary_admin)
+    secondary_admin.cohort_memberships.create!(cohort: cohort, role: "admin")
+
+    patch "/api/v1/admin/users/#{secondary_admin.id}",
+          params: { user: { role: "admin", cohort_ids: [] } },
+          headers: auth_headers(primary_admin),
+          as: :json
+
+    assert_response :success
+    assert_empty secondary_admin.reload.cohorts
   end
 
   test "admin user save without cohort params does not remove existing cohort assignments" do
@@ -208,6 +267,45 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
     assert_equal "User update not permitted", JSON.parse(response.body).fetch("error")
     assert_equal "admin", admin.reload.role
+  end
+
+  test "admin can resend pending invitations" do
+    admin = create_user(email: "resend-admin@example.com", role: "admin")
+    user = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "pending-resend@example.com",
+      role: "participant",
+      invitation_status: "pending"
+    )
+
+    post "/api/v1/admin/users/#{user.id}/resend_invitation", headers: auth_headers(admin)
+
+    assert_response :success
+    user.reload
+    assert_equal "skipped", user.invitation_email_status
+    assert_not_nil user.last_invite_email_attempted_at
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("invitation_sent")
+    assert_equal "skipped", body.fetch("invitation_status")
+  end
+
+  test "accepted and revoked users cannot receive resend invitations" do
+    admin = create_user(email: "resend-block-admin@example.com", role: "admin")
+    accepted_user = create_user(email: "accepted-resend@example.com", role: "participant")
+    revoked_user = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "revoked-resend@example.com",
+      role: "participant",
+      invitation_status: "revoked"
+    )
+
+    post "/api/v1/admin/users/#{accepted_user.id}/resend_invitation", headers: auth_headers(admin)
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Accepted users do not need another invitation"
+
+    post "/api/v1/admin/users/#{revoked_user.id}/resend_invitation", headers: auth_headers(admin)
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Reactivate this user before resending an invitation"
   end
 
   private
