@@ -10,7 +10,7 @@ module Api
             :invited_by_user,
             :last_invite_email_sent_by_user,
             cohort_memberships: :cohort,
-            household_memberships: :household
+            household_memberships: { household: %i[income_sources expense_items debts accounts goals] }
           ).order(:email)
           render json: { users: users.map { |user| serialize_user(user) } }
         end
@@ -243,8 +243,8 @@ module Api
           attempted_at = Time.current
           sent_at = result[:sent] ? attempted_at : user.last_invite_email_sent_at
           user.update!(
-            invited_at: attempted_at,
-            invited_by_user: current_user,
+            invited_at: user.invited_at || attempted_at,
+            invited_by_user: user.invited_by_user || current_user,
             invitation_email_status: result.fetch(:status),
             invitation_email_provider_id: result[:provider_message_id],
             invitation_email_error: result[:error],

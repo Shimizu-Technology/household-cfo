@@ -289,6 +289,28 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "skipped", body.fetch("invitation_status")
   end
 
+  test "resending invitations preserves original inviter audit fields" do
+    original_inviter = create_user(email: "original-inviter@example.com", role: "admin")
+    resender = create_user(email: "resender@example.com", role: "admin")
+    original_invited_at = 2.days.ago.change(usec: 0)
+    user = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "pending-audit@example.com",
+      role: "participant",
+      invitation_status: "pending",
+      invited_by_user: original_inviter,
+      invited_at: original_invited_at
+    )
+
+    post "/api/v1/admin/users/#{user.id}/resend_invitation", headers: auth_headers(resender)
+
+    assert_response :success
+    user.reload
+    assert_equal original_inviter, user.invited_by_user
+    assert_equal original_invited_at.to_i, user.invited_at.to_i
+    assert_equal resender.id, user.invitation_email_delivery_log.last.fetch("sent_by_user_id")
+  end
+
   test "accepted and revoked users cannot receive resend invitations" do
     admin = create_user(email: "resend-block-admin@example.com", role: "admin")
     accepted_user = create_user(email: "accepted-resend@example.com", role: "participant")

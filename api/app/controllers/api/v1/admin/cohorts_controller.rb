@@ -6,12 +6,12 @@ module Api
         before_action :require_admin!
 
         def index
-          cohorts = Cohort.includes(:created_by_user, cohort_memberships: { user: { household_memberships: :household } }).order(created_at: :desc)
+          cohorts = Cohort.includes(cohort_includes).order(created_at: :desc)
           render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort) } }
         end
 
         def show
-          cohort = Cohort.includes(:created_by_user, cohort_memberships: { user: { household_memberships: :household } }).find(params[:id])
+          cohort = Cohort.includes(cohort_includes).find(params[:id])
           render json: { cohort: serialize_cohort(cohort, include_members: true) }
         end
 
@@ -36,10 +36,18 @@ module Api
           params.require(:cohort).permit(:name, :status, :starts_on, :ends_on, :notes)
         end
 
+        def cohort_includes
+          [
+            :created_by_user,
+            { cohort_memberships: { user: { household_memberships: { household: %i[income_sources expense_items debts accounts goals] } } } }
+          ]
+        end
+
         def serialize_cohort(cohort, include_members: false)
           memberships = cohort.cohort_memberships.to_a
           member_users = memberships.map(&:user)
-          setup_complete_count = member_users.count { |user| setup_complete?(user) }
+          setup_complete_by_user_id = member_users.to_h { |user| [ user.id, setup_complete?(user) ] }
+          setup_complete_count = setup_complete_by_user_id.values.count(true)
           participant_count = memberships.count { |membership| membership.role == "participant" }
           staff_count = memberships.count { |membership| membership.role.in?([ "coach", "admin" ]) }
 
@@ -74,7 +82,7 @@ module Api
                   full_name: membership.user.full_name,
                   role: membership.user.role,
                   invitation_status: membership.user.invitation_status,
-                  setup_complete: setup_complete?(membership.user)
+                  setup_complete: setup_complete_by_user_id.fetch(membership.user.id)
                 }
               }
             end
