@@ -84,6 +84,78 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("errors"), "Role is not valid"
   end
 
+  test "admin can invite a participant directly into a cohort" do
+    admin = create_user(email: "cohort-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Tuesday Pilot", status: "enrolling", created_by_user: admin)
+
+    post "/api/v1/admin/users",
+         params: {
+           user: {
+             email: "pilot@example.com",
+             first_name: "Pilot",
+             last_name: "Participant",
+             role: "participant",
+             cohort_id: cohort.id
+           }
+         },
+         headers: auth_headers(admin),
+         as: :json
+
+    assert_response :created
+    user = User.find_by!(email: "pilot@example.com")
+    assert_equal admin, user.invited_by_user
+    assert_equal cohort, user.cohorts.first
+    body = JSON.parse(response.body).fetch("user")
+    assert_equal [ "Tuesday Pilot" ], body.fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
+  end
+
+  test "admin can update a user's role status and cohort assignment" do
+    admin = create_user(email: "owner-2@example.com", role: "admin")
+    user = create_user(email: "managed@example.com", role: "participant")
+    first_cohort = Cohort.create!(name: "First Pilot", status: "draft", created_by_user: admin)
+    second_cohort = Cohort.create!(name: "Second Pilot", status: "enrolling", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "coach", invitation_status: "pending", cohort_ids: [ second_cohort.id ] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :success
+    user.reload
+    assert_equal "coach", user.role
+    assert_equal "accepted", user.invitation_status
+    assert_equal [ second_cohort ], user.cohorts.to_a
+    assert_equal "coach", user.cohort_memberships.first.role
+  end
+
+  test "admin cannot revoke their own admin access" do
+    admin = create_user(email: "self-admin@example.com", role: "admin")
+
+    patch "/api/v1/admin/users/#{admin.id}",
+          params: { user: { invitation_status: "revoked" } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :forbidden
+    assert_equal "You cannot remove your own admin access", JSON.parse(response.body).fetch("error")
+    assert_equal "accepted", admin.reload.invitation_status
+  end
+
+  test "coach cannot update an admin user" do
+    coach = create_user(email: "coach-limited@example.com", role: "coach")
+    admin = create_user(email: "protected-admin@example.com", role: "admin")
+
+    patch "/api/v1/admin/users/#{admin.id}",
+          params: { user: { role: "participant" } },
+          headers: auth_headers(coach),
+          as: :json
+
+    assert_response :forbidden
+    assert_equal "User update not permitted", JSON.parse(response.body).fetch("error")
+    assert_equal "admin", admin.reload.role
+  end
+
   private
 
   def create_user(email:, role:)

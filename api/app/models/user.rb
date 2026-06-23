@@ -9,9 +9,15 @@ class User < ApplicationRecord
   validates :role, inclusion: { in: ROLES }
   validates :invitation_status, inclusion: { in: INVITATION_STATUSES }
 
+  belongs_to :invited_by_user, class_name: "User", optional: true
+
+  has_many :invited_users, class_name: "User", foreign_key: :invited_by_user_id, dependent: :nullify, inverse_of: :invited_by_user
   has_many :household_memberships, dependent: :destroy
   has_many :households, through: :household_memberships
   has_many :created_households, class_name: "Household", foreign_key: :created_by_user_id, dependent: :restrict_with_exception, inverse_of: :created_by_user
+  has_many :cohorts_created, class_name: "Cohort", foreign_key: :created_by_user_id, dependent: :restrict_with_exception, inverse_of: :created_by_user
+  has_many :cohort_memberships, dependent: :destroy
+  has_many :cohorts, through: :cohort_memberships
   has_many :chat_sessions, dependent: :destroy
 
   before_validation :set_defaults

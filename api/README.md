@@ -32,12 +32,14 @@ Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite
 Useful local bootstrap options:
 
 ```bash
+bin/rails db:seed # always creates/repairs the shimizutechnology@gmail.com admin invite
 SEED_ADMIN_EMAIL=you@example.com bin/rails db:seed
+SEED_ADMIN_EMAILS=you@example.com,partner@example.com bin/rails db:seed
 # or temporarily:
 CLERK_BOOTSTRAP_ADMIN_EMAILS=you@example.com
 ```
 
-Do not commit Clerk keys, real participant emails, or private financial data.
+After the owner admin signs in, use the Admin tab in the web app to create cohorts and invite additional admins, coaches, and participants. Do not commit Clerk keys, participant financial data, or private documents.
 
 ## Tests and checks
 
@@ -56,5 +58,7 @@ bundle exec bundler-audit check --update
 - `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
 - `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
 - `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context.
+- `GET/POST/PATCH /api/v1/admin/users` — staff/admin invite records, role/status management, and cohort assignment.
+- `GET/POST/PATCH /api/v1/admin/cohorts` — admin-only cohort creation and cohort metadata management.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.
 - `POST /api/demo/mia/messages` — demo Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.
