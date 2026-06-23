@@ -98,10 +98,14 @@ module HouseholdFinance
 
     def goals
       @goals ||= if association_loaded?(:goals)
-        household.goals.sort_by { |goal| [ goal.priority.to_i, goal.created_at || Time.zone.at(0) ] }
+        household.goals.sort_by { |goal| [ goal.priority.to_i, goal.created_at || null_sort_time ] }
       else
         household.goals.order(:priority, :created_at).to_a
       end
+    end
+
+    def null_sort_time
+      @null_sort_time ||= Time.zone.local(9999, 12, 31)
     end
 
     def association_records(name)

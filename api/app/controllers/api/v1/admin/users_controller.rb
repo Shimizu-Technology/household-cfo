@@ -47,6 +47,7 @@ module Api
           attributes = user_update_params
           role = attributes[:role].presence || user.role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
+          return render_forbidden("Status update not permitted") if attributes.key?(:invitation_status) && !current_user.admin?
           if attributes[:invitation_status].present? && !User::INVITATION_STATUSES.include?(attributes[:invitation_status])
             return render json: { errors: [ "Invitation status is not valid" ] }, status: :unprocessable_entity
           end

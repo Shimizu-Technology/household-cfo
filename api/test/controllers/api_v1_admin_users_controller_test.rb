@@ -385,6 +385,24 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_nil participant.reload.first_name
   end
 
+  test "coach cannot update participant invitation status through the API" do
+    admin = create_user(email: "coach-status-admin@example.com", role: "admin")
+    coach = create_user(email: "coach-status@example.com", role: "coach")
+    participant = create_user(email: "coach-status-participant@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Coach Status Pilot", status: "active", created_by_user: admin)
+    coach.cohort_memberships.create!(cohort: cohort, role: "coach")
+    participant.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{participant.id}",
+          params: { user: { role: "participant", invitation_status: "revoked", cohort_ids: [ cohort.id ] } },
+          headers: auth_headers(coach),
+          as: :json
+
+    assert_response :forbidden
+    assert_equal "Status update not permitted", JSON.parse(response.body).fetch("error")
+    assert_equal "accepted", participant.reload.invitation_status
+  end
+
   test "admin can resend pending invitations" do
     admin = create_user(email: "resend-admin@example.com", role: "admin")
     user = User.create!(
