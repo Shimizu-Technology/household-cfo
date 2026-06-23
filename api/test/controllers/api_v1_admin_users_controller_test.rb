@@ -177,6 +177,25 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "accepted", admin.reload.invitation_status
   end
 
+  test "admin can update a revoked admin without tripping last-admin guard" do
+    active_admin = create_user(email: "active-admin@example.com", role: "admin")
+    revoked_admin = create_user(email: "revoked-admin@example.com", role: "admin")
+    revoked_admin.update!(invitation_status: "revoked")
+    cohort = Cohort.create!(name: "Former Admin Pilot", status: "draft", created_by_user: active_admin)
+
+    patch "/api/v1/admin/users/#{revoked_admin.id}",
+          params: { user: { first_name: "Former", role: "participant", cohort_ids: [ cohort.id ] } },
+          headers: auth_headers(active_admin),
+          as: :json
+
+    assert_response :success
+    revoked_admin.reload
+    assert_equal "Former", revoked_admin.first_name
+    assert_equal "participant", revoked_admin.role
+    assert_equal "revoked", revoked_admin.invitation_status
+    assert_equal [ cohort ], revoked_admin.cohorts.to_a
+  end
+
   test "coach cannot update an admin user" do
     coach = create_user(email: "coach-limited@example.com", role: "coach")
     admin = create_user(email: "protected-admin@example.com", role: "admin")

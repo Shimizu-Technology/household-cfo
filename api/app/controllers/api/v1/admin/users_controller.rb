@@ -46,12 +46,15 @@ module Api
 
           admin_guard_error = nil
           User.transaction do
-            locked_admin_ids = admin_change_requires_guard?(user, role:, requested_status: attributes[:invitation_status]) ? locked_active_admin_ids : nil
+            locked_admin_ids = admin_change_may_require_guard?(user, role:, requested_status: attributes[:invitation_status]) ? locked_active_admin_ids : nil
             user.lock!
             role = attributes[:role].presence || user.role
             normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
-            admin_guard_error = admin_change_error(user, role:, invitation_status: normalized_status, locked_admin_ids: locked_admin_ids || [])
-            raise ActiveRecord::Rollback if admin_guard_error
+            if admin_access_removal?(user, role:, invitation_status: normalized_status)
+              locked_admin_ids ||= locked_active_admin_ids
+              admin_guard_error = admin_change_error(user, locked_admin_ids: locked_admin_ids)
+              raise ActiveRecord::Rollback if admin_guard_error
+            end
 
             update_attributes = {
               role: role,
@@ -115,12 +118,15 @@ module Api
           current_user.coach? && user.participant? && requested_role == "participant"
         end
 
-        def admin_change_requires_guard?(user, role:, requested_status:)
+        def admin_change_may_require_guard?(user, role:, requested_status:)
           user.admin? && (role != "admin" || requested_status == "revoked")
         end
 
-        def admin_change_error(user, role:, invitation_status:, locked_admin_ids:)
-          return unless user.admin? && (role != "admin" || invitation_status == "revoked")
+        def admin_access_removal?(user, role:, invitation_status:)
+          user.admin? && !user.revoked? && (role != "admin" || invitation_status == "revoked")
+        end
+
+        def admin_change_error(user, locked_admin_ids:)
           return { status: :forbidden, message: "You cannot remove your own admin access" } if user == current_user
           return if (locked_admin_ids - [ user.id ]).any?
 
