@@ -805,7 +805,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [roleMatrixOpen, setRoleMatrixOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
-  const selectedCohortIdRef = useRef<number | null>(null)
+  const selectedCohortIdRef = useRef<number | null | undefined>(undefined)
 
   const selectedCohort = useMemo(
     () => cohorts.find((cohort) => cohort.id === selectedCohortId) ?? null,
@@ -831,9 +831,11 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     try {
       const [nextCohorts, nextUsers] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers()])
       const requestedCohortId = preferredCohortId === undefined ? selectedCohortIdRef.current : preferredCohortId
-      const nextSelectedId = requestedCohortId && nextCohorts.some((cohort) => cohort.id === requestedCohortId)
-        ? requestedCohortId
-        : nextCohorts[0]?.id ?? null
+      const nextSelectedId = requestedCohortId === null
+        ? null
+        : requestedCohortId && nextCohorts.some((cohort) => cohort.id === requestedCohortId)
+          ? requestedCohortId
+          : nextCohorts[0]?.id ?? null
       const nextSelectedCohort = nextCohorts.find((cohort) => cohort.id === nextSelectedId) ?? null
 
       selectedCohortIdRef.current = nextSelectedId

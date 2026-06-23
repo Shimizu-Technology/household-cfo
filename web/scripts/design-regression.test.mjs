@@ -36,5 +36,9 @@ for (const token of ['--cream', '--ink', '--emerald', '--status-green', '--statu
 
 assert.ok(api.includes('budget'), 'API client type should expose budget data')
 assert.ok(api.includes('wealth'), 'API client type should expose wealth data')
+assert.ok(
+  app.includes('requestedCohortId === null') && app.includes('selectedCohortIdRef = useRef<number | null | undefined>'),
+  'admin All users selection should survive reloads after save/resend actions',
+)
 
 console.log('design regression checks passed')

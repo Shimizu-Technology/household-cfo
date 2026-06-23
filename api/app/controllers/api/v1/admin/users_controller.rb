@@ -6,13 +6,7 @@ module Api
         before_action :require_staff!
 
         def index
-          users = User.includes(
-            :invited_by_user,
-            :last_invite_email_sent_by_user,
-            cohort_memberships: :cohort,
-            household_memberships: { household: %i[income_sources expense_items debts accounts goals] }
-          ).order(:email)
-          render json: { users: users.map { |user| serialize_user(user) } }
+          render json: { users: users_scope.map { |user| serialize_user(user) } }
         end
 
         def create
@@ -23,6 +17,7 @@ module Api
 
           cohort_ids = cohort_ids_from_attributes(attributes)
           return render_cohort_required(role) if cohort_required?(role) && cohort_ids.empty?
+          return render_forbidden("Cohort assignment not permitted") unless cohort_assignment_permitted?(cohort_ids)
 
           user = nil
           User.transaction do
@@ -57,6 +52,7 @@ module Api
           membership_params_present = cohort_membership_params_present?(attributes)
           cohort_ids = membership_params_present ? cohort_ids_from_attributes(attributes) : user.cohort_memberships.pluck(:cohort_id)
           return render_cohort_required(role) if cohort_required?(role) && cohort_ids.empty?
+          return render_forbidden("Cohort assignment not permitted") if membership_params_present && !cohort_assignment_permitted?(cohort_ids)
 
           admin_guard_error = nil
           User.transaction do
@@ -115,6 +111,22 @@ module Api
 
         private
 
+        def users_scope
+          scope = User.includes(
+            :invited_by_user,
+            :last_invite_email_sent_by_user,
+            cohort_memberships: :cohort,
+            household_memberships: { household: %i[income_sources expense_items debts accounts goals] }
+          )
+          unless current_user.admin?
+            scope = scope.joins(:cohort_memberships)
+              .where(role: "participant", cohort_memberships: { cohort_id: coach_cohort_ids })
+              .distinct
+          end
+
+          scope.order(:email)
+        end
+
         def user_params
           payload = params.require(:user)
           permitted = payload.permit(:email, :first_name, :last_name, :cohort_id, cohort_ids: []).to_h.symbolize_keys
@@ -139,7 +151,21 @@ module Api
         def user_update_permitted_by_current_user?(user, requested_role)
           return true if current_user.admin?
 
-          current_user.coach? && user.participant? && requested_role == "participant"
+          current_user.coach? && user.participant? && requested_role == "participant" && user_visible_to_current_coach?(user)
+        end
+
+        def user_visible_to_current_coach?(user)
+          (user.cohort_memberships.pluck(:cohort_id) & coach_cohort_ids).any?
+        end
+
+        def cohort_assignment_permitted?(cohort_ids)
+          return true if current_user.admin?
+
+          cohort_ids.present? && (cohort_ids - coach_cohort_ids).empty?
+        end
+
+        def coach_cohort_ids
+          @coach_cohort_ids ||= current_user.cohort_memberships.pluck(:cohort_id)
         end
 
         def admin_change_may_require_guard?(user, role:, requested_status:)

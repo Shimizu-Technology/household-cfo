@@ -43,6 +43,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     admin = create_user(email: "coach-admin@example.com", role: "admin")
     coach = create_user(email: "coach@example.com", role: "coach")
     cohort = Cohort.create!(name: "Participant Pilot", status: "enrolling", created_by_user: admin)
+    coach.cohort_memberships.create!(cohort: cohort, role: "coach")
 
     post "/api/v1/admin/users",
          params: {
@@ -75,6 +76,41 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
     assert_equal "Role assignment not permitted", JSON.parse(response.body).fetch("error")
     assert_nil User.find_by(email: "promoted@example.com")
+  end
+
+  test "coach index only returns participants in assigned cohorts" do
+    admin = create_user(email: "scope-admin@example.com", role: "admin")
+    coach = create_user(email: "scoped-coach@example.com", role: "coach")
+    assigned_cohort = Cohort.create!(name: "Assigned Pilot", status: "active", created_by_user: admin)
+    other_cohort = Cohort.create!(name: "Other Pilot", status: "active", created_by_user: admin)
+    assigned_participant = create_user(email: "assigned-participant@example.com", role: "participant")
+    other_participant = create_user(email: "other-participant@example.com", role: "participant")
+    coach.cohort_memberships.create!(cohort: assigned_cohort, role: "coach")
+    assigned_participant.cohort_memberships.create!(cohort: assigned_cohort, role: "participant")
+    other_participant.cohort_memberships.create!(cohort: other_cohort, role: "participant")
+
+    get "/api/v1/admin/users", headers: auth_headers(coach)
+
+    assert_response :success
+    emails = JSON.parse(response.body).fetch("users").map { |user| user.fetch("email") }
+    assert_equal [ "assigned-participant@example.com" ], emails
+  end
+
+  test "coach cannot assign users to unassigned cohorts" do
+    admin = create_user(email: "coach-scope-admin@example.com", role: "admin")
+    coach = create_user(email: "coach-scope@example.com", role: "coach")
+    assigned_cohort = Cohort.create!(name: "Coach Assigned Pilot", status: "active", created_by_user: admin)
+    other_cohort = Cohort.create!(name: "Coach Other Pilot", status: "active", created_by_user: admin)
+    coach.cohort_memberships.create!(cohort: assigned_cohort, role: "coach")
+
+    post "/api/v1/admin/users",
+         params: { user: { email: "outside-scope@example.com", role: "participant", cohort_id: other_cohort.id } },
+         headers: auth_headers(coach),
+         as: :json
+
+    assert_response :forbidden
+    assert_equal "Cohort assignment not permitted", JSON.parse(response.body).fetch("error")
+    assert_nil User.find_by(email: "outside-scope@example.com")
   end
 
   test "staff cannot create users with invalid roles" do
@@ -267,6 +303,25 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
     assert_equal "User update not permitted", JSON.parse(response.body).fetch("error")
     assert_equal "admin", admin.reload.role
+  end
+
+  test "coach cannot update participants outside assigned cohorts" do
+    admin = create_user(email: "outside-admin@example.com", role: "admin")
+    coach = create_user(email: "outside-coach@example.com", role: "coach")
+    assigned_cohort = Cohort.create!(name: "Outside Assigned Pilot", status: "active", created_by_user: admin)
+    other_cohort = Cohort.create!(name: "Outside Other Pilot", status: "active", created_by_user: admin)
+    participant = create_user(email: "outside-participant@example.com", role: "participant")
+    coach.cohort_memberships.create!(cohort: assigned_cohort, role: "coach")
+    participant.cohort_memberships.create!(cohort: other_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{participant.id}",
+          params: { user: { first_name: "Changed", role: "participant", cohort_ids: [ other_cohort.id ] } },
+          headers: auth_headers(coach),
+          as: :json
+
+    assert_response :forbidden
+    assert_equal "User update not permitted", JSON.parse(response.body).fetch("error")
+    assert_nil participant.reload.first_name
   end
 
   test "admin can resend pending invitations" do
