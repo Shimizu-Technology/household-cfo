@@ -11,13 +11,13 @@ module Api
         end
 
         def show
-          cohort = Cohort.includes(cohort_includes).find(params[:id])
+          cohort = find_cohort(params[:id])
           render json: { cohort: serialize_cohort(cohort, include_members: true) }
         end
 
         def create
           cohort = Cohort.create!(cohort_params.merge(created_by_user: current_user))
-          render json: { cohort: serialize_cohort(cohort.reload) }, status: :created
+          render json: { cohort: serialize_cohort(cohort) }, status: :created
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
@@ -25,7 +25,7 @@ module Api
         def update
           cohort = Cohort.find(params[:id])
           cohort.update!(cohort_params)
-          render json: { cohort: serialize_cohort(cohort.reload, include_members: true) }
+          render json: { cohort: serialize_cohort(find_cohort(cohort.id), include_members: true) }
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
@@ -34,6 +34,10 @@ module Api
 
         def cohort_params
           params.require(:cohort).permit(:name, :status, :starts_on, :ends_on, :notes)
+        end
+
+        def find_cohort(id)
+          Cohort.includes(cohort_includes).find(id)
         end
 
         def cohort_includes

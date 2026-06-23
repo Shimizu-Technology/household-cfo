@@ -98,10 +98,14 @@ module HouseholdFinance
 
     def goals
       @goals ||= if association_loaded?(:goals)
-        household.goals.sort_by { |goal| [ goal.priority.to_i, goal.created_at || null_sort_time ] }
+        household.goals.sort_by { |goal| [ goal_priority_sort_value(goal), goal.created_at || null_sort_time ] }
       else
         household.goals.order(:priority, :created_at).to_a
       end
+    end
+
+    def goal_priority_sort_value(goal)
+      goal.priority.nil? ? Float::INFINITY : goal.priority
     end
 
     def null_sort_time
