@@ -60,11 +60,13 @@ module Api
 
           admin_guard_error = nil
           User.transaction do
+            locked_admin_ids = requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil
             user.lock!
             role = attributes[:role].presence || user.role
             normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
             if active_admin_access_removal?(user, role:, invitation_status: normalized_status)
-              admin_guard_error = admin_change_error(user, locked_admin_ids: locked_active_admin_ids)
+              locked_admin_ids ||= locked_active_admin_ids
+              admin_guard_error = admin_change_error(user, locked_admin_ids: locked_admin_ids)
               raise ActiveRecord::Rollback if admin_guard_error
             end
 
@@ -169,6 +171,10 @@ module Api
 
         def coach_cohort_ids
           @coach_cohort_ids ||= current_user.cohort_memberships.pluck(:cohort_id)
+        end
+
+        def requested_admin_access_removal?(attributes)
+          (attributes[:role].present? && attributes[:role] != "admin") || attributes[:invitation_status] == "revoked"
         end
 
         def active_admin_access_removal?(user, role:, invitation_status:)
