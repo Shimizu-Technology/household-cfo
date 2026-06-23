@@ -47,6 +47,9 @@ module Api
           attributes = user_update_params
           role = attributes[:role].presence || user.role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
+          if attributes[:invitation_status].present? && !User::INVITATION_STATUSES.include?(attributes[:invitation_status])
+            return render json: { errors: [ "Invitation status is not valid" ] }, status: :unprocessable_entity
+          end
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
 
           membership_params_present = cohort_membership_params_present?(attributes)
@@ -56,13 +59,11 @@ module Api
 
           admin_guard_error = nil
           User.transaction do
-            locked_admin_ids = admin_change_may_require_guard?(user, role:, requested_status: attributes[:invitation_status]) ? locked_active_admin_ids : nil
             user.lock!
             role = attributes[:role].presence || user.role
             normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
-            if admin_access_removal?(user, role:, invitation_status: normalized_status)
-              locked_admin_ids ||= locked_active_admin_ids
-              admin_guard_error = admin_change_error(user, locked_admin_ids: locked_admin_ids)
+            if active_admin_access_removal?(user, role:, invitation_status: normalized_status)
+              admin_guard_error = admin_change_error(user, locked_admin_ids: locked_active_admin_ids)
               raise ActiveRecord::Rollback if admin_guard_error
             end
 
@@ -129,18 +130,18 @@ module Api
         end
 
         def user_params
-          payload = params.require(:user)
-          permitted = payload.permit(:email, :first_name, :last_name, :cohort_id, cohort_ids: []).to_h.symbolize_keys
-          permitted[:role] = payload[:role] if payload.key?(:role)
-          permitted
+          params.require(:user)
+            .permit(:email, :first_name, :last_name, :role, :cohort_id, cohort_ids: [])
+            .to_h
+            .symbolize_keys
         end
 
         def user_update_params
-          payload = params.require(:user)
-          permitted = payload.permit(:first_name, :last_name, :cohort_id, cohort_ids: []).to_h.symbolize_keys
-          permitted[:role] = payload[:role] if payload.key?(:role)
-          permitted[:invitation_status] = payload[:invitation_status] if payload.key?(:invitation_status)
-          permitted.compact
+          params.require(:user)
+            .permit(:first_name, :last_name, :role, :invitation_status, :cohort_id, cohort_ids: [])
+            .to_h
+            .symbolize_keys
+            .compact
         end
 
         def role_assignable_by_current_user?(role)
@@ -169,11 +170,7 @@ module Api
           @coach_cohort_ids ||= current_user.cohort_memberships.pluck(:cohort_id)
         end
 
-        def admin_change_may_require_guard?(user, role:, requested_status:)
-          user.admin? && (role != "admin" || requested_status == "revoked")
-        end
-
-        def admin_access_removal?(user, role:, invitation_status:)
+        def active_admin_access_removal?(user, role:, invitation_status:)
           user.admin? && !user.revoked? && (role != "admin" || invitation_status == "revoked")
         end
 

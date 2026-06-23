@@ -195,6 +195,51 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "coach", user.cohort_memberships.first.role
   end
 
+  test "admin user update permits safe role status params and ignores unsafe fields" do
+    admin = create_user(email: "strong-params-owner@example.com", role: "admin")
+    user = create_user(email: "strong-params-user@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Strong Params Pilot", status: "draft", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: {
+            user: {
+              email: "changed@example.com",
+              clerk_id: "clerk_attacker",
+              invitation_email_status: "sent",
+              role: "coach",
+              invitation_status: "revoked",
+              cohort_ids: [ cohort.id ]
+            }
+          },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :success
+    user.reload
+    assert_equal "strong-params-user@example.com", user.email
+    assert_not_equal "clerk_attacker", user.clerk_id
+    assert_equal "not_sent", user.invitation_email_status
+    assert_equal "coach", user.role
+    assert_equal "revoked", user.invitation_status
+  end
+
+  test "invalid invitation status is rejected instead of persisted" do
+    admin = create_user(email: "invalid-status-owner@example.com", role: "admin")
+    user = create_user(email: "invalid-status-user@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Invalid Status Pilot", status: "draft", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "participant", invitation_status: "super_revoked", cohort_ids: [ cohort.id ] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Invitation status is not valid"
+    assert_equal "accepted", user.reload.invitation_status
+  end
+
   test "admin can preserve multiple cohort assignments on user save" do
     admin = create_user(email: "multi-owner@example.com", role: "admin")
     user = create_user(email: "multi-managed@example.com", role: "participant")
@@ -272,6 +317,20 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_response :forbidden
     assert_equal "You cannot remove your own admin access", JSON.parse(response.body).fetch("error")
     assert_equal "accepted", admin.reload.invitation_status
+  end
+
+  test "admin cannot demote their own admin role" do
+    admin = create_user(email: "self-demote-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Self Demote Pilot", status: "draft", created_by_user: admin)
+
+    patch "/api/v1/admin/users/#{admin.id}",
+          params: { user: { role: "participant", cohort_ids: [ cohort.id ] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :forbidden
+    assert_equal "You cannot remove your own admin access", JSON.parse(response.body).fetch("error")
+    assert_equal "admin", admin.reload.role
   end
 
   test "admin can update a revoked admin without tripping last-admin guard" do
