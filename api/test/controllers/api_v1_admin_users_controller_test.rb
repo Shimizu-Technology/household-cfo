@@ -155,6 +155,27 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Tuesday Pilot" ], body.fetch("user").fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
   end
 
+  test "admin invite succeeds with a saved user when invite audit recording fails" do
+    admin = create_user(email: "audit-fallback-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Audit Fallback Pilot", status: "enrolling", created_by_user: admin)
+
+    with_user_invite_email_stub(sent: false, status: "invalid_status", provider_message_id: nil, error: "invalid status") do
+      post "/api/v1/admin/users",
+           params: { user: { email: "audit-fallback@example.com", role: "participant", cohort_id: cohort.id } },
+           headers: auth_headers(admin),
+           as: :json
+    end
+
+    assert_response :created
+    user = User.find_by!(email: "audit-fallback@example.com")
+    assert_equal cohort, user.cohorts.first
+    assert_empty user.invitation_email_attempts
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("invitation_sent")
+    assert_equal "failed", body.fetch("invitation_status")
+    assert_includes body.fetch("invitation_error"), "delivery audit could not be recorded"
+  end
+
   test "admins can be invited without a cohort but participants cannot" do
     admin = create_user(email: "no-cohort-admin@example.com", role: "admin")
 
@@ -479,5 +500,13 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def with_user_invite_email_stub(result)
+    original_method = UserInviteEmailService.method(:send_invite)
+    UserInviteEmailService.define_singleton_method(:send_invite) { |user:, invited_by:| result }
+    yield
+  ensure
+    UserInviteEmailService.define_singleton_method(:send_invite, original_method)
   end
 end

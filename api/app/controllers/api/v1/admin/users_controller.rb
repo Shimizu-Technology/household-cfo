@@ -262,6 +262,18 @@ module Api
           result = UserInviteEmailService.send_invite(user: user, invited_by: current_user)
           record_invitation_email_attempt(user, result)
           result
+        rescue ActiveRecord::ActiveRecordError => e
+          Rails.logger.error("[InviteEmail] Audit recording failed for #{user.email}: #{e.class} #{e.message}")
+          audit_recording_failure_result(result, e)
+        end
+
+        def audit_recording_failure_result(result, error)
+          {
+            sent: false,
+            status: "failed",
+            provider_message_id: result&.fetch(:provider_message_id, nil),
+            error: "Invite was saved, but delivery audit could not be recorded: #{error.message}"
+          }
         end
 
         def record_invitation_email_attempt(user, result)
