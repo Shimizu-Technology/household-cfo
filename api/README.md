@@ -53,7 +53,7 @@ RESEND_FROM_EMAIL="Household CFO <noreply@example.com>"
 FRONTEND_URL=http://localhost:5173
 ```
 
-If Resend is not configured, invitation records are still created for Clerk email-linking and the email status is stored as `skipped`.
+If Resend is not configured, invitation records are still created for Clerk email-linking and the email status is stored as `skipped`. Each send/resend writes an immutable `invitation_email_attempts` audit row while summary status fields stay on `users` for the Admin UI.
 
 ## Tests and checks
 

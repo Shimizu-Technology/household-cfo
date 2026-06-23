@@ -217,10 +217,16 @@ export type AdminUser = CurrentUser & {
       full_name: string
     }
     delivery_log: Array<{
+      id: number
       status: AdminInviteEmailStatus
       attempted_at: string
       sent_at: string | null
-      sent_by_user_id: number
+      sent_by_user_id: number | null
+      sent_by: null | {
+        id: number
+        email: string
+        full_name: string
+      }
       provider: string
       provider_message_id: string | null
       error: string | null

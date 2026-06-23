@@ -69,7 +69,7 @@ RESEND_FROM_EMAIL="Household CFO <noreply@example.com>"
 FRONTEND_URL=http://localhost:5173
 ```
 
-Email delivery metadata is stored on the invited user (`invitation_email_status`, provider id, last attempt/sent timestamps, last sender, and a short delivery log) so admins can see and retry delivery without Rails console commands.
+Email delivery metadata is summarized on the invited user (`invitation_email_status`, provider id, last attempt/sent timestamps, and last sender). Each create/resend also writes an immutable `invitation_email_attempts` audit row so admins can retry delivery without losing history or using Rails console commands.
 
 ## Safety constraints
 

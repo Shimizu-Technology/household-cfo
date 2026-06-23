@@ -115,6 +115,7 @@ module Api
           scope = User.includes(
             :invited_by_user,
             :last_invite_email_sent_by_user,
+            invitation_email_attempts: :sent_by_user,
             cohort_memberships: :cohort,
             household_memberships: { household: %i[income_sources expense_items debts accounts goals] }
           )
@@ -267,32 +268,33 @@ module Api
 
         def record_invitation_email_attempt(user, result)
           attempted_at = Time.current
-          sent_at = result[:sent] ? attempted_at : user.last_invite_email_sent_at
-          user.update!(
-            invited_at: user.invited_at || attempted_at,
-            invited_by_user: user.invited_by_user || current_user,
-            invitation_email_status: result.fetch(:status),
-            invitation_email_provider_id: result[:provider_message_id],
-            invitation_email_error: result[:error],
-            last_invite_email_attempted_at: attempted_at,
-            last_invite_email_sent_at: sent_at,
-            last_invite_email_sent_by_user: result[:sent] ? current_user : user.last_invite_email_sent_by_user,
-            invitation_email_delivery_log: next_invitation_email_log(user, result, attempted_at: attempted_at, sent_at: sent_at)
-          )
-        end
+          sent_at = result[:sent] ? attempted_at : nil
 
-        def next_invitation_email_log(user, result, attempted_at:, sent_at:)
-          Array(user.invitation_email_delivery_log).last(19) + [
-            {
+          user.with_lock do
+            attempt = user.invitation_email_attempts.create!(
               status: result.fetch(:status),
-              attempted_at: attempted_at.iso8601,
-              sent_at: result[:sent] ? sent_at&.iso8601 : nil,
-              sent_by_user_id: current_user.id,
               provider: "resend",
               provider_message_id: result[:provider_message_id],
-              error: result[:error]
-            }
-          ]
+              error: result[:error],
+              attempted_at: attempted_at,
+              sent_at: sent_at,
+              sent_by_user: current_user
+            )
+            user.update!(invitation_email_summary_attributes(user, attempt))
+          end
+        end
+
+        def invitation_email_summary_attributes(user, attempt)
+          {
+            invited_at: user.invited_at || attempt.attempted_at,
+            invited_by_user: user.invited_by_user || current_user,
+            invitation_email_status: attempt.status,
+            invitation_email_provider_id: attempt.provider_message_id,
+            invitation_email_error: attempt.error,
+            last_invite_email_attempted_at: attempt.attempted_at,
+            last_invite_email_sent_at: attempt.sent_at || user.last_invite_email_sent_at,
+            last_invite_email_sent_by_user: attempt.status == "sent" ? current_user : user.last_invite_email_sent_by_user
+          }
         end
 
         def invite_response_payload(user, result)
@@ -340,7 +342,28 @@ module Api
             last_attempted_at: user.last_invite_email_attempted_at,
             last_sent_at: user.last_invite_email_sent_at,
             last_sent_by: serialize_inviter(user.last_invite_email_sent_by_user),
-            delivery_log: Array(user.invitation_email_delivery_log).last(5)
+            delivery_log: serialized_invitation_email_attempts(user)
+          }
+        end
+
+        def serialized_invitation_email_attempts(user)
+          user.invitation_email_attempts
+            .sort_by { |attempt| [ attempt.attempted_at, attempt.id ] }
+            .last(5)
+            .map { |attempt| serialize_invitation_email_attempt(attempt) }
+        end
+
+        def serialize_invitation_email_attempt(attempt)
+          {
+            id: attempt.id,
+            status: attempt.status,
+            attempted_at: attempt.attempted_at,
+            sent_at: attempt.sent_at,
+            sent_by_user_id: attempt.sent_by_user_id,
+            sent_by: serialize_inviter(attempt.sent_by_user),
+            provider: attempt.provider,
+            provider_message_id: attempt.provider_message_id,
+            error: attempt.error
           }
         end
 

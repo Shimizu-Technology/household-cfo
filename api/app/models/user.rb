@@ -16,6 +16,8 @@ class User < ApplicationRecord
 
   has_many :invited_users, class_name: "User", foreign_key: :invited_by_user_id, dependent: :nullify, inverse_of: :invited_by_user
   has_many :sent_invite_emails, class_name: "User", foreign_key: :last_invite_email_sent_by_user_id, dependent: :nullify, inverse_of: :last_invite_email_sent_by_user
+  has_many :invitation_email_attempts, dependent: :destroy
+  has_many :sent_invitation_email_attempts, class_name: "InvitationEmailAttempt", foreign_key: :sent_by_user_id, dependent: :nullify, inverse_of: :sent_by_user
   has_many :household_memberships, dependent: :destroy
   has_many :households, through: :household_memberships
   has_many :created_households, class_name: "Household", foreign_key: :created_by_user_id, dependent: :restrict_with_exception, inverse_of: :created_by_user

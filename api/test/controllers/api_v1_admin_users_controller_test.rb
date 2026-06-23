@@ -147,6 +147,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal admin, user.invited_by_user
     assert_equal cohort, user.cohorts.first
     assert_equal "skipped", user.invitation_email_status
+    assert_equal 1, user.invitation_email_attempts.count
+    assert_equal "skipped", user.invitation_email_attempts.last.status
     body = JSON.parse(response.body)
     assert_equal false, body.fetch("invitation_sent")
     assert_equal "skipped", body.fetch("invitation_status")
@@ -338,6 +340,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     user.reload
     assert_equal "skipped", user.invitation_email_status
+    assert_equal 1, user.invitation_email_attempts.count
+    assert_equal admin, user.invitation_email_attempts.last.sent_by_user
     assert_not_nil user.last_invite_email_attempted_at
     body = JSON.parse(response.body)
     assert_equal false, body.fetch("invitation_sent")
@@ -363,7 +367,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     user.reload
     assert_equal original_inviter, user.invited_by_user
     assert_equal original_invited_at.to_i, user.invited_at.to_i
-    assert_equal resender.id, user.invitation_email_delivery_log.last.fetch("sent_by_user_id")
+    assert_equal resender, user.invitation_email_attempts.last.sent_by_user
   end
 
   test "accepted and revoked users cannot receive resend invitations" do
