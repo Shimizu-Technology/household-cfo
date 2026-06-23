@@ -4,6 +4,7 @@ module Api
       class CohortsController < BaseController
         before_action :authenticate_user!
         before_action :require_admin!
+        rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
 
         def index
           cohorts = Cohort.includes(cohort_includes).order(created_at: :desc)
@@ -100,6 +101,10 @@ module Api
           return false unless household
 
           HouseholdFinance::SnapshotBuilder.new(household).call.fetch(:profile_completeness) >= 70
+        end
+
+        def render_not_found(error)
+          render json: { errors: [ error.message ] }, status: :not_found
         end
       end
     end

@@ -69,6 +69,29 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert JSON.parse(response.body).fetch("errors").any? { |error| error.include?("Name") }
   end
 
+  test "cohort show returns json not found errors" do
+    admin = create_user(email: "show-missing-owner@example.com", role: "admin")
+
+    get "/api/v1/admin/cohorts/999999", headers: auth_headers(admin)
+
+    assert_response :not_found
+    assert_includes response.media_type, "application/json"
+    assert JSON.parse(response.body).fetch("errors").first.include?("Couldn't find Cohort")
+  end
+
+  test "cohort update returns json not found errors" do
+    admin = create_user(email: "update-missing-owner@example.com", role: "admin")
+
+    patch "/api/v1/admin/cohorts/999999",
+          params: { cohort: { name: "Missing Pilot" } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :not_found
+    assert_includes response.media_type, "application/json"
+    assert JSON.parse(response.body).fetch("errors").first.include?("Couldn't find Cohort")
+  end
+
   private
 
   def create_user(email:, role:)
