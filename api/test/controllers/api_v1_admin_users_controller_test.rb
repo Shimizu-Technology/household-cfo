@@ -428,6 +428,28 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "accepted", participant.reload.invitation_status
   end
 
+  test "admin users index returns only five recent invite attempts" do
+    admin = create_user(email: "recent-attempt-admin@example.com", role: "admin")
+    user = create_user(email: "recent-attempt-user@example.com", role: "participant")
+    base_time = Time.zone.local(2026, 6, 23, 12, 0, 0)
+    attempts = 7.times.map do |index|
+      user.invitation_email_attempts.create!(
+        status: "skipped",
+        provider: "resend",
+        error: "not configured #{index}",
+        attempted_at: base_time + index.minutes,
+        sent_by_user: admin
+      )
+    end
+
+    get "/api/v1/admin/users", headers: auth_headers(admin)
+
+    assert_response :success
+    row = JSON.parse(response.body).fetch("users").find { |payload| payload.fetch("email") == user.email }
+    delivery_log = row.fetch("invite_email").fetch("delivery_log")
+    assert_equal attempts.last(5).map(&:id), delivery_log.map { |attempt| attempt.fetch("id") }
+  end
+
   test "admin can resend pending invitations" do
     admin = create_user(email: "resend-admin@example.com", role: "admin")
     user = User.create!(

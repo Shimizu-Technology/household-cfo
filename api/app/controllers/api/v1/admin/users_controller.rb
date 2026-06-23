@@ -6,7 +6,9 @@ module Api
         before_action :require_staff!
 
         def index
-          render json: { users: users_scope.map { |user| serialize_user(user) } }
+          users = users_scope.to_a
+          preload_recent_invitation_email_attempts(users)
+          render json: { users: users.map { |user| serialize_user(user) } }
         end
 
         def create
@@ -119,7 +121,6 @@ module Api
           scope = User.includes(
             :invited_by_user,
             :last_invite_email_sent_by_user,
-            invitation_email_attempts: :sent_by_user,
             cohort_memberships: :cohort,
             household_memberships: { household: %i[income_sources expense_items debts accounts goals] }
           )
@@ -386,10 +387,35 @@ module Api
         end
 
         def serialized_invitation_email_attempts(user)
-          user.invitation_email_attempts
-            .sort_by { |attempt| [ attempt.attempted_at, attempt.id ] }
-            .last(5)
-            .map { |attempt| serialize_invitation_email_attempt(attempt) }
+          recent_invitation_email_attempts_for(user).map { |attempt| serialize_invitation_email_attempt(attempt) }
+        end
+
+        def recent_invitation_email_attempts_for(user)
+          return @recent_invitation_email_attempts_by_user_id.fetch(user.id, []) if defined?(@recent_invitation_email_attempts_by_user_id)
+
+          user.invitation_email_attempts.includes(:sent_by_user).recent_first.limit(5).to_a.reverse
+        end
+
+        def preload_recent_invitation_email_attempts(users)
+          @recent_invitation_email_attempts_by_user_id = Hash.new { |hash, user_id| hash[user_id] = [] }
+          user_ids = users.map(&:id)
+          return if user_ids.empty?
+
+          ranked_attempts_sql = InvitationEmailAttempt
+            .where(user_id: user_ids)
+            .select("invitation_email_attempts.*, ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY attempted_at DESC, id DESC) AS attempt_rank")
+            .to_sql
+
+          attempts = InvitationEmailAttempt
+            .from("(#{ranked_attempts_sql}) invitation_email_attempts")
+            .where("attempt_rank <= ?", 5)
+            .includes(:sent_by_user)
+            .order(:user_id, :attempted_at, :id)
+            .to_a
+
+          attempts.each do |attempt|
+            @recent_invitation_email_attempts_by_user_id[attempt.user_id] << attempt
+          end
         end
 
         def serialize_invitation_email_attempt(attempt)
