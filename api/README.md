@@ -32,7 +32,7 @@ Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite
 Useful local bootstrap options:
 
 ```bash
-bin/rails db:seed # always creates/repairs the shimizutechnology@gmail.com admin invite
+bin/rails db:seed # creates the shimizutechnology@gmail.com admin invite when missing
 SEED_ADMIN_EMAIL=you@example.com bin/rails db:seed
 SEED_ADMIN_EMAILS=you@example.com,partner@example.com bin/rails db:seed
 # or temporarily:

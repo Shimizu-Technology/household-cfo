@@ -965,6 +965,46 @@ h3 {
   font-size: 0.82rem;
 }
 
+.admin-cohort-checks {
+  display: grid;
+  max-height: 128px;
+  gap: 7px;
+  overflow: auto;
+  padding: 8px;
+  border: 1px solid rgba(226, 217, 203, 0.95);
+  border-radius: 14px;
+  background: #fffdf8;
+}
+
+.admin-cohort-checks small {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.admin-cohort-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.admin-cohort-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--emerald);
+}
+
+.admin-cohort-check span {
+  color: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .money-row {
   padding: 11px 0;
   border-top: 1px solid rgba(226, 217, 203, 0.7);

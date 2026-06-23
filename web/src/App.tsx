@@ -768,7 +768,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 type AdminUserDraft = {
   role: UserRole
   invitation_status: InvitationStatus
-  cohort_id: string
+  cohort_ids: string[]
 }
 
 const cohortStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
@@ -949,7 +949,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       const updatedUser = await updateAdminUser(user.id, {
         role: draft.role,
         invitation_status: draft.invitation_status,
-        cohort_ids: draft.cohort_id ? [Number(draft.cohort_id)] : [],
+        cohort_ids: draft.cohort_ids.map(Number),
       })
       setNotice(`${updatedUser.email} was updated.`)
       await loadAdminData()
@@ -960,12 +960,27 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     }
   }
 
-  function updateUserDraft(userId: number, key: keyof AdminUserDraft, value: string) {
+  function updateUserDraft(userId: number, key: 'role' | 'invitation_status', value: string) {
     setUserDrafts((current) => {
       const nextDraft = { ...current[userId] }
       if (key === 'role') nextDraft.role = value as UserRole
       if (key === 'invitation_status') nextDraft.invitation_status = value as InvitationStatus
-      if (key === 'cohort_id') nextDraft.cohort_id = value
+
+      return {
+        ...current,
+        [userId]: nextDraft,
+      }
+    })
+  }
+
+  function toggleUserCohort(userId: number, cohortId: number) {
+    const cohortIdValue = String(cohortId)
+    setUserDrafts((current) => {
+      const nextDraft = { ...current[userId] }
+      const currentCohortIds = nextDraft.cohort_ids ?? []
+      nextDraft.cohort_ids = currentCohortIds.includes(cohortIdValue)
+        ? currentCohortIds.filter((id) => id !== cohortIdValue)
+        : [...currentCohortIds, cohortIdValue]
 
       return {
         ...current,
@@ -1158,11 +1173,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
         ) : (
           <div className="admin-user-list">
             {visibleUsers.map((user) => {
-              const draft = userDrafts[user.id] ?? {
-                role: user.role,
-                invitation_status: user.invitation_status,
-                cohort_id: user.cohorts[0]?.cohort.id ? String(user.cohorts[0].cohort.id) : '',
-              }
+              const draft = userDrafts[user.id] ?? adminDraftForUser(user)
               const isSelf = user.id === currentUser.id
 
               return (
@@ -1193,13 +1204,22 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                         {invitationStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
                       </select>
                     </label>
-                    <label className="admin-field compact cohort-select">
-                      <span>Cohort</span>
-                      <select value={draft.cohort_id} onChange={(event) => updateUserDraft(user.id, 'cohort_id', event.target.value)}>
-                        <option value="">No cohort</option>
-                        {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
-                      </select>
-                    </label>
+                    <div className="admin-field compact cohort-select">
+                      <span>Cohorts</span>
+                      <div className="admin-cohort-checks">
+                        {cohorts.length === 0 && <small>No cohorts yet</small>}
+                        {cohorts.map((cohort) => (
+                          <label className="admin-cohort-check" key={cohort.id}>
+                            <input
+                              type="checkbox"
+                              checked={draft.cohort_ids.includes(String(cohort.id))}
+                              onChange={() => toggleUserCohort(user.id, cohort.id)}
+                            />
+                            <span>{cohort.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
                     <button type="button" onClick={() => void handleSaveUser(user)} disabled={savingUserId === user.id}>{savingUserId === user.id ? 'Saving' : 'Save'}</button>
                   </div>
                 </article>
@@ -1227,13 +1247,17 @@ function AdminBadge({ value, tone }: { value: string; tone: 'green' | 'gold' | '
 
 function adminDraftsForUsers(users: AdminUser[]) {
   return users.reduce<Record<number, AdminUserDraft>>((drafts, user) => {
-    drafts[user.id] = {
-      role: user.role,
-      invitation_status: user.invitation_status,
-      cohort_id: user.cohorts[0]?.cohort.id ? String(user.cohorts[0].cohort.id) : '',
-    }
+    drafts[user.id] = adminDraftForUser(user)
     return drafts
   }, {})
+}
+
+function adminDraftForUser(user: AdminUser): AdminUserDraft {
+  return {
+    role: user.role,
+    invitation_status: user.invitation_status,
+    cohort_ids: user.cohorts.map((membership) => String(membership.cohort.id)),
+  }
 }
 
 function cleanCohortDraft(draft: AdminCohortInput): AdminCohortInput {

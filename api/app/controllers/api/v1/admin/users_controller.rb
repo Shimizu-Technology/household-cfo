@@ -39,21 +39,26 @@ module Api
 
         def update
           user = User.find(params[:id])
-          role = user_update_params[:role].presence || user.role
+          attributes = user_update_params
+          role = attributes[:role].presence || user.role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
 
-          normalized_status = normalized_invitation_status(user, user_update_params[:invitation_status])
-          ensure_admin_can_change!(user, role:, invitation_status: normalized_status)
-          return if performed?
-
+          admin_guard_error = nil
           User.transaction do
+            locked_admin_ids = admin_change_requires_guard?(user, role:, requested_status: attributes[:invitation_status]) ? locked_active_admin_ids : nil
+            user.lock!
+            role = attributes[:role].presence || user.role
+            normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
+            admin_guard_error = admin_change_error(user, role:, invitation_status: normalized_status, locked_admin_ids: locked_admin_ids || [])
+            raise ActiveRecord::Rollback if admin_guard_error
+
             update_attributes = {
               role: role,
               invitation_status: normalized_status
             }
-            update_attributes[:first_name] = bounded_text(user_update_params[:first_name], 80) if user_update_params.key?(:first_name)
-            update_attributes[:last_name] = bounded_text(user_update_params[:last_name], 80) if user_update_params.key?(:last_name)
+            update_attributes[:first_name] = bounded_text(attributes[:first_name], 80) if attributes.key?(:first_name)
+            update_attributes[:last_name] = bounded_text(attributes[:last_name], 80) if attributes.key?(:last_name)
             user.assign_attributes(update_attributes)
             user.invited_at ||= Time.current if user.invitation_status == "pending"
             user.save!
@@ -63,6 +68,11 @@ module Api
             else
               user.cohort_memberships.update_all(role: cohort_role_for(user.role), updated_at: Time.current)
             end
+          end
+
+          if admin_guard_error
+            render_admin_guard_error(admin_guard_error)
+            return
           end
 
           render json: { user: serialize_user(user.reload) }
@@ -76,26 +86,17 @@ module Api
 
         def user_params
           payload = params.require(:user)
-          {
-            email: payload[:email],
-            first_name: payload[:first_name],
-            last_name: payload[:last_name],
-            role: payload[:role],
-            cohort_id: payload[:cohort_id],
-            cohort_ids: payload[:cohort_ids]
-          }
+          permitted = payload.permit(:email, :first_name, :last_name, :cohort_id, cohort_ids: []).to_h.symbolize_keys
+          permitted[:role] = payload[:role] if payload.key?(:role)
+          permitted
         end
 
         def user_update_params
           payload = params.require(:user)
-          {
-            first_name: payload[:first_name],
-            last_name: payload[:last_name],
-            role: payload[:role],
-            invitation_status: payload[:invitation_status],
-            cohort_id: payload[:cohort_id],
-            cohort_ids: payload[:cohort_ids]
-          }.compact
+          permitted = payload.permit(:first_name, :last_name, :cohort_id, cohort_ids: []).to_h.symbolize_keys
+          permitted[:role] = payload[:role] if payload.key?(:role)
+          permitted[:invitation_status] = payload[:invitation_status] if payload.key?(:invitation_status)
+          permitted.compact
         end
 
         def requested_role
@@ -114,19 +115,30 @@ module Api
           current_user.coach? && user.participant? && requested_role == "participant"
         end
 
-        def ensure_admin_can_change!(user, role:, invitation_status:)
-          return unless user.admin? && (role != "admin" || invitation_status == "revoked")
-
-          return render_forbidden("You cannot remove your own admin access") if user == current_user
-          return unless active_admin_count(excluding: user) <= 0
-
-          render json: { errors: [ "At least one active admin is required" ] }, status: :unprocessable_entity
+        def admin_change_requires_guard?(user, role:, requested_status:)
+          user.admin? && (role != "admin" || requested_status == "revoked")
         end
 
-        def active_admin_count(excluding: nil)
-          scope = User.where(role: "admin").where.not(invitation_status: "revoked")
-          scope = scope.where.not(id: excluding.id) if excluding
-          scope.count
+        def admin_change_error(user, role:, invitation_status:, locked_admin_ids:)
+          return unless user.admin? && (role != "admin" || invitation_status == "revoked")
+          return { status: :forbidden, message: "You cannot remove your own admin access" } if user == current_user
+          return if (locked_admin_ids - [ user.id ]).any?
+
+          { status: :unprocessable_entity, errors: [ "At least one active admin is required" ] }
+        end
+
+        def locked_active_admin_ids
+          User.where(role: "admin")
+            .where.not(invitation_status: "revoked")
+            .order(:id)
+            .lock("FOR UPDATE")
+            .pluck(:id)
+        end
+
+        def render_admin_guard_error(error)
+          return render_forbidden(error.fetch(:message)) if error.fetch(:status) == :forbidden
+
+          render json: { errors: error.fetch(:errors) }, status: error.fetch(:status)
         end
 
         def normalized_invitation_status(user, requested_status)

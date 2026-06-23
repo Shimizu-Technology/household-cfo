@@ -6,13 +6,13 @@ Household CFO now includes a browser-based Admin tab for owner admins. This avoi
 
 ## Owner bootstrap
 
-`bin/rails db:seed` always creates or repairs an admin invite for:
+`bin/rails db:seed` creates a default admin invite when one is missing for:
 
 ```text
 shimizutechnology@gmail.com
 ```
 
-The seed is invite-only. The admin still signs in with Clerk using that same email. On first sign-in, the API links the Clerk user ID to the pending local admin record.
+The seed is invite-only. The admin still signs in with Clerk using that same email. On first sign-in, the API links the Clerk user ID to the pending local admin record. Re-running seeds fills missing bootstrap fields, but it does not undo an intentional role/status change made through the admin UI.
 
 Additional bootstrap admins can be added when seeding:
 
@@ -29,8 +29,8 @@ Admins can:
 - create cohorts,
 - set cohort status/dates/notes,
 - invite users as `admin`, `coach`, or `participant`,
-- assign invited users to a cohort,
-- update user role/status/cohort assignment,
+- assign invited users to one or more cohorts,
+- update user role/status/cohort assignments,
 - see high-level setup completion/readiness without exposing detailed household financial rows.
 
 ## API shape

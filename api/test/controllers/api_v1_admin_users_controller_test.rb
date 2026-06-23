@@ -129,6 +129,41 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "coach", user.cohort_memberships.first.role
   end
 
+  test "admin can preserve multiple cohort assignments on user save" do
+    admin = create_user(email: "multi-owner@example.com", role: "admin")
+    user = create_user(email: "multi-managed@example.com", role: "participant")
+    first_cohort = Cohort.create!(name: "First Multi Pilot", status: "draft", created_by_user: admin)
+    second_cohort = Cohort.create!(name: "Second Multi Pilot", status: "enrolling", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    user.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "participant", cohort_ids: [ first_cohort.id, second_cohort.id ] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :success
+    assert_equal [ first_cohort, second_cohort ].map(&:id).sort, user.reload.cohorts.pluck(:id).sort
+  end
+
+  test "admin user save without cohort params does not remove existing cohort assignments" do
+    admin = create_user(email: "preserve-owner@example.com", role: "admin")
+    user = create_user(email: "preserve-managed@example.com", role: "participant")
+    first_cohort = Cohort.create!(name: "First Preserve Pilot", status: "draft", created_by_user: admin)
+    second_cohort = Cohort.create!(name: "Second Preserve Pilot", status: "enrolling", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    user.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "coach" } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :success
+    assert_equal [ first_cohort, second_cohort ].map(&:id).sort, user.reload.cohorts.pluck(:id).sort
+    assert_equal [ "coach" ], user.cohort_memberships.distinct.pluck(:role)
+  end
+
   test "admin cannot revoke their own admin access" do
     admin = create_user(email: "self-admin@example.com", role: "admin")
 
