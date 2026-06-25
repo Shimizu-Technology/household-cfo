@@ -298,6 +298,45 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ cohort ], user.reload.cohorts.to_a
   end
 
+  test "admin can revoke a pending participant and remove all cohort assignments" do
+    admin = create_user(email: "cancel-owner@example.com", role: "admin")
+    user = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "cancel-participant@example.com",
+      role: "participant",
+      invitation_status: "pending"
+    )
+    cohort = Cohort.create!(name: "Cancel Pilot", status: "draft", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "participant", invitation_status: "revoked", cohort_ids: [] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :success
+    user.reload
+    assert_equal "revoked", user.invitation_status
+    assert_empty user.cohorts
+  end
+
+  test "admin can revoke an accepted participant and remove their last cohort" do
+    admin = create_user(email: "remove-owner@example.com", role: "admin")
+    user = create_user(email: "remove-participant@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Remove Pilot", status: "draft", created_by_user: admin)
+    user.cohort_memberships.create!(cohort: cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{user.id}",
+          params: { user: { role: "participant", invitation_status: "revoked", cohort_ids: [] } },
+          headers: auth_headers(admin),
+          as: :json
+
+    assert_response :success
+    user.reload
+    assert_equal "revoked", user.invitation_status
+    assert_empty user.cohorts
+  end
+
   test "admin users can be saved without cohorts" do
     primary_admin = create_user(email: "primary-admin@example.com", role: "admin")
     secondary_admin = create_user(email: "secondary-admin@example.com", role: "admin")

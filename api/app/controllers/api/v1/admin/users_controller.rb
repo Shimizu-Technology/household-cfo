@@ -55,9 +55,10 @@ module Api
           end
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
 
+          requested_invitation_status = normalized_invitation_status(user, attributes[:invitation_status])
           membership_params_present = cohort_membership_params_present?(attributes)
           cohort_ids = membership_params_present ? cohort_ids_from_attributes(attributes) : user.cohort_memberships.pluck(:cohort_id)
-          return render_cohort_required(role) if cohort_required?(role) && cohort_ids.empty?
+          return render_cohort_required(role) if cohort_required?(role, requested_invitation_status) && cohort_ids.empty?
           return render_forbidden("Cohort assignment not permitted") if membership_params_present && !cohort_assignment_permitted?(cohort_ids)
 
           admin_guard_error = nil
@@ -232,8 +233,8 @@ module Api
           ids
         end
 
-        def cohort_required?(role)
-          role != "admin"
+        def cohort_required?(role, invitation_status = "pending")
+          role != "admin" && invitation_status != "revoked"
         end
 
         def render_cohort_required(role)

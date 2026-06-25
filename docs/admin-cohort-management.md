@@ -31,6 +31,8 @@ Admins can:
 - invite users as `admin`, `coach`, or `participant`,
 - send/resend invitation emails through Resend when configured,
 - assign invited users to one or more cohorts,
+- remove users from a selected cohort,
+- cancel pending invites by revoking access and clearing cohort assignments,
 - update user role/status/cohort assignments,
 - review the collapsible role matrix that explains cohort requirements,
 - see high-level setup completion/readiness without exposing detailed household financial rows.
@@ -38,8 +40,9 @@ Admins can:
 Role/cohort policy is backend-enforced:
 
 - `admin`: cohort assignment is optional.
-- `coach`: at least one cohort is required.
-- `participant`: at least one cohort is required.
+- active `coach`: at least one cohort is required.
+- active `participant`: at least one cohort is required.
+- `revoked` users may have no cohorts so admins can cancel pending invites or remove someone from their last cohort.
 
 ## API shape
 

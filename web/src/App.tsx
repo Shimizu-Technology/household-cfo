@@ -954,8 +954,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   async function handleSaveUser(user: AdminUser) {
     const draft = userDrafts[user.id]
     if (!draft || savingUserId) return
-    if (roleRequiresCohort(draft.role) && draft.cohort_ids.length === 0) {
-      setError(`${titleize(draft.role)} users must be assigned to at least one cohort before saving.`)
+    if (cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0) {
+      setError(`${titleize(draft.role)} users must be assigned to at least one cohort before saving unless access is revoked.`)
       return
     }
 
@@ -991,6 +991,58 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       setError(caught instanceof Error ? caught.message : 'Invitation email could not be resent.')
     } finally {
       setResendingUserId(null)
+    }
+  }
+
+  async function handleCancelInvite(user: AdminUser) {
+    const draft = userDrafts[user.id] ?? adminDraftForUser(user)
+    if (savingUserId) return
+
+    setSavingUserId(user.id)
+    setError(null)
+    setNotice(null)
+    try {
+      const updatedUser = await updateAdminUser(user.id, {
+        role: draft.role,
+        invitation_status: 'revoked',
+        cohort_ids: [],
+      })
+      setNotice(`${updatedUser.email} invite was cancelled and removed from cohorts.`)
+      await loadAdminData()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invite could not be cancelled.')
+    } finally {
+      setSavingUserId(null)
+    }
+  }
+
+  async function handleRemoveFromSelectedCohort(user: AdminUser) {
+    if (!selectedCohortId || savingUserId) return
+    const draft = userDrafts[user.id] ?? adminDraftForUser(user)
+    const selectedId = String(selectedCohortId)
+    const nextCohortIds = draft.cohort_ids.filter((cohortId) => cohortId !== selectedId)
+    const nextStatus: InvitationStatus = cohortRequiredFor(draft.role, draft.invitation_status) && nextCohortIds.length === 0
+      ? 'revoked'
+      : draft.invitation_status
+
+    setSavingUserId(user.id)
+    setError(null)
+    setNotice(null)
+    try {
+      const updatedUser = await updateAdminUser(user.id, {
+        role: draft.role,
+        invitation_status: nextStatus,
+        cohort_ids: nextCohortIds.map(Number),
+      })
+      const cohortName = selectedCohort?.name ?? 'this cohort'
+      setNotice(nextStatus === 'revoked'
+        ? `${updatedUser.email} was removed from ${cohortName} and access was revoked because no cohorts remain.`
+        : `${updatedUser.email} was removed from ${cohortName}.`)
+      await loadAdminData(selectedCohortId)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'User could not be removed from this cohort.')
+    } finally {
+      setSavingUserId(null)
     }
   }
 
@@ -1193,7 +1245,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                 {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
               </select>
             </label>
-            <p className="admin-field-note wide">Admins can manage across cohorts without assignment. Coaches and participants must belong to at least one cohort.</p>
+            <p className="admin-field-note wide">Admins can manage across cohorts without assignment. Active coaches and participants must belong to at least one cohort.</p>
             <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
           </form>
         </article>
@@ -1216,8 +1268,11 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               const draft = userDrafts[user.id] ?? adminDraftForUser(user)
               const isSelf = user.id === currentUser.id
 
-              const draftNeedsCohort = roleRequiresCohort(draft.role) && draft.cohort_ids.length === 0
+              const draftNeedsCohort = cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0
+              const draftRequiresCohort = cohortRequiredFor(draft.role, draft.invitation_status)
               const canResendInvite = user.invitation_status === 'pending'
+              const canCancelInvite = user.invitation_status === 'pending' && !isSelf
+              const canRemoveFromSelectedCohort = selectedCohortId !== null && draft.cohort_ids.includes(String(selectedCohortId)) && !isSelf
 
               return (
                 <article className="admin-user-row" key={user.id}>
@@ -1252,7 +1307,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                       </select>
                     </label>
                     <div className={`admin-field compact cohort-select ${draftNeedsCohort ? 'needs-attention' : ''}`}>
-                      <span>Cohorts {roleRequiresCohort(draft.role) ? '(required)' : '(optional)'}</span>
+                      <span>Cohorts {draftRequiresCohort ? '(required)' : '(optional)'}</span>
                       <div className="admin-cohort-checks">
                         {cohorts.length === 0 && <small>No cohorts yet. Create one before adding coaches or participants.</small>}
                         {cohorts.map((cohort) => (
@@ -1271,6 +1326,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                     <div className="admin-user-actions">
                       <button type="button" onClick={() => void handleSaveUser(user)} disabled={savingUserId === user.id || draftNeedsCohort}>{savingUserId === user.id ? 'Saving' : 'Save'}</button>
                       <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={!canResendInvite || resendingUserId === user.id}>{resendingUserId === user.id ? 'Sending' : 'Resend email'}</button>
+                      {canCancelInvite && <button type="button" className="danger-action" onClick={() => void handleCancelInvite(user)} disabled={savingUserId === user.id}>Cancel invite</button>}
+                      {canRemoveFromSelectedCohort && <button type="button" className="danger-action" onClick={() => void handleRemoveFromSelectedCohort(user)} disabled={savingUserId === user.id}>Remove from cohort</button>}
                     </div>
                   </div>
                 </article>
@@ -1313,13 +1370,13 @@ function RoleMatrix({ open, onToggle }: { open: boolean; onToggle: (open: boolea
         </article>
         <article>
           <strong>Coach</strong>
-          <span>Requires at least one cohort</span>
-          <p>Supports assigned groups and can create participant invites, but cannot manage admin or coach accounts.</p>
+          <span>Requires at least one active cohort</span>
+          <p>Supports assigned groups and can create participant invites, but cannot manage admin or coach accounts. Revoked coaches can have no cohort.</p>
         </article>
         <article>
           <strong>Participant</strong>
-          <span>Requires at least one cohort</span>
-          <p>Uses the household workspace and Mia coaching flow. Their detailed financial rows stay out of admin lists.</p>
+          <span>Requires at least one active cohort</span>
+          <p>Uses the household workspace and Mia coaching flow. Revoked participants can be removed from all cohorts.</p>
         </article>
       </div>
     </details>
@@ -1343,6 +1400,10 @@ function adminDraftForUser(user: AdminUser): AdminUserDraft {
 
 function roleRequiresCohort(role: UserRole) {
   return role !== 'admin'
+}
+
+function cohortRequiredFor(role: UserRole, invitationStatus: InvitationStatus) {
+  return roleRequiresCohort(role) && invitationStatus !== 'revoked'
 }
 
 function inviteDeliveryNotice(response: AdminUserMutationResponse) {
