@@ -1019,7 +1019,6 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   }
 
   async function handleCancelInvite(user: AdminUser) {
-    const draft = userDrafts[user.id] ?? adminDraftForUser(user)
     if (savingUserIds.has(user.id)) return
 
     markUserSaving(user.id, true)
@@ -1027,7 +1026,6 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     setNotice(null)
     try {
       const updatedUser = await updateAdminUser(user.id, {
-        role: draft.role,
         invitation_status: 'revoked',
         cohort_ids: [],
       })
@@ -1042,24 +1040,19 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
   async function handleRemoveFromSelectedCohort(user: AdminUser) {
     if (!selectedCohortId || savingUserIds.has(user.id)) return
-    const draft = userDrafts[user.id] ?? adminDraftForUser(user)
     const selectedId = String(selectedCohortId)
-    const nextCohortIds = draft.cohort_ids.filter((cohortId) => cohortId !== selectedId)
-    const nextStatus: InvitationStatus = cohortRequiredFor(draft.role, draft.invitation_status) && nextCohortIds.length === 0
-      ? 'revoked'
-      : draft.invitation_status
+    const nextCohortIds = serverCohortIdsForUser(user).filter((cohortId) => cohortId !== selectedId)
+    const shouldRevokeAfterRemoval = cohortRequiredFor(user.role, user.invitation_status) && nextCohortIds.length === 0
+    const mutation: AdminUserInput = { cohort_ids: nextCohortIds.map(Number) }
+    if (shouldRevokeAfterRemoval) mutation.invitation_status = 'revoked'
 
     markUserSaving(user.id, true)
     setError(null)
     setNotice(null)
     try {
-      const updatedUser = await updateAdminUser(user.id, {
-        role: draft.role,
-        invitation_status: nextStatus,
-        cohort_ids: nextCohortIds.map(Number),
-      })
+      const updatedUser = await updateAdminUser(user.id, mutation)
       const cohortName = selectedCohort?.name ?? 'this cohort'
-      setNotice(nextStatus === 'revoked'
+      setNotice(shouldRevokeAfterRemoval
         ? `${updatedUser.email} was removed from ${cohortName} and access was revoked because no cohorts remain.`
         : `${updatedUser.email} was removed from ${cohortName}.`)
       await loadAdminData(selectedCohortId)
@@ -1348,7 +1341,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               const draftRequiresCohort = cohortRequiredFor(draft.role, draft.invitation_status)
               const canResendInvite = user.invitation_status === 'pending'
               const canCancelInvite = user.invitation_status === 'pending' && !isSelf
-              const canRemoveFromSelectedCohort = selectedCohortId !== null && draft.cohort_ids.includes(String(selectedCohortId)) && !isSelf
+              const canRemoveFromSelectedCohort = selectedCohortId !== null && serverCohortIdsForUser(user).includes(String(selectedCohortId)) && !isSelf
               const rowSaving = savingUserIds.has(user.id)
               const rowResending = resendingUserIds.has(user.id)
 
@@ -1472,8 +1465,12 @@ function adminDraftForUser(user: AdminUser): AdminUserDraft {
   return {
     role: user.role,
     invitation_status: user.invitation_status,
-    cohort_ids: user.cohorts.map((membership) => String(membership.cohort.id)),
+    cohort_ids: serverCohortIdsForUser(user),
   }
+}
+
+function serverCohortIdsForUser(user: AdminUser) {
+  return user.cohorts.map((membership) => String(membership.cohort.id))
 }
 
 function roleRequiresCohort(role: UserRole) {
