@@ -459,7 +459,7 @@ Lanya, che’lu — not this month. The purse is cute, but your runway is still 
 - Do not commit statements, pay stubs, receipts, or screenshots containing real private data.
 - Keep `docs/HouseholdCFO/` untracked unless files are scrubbed and intentionally added.
 - Backend logs should not dump full financial payloads or Mia prompts.
-- Upload/OCR remains disabled until privacy and storage scope are approved.
+- Upload/OCR should remain disabled in the app until the private S3 document-import workflow is implemented; see `docs/private-document-imports-and-mia-context.md`.
 
 ## Testing plan
 
@@ -526,7 +526,7 @@ The PR is ready when:
 - Mia's voice has the local persona layer Mrs. Mel asked for.
 - Chat history is server-persisted for authenticated users.
 - Demo/sample data still exists only as an explicit preview path.
-- Upload/OCR remains clearly disabled/future-scoped.
+- Upload/OCR remains clearly disabled unless/until the private S3 document-import workflow is implemented.
 - All checks pass.
 - No private financial docs/data/secrets are committed.
 
@@ -551,8 +551,7 @@ The PR is ready when:
 
 ## Deferred until after real-mode MVP
 
-- OCR/document parsing.
-- Receipt/pay-stub/statement storage.
+- Private S3 document imports, OCR/extraction, and review-before-apply are now the next planned feature; see `docs/private-document-imports-and-mia-context.md`.
 - Payments/subscriptions.
 - Full multi-tenant white-label coach skin engine.
 - PDF export.

@@ -18,6 +18,15 @@ Rails.application.routes.draw do
           delete "messages", to: "mia_messages#destroy"
         end
       end
+      resources :document_imports, only: %i[index show create destroy] do
+        member do
+          post :reprocess
+          post :apply
+          get :source_url
+          delete :source, action: :destroy_source
+        end
+        resources :items, only: :update, controller: "document_import_items"
+      end
       namespace :admin do
         resources :cohorts, only: %i[index show create update]
         resources :users, only: %i[index create update] do

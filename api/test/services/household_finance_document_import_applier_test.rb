@@ -1,0 +1,106 @@
+require "test_helper"
+
+class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
+  setup do
+    @user = User.create!(
+      clerk_id: "clerk_doc_apply_user",
+      email: "doc-apply@example.com",
+      role: "participant",
+      invitation_status: "accepted"
+    )
+    @household = Household.create!(created_by_user: @user, name: "Apply Household", primary_goal: "Update numbers")
+    @household.household_memberships.create!(user: @user, role: "owner")
+    @document_import = FinancialDocumentImport.create!(
+      household: @household,
+      uploaded_by_user: @user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "statement.pdf",
+      content_type: "application/pdf",
+      byte_size: 100,
+      s3_key: "household-cfo/test/statement.pdf",
+      extracted_summary: "Statement found income, groceries, cash, and card debt."
+    )
+  end
+
+  test "applies selected extracted values to household records with lineage" do
+    income = @document_import.items.create!(
+      target_type: "income_source",
+      label: "Primary income",
+      amount_cents: 5_000_00,
+      cadence: "monthly",
+      source_type: "job",
+      confidence: "high"
+    )
+    expense = @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Groceries",
+      amount_cents: 825_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+    account = @document_import.items.create!(
+      target_type: "account",
+      label: "Checking",
+      balance_cents: 2_250_00,
+      account_type: "checking",
+      confidence: "high"
+    )
+    debt = @document_import.items.create!(
+      target_type: "debt",
+      label: "Visa",
+      balance_cents: 4_820_00,
+      payment_cents: 150_00,
+      debt_type: "credit_card",
+      confidence: "medium"
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_equal 4, result.applied_count
+    assert_equal "applied", @document_import.reload.status
+    assert_equal @user, @document_import.applied_by_user
+
+    assert_equal 5_000_00, @household.income_sources.find_by!(label: "Primary income").amount_cents
+    assert_equal 825_00, @household.expense_items.find_by!(label: "Groceries").amount_cents
+    assert_equal 2_250_00, @household.accounts.find_by!(label: "Checking").balance_cents
+    assert_equal 4_820_00, @household.debts.find_by!(label: "Visa").balance_cents
+
+    [ income, expense, account, debt ].each do |item|
+      item.reload
+      assert item.applied?
+      assert_equal @user, item.applied_by_user
+      assert_not_nil item.applied_record
+    end
+  end
+
+  test "applies only requested item ids and leaves import partially applied" do
+    selected = @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+    skipped = @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Travel",
+      amount_cents: 900_00,
+      cadence: "monthly",
+      stack_key: "sinking_expected",
+      confidence: "low"
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user, item_ids: [ selected.id ]).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_equal 1, result.applied_count
+    assert_equal "partially_applied", @document_import.reload.status
+    assert selected.reload.applied?
+    assert_not skipped.reload.applied?
+    assert_nil @household.expense_items.find_by(label: "Travel")
+  end
+end
