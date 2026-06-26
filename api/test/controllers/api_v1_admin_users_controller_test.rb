@@ -146,13 +146,99 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     user = User.find_by!(email: "pilot@example.com")
     assert_equal admin, user.invited_by_user
     assert_equal cohort, user.cohorts.first
-    assert_equal "skipped", user.invitation_email_status
+    assert_equal "failed", user.invitation_email_status
     assert_equal 1, user.invitation_email_attempts.count
+    assert_equal "failed", user.invitation_email_attempts.last.status
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("invitation_sent")
+    assert_equal "failed", body.fetch("invitation_status")
+    assert_equal [ "Tuesday Pilot" ], body.fetch("user").fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
+  end
+
+  test "admin can explicitly create an invite without sending email" do
+    admin = create_user(email: "skip-email-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Quiet Pilot", status: "enrolling", created_by_user: admin)
+
+    post "/api/v1/admin/users",
+         params: { user: { email: "quiet-pilot@example.com", role: "participant", cohort_id: cohort.id, send_invitation_email: false } },
+         headers: auth_headers(admin),
+         as: :json
+
+    assert_response :created
+    user = User.find_by!(email: "quiet-pilot@example.com")
+    assert_equal "skipped", user.invitation_email_status
     assert_equal "skipped", user.invitation_email_attempts.last.status
     body = JSON.parse(response.body)
     assert_equal false, body.fetch("invitation_sent")
     assert_equal "skipped", body.fetch("invitation_status")
-    assert_equal [ "Tuesday Pilot" ], body.fetch("user").fetch("cohorts").map { |membership| membership.fetch("cohort").fetch("name") }
+  end
+
+  test "admin create invite reactivates a revoked existing user instead of failing uniqueness" do
+    admin = create_user(email: "reactivate-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Reactivate Pilot", status: "active", created_by_user: admin)
+    user = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "reactivate-me@example.com",
+      first_name: "Old",
+      last_name: "Name",
+      role: "participant",
+      invitation_status: "revoked"
+    )
+
+    with_user_invite_email_stub(sent: true, status: "sent", provider_message_id: "email_reactivated", error: nil) do
+      post "/api/v1/admin/users",
+           params: { user: { email: "reactivate-me@example.com", first_name: "New", last_name: "Participant", role: "participant", cohort_id: cohort.id } },
+           headers: auth_headers(admin),
+           as: :json
+    end
+
+    assert_response :success
+    assert_equal 1, User.where(email: "reactivate-me@example.com").count
+    user.reload
+    assert_equal "pending", user.invitation_status
+    assert_equal "New", user.first_name
+    assert_equal "Participant", user.last_name
+    assert_equal [ cohort ], user.cohorts.to_a
+    assert_equal "sent", user.invitation_email_status
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("created")
+    assert_equal true, body.fetch("reactivated")
+    assert_equal true, body.fetch("invitation_sent")
+  end
+
+  test "admin create invite adds an existing active user to another cohort" do
+    admin = create_user(email: "existing-admin@example.com", role: "admin")
+    first_cohort = Cohort.create!(name: "Existing First", status: "active", created_by_user: admin)
+    second_cohort = Cohort.create!(name: "Existing Second", status: "active", created_by_user: admin)
+    user = create_user(email: "existing-participant@example.com", role: "participant")
+    user.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+
+    post "/api/v1/admin/users",
+         params: { user: { email: "existing-participant@example.com", role: "participant", cohort_id: second_cohort.id, send_invitation_email: false } },
+         headers: auth_headers(admin),
+         as: :json
+
+    assert_response :success
+    assert_equal [ first_cohort, second_cohort ].map(&:id).sort, user.reload.cohorts.pluck(:id).sort
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("created")
+    assert_equal false, body.fetch("reactivated")
+  end
+
+  test "admin create invite does not silently change an active user's role" do
+    admin = create_user(email: "role-mismatch-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Role Mismatch Pilot", status: "active", created_by_user: admin)
+    user = create_user(email: "role-mismatch@example.com", role: "coach")
+    user.cohort_memberships.create!(cohort: cohort, role: "coach")
+
+    post "/api/v1/admin/users",
+         params: { user: { email: "role-mismatch@example.com", role: "participant", cohort_id: cohort.id } },
+         headers: auth_headers(admin),
+         as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "This email already belongs to an existing coach user. Update the existing user row to change role."
+    assert_equal "coach", user.reload.role
   end
 
   test "admin invite preserves delivered status when invite audit recording fails" do
@@ -502,13 +588,13 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     user.reload
-    assert_equal "skipped", user.invitation_email_status
+    assert_equal "failed", user.invitation_email_status
     assert_equal 1, user.invitation_email_attempts.count
     assert_equal admin, user.invitation_email_attempts.last.sent_by_user
     assert_not_nil user.last_invite_email_attempted_at
     body = JSON.parse(response.body)
     assert_equal false, body.fetch("invitation_sent")
-    assert_equal "skipped", body.fetch("invitation_status")
+    assert_equal "failed", body.fetch("invitation_status")
   end
 
   test "resending invitations preserves original inviter audit fields" do

@@ -21,23 +21,13 @@ module Api
           return render_cohort_required(role) if cohort_required?(role) && cohort_ids.empty?
           return render_forbidden("Cohort assignment not permitted") unless cohort_assignment_permitted?(cohort_ids)
 
-          user = nil
-          User.transaction do
-            user = User.create!(
-              email: attributes[:email],
-              first_name: bounded_text(attributes[:first_name], 80),
-              last_name: bounded_text(attributes[:last_name], 80),
-              role: role,
-              clerk_id: pending_clerk_id,
-              invitation_status: "pending",
-              invited_at: Time.current,
-              invited_by_user: current_user
-            )
-            sync_cohort_memberships(user, cohort_ids, role: cohort_role_for(role))
+          email = normalized_email(attributes[:email])
+          existing_user = User.find_by("LOWER(email) = ?", email) if email.present?
+          if existing_user
+            create_or_reactivate_existing_user(existing_user, attributes:, role:, cohort_ids:)
+          else
+            create_new_invited_user(attributes:, role:, cohort_ids:)
           end
-
-          invitation_result = send_invitation_email(user)
-          render json: invite_response_payload(user.reload, invitation_result), status: :created
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         rescue ActiveRecord::RecordNotFound => e
@@ -118,6 +108,56 @@ module Api
 
         private
 
+        def create_new_invited_user(attributes:, role:, cohort_ids:)
+          user = nil
+          User.transaction do
+            user = User.create!(
+              email: attributes[:email],
+              first_name: bounded_text(attributes[:first_name], 80),
+              last_name: bounded_text(attributes[:last_name], 80),
+              role: role,
+              clerk_id: pending_clerk_id,
+              invitation_status: "pending",
+              invited_at: Time.current,
+              invited_by_user: current_user
+            )
+            sync_cohort_memberships(user, cohort_ids, role: cohort_role_for(role))
+          end
+
+          invitation_result = send_invitation_email(user, requested: invitation_email_requested?(attributes))
+          render json: invite_response_payload(user.reload, invitation_result, created: true, reactivated: false), status: :created
+        end
+
+        def create_or_reactivate_existing_user(user, attributes:, role:, cohort_ids:)
+          return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
+          unless user.revoked? || user.role == role
+            return render json: { errors: [ "This email already belongs to an existing #{user.role} user. Update the existing user row to change role." ] }, status: :unprocessable_entity
+          end
+
+          was_revoked = user.revoked?
+          target_status = linked_to_clerk?(user) ? "accepted" : "pending"
+          target_cohort_ids = []
+          User.transaction do
+            user.lock!
+            existing_cohort_ids = user.cohort_memberships.pluck(:cohort_id)
+            target_cohort_ids = was_revoked ? cohort_ids : (existing_cohort_ids | cohort_ids)
+            user.assign_attributes(
+              role: role,
+              invitation_status: target_status,
+              invited_at: Time.current,
+              invited_by_user: current_user
+            )
+            user.first_name = bounded_text(attributes[:first_name], 80) if attributes[:first_name].present?
+            user.last_name = bounded_text(attributes[:last_name], 80) if attributes[:last_name].present?
+            user.accepted_at ||= Time.current if target_status == "accepted"
+            user.save!
+            sync_cohort_memberships(user, target_cohort_ids, role: cohort_role_for(role))
+          end
+
+          invitation_result = send_invitation_email(user, requested: invitation_email_requested?(attributes))
+          render json: invite_response_payload(user.reload, invitation_result, created: false, reactivated: was_revoked), status: :ok
+        end
+
         def users_scope
           scope = User.includes(
             :invited_by_user,
@@ -136,7 +176,7 @@ module Api
 
         def user_params
           params.require(:user)
-            .permit(:email, :first_name, :last_name, :role, :cohort_id, cohort_ids: [])
+            .permit(:email, :first_name, :last_name, :role, :cohort_id, :send_invitation_email, cohort_ids: [])
             .to_h
             .symbolize_keys
         end
@@ -260,14 +300,24 @@ module Api
           "pending_#{SecureRandom.hex(12)}"
         end
 
+        def normalized_email(value)
+          value.to_s.strip.downcase
+        end
+
         def bounded_text(value, max_length)
           return nil if value.nil?
 
           value.to_s.squish.truncate(max_length, omission: "…")
         end
 
-        def send_invitation_email(user)
-          result = UserInviteEmailService.send_invite(user: user, invited_by: current_user)
+        def invitation_email_requested?(attributes)
+          return true unless attributes.key?(:send_invitation_email)
+
+          ActiveModel::Type::Boolean.new.cast(attributes[:send_invitation_email])
+        end
+
+        def send_invitation_email(user, requested: true)
+          result = requested ? UserInviteEmailService.send_invite(user: user, invited_by: current_user) : skipped_invitation_email_result
           record_invitation_email_attempt(user, result)
           result
         rescue ActiveRecord::ActiveRecordError => e
@@ -275,6 +325,16 @@ module Api
           fallback_result = audit_recording_failure_result(result, e)
           record_invitation_email_summary_after_audit_failure(user, fallback_result)
           fallback_result
+        end
+
+        def skipped_invitation_email_result
+          Rails.logger.info("[InviteEmail] Invite email skipped by admin for #{params.dig(:user, :email)}")
+          {
+            sent: false,
+            status: "skipped",
+            provider_message_id: nil,
+            error: "Email delivery skipped by admin"
+          }
         end
 
         def audit_recording_failure_result(result, error)
@@ -338,9 +398,11 @@ module Api
           }
         end
 
-        def invite_response_payload(user, result)
+        def invite_response_payload(user, result, created: nil, reactivated: nil)
           {
             user: serialize_user(user),
+            created: created,
+            reactivated: reactivated,
             invitation_sent: result[:sent],
             invitation_status: result[:status],
             invitation_error: result[:error]

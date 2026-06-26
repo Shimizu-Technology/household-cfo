@@ -61,7 +61,7 @@ Local preview works without Clerk. For hosted/cohort environments:
 1. Set `VITE_CLERK_PUBLISHABLE_KEY` in the web app.
 2. Set `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API.
 3. Set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
-4. Optionally set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`/`MAILER_FROM_EMAIL` in the API to deliver invite emails. Without Resend, invites are saved and marked as skipped.
+4. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`/`MAILER_FROM_EMAIL` in the API to deliver invite emails. The Admin UI requests email delivery by default; if Resend is missing, the invite is saved but marked as failed so the configuration issue is visible.
 5. Run `bin/rails db:seed` to create the default owner admin invite for `shimizutechnology@gmail.com`, then use the Admin tab to invite additional admins, coaches, and participants into cohorts.
 6. Uninvited Clerk sessions are rejected by `/api/v1/auth/me`.
 

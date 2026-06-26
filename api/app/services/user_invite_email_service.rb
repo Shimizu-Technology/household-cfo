@@ -5,8 +5,8 @@ class UserInviteEmailService
 
   class << self
     def send_invite(user:, invited_by:)
-      return skipped("RESEND_API_KEY is not configured") if ENV["RESEND_API_KEY"].blank?
-      return skipped("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured") if from_email.blank?
+      return failed_configuration("RESEND_API_KEY is not configured") if ENV["RESEND_API_KEY"].blank?
+      return failed_configuration("MAILER_FROM_EMAIL or RESEND_FROM_EMAIL is not configured") if from_email.blank?
 
       response = Resend::Emails.send(
         {
@@ -37,11 +37,11 @@ class UserInviteEmailService
 
     private
 
-    def skipped(reason)
-      Rails.logger.warn("[InviteEmail] #{reason}; skipping invite email")
+    def failed_configuration(reason)
+      Rails.logger.error("[InviteEmail] #{reason}; invite email cannot be delivered")
       {
         sent: false,
-        status: "skipped",
+        status: "failed",
         provider_message_id: nil,
         error: reason
       }

@@ -40,5 +40,8 @@ assert.ok(
   app.includes('requestedCohortId === null') && app.includes('selectedCohortIdRef = useRef<number | null | undefined>'),
   'admin All users selection should survive reloads after save/resend actions',
 )
+assert.ok(app.includes("useState<UserStatusFilter>('active')"), 'admin users should default to active-only filtering')
+assert.ok(app.includes('Send invite email now'), 'admin invite form should make email delivery explicit')
+assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
 
 console.log('design regression checks passed')

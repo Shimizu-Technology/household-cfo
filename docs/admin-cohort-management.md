@@ -29,7 +29,8 @@ Admins can:
 - create cohorts,
 - set cohort status/dates/notes,
 - invite users as `admin`, `coach`, or `participant`,
-- send/resend invitation emails through Resend when configured,
+- send invitation emails by default through Resend, with an explicit no-email checkbox for admin-only exceptions,
+- resend invitation emails and review delivery history,
 - assign invited users to one or more cohorts,
 - remove users from a selected cohort,
 - cancel pending invites by revoking access and clearing cohort assignments,
@@ -63,7 +64,7 @@ POST   /api/v1/admin/users/:id/resend_invitation
 
 ## Invitation emails
 
-Invite emails use Resend directly from the Rails API. Local development can keep these unset; invites are still created and marked as `skipped`.
+Invite emails use Resend directly from the Rails API. The Admin UI sends by default; if Resend is missing, invites are still created for Clerk linking but email delivery is marked `failed` with the missing configuration reason. Admins can explicitly uncheck email delivery when creating an invite; that intentional no-send path is marked `skipped`.
 
 ```bash
 RESEND_API_KEY=re_...
@@ -76,7 +77,7 @@ Email delivery metadata is summarized on the invited user (`invitation_email_sta
 
 ## Safety constraints
 
-- The UI sends real invitation emails only when Resend is configured; otherwise invite records are still created for Clerk email linking.
+- The UI requests real invitation emails by default; missing Resend config is surfaced as a failed delivery instead of looking intentional.
 - The UI blocks self-demotion/revocation at the backend.
 - The backend prevents removing the last active admin.
 - Cohort dashboards show completion/readiness summaries, not detailed financial entries.
@@ -97,5 +98,5 @@ Email delivery metadata is summarized on the invited user (`invitation_email_sta
 5. Open the `Admin` tab.
 6. Create a test cohort.
 7. Invite a fake participant email into that cohort.
-8. If Resend is configured, confirm the invite email arrives; otherwise confirm the UI reports email delivery as skipped.
+8. Confirm the invite email arrives. If the UI reports delivery failed because `RESEND_API_KEY` is missing, add the key to `api/.env` and restart Rails before retrying.
 9. Sign out, sign in as the participant, and test the blank workspace/setup/Mia flow.

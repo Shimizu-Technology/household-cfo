@@ -801,7 +801,8 @@ h3 {
 }
 
 .admin-field.wide,
-.admin-field-note.wide {
+.admin-field-note.wide,
+.admin-inline-check.wide {
   grid-column: 1 / -1;
 }
 
@@ -832,11 +833,43 @@ h3 {
 
 .admin-field-note,
 .admin-field-warning,
-.admin-email-line {
+.admin-email-line,
+.admin-list-summary {
   margin: 0;
   color: var(--muted);
   font-size: 0.78rem;
   line-height: 1.45;
+}
+
+.admin-inline-check {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  gap: 9px;
+  border: 1px solid rgba(15, 76, 58, 0.14);
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: rgba(15, 76, 58, 0.07);
+  color: var(--emerald);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.admin-inline-check input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--emerald);
+}
+
+.admin-user-toolbar {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.25fr) repeat(3, minmax(150px, 0.75fr));
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid rgba(226, 217, 203, 0.72);
+  border-radius: 18px;
+  background: rgba(255, 253, 248, 0.56);
 }
 
 .admin-field-warning {
@@ -1016,6 +1049,7 @@ h3 {
   color: rgba(93, 88, 80, 0.72);
 }
 
+.admin-field.compact input,
 .admin-field.compact select {
   min-height: 40px;
   font-size: 0.82rem;
@@ -1200,7 +1234,8 @@ h3 {
     grid-template-columns: 1fr;
   }
 
-  .admin-user-controls {
+  .admin-user-controls,
+  .admin-user-toolbar {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1401,7 +1436,8 @@ h3 {
   .setup-field-grid,
   .admin-stat-row,
   .admin-form,
-  .admin-user-controls {
+  .admin-user-controls,
+  .admin-user-toolbar {
     grid-template-columns: 1fr;
   }
 

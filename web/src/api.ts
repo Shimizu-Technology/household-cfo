@@ -260,6 +260,8 @@ export type AdminCohortInput = {
 
 export type AdminUserMutationResponse = {
   user: AdminUser
+  created?: boolean
+  reactivated?: boolean
   invitation_sent?: boolean
   invitation_status?: AdminInviteEmailStatus
   invitation_error?: string | null
@@ -273,6 +275,7 @@ export type AdminUserInput = {
   invitation_status?: InvitationStatus
   cohort_id?: number | string | null
   cohort_ids?: number[]
+  send_invitation_email?: boolean
 }
 
 export type AppData = {

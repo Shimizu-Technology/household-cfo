@@ -1,12 +1,12 @@
 require "test_helper"
 
 class UserInviteEmailServiceTest < ActiveSupport::TestCase
-  test "send invite skips when Resend is not configured" do
+  test "send invite fails clearly when Resend is not configured" do
     user = create_user(email: "invitee@example.com")
     result = UserInviteEmailService.send_invite(user: user, invited_by: nil)
 
     assert_equal false, result.fetch(:sent)
-    assert_equal "skipped", result.fetch(:status)
+    assert_equal "failed", result.fetch(:status)
     assert_includes result.fetch(:error), "RESEND_API_KEY"
   end
 
