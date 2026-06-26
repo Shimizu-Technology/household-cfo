@@ -55,10 +55,7 @@ module HouseholdFinance
 
     def latest_applied_sources
       @latest_applied_sources ||= FinancialDocumentImport::DOCUMENT_KINDS.index_with do |kind|
-        document = household.financial_document_imports
-          .where(document_kind: kind, status: %w[applied partially_applied])
-          .order(Arel.sql("COALESCE(period_end_on, document_date, applied_at, updated_at) DESC"), id: :desc)
-          .first
+        document = latest_applied_documents_by_kind[kind]
         next unless document
 
         {
@@ -103,6 +100,15 @@ module HouseholdFinance
             summary: sanitized_text(document.extracted_summary, max_length: 240)
           }
         end
+    end
+
+    def latest_applied_documents_by_kind
+      @latest_applied_documents_by_kind ||= household.financial_document_imports
+        .where(status: %w[applied partially_applied])
+        .select("DISTINCT ON (document_kind) financial_document_imports.*")
+        .order(Arel.sql("document_kind, COALESCE(period_end_on, document_date, applied_at, updated_at) DESC, id DESC"))
+        .to_a
+        .index_by(&:document_kind)
     end
 
     def sanitized_text(value, max_length:)

@@ -153,4 +153,23 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_equal "No selected extracted values to apply", result.errors.first
     assert_equal "needs_review", @document_import.reload.status
   end
+
+  test "profile note imports keep household profile notes bounded" do
+    profile = @household.household_profile || @household.create_household_profile!
+    profile.update!(notes: "older note\n" * 300)
+    @document_import.items.create!(
+      target_type: "profile_note",
+      label: "Document observation",
+      evidence: "The uploaded document had a useful coaching note.",
+      confidence: "medium"
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    notes = profile.reload.notes
+    assert_operator notes.length, :<=, HouseholdFinance::DocumentImportApplier::MAX_PROFILE_NOTES_LENGTH
+    assert_includes notes, "Document observation"
+    assert_includes notes, "useful coaching note"
+  end
 end

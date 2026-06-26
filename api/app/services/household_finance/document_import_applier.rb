@@ -1,5 +1,7 @@
 module HouseholdFinance
   class DocumentImportApplier
+    MAX_PROFILE_NOTES_LENGTH = 2_000
+
     Result = Data.define(:success, :import, :applied_count, :errors) do
       def success?
         success == true
@@ -123,8 +125,15 @@ module HouseholdFinance
       profile = household.household_profile || household.create_household_profile!
       note = [ item.label, item.evidence ].compact_blank.join(" — ").truncate(500, omission: "…")
       existing_notes = profile.notes.to_s.strip
-      profile.update!(notes: [ existing_notes.presence, note ].compact.join("\n"))
+      profile.update!(notes: bounded_profile_notes(existing_notes, note))
       profile
+    end
+
+    def bounded_profile_notes(existing_notes, note)
+      combined = [ existing_notes.presence, note ].compact.join("\n")
+      return combined if combined.length <= MAX_PROFILE_NOTES_LENGTH
+
+      "…#{combined.last(MAX_PROFILE_NOTES_LENGTH - 1)}"
     end
 
     def cadence_for(item)
