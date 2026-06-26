@@ -103,4 +103,54 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_not skipped.reload.applied?
     assert_nil @household.expense_items.find_by(label: "Travel")
   end
+
+  test "finalizes partially applied import when remaining items are ignored" do
+    selected = @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+    ignored = @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Travel",
+      amount_cents: 900_00,
+      cadence: "monthly",
+      stack_key: "sinking_expected",
+      confidence: "low"
+    )
+
+    first_result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user, item_ids: [ selected.id ]).call
+    assert first_result.success?, first_result.errors.join(", ")
+    assert_equal "partially_applied", @document_import.reload.status
+
+    ignored.update!(ignored: true, selected: false)
+    final_result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert final_result.success?, final_result.errors.join(", ")
+    assert_equal 0, final_result.applied_count
+    assert_equal "applied", @document_import.reload.status
+    assert selected.reload.applied?
+    assert_not ignored.reload.applied?
+  end
+
+  test "unselected unresolved items keep import reviewable instead of finalizing" do
+    @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Travel",
+      amount_cents: 900_00,
+      cadence: "monthly",
+      stack_key: "sinking_expected",
+      confidence: "low",
+      selected: false
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert_not result.success?
+    assert_equal "No selected extracted values to apply", result.errors.first
+    assert_equal "needs_review", @document_import.reload.status
+  end
 end

@@ -19,10 +19,13 @@ module HouseholdFinance
 
       document_import.with_lock do
         items = selected_items.to_a
-        return failure("No selected extracted values to apply") if items.empty?
-
-        items.each { |item| apply_item!(item) }
-        update_import_status!
+        if items.empty?
+          update_import_status!
+          return failure("No selected extracted values to apply") if unresolved_items_exist?
+        else
+          items.each { |item| apply_item!(item) }
+          update_import_status!
+        end
       end
 
       Result.new(success: true, import: document_import.reload, applied_count: applied_count, errors: [])
@@ -133,15 +136,25 @@ module HouseholdFinance
     end
 
     def update_import_status!
-      total_applyable = document_import.items.where(ignored: false).count
-      total_applied = document_import.items.where.not(applied_at: nil).count
-      status = total_applied >= total_applyable ? "applied" : "partially_applied"
+      status = reconciled_status
+      timestamp = Time.current
       document_import.update!(
         status: status,
-        applied_at: Time.current,
-        applied_by_user: user,
-        metadata: (document_import.metadata || {}).merge("last_applied_count" => applied_count, "last_applied_at" => Time.current.iso8601)
+        applied_at: status == "applied" || applied_count.positive? ? timestamp : document_import.applied_at,
+        applied_by_user: status == "applied" || applied_count.positive? ? user : document_import.applied_by_user,
+        metadata: (document_import.metadata || {}).merge("last_applied_count" => applied_count, "last_applied_at" => timestamp.iso8601)
       )
+    end
+
+    def reconciled_status
+      unapplied_actionable = document_import.items.where(ignored: false, applied_at: nil).exists?
+      return "applied" unless unapplied_actionable
+
+      document_import.items.where(ignored: false).where.not(applied_at: nil).exists? ? "partially_applied" : "needs_review"
+    end
+
+    def unresolved_items_exist?
+      document_import.items.where(ignored: false, applied_at: nil).exists?
     end
 
     def failure(message)
