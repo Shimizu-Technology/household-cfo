@@ -45,18 +45,33 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     participant = create_user(email: "setup-count-member@example.com", role: "participant")
     cohort = Cohort.create!(name: "Setup Count Pilot", status: "active", created_by_user: admin)
     cohort.cohort_memberships.create!(user: participant, role: "participant")
-    household = Household.create!(name: "Setup Household", primary_goal: "Build runway", created_by_user: participant)
+    household = create_setup_complete_household(user: participant, name: "Setup Household")
     household.household_memberships.create!(user: participant, role: "owner")
-    household.income_sources.create!(label: "Primary", amount_cents: 500_000)
-    household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 200_000)
-    household.accounts.create!(label: "Emergency", account_type: "emergency_fund", balance_cents: 1_000_000)
-    household.goals.create!(label: "Runway", goal_type: "runway", target_amount_cents: 2_000_000)
 
     get "/api/v1/admin/cohorts", headers: auth_headers(admin)
 
     assert_response :success
     row = JSON.parse(response.body).fetch("cohorts").find { |item| item.fetch("name") == "Setup Count Pilot" }
     assert_equal 1, row.fetch("setup_complete_count")
+  end
+
+  test "cohort index setup counts use the same first household as user snapshots" do
+    admin = create_user(email: "setup-mismatch-admin@example.com", role: "admin")
+    participant = create_user(email: "setup-mismatch-member@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Setup Mismatch Pilot", status: "active", created_by_user: admin)
+    cohort.cohort_memberships.create!(user: participant, role: "participant")
+    incomplete_household = Household.create!(name: "Incomplete Household", created_by_user: participant)
+    complete_household = create_setup_complete_household(user: admin, name: "Complete Later Household")
+    first_membership = incomplete_household.household_memberships.create!(user: participant, role: "owner")
+    second_membership = complete_household.household_memberships.create!(user: participant, role: "partner")
+    first_membership.update_columns(created_at: 2.days.ago, updated_at: 2.days.ago)
+    second_membership.update_columns(created_at: 1.day.ago, updated_at: 1.day.ago)
+
+    get "/api/v1/admin/cohorts", headers: auth_headers(admin)
+
+    assert_response :success
+    row = JSON.parse(response.body).fetch("cohorts").find { |item| item.fetch("name") == "Setup Mismatch Pilot" }
+    assert_equal 0, row.fetch("setup_complete_count")
   end
 
   test "admin can update cohort status and dates" do
@@ -112,6 +127,15 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def create_setup_complete_household(user:, name:)
+    household = Household.create!(name: name, primary_goal: "Build runway", created_by_user: user)
+    household.income_sources.create!(label: "Primary", amount_cents: 500_000)
+    household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 200_000)
+    household.accounts.create!(label: "Emergency", account_type: "emergency_fund", balance_cents: 1_000_000)
+    household.goals.create!(label: "Runway", goal_type: "runway", target_amount_cents: 2_000_000)
+    household
+  end
 
   def create_user(email:, role:)
     User.create!(

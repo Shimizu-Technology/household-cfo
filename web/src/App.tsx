@@ -1498,7 +1498,6 @@ function cohortWithUserStats(cohort: AdminCohort, users: AdminUser[]): AdminCoho
     member_count: memberships.length,
     participant_count: memberships.filter(({ membership }) => membership.role === 'participant').length,
     staff_count: memberships.filter(({ membership }) => membership.role === 'admin' || membership.role === 'coach').length,
-    setup_complete_count: memberships.filter(({ user }) => user.workspace.setup_complete).length,
   }
 }
 

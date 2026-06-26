@@ -44,5 +44,6 @@ assert.ok(app.includes("useState<UserStatusFilter>('active')"), 'admin users sho
 assert.ok(app.includes('Send invite email now'), 'admin invite form should make email delivery explicit')
 assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
 assert.ok(app.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
+assert.ok(!app.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
 
 console.log('design regression checks passed')
