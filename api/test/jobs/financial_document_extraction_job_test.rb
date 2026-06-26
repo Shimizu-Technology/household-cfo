@@ -92,12 +92,112 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal 503, @document_import.attempts.last.metadata.fetch("status_code")
   end
 
+  test "stale extraction success does not overwrite import reset by reprocess" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: Date.new(2026, 6, 20),
+          period_start_on: Date.new(2026, 6, 1),
+          period_end_on: Date.new(2026, 6, 30),
+          summary: "Stale result that should not be shown.",
+          confidence: "high",
+          warnings: [],
+          items: [
+            {
+              target_type: "expense_item",
+              label: "Stale groceries",
+              amount_cents: 999_00,
+              cadence: "monthly",
+              stack_key: "discretionary",
+              confidence: "medium",
+              evidence: "Old extraction result.",
+              metadata: {}
+            }
+          ]
+        },
+        error: nil,
+        metadata: {}
+      ),
+      before_return: -> { @document_import.reload.update!(status: "uploaded", extraction_error: nil, processed_at: nil) }
+    )
+
+    with_extractor_stub(extractor) do
+      FinancialDocumentExtractionJob.perform_now(@document_import.id)
+    end
+
+    @document_import.reload
+    assert_equal "uploaded", @document_import.status
+    assert_nil @document_import.extracted_summary
+    assert_empty @document_import.items
+    attempt = @document_import.attempts.last
+    assert_equal "failed", attempt.status
+    assert_match(/superseded/, attempt.error)
+    assert_equal true, attempt.metadata.fetch("superseded")
+  end
+
+  test "older extraction success does not overwrite a newer active attempt" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: Date.new(2026, 6, 20),
+          period_start_on: Date.new(2026, 6, 1),
+          period_end_on: Date.new(2026, 6, 30),
+          summary: "Older result that should not win.",
+          confidence: "high",
+          warnings: [],
+          items: [
+            {
+              target_type: "expense_item",
+              label: "Older result",
+              amount_cents: 500_00,
+              cadence: "monthly",
+              stack_key: "discretionary",
+              confidence: "medium",
+              evidence: "Old extraction result.",
+              metadata: {}
+            }
+          ]
+        },
+        error: nil,
+        metadata: {}
+      ),
+      before_return: lambda {
+        @document_import.reload.attempts.create!(
+          provider: "openrouter",
+          model: "test/model",
+          status: "processing",
+          prompt_version: FinancialDocuments::Extractor::PROMPT_VERSION,
+          schema_version: FinancialDocuments::Extractor::SCHEMA_VERSION,
+          started_at: Time.current
+        )
+      }
+    )
+
+    with_extractor_stub(extractor) do
+      FinancialDocumentExtractionJob.perform_now(@document_import.id)
+    end
+
+    @document_import.reload
+    assert_equal "processing", @document_import.status
+    assert_empty @document_import.items
+    assert_equal 2, @document_import.attempts.count
+    assert_equal "failed", @document_import.attempts.order(:id).first.status
+    assert_equal "processing", @document_import.attempts.order(:id).last.status
+  end
+
   private
 
-  def fake_extractor(result)
+  def fake_extractor(result, before_return: nil)
     Object.new.tap do |object|
       object.define_singleton_method(:model) { "test/model" }
-      object.define_singleton_method(:call) { |_document_import| result }
+      object.define_singleton_method(:call) do |_document_import|
+        before_return&.call
+        result
+      end
     end
   end
 

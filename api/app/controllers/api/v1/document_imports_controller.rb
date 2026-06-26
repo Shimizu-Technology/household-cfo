@@ -10,6 +10,15 @@ module Api
       MAX_UPLOAD_BYTES = 20.megabytes
       ALLOWED_EXTENSIONS = %w[.pdf .csv .xlsx .jpg .jpeg .png .webp].freeze
       REJECTED_EXTENSIONS = %w[.xls .zip .rar .7z .exe .svg].freeze
+      ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
+        ".pdf" => %w[application/pdf],
+        ".csv" => %w[text/csv text/plain application/csv application/vnd.ms-excel],
+        ".xlsx" => %w[application/vnd.openxmlformats-officedocument.spreadsheetml.sheet application/zip],
+        ".jpg" => %w[image/jpeg],
+        ".jpeg" => %w[image/jpeg],
+        ".png" => %w[image/png],
+        ".webp" => %w[image/webp]
+      }.freeze
 
       def index
         imports = current_household.financial_document_imports.includes(:items, :attempts, :uploaded_by_user, :applied_by_user, :source_deleted_by_user).recent_first.limit(50)
@@ -37,7 +46,7 @@ module Api
           S3Service.upload(s3_key, io, content_type: document_import.content_type)
         end
         unless uploaded
-          document_import.destroy
+          cleanup_failed_upload_import!(document_import)
           return render json: { errors: [ "Could not store document in private S3" ] }, status: :unprocessable_entity
         end
 
@@ -49,6 +58,8 @@ module Api
         render_s3_not_configured
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue ActiveRecord::RecordNotDestroyed
+        render json: { errors: [ "Could not clean up failed document import" ] }, status: :internal_server_error
       end
 
       def destroy
@@ -154,6 +165,12 @@ module Api
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
         return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if File.size(file.tempfile.path) > MAX_UPLOAD_BYTES
 
+        content_type = sniffed_content_type(file)
+        allowed_content_types = ALLOWED_CONTENT_TYPES_BY_EXTENSION.fetch(extension)
+        unless content_type.in?(allowed_content_types)
+          return "File contents do not match the #{extension.delete_prefix('.').upcase} upload type"
+        end
+
         nil
       end
 
@@ -187,8 +204,11 @@ module Api
       end
 
       def normalized_content_type(file)
-        content_type = file.content_type.to_s.presence || Marcel::MimeType.for(Pathname(file.tempfile.path), name: file.original_filename)
-        content_type.presence || "application/octet-stream"
+        sniffed_content_type(file).presence || file.content_type.to_s.presence || "application/octet-stream"
+      end
+
+      def sniffed_content_type(file)
+        Marcel::MimeType.for(Pathname(file.tempfile.path), name: file.original_filename)
       end
 
       def s3_key_for(document_import, file)
@@ -206,6 +226,18 @@ module Api
         return true unless document_import.s3_key.present?
 
         S3Service.delete(document_import.s3_key)
+      end
+
+      def cleanup_failed_upload_import!(document_import)
+        document_import.destroy!
+      rescue ActiveRecord::RecordNotDestroyed
+        document_import.update_columns(
+          status: "failed",
+          extraction_error: "Private S3 upload failed before extraction; cleanup could not remove the import.",
+          processed_at: Time.current,
+          updated_at: Time.current
+        )
+        raise
       end
 
       def source_deleted_status_for(document_import)

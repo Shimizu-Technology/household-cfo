@@ -36,8 +36,6 @@ class S3Service
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       signature = [ bucket_name, region, ENV["AWS_ACCESS_KEY_ID"], ENV["AWS_SECRET_ACCESS_KEY"] ].join(":")
-      return @s3_client if @s3_client && @client_signature == signature
-
       MUTEX.synchronize do
         if @s3_client.blank? || @client_signature != signature
           @s3_client = Aws::S3::Client.new(
@@ -47,8 +45,8 @@ class S3Service
           )
           @client_signature = signature
         end
+        @s3_client
       end
-      @s3_client
     end
 
     def upload(key, data, content_type: "application/octet-stream")

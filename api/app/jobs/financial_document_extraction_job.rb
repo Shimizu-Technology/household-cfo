@@ -41,6 +41,11 @@ class FinancialDocumentExtractionJob < ApplicationJob
   def persist_success!(document_import, attempt, result)
     data = result.data
     document_import.with_lock do
+      unless authoritative_attempt?(document_import, attempt)
+        mark_attempt_superseded!(attempt)
+        return
+      end
+
       document_import.items.where(applied_at: nil).delete_all
       Array(data[:items]).each do |item_attributes|
         document_import.items.create!(item_attributes)
@@ -77,6 +82,11 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   def persist_failure!(document_import, attempt, error, metadata = {})
     document_import.with_lock do
+      unless authoritative_attempt?(document_import, attempt)
+        mark_attempt_superseded!(attempt)
+        return
+      end
+
       document_import.update!(
         status: "failed",
         extraction_error: error.to_s.truncate(500, omission: "…"),
@@ -96,6 +106,31 @@ class FinancialDocumentExtractionJob < ApplicationJob
     persist_failure!(document_import, attempt, error)
   rescue StandardError => failure_error
     Rails.logger.warn("[FinancialDocumentExtractionJob] could not persist failure for import #{document_import&.id}: #{failure_error.class}: #{failure_error.message}")
+  end
+
+  def authoritative_attempt?(document_import, attempt)
+    return false unless attempt
+
+    attempt.reload
+    return false unless attempt.status == "processing"
+    return false unless document_import.status == "processing"
+    return false if document_import.source_deleted_at.present?
+
+    !document_import.attempts.where("id > ?", attempt.id).exists?
+  end
+
+  def mark_attempt_superseded!(attempt)
+    return unless attempt
+
+    attempt.reload
+    return unless attempt.status == "processing"
+
+    attempt.update!(
+      status: "failed",
+      error: "Extraction attempt was superseded before it completed",
+      completed_at: Time.current,
+      metadata: (attempt.metadata || {}).merge("superseded" => true)
+    )
   end
 
   def sanitized_attempt_metadata(metadata)

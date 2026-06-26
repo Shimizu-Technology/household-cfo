@@ -62,6 +62,46 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not body.key?("s3_key")
   end
 
+  test "create rejects mismatched file contents before upload" do
+    uploaded = false
+
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(_key, _io, content_type:) {
+        uploaded = true
+        content_type
+      }
+    ) do
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports",
+          params: { file: uploaded_html_disguised_as_pdf, document_kind: "statement" },
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_match(/contents do not match/i, body.fetch("errors").join)
+    assert_equal false, uploaded
+  end
+
+  test "create cleans up import record when private S3 upload fails" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(_key, _io, content_type:) { content_type && nil }
+    ) do
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports",
+          params: { file: uploaded_csv, document_kind: "spreadsheet" },
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_match(/Could not store document/, body.fetch("errors").join)
+  end
+
   test "source_url returns short lived presigned link without exposing s3 key" do
     document_import = create_import!(s3_key: "household-cfo/test/households/#{@household.id}/documents/1/source/statement.pdf")
 
@@ -145,6 +185,13 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     file.write("Category,Amount\nIncome,4000\nGroceries,800\n")
     file.rewind
     Rack::Test::UploadedFile.new(file.path, "text/csv", original_filename: "budget.csv")
+  end
+
+  def uploaded_html_disguised_as_pdf
+    file = Tempfile.new([ "statement", ".pdf" ])
+    file.write("<html><script>alert('not a pdf')</script></html>")
+    file.rewind
+    Rack::Test::UploadedFile.new(file.path, "application/pdf", original_filename: "statement.pdf")
   end
 
   def create_import!(attributes = {})
