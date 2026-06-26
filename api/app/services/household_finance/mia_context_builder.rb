@@ -54,7 +54,7 @@ module HouseholdFinance
     end
 
     def latest_applied_sources
-      FinancialDocumentImport::DOCUMENT_KINDS.index_with do |kind|
+      @latest_applied_sources ||= FinancialDocumentImport::DOCUMENT_KINDS.index_with do |kind|
         document = household.financial_document_imports
           .where(document_kind: kind, status: %w[applied partially_applied])
           .order(Arel.sql("COALESCE(period_end_on, document_date, applied_at, updated_at) DESC"), id: :desc)
@@ -90,7 +90,7 @@ module HouseholdFinance
     end
 
     def recent_applied_summaries
-      household.financial_document_imports
+      @recent_applied_summaries ||= household.financial_document_imports
         .where(status: %w[applied partially_applied])
         .where.not(extracted_summary: [ nil, "" ])
         .order(Arel.sql("COALESCE(applied_at, updated_at) DESC"), id: :desc)

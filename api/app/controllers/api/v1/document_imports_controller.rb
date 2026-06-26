@@ -272,9 +272,17 @@ module Api
           applied_by: serialize_user_reference(document_import.applied_by_user),
           source_deleted_by: serialize_user_reference(document_import.source_deleted_by_user),
           metadata: safe_import_metadata(document_import.metadata),
-          items: document_import.items.order(:id).map { |item| serialize_item(item) },
+          items: ordered_items_for(document_import).map { |item| serialize_item(item) },
           attempts: include_attempts ? document_import.attempts.recent_first.limit(5).map { |attempt| serialize_attempt(attempt) } : []
         }
+      end
+
+      def ordered_items_for(document_import)
+        if document_import.association(:items).loaded?
+          document_import.items.sort_by(&:id)
+        else
+          document_import.items.order(:id)
+        end
       end
 
       def serialize_item(item)

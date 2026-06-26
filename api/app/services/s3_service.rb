@@ -5,8 +5,9 @@ class S3Service
 
   class << self
     def safe_filename(filename, fallback: "upload")
-      safe = filename.to_s.gsub(/[^A-Za-z0-9._\-]/, "_").squeeze("_")
-      safe = safe.delete_prefix(".")
+      basename = filename.to_s.present? ? File.basename(filename.to_s) : ""
+      safe = basename.gsub(/[^A-Za-z0-9._\-]/, "_").squeeze("_")
+      safe = safe.gsub(/\A[._-]+/, "")
       safe.present? ? safe : fallback
     end
 
