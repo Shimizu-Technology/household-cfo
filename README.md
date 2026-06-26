@@ -22,6 +22,7 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 - Dashboard/Budget/Wealth/CFO Filter/Optionality calculations from saved user data
 - Server-persisted Mia chat for signed-in users, with dynamic household context
 - Clerk auth plumbing with invite-only local `users` records
+- Browser-based admin console for cohorts, role/cohort policy, admin/coach/participant invite records, Resend invite emails, and cohort assignment
 - PostgreSQL database configuration for local, test, and production-like environments
 - CI checks for Rails security/lint/tests and web lint/test/build/audit
 
@@ -60,7 +61,9 @@ Local preview works without Clerk. For hosted/cohort environments:
 1. Set `VITE_CLERK_PUBLISHABLE_KEY` in the web app.
 2. Set `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API.
 3. Set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
-4. Seed or invite local users before access; uninvited Clerk sessions are rejected by `/api/v1/auth/me`.
+4. Set `RESEND_API_KEY` and `RESEND_FROM_EMAIL`/`MAILER_FROM_EMAIL` in the API to deliver invite emails. The Admin UI requests email delivery by default; if Resend is missing, the invite is saved but marked as failed so the configuration issue is visible.
+5. Run `bin/rails db:seed` to create the default owner admin invite for `shimizutechnology@gmail.com`, then use the Admin tab to invite additional admins, coaches, and participants into cohorts.
+6. Uninvited Clerk sessions are rejected by `/api/v1/auth/me`.
 
 ## Safety / data rule
 
@@ -73,6 +76,7 @@ The active real-mode build plan and Mia persona template live at:
 ```text
 docs/real-mode-build-plan.md
 docs/mia-persona-template.md
+docs/admin-cohort-management.md
 ```
 
 ## Deferred until after the real-mode MVP

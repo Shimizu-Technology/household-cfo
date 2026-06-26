@@ -73,23 +73,51 @@ module HouseholdFinance
     attr_reader :household
 
     def active_income_sources
-      @active_income_sources ||= household.income_sources.where(active: true).to_a
+      @active_income_sources ||= if association_loaded?(:income_sources)
+        household.income_sources.select(&:active?)
+      else
+        household.income_sources.where(active: true).to_a
+      end
     end
 
     def active_expenses
-      @active_expenses ||= household.expense_items.where(active: true).to_a
+      @active_expenses ||= if association_loaded?(:expense_items)
+        household.expense_items.select(&:active?)
+      else
+        household.expense_items.where(active: true).to_a
+      end
     end
 
     def debts
-      @debts ||= household.debts.to_a
+      @debts ||= association_records(:debts)
     end
 
     def accounts
-      @accounts ||= household.accounts.to_a
+      @accounts ||= association_records(:accounts)
     end
 
     def goals
-      @goals ||= household.goals.order(:priority, :created_at).to_a
+      @goals ||= if association_loaded?(:goals)
+        household.goals.sort_by { |goal| [ goal_priority_sort_value(goal), goal.created_at || null_sort_time ] }
+      else
+        household.goals.order(:priority, :created_at).to_a
+      end
+    end
+
+    def goal_priority_sort_value(goal)
+      goal.priority.nil? ? Float::INFINITY : goal.priority
+    end
+
+    def null_sort_time
+      @null_sort_time ||= Time.zone.local(9999, 12, 31)
+    end
+
+    def association_records(name)
+      household.public_send(name).to_a
+    end
+
+    def association_loaded?(name)
+      household.association(name).loaded?
     end
 
     def monthly_income_cents

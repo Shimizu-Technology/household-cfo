@@ -23,6 +23,9 @@ module ActiveSupport
         ALLOW_FIRST_USER_BOOTSTRAP
         OPENROUTER_API_KEY
         MIA_PERSONA_ID
+        RESEND_API_KEY
+        RESEND_FROM_EMAIL
+        MAILER_FROM_EMAIL
       ].each { |key| ENV.delete(key) }
     end
   end

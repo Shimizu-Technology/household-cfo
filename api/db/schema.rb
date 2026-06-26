@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_23_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -48,6 +48,34 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.index ["household_id", "user_id"], name: "index_chat_sessions_on_household_id_and_user_id", unique: true
     t.index ["household_id"], name: "index_chat_sessions_on_household_id"
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
+  end
+
+  create_table "cohort_memberships", force: :cascade do |t|
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.string "role", default: "participant", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["cohort_id", "user_id"], name: "index_cohort_memberships_on_cohort_id_and_user_id", unique: true
+    t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
+    t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
+    t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying]::text[])", name: "cohort_memberships_role_valid"
+  end
+
+  create_table "cohorts", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.date "ends_on"
+    t.string "name", null: false
+    t.text "notes"
+    t.date "starts_on"
+    t.string "status", default: "draft", null: false
+    t.datetime "updated_at", null: false
+    t.index "lower((name)::text)", name: "index_cohorts_on_lower_name", unique: true
+    t.index ["created_by_user_id"], name: "index_cohorts_on_created_by_user_id"
+    t.index ["status"], name: "index_cohorts_on_status"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'enrolling'::character varying, 'active'::character varying, 'completed'::character varying, 'archived'::character varying]::text[])", name: "cohorts_status_valid"
   end
 
   create_table "debts", force: :cascade do |t|
@@ -152,28 +180,61 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
     t.check_constraint "amount_cents >= 0", name: "income_sources_amount_cents_non_negative"
   end
 
+  create_table "invitation_email_attempts", force: :cascade do |t|
+    t.datetime "attempted_at", null: false
+    t.datetime "created_at", null: false
+    t.text "error"
+    t.string "provider", default: "resend", null: false
+    t.string "provider_message_id"
+    t.datetime "sent_at"
+    t.bigint "sent_by_user_id"
+    t.string "status", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["sent_by_user_id"], name: "index_invitation_email_attempts_on_sent_by_user_id"
+    t.index ["status"], name: "index_invitation_email_attempts_on_status"
+    t.index ["user_id", "attempted_at"], name: "index_invitation_email_attempts_on_user_id_and_attempted_at"
+    t.index ["user_id"], name: "index_invitation_email_attempts_on_user_id"
+    t.check_constraint "status::text <> 'sent'::text OR sent_at IS NOT NULL", name: "invitation_email_attempts_sent_at_required_when_sent"
+    t.check_constraint "status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "invitation_email_attempts_status_valid"
+  end
+
   create_table "users", force: :cascade do |t|
     t.datetime "accepted_at"
     t.string "clerk_id", null: false
     t.datetime "created_at", null: false
     t.string "email", null: false
     t.string "first_name"
+    t.text "invitation_email_error"
+    t.string "invitation_email_provider_id"
+    t.string "invitation_email_status", default: "not_sent", null: false
     t.string "invitation_status", default: "accepted", null: false
     t.datetime "invited_at"
+    t.bigint "invited_by_user_id"
+    t.datetime "last_invite_email_attempted_at"
+    t.datetime "last_invite_email_sent_at"
+    t.bigint "last_invite_email_sent_by_user_id"
     t.string "last_name"
     t.datetime "last_sign_in_at"
     t.string "role", default: "participant", null: false
     t.datetime "updated_at", null: false
     t.index "lower((email)::text)", name: "index_users_on_lower_email", unique: true
     t.index ["clerk_id"], name: "index_users_on_clerk_id", unique: true
+    t.index ["invitation_email_status"], name: "index_users_on_invitation_email_status"
     t.index ["invitation_status"], name: "index_users_on_invitation_status"
+    t.index ["invited_by_user_id"], name: "index_users_on_invited_by_user_id"
+    t.index ["last_invite_email_sent_by_user_id"], name: "index_users_on_last_invite_email_sent_by_user_id"
     t.index ["role"], name: "index_users_on_role"
+    t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "users_invitation_email_status_valid"
   end
 
   add_foreign_key "accounts", "households"
   add_foreign_key "chat_messages", "chat_sessions"
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
+  add_foreign_key "cohort_memberships", "cohorts"
+  add_foreign_key "cohort_memberships", "users"
+  add_foreign_key "cohorts", "users", column: "created_by_user_id"
   add_foreign_key "debts", "households"
   add_foreign_key "expense_items", "households"
   add_foreign_key "goals", "households"
@@ -182,4 +243,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_21_010000) do
   add_foreign_key "household_profiles", "households"
   add_foreign_key "households", "users", column: "created_by_user_id"
   add_foreign_key "income_sources", "households"
+  add_foreign_key "invitation_email_attempts", "users"
+  add_foreign_key "invitation_email_attempts", "users", column: "sent_by_user_id"
+  add_foreign_key "users", "users", column: "invited_by_user_id"
+  add_foreign_key "users", "users", column: "last_invite_email_sent_by_user_id"
 end

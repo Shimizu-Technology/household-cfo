@@ -36,5 +36,14 @@ for (const token of ['--cream', '--ink', '--emerald', '--status-green', '--statu
 
 assert.ok(api.includes('budget'), 'API client type should expose budget data')
 assert.ok(api.includes('wealth'), 'API client type should expose wealth data')
+assert.ok(
+  app.includes('requestedCohortId === null') && app.includes('selectedCohortIdRef = useRef<number | null | undefined>'),
+  'admin All users selection should survive reloads after save/resend actions',
+)
+assert.ok(app.includes("useState<UserStatusFilter>('active')"), 'admin users should default to active-only filtering')
+assert.ok(app.includes('Send invite email now'), 'admin invite form should make email delivery explicit')
+assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
+assert.ok(app.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
+assert.ok(!app.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
 
 console.log('design regression checks passed')

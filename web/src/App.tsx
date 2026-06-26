@@ -1,8 +1,33 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import './App.css'
-import { clearMiaMessages, fetchAppData, saveWorkspaceSetup, sendMiaMessage } from './api'
-import type { AppData, MiaMessage, WorkspaceSetupValues } from './api'
+import {
+  clearMiaMessages,
+  createAdminCohort,
+  createAdminUser,
+  fetchAdminCohorts,
+  fetchAdminUsers,
+  fetchAppData,
+  resendAdminUserInvitation,
+  saveWorkspaceSetup,
+  sendMiaMessage,
+  updateAdminCohort,
+  updateAdminUser,
+} from './api'
+import type {
+  AdminCohort,
+  AdminCohortInput,
+  AdminCohortStatus,
+  AdminUser,
+  AdminUserInput,
+  AdminUserMutationResponse,
+  AppData,
+  CurrentUser,
+  InvitationStatus,
+  MiaMessage,
+  UserRole,
+  WorkspaceSetupValues,
+} from './api'
 import { useAuthContext } from './contexts/authContextValue'
 
 const currency = new Intl.NumberFormat('en-US', {
@@ -12,6 +37,8 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
+const ADMIN_SECTION = 'Admin'
+const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
 
@@ -43,7 +70,7 @@ function App() {
   const [setupError, setSetupError] = useState<string | null>(null)
   const [active, setActive] = useState(() => {
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
-    return sections.includes(hashSection) ? hashSection : sections[0]
+    return allSections.includes(hashSection) ? hashSection : sections[0]
   })
   const [messages, setMessages] = useState<MiaMessage[]>([])
   const [question, setQuestion] = useState('')
@@ -62,6 +89,8 @@ function App() {
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const shouldUseRealWorkspace = auth.isClerkEnabled
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
+  const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
 
   useEffect(() => {
     if (!canLoadWorkspace) return
@@ -118,13 +147,13 @@ function App() {
   }, [isChatExpanded])
 
   useEffect(() => {
-    if (active !== 'Ask Mia') return
+    if (activeSection !== 'Ask Mia') return
 
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
     chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
-  }, [active, currentMessages.length, miaLoading])
+  }, [activeSection, currentMessages.length, miaLoading])
 
   function switchSection(section: string) {
     setActive(section)
@@ -280,11 +309,11 @@ function App() {
       </header>
 
       <nav className="tabs" aria-label="Household CFO participant sections">
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <button
             key={section}
             type="button"
-            className={active === section ? 'active' : ''}
+            className={activeSection === section ? 'active' : ''}
             onClick={() => switchSection(section)}
           >
             {section}
@@ -292,7 +321,7 @@ function App() {
         ))}
       </nav>
 
-      {active === 'Home' && (
+      {activeSection === 'Home' && (
         <section className="screen-grid home-screen">
           <ScreenHeading
             eyebrow="Home"
@@ -342,7 +371,7 @@ function App() {
         </section>
       )}
 
-      {active === 'Ask Mia' && (
+      {activeSection === 'Ask Mia' && (
         <section className="screen-grid mia-screen">
           <ScreenHeading
             eyebrow="Ask Mia"
@@ -481,7 +510,7 @@ function App() {
         </section>
       )}
 
-      {active === 'My Profile' && (
+      {activeSection === 'My Profile' && (
         <section className="screen-grid profile-screen">
           <ScreenHeading
             eyebrow="My Profile"
@@ -539,7 +568,7 @@ function App() {
         </section>
       )}
 
-      {active === 'Budget' && (
+      {activeSection === 'Budget' && (
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
@@ -572,7 +601,7 @@ function App() {
         </section>
       )}
 
-      {active === 'Wealth' && (
+      {activeSection === 'Wealth' && (
         <section className="screen-grid wealth-screen">
           <ScreenHeading
             eyebrow="Wealth"
@@ -601,7 +630,7 @@ function App() {
         </section>
       )}
 
-      {active === 'CFO Filter' && (
+      {activeSection === 'CFO Filter' && (
         <section className="screen-grid cfo-screen">
           <ScreenHeading
             eyebrow="CFO Filter"
@@ -631,7 +660,7 @@ function App() {
         </section>
       )}
 
-      {active === 'Optionality' && (
+      {activeSection === 'Optionality' && (
         <section className="screen-grid optionality-screen">
           <ScreenHeading
             eyebrow="Optionality"
@@ -656,6 +685,10 @@ function App() {
             ))}
           </div>
         </section>
+      )}
+
+      {activeSection === ADMIN_SECTION && auth.currentUser?.is_admin && (
+        <AdminConsole currentUser={auth.currentUser} />
       )}
     </main>
   )
@@ -732,6 +765,849 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </article>
   )
+}
+
+type AdminUserDraft = {
+  role: UserRole
+  invitation_status: InvitationStatus
+  cohort_ids: string[]
+}
+
+type UserStatusFilter = 'active' | 'all' | InvitationStatus
+type UserRoleFilter = 'all' | UserRole
+type UserSortKey = 'name_asc' | 'email_asc' | 'role_asc' | 'status_asc' | 'setup_desc' | 'invite_desc'
+
+const cohortStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
+const userRoles: UserRole[] = ['participant', 'coach', 'admin']
+const invitationStatuses: InvitationStatus[] = ['pending', 'accepted', 'revoked']
+
+function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
+  const [cohorts, setCohorts] = useState<AdminCohort[]>([])
+  const [users, setUsers] = useState<AdminUser[]>([])
+  const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
+  const [createDraft, setCreateDraft] = useState<AdminCohortInput>({
+    name: '',
+    status: 'enrolling',
+    starts_on: '',
+    ends_on: '',
+    notes: '',
+  })
+  const [editDraft, setEditDraft] = useState<AdminCohortInput | null>(null)
+  const [inviteDraft, setInviteDraft] = useState<AdminUserInput>({
+    email: '',
+    first_name: '',
+    last_name: '',
+    role: 'participant',
+    cohort_id: '',
+    send_invitation_email: true,
+  })
+  const [userDrafts, setUserDrafts] = useState<Record<number, AdminUserDraft>>({})
+  const [userSearch, setUserSearch] = useState('')
+  const [userStatusFilter, setUserStatusFilter] = useState<UserStatusFilter>('active')
+  const [userRoleFilter, setUserRoleFilter] = useState<UserRoleFilter>('all')
+  const [userSort, setUserSort] = useState<UserSortKey>('name_asc')
+  const [loading, setLoading] = useState(true)
+  const [cohortSaving, setCohortSaving] = useState(false)
+  const [inviteSaving, setInviteSaving] = useState(false)
+  const [savingUserIds, setSavingUserIds] = useState<Set<number>>(() => new Set())
+  const [resendingUserIds, setResendingUserIds] = useState<Set<number>>(() => new Set())
+  const [roleMatrixOpen, setRoleMatrixOpen] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [notice, setNotice] = useState<string | null>(null)
+  const selectedCohortIdRef = useRef<number | null | undefined>(undefined)
+
+  const displayCohorts = useMemo(() => cohorts.map((cohort) => cohortWithUserStats(cohort, users)), [cohorts, users])
+
+  const selectedCohort = useMemo(
+    () => displayCohorts.find((cohort) => cohort.id === selectedCohortId) ?? null,
+    [displayCohorts, selectedCohortId],
+  )
+
+  const scopedUsers = useMemo(() => {
+    if (!selectedCohortId) return users
+
+    return users.filter((user) => user.cohorts.some((membership) => membership.cohort.id === selectedCohortId))
+  }, [selectedCohortId, users])
+
+  const visibleUsers = useMemo(
+    () => filterAndSortAdminUsers(scopedUsers, {
+      search: userSearch,
+      status: userStatusFilter,
+      role: userRoleFilter,
+      sort: userSort,
+    }),
+    [scopedUsers, userRoleFilter, userSearch, userSort, userStatusFilter],
+  )
+
+  const activeScopedUserCount = useMemo(() => scopedUsers.filter((user) => user.invitation_status !== 'revoked').length, [scopedUsers])
+
+  const adminStats = useMemo(() => ({
+    cohorts: cohorts.length,
+    users: users.length,
+    pending: users.filter((user) => user.invitation_status === 'pending').length,
+    setupComplete: users.filter((user) => user.workspace.setup_complete).length,
+  }), [cohorts.length, users])
+
+  const loadAdminData = useCallback(async (preferredCohortId?: number | null) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const [nextCohorts, nextUsers] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers()])
+      const requestedCohortId = preferredCohortId === undefined ? selectedCohortIdRef.current : preferredCohortId
+      const nextSelectedId = requestedCohortId === null
+        ? null
+        : requestedCohortId && nextCohorts.some((cohort) => cohort.id === requestedCohortId)
+          ? requestedCohortId
+          : nextCohorts[0]?.id ?? null
+      const nextSelectedCohort = nextCohorts.find((cohort) => cohort.id === nextSelectedId) ?? null
+
+      selectedCohortIdRef.current = nextSelectedId
+      setCohorts(nextCohorts)
+      setUsers(nextUsers)
+      setUserDrafts(adminDraftsForUsers(nextUsers))
+      setSelectedCohortId(nextSelectedId)
+      setEditDraft(nextSelectedCohort ? cohortDraftFor(nextSelectedCohort) : null)
+      setInviteDraft((current) => ({
+        ...current,
+        cohort_id: current.cohort_id || (nextSelectedId ? String(nextSelectedId) : ''),
+      }))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Admin data could not be loaded.')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+
+    queueMicrotask(() => {
+      if (!cancelled) void loadAdminData()
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [loadAdminData])
+
+  function selectCohort(cohortId: number | null) {
+    selectedCohortIdRef.current = cohortId
+    setSelectedCohortId(cohortId)
+    setEditDraft(cohortId ? cohortDraftFor(cohorts.find((cohort) => cohort.id === cohortId) ?? null) : null)
+    setNotice(null)
+    setInviteDraft((current) => ({ ...current, cohort_id: cohortId ? String(cohortId) : '' }))
+  }
+
+  async function handleCreateCohort(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!createDraft.name.trim()) {
+      setError('Cohort name is required.')
+      return
+    }
+
+    setCohortSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const cohort = await createAdminCohort(cleanCohortDraft(createDraft))
+      setNotice(`${cohort.name} is ready for invites.`)
+      setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
+      await loadAdminData(cohort.id)
+      setInviteDraft((current) => ({ ...current, cohort_id: String(cohort.id) }))
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Cohort could not be created.')
+    } finally {
+      setCohortSaving(false)
+    }
+  }
+
+  async function handleUpdateCohort(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!selectedCohort || !editDraft) return
+
+    setCohortSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const cohort = await updateAdminCohort(selectedCohort.id, cleanCohortDraft(editDraft))
+      setNotice(`${cohort.name} settings saved.`)
+      await loadAdminData(cohort.id)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Cohort could not be saved.')
+    } finally {
+      setCohortSaving(false)
+    }
+  }
+
+  async function handleInviteUser(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const inviteRole = inviteDraft.role ?? 'participant'
+    const cohortId = String(inviteDraft.cohort_id ?? '')
+
+    if (!inviteDraft.email?.trim()) {
+      setError('Email is required before creating an invite.')
+      return
+    }
+    if (roleRequiresCohort(inviteRole) && !cohortId) {
+      setError(`${titleize(inviteRole)} users must be assigned to at least one cohort.`)
+      return
+    }
+
+    setInviteSaving(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await createAdminUser({
+        email: inviteDraft.email.trim(),
+        first_name: inviteDraft.first_name?.trim(),
+        last_name: inviteDraft.last_name?.trim(),
+        role: inviteRole,
+        cohort_id: cohortId || undefined,
+        send_invitation_email: inviteDraft.send_invitation_email ?? true,
+      })
+      setNotice(`${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
+      setInviteDraft({ email: '', first_name: '', last_name: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
+      await loadAdminData()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invite could not be created.')
+    } finally {
+      setInviteSaving(false)
+    }
+  }
+
+  async function handleSaveUser(user: AdminUser) {
+    const draft = userDrafts[user.id]
+    if (!draft || savingUserIds.has(user.id)) return
+    if (cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0) {
+      setError(`${titleize(draft.role)} users must be assigned to at least one cohort before saving unless access is revoked.`)
+      return
+    }
+
+    markUserSaving(user.id, true)
+    setError(null)
+    setNotice(null)
+    try {
+      const updatedUser = await updateAdminUser(user.id, {
+        role: draft.role,
+        invitation_status: draft.invitation_status,
+        cohort_ids: draft.cohort_ids.map(Number),
+      })
+      setNotice(`${updatedUser.email} was updated.`)
+      await loadAdminData()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'User could not be saved.')
+    } finally {
+      markUserSaving(user.id, false)
+    }
+  }
+
+  async function handleResendInvitation(user: AdminUser) {
+    if (resendingUserIds.has(user.id)) return
+
+    markUserResending(user.id, true)
+    setError(null)
+    setNotice(null)
+    try {
+      const response = await resendAdminUserInvitation(user.id)
+      setNotice(`${response.user.email} invitation refreshed. ${inviteDeliveryNotice(response)}`)
+      await loadAdminData()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invitation email could not be resent.')
+    } finally {
+      markUserResending(user.id, false)
+    }
+  }
+
+  async function handleCancelInvite(user: AdminUser) {
+    if (savingUserIds.has(user.id)) return
+
+    markUserSaving(user.id, true)
+    setError(null)
+    setNotice(null)
+    try {
+      const updatedUser = await updateAdminUser(user.id, {
+        invitation_status: 'revoked',
+        cohort_ids: [],
+      })
+      setNotice(`${updatedUser.email} invite was cancelled and removed from cohorts.`)
+      await loadAdminData()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Invite could not be cancelled.')
+    } finally {
+      markUserSaving(user.id, false)
+    }
+  }
+
+  async function handleRemoveFromSelectedCohort(user: AdminUser) {
+    if (!selectedCohortId || savingUserIds.has(user.id)) return
+    const selectedId = String(selectedCohortId)
+    const nextCohortIds = serverCohortIdsForUser(user).filter((cohortId) => cohortId !== selectedId)
+    const shouldRevokeAfterRemoval = cohortRequiredFor(user.role, user.invitation_status) && nextCohortIds.length === 0
+    const mutation: AdminUserInput = { cohort_ids: nextCohortIds.map(Number) }
+    if (shouldRevokeAfterRemoval) mutation.invitation_status = 'revoked'
+
+    markUserSaving(user.id, true)
+    setError(null)
+    setNotice(null)
+    try {
+      const updatedUser = await updateAdminUser(user.id, mutation)
+      const cohortName = selectedCohort?.name ?? 'this cohort'
+      setNotice(shouldRevokeAfterRemoval
+        ? `${updatedUser.email} was removed from ${cohortName} and access was revoked because no cohorts remain.`
+        : `${updatedUser.email} was removed from ${cohortName}.`)
+      await loadAdminData(selectedCohortId)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'User could not be removed from this cohort.')
+    } finally {
+      markUserSaving(user.id, false)
+    }
+  }
+
+  function markUserSaving(userId: number, saving: boolean) {
+    setSavingUserIds((current) => toggleIdInSet(current, userId, saving))
+  }
+
+  function markUserResending(userId: number, resending: boolean) {
+    setResendingUserIds((current) => toggleIdInSet(current, userId, resending))
+  }
+
+  function updateUserDraft(userId: number, key: 'role' | 'invitation_status', value: string) {
+    setUserDrafts((current) => {
+      const nextDraft = { ...current[userId] }
+      if (key === 'role') nextDraft.role = value as UserRole
+      if (key === 'invitation_status') nextDraft.invitation_status = value as InvitationStatus
+
+      return {
+        ...current,
+        [userId]: nextDraft,
+      }
+    })
+  }
+
+  function toggleUserCohort(userId: number, cohortId: number) {
+    const cohortIdValue = String(cohortId)
+    setUserDrafts((current) => {
+      const nextDraft = { ...current[userId] }
+      const currentCohortIds = nextDraft.cohort_ids ?? []
+      nextDraft.cohort_ids = currentCohortIds.includes(cohortIdValue)
+        ? currentCohortIds.filter((id) => id !== cohortIdValue)
+        : [...currentCohortIds, cohortIdValue]
+
+      return {
+        ...current,
+        [userId]: nextDraft,
+      }
+    })
+  }
+
+  const inviteRole = inviteDraft.role ?? 'participant'
+  const inviteRequiresCohort = roleRequiresCohort(inviteRole)
+
+  return (
+    <section className="screen-grid admin-screen">
+      <ScreenHeading
+        eyebrow="Admin"
+        title="Cohorts and invitations, without terminal commands."
+        copy="Create the pilot cohorts, invite participants, and keep each user tied to the right Household CFO group before they sign in with Clerk."
+      />
+
+      {error && <p className="admin-alert error" role="alert">{error}</p>}
+      {notice && <p className="admin-alert success">{notice}</p>}
+
+      <div className="admin-stat-row">
+        <AdminStat label="Cohorts" value={adminStats.cohorts.toString()} />
+        <AdminStat label="Invited users" value={adminStats.users.toString()} />
+        <AdminStat label="Pending" value={adminStats.pending.toString()} />
+        <AdminStat label="Setup complete" value={adminStats.setupComplete.toString()} />
+      </div>
+
+      <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
+
+      <div className="admin-layout">
+        <article className="panel admin-card">
+          <div className="admin-card-heading">
+            <span className="spark" aria-hidden="true"><CohortIcon /></span>
+            <div>
+              <p className="eyebrow">Cohorts</p>
+              <h3>Create the next group</h3>
+            </div>
+          </div>
+
+          <form className="admin-form" onSubmit={handleCreateCohort}>
+            <label className="admin-field wide">
+              <span>Cohort name</span>
+              <input value={createDraft.name} onChange={(event) => setCreateDraft((current) => ({ ...current, name: event.target.value }))} placeholder="Tuesday pilot cohort" />
+            </label>
+            <label className="admin-field">
+              <span>Status</span>
+              <select value={createDraft.status} onChange={(event) => setCreateDraft((current) => ({ ...current, status: event.target.value as AdminCohortStatus }))}>
+                {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
+              </select>
+            </label>
+            <label className="admin-field">
+              <span>Starts</span>
+              <input type="date" value={createDraft.starts_on ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, starts_on: event.target.value }))} />
+            </label>
+            <label className="admin-field">
+              <span>Ends</span>
+              <input type="date" value={createDraft.ends_on ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, ends_on: event.target.value }))} />
+            </label>
+            <label className="admin-field wide">
+              <span>Notes</span>
+              <textarea value={createDraft.notes ?? ''} onChange={(event) => setCreateDraft((current) => ({ ...current, notes: event.target.value }))} placeholder="Pilot focus, meeting cadence, or setup notes" rows={3} />
+            </label>
+            <button type="submit" disabled={cohortSaving}>{cohortSaving ? 'Saving' : 'Create cohort'}</button>
+          </form>
+        </article>
+
+        <article className="panel admin-card">
+          <div className="admin-card-heading">
+            <span className="spark" aria-hidden="true"><UsersIcon /></span>
+            <div>
+              <p className="eyebrow">Cohort list</p>
+              <h3>Select a group to manage</h3>
+            </div>
+          </div>
+
+          {loading && cohorts.length === 0 ? (
+            <p className="admin-muted">Loading cohorts and invitations...</p>
+          ) : (
+            <div className="cohort-list">
+              <button type="button" className={`cohort-list-card ${selectedCohortId === null ? 'active' : ''}`} onClick={() => selectCohort(null)}>
+                <strong>All users</strong>
+                <span>Full invitation list</span>
+              </button>
+              {displayCohorts.map((cohort) => (
+                <button type="button" className={`cohort-list-card ${selectedCohortId === cohort.id ? 'active' : ''}`} key={cohort.id} onClick={() => selectCohort(cohort.id)}>
+                  <strong>{cohort.name}</strong>
+                  <span>{titleize(cohort.status)} · {cohort.member_count} users · {cohort.setup_complete_count} ready</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </article>
+      </div>
+
+      <div className="admin-layout">
+        <article className="panel admin-card">
+          <div className="admin-card-heading">
+            <span className="spark" aria-hidden="true"><CohortIcon /></span>
+            <div>
+              <p className="eyebrow">Selected cohort</p>
+              <h3>{selectedCohort ? selectedCohort.name : 'No cohort selected'}</h3>
+            </div>
+          </div>
+
+          {selectedCohort && editDraft ? (
+            <form className="admin-form" onSubmit={handleUpdateCohort}>
+              <div className="admin-cohort-summary">
+                <AdminBadge value={titleize(selectedCohort.status)} tone={selectedCohort.status === 'active' ? 'green' : selectedCohort.status === 'archived' ? 'red' : 'gold'} />
+                <span>{selectedCohort.participant_count} participants</span>
+                <span>{selectedCohort.staff_count} staff</span>
+                <span>{cohortDateRange(selectedCohort)}</span>
+              </div>
+              <label className="admin-field wide">
+                <span>Name</span>
+                <input value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
+              </label>
+              <label className="admin-field">
+                <span>Status</span>
+                <select value={editDraft.status} onChange={(event) => setEditDraft((current) => current ? { ...current, status: event.target.value as AdminCohortStatus } : current)}>
+                  {cohortStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
+                </select>
+              </label>
+              <label className="admin-field">
+                <span>Starts</span>
+                <input type="date" value={editDraft.starts_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, starts_on: event.target.value } : current)} />
+              </label>
+              <label className="admin-field">
+                <span>Ends</span>
+                <input type="date" value={editDraft.ends_on ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, ends_on: event.target.value } : current)} />
+              </label>
+              <label className="admin-field wide">
+                <span>Notes</span>
+                <textarea value={editDraft.notes ?? ''} onChange={(event) => setEditDraft((current) => current ? { ...current, notes: event.target.value } : current)} rows={3} />
+              </label>
+              <button type="submit" disabled={cohortSaving}>{cohortSaving ? 'Saving' : 'Save cohort'}</button>
+            </form>
+          ) : (
+            <p className="admin-muted">Create a cohort, then select it here to update dates, status, and notes.</p>
+          )}
+        </article>
+
+        <article className="panel admin-card">
+          <div className="admin-card-heading">
+            <span className="spark" aria-hidden="true"><ShieldIcon /></span>
+            <div>
+              <p className="eyebrow">Invite user</p>
+              <h3>Add admin, coach, or participant</h3>
+            </div>
+          </div>
+
+          <form className="admin-form" onSubmit={handleInviteUser}>
+            <label className="admin-field wide">
+              <span>Email</span>
+              <input type="email" value={inviteDraft.email ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
+            </label>
+            <label className="admin-field">
+              <span>First name</span>
+              <input value={inviteDraft.first_name ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, first_name: event.target.value }))} />
+            </label>
+            <label className="admin-field">
+              <span>Last name</span>
+              <input value={inviteDraft.last_name ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, last_name: event.target.value }))} />
+            </label>
+            <label className="admin-field">
+              <span>Role</span>
+              <select value={inviteRole} onChange={(event) => setInviteDraft((current) => ({ ...current, role: event.target.value as UserRole }))}>
+                {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
+              </select>
+            </label>
+            <label className="admin-field">
+              <span>Cohort {inviteRequiresCohort ? '(required)' : '(optional)'}</span>
+              <select required={inviteRequiresCohort} value={String(inviteDraft.cohort_id ?? '')} onChange={(event) => setInviteDraft((current) => ({ ...current, cohort_id: event.target.value }))}>
+                <option value="">{inviteRequiresCohort ? 'Select a cohort' : 'No cohort for admin'}</option>
+                {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name}</option>)}
+              </select>
+            </label>
+            <label className="admin-inline-check wide">
+              <input
+                type="checkbox"
+                checked={inviteDraft.send_invitation_email ?? true}
+                onChange={(event) => setInviteDraft((current) => ({ ...current, send_invitation_email: event.target.checked }))}
+              />
+              <span>Send invite email now</span>
+            </label>
+            <p className="admin-field-note wide">Admins can manage across cohorts without assignment. Active coaches and participants must belong to at least one cohort.</p>
+            <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
+          </form>
+        </article>
+      </div>
+
+      <article className="panel admin-card admin-users-panel">
+        <div className="admin-card-heading row-between">
+          <div>
+            <p className="eyebrow">Users</p>
+            <h3>{selectedCohort ? `${selectedCohort.name} members` : 'All invited users'}</h3>
+            <p className="admin-list-summary">Showing {visibleUsers.length} of {scopedUsers.length} users. Revoked users are hidden by default.</p>
+          </div>
+          <button type="button" className="admin-refresh" onClick={() => void loadAdminData()} disabled={loading}>{loading ? 'Refreshing' : 'Refresh'}</button>
+        </div>
+
+        <div className="admin-user-toolbar" aria-label="User filters and sorting">
+          <label className="admin-field compact search-field">
+            <span>Search</span>
+            <input value={userSearch} onChange={(event) => setUserSearch(event.target.value)} placeholder="Name or email" />
+          </label>
+          <label className="admin-field compact">
+            <span>Status</span>
+            <select value={userStatusFilter} onChange={(event) => setUserStatusFilter(event.target.value as UserStatusFilter)}>
+              <option value="active">Active only ({activeScopedUserCount})</option>
+              <option value="pending">Pending</option>
+              <option value="accepted">Accepted</option>
+              <option value="revoked">Revoked</option>
+              <option value="all">All statuses</option>
+            </select>
+          </label>
+          <label className="admin-field compact">
+            <span>Role</span>
+            <select value={userRoleFilter} onChange={(event) => setUserRoleFilter(event.target.value as UserRoleFilter)}>
+              <option value="all">All roles</option>
+              {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
+            </select>
+          </label>
+          <label className="admin-field compact">
+            <span>Sort</span>
+            <select value={userSort} onChange={(event) => setUserSort(event.target.value as UserSortKey)}>
+              <option value="name_asc">Name A–Z</option>
+              <option value="email_asc">Email A–Z</option>
+              <option value="role_asc">Role</option>
+              <option value="status_asc">Status</option>
+              <option value="setup_desc">Setup progress</option>
+              <option value="invite_desc">Recent invite activity</option>
+            </select>
+          </label>
+        </div>
+
+        {visibleUsers.length === 0 ? (
+          <p className="admin-muted">{scopedUsers.length === 0 ? 'No users in this view yet. Create an invite above to start the cohort.' : 'No users match these filters. Switch status to Revoked or All statuses when you need to review cancelled access.'}</p>
+        ) : (
+          <div className="admin-user-list">
+            {visibleUsers.map((user) => {
+              const draft = userDrafts[user.id] ?? adminDraftForUser(user)
+              const isSelf = user.id === currentUser.id
+
+              const draftNeedsCohort = cohortRequiredFor(draft.role, draft.invitation_status) && draft.cohort_ids.length === 0
+              const draftRequiresCohort = cohortRequiredFor(draft.role, draft.invitation_status)
+              const canResendInvite = user.invitation_status === 'pending'
+              const canCancelInvite = user.invitation_status === 'pending' && !isSelf
+              const canRemoveFromSelectedCohort = selectedCohortId !== null && serverCohortIdsForUser(user).includes(String(selectedCohortId)) && !isSelf
+              const rowSaving = savingUserIds.has(user.id)
+              const rowResending = resendingUserIds.has(user.id)
+
+              return (
+                <article className="admin-user-row" key={user.id}>
+                  <div className="admin-user-main">
+                    <div>
+                      <strong>{user.full_name}</strong>
+                      <span>{user.email}</span>
+                    </div>
+                    <div className="admin-badge-row">
+                      <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
+                      <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
+                      <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />
+                      <AdminBadge value={`${user.workspace.profile_completeness}% setup`} tone={user.workspace.setup_complete ? 'green' : 'neutral'} />
+                    </div>
+                    <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
+                    {user.invite_email.last_attempted_at && (
+                      <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
+                    )}
+                  </div>
+
+                  <div className="admin-user-controls">
+                    <label className="admin-field compact">
+                      <span>Role</span>
+                      <select value={draft.role} disabled={isSelf} onChange={(event) => updateUserDraft(user.id, 'role', event.target.value)}>
+                        {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
+                      </select>
+                    </label>
+                    <label className="admin-field compact">
+                      <span>Status</span>
+                      <select value={draft.invitation_status} disabled={isSelf} onChange={(event) => updateUserDraft(user.id, 'invitation_status', event.target.value)}>
+                        {invitationStatuses.map((status) => <option key={status} value={status}>{titleize(status)}</option>)}
+                      </select>
+                    </label>
+                    <div className={`admin-field compact cohort-select ${draftNeedsCohort ? 'needs-attention' : ''}`}>
+                      <span>Cohorts {draftRequiresCohort ? '(required)' : '(optional)'}</span>
+                      <div className="admin-cohort-checks">
+                        {cohorts.length === 0 && <small>No cohorts yet. Create one before adding coaches or participants.</small>}
+                        {cohorts.map((cohort) => (
+                          <label className="admin-cohort-check" key={cohort.id}>
+                            <input
+                              type="checkbox"
+                              checked={draft.cohort_ids.includes(String(cohort.id))}
+                              onChange={() => toggleUserCohort(user.id, cohort.id)}
+                            />
+                            <span>{cohort.name}</span>
+                          </label>
+                        ))}
+                      </div>
+                      {draftNeedsCohort && <small className="admin-field-warning">Required before saving.</small>}
+                    </div>
+                    <div className="admin-user-actions">
+                      <button type="button" onClick={() => void handleSaveUser(user)} disabled={rowSaving || draftNeedsCohort}>{rowSaving ? 'Saving' : 'Save'}</button>
+                      <button type="button" className="secondary-action" onClick={() => void handleResendInvitation(user)} disabled={!canResendInvite || rowResending}>{rowResending ? 'Sending' : 'Resend email'}</button>
+                      {canCancelInvite && <button type="button" className="danger-action" onClick={() => void handleCancelInvite(user)} disabled={rowSaving}>Cancel invite</button>}
+                      {canRemoveFromSelectedCohort && <button type="button" className="danger-action" onClick={() => void handleRemoveFromSelectedCohort(user)} disabled={rowSaving}>Remove from cohort</button>}
+                    </div>
+                  </div>
+                </article>
+              )
+            })}
+          </div>
+        )}
+      </article>
+    </section>
+  )
+}
+
+function AdminStat({ label, value }: { label: string; value: string }) {
+  return (
+    <article className="metric-card admin-stat-card">
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </article>
+  )
+}
+
+function AdminBadge({ value, tone }: { value: string; tone: 'green' | 'gold' | 'red' | 'neutral' }) {
+  return <span className={`admin-badge ${tone}`}>{value}</span>
+}
+
+function RoleMatrix({ open, onToggle }: { open: boolean; onToggle: (open: boolean) => void }) {
+  return (
+    <details className="role-matrix panel" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
+      <summary>
+        <span>
+          <strong>Role and cohort rules</strong>
+          <small>Backend-enforced policy for admin, coach, and participant users.</small>
+        </span>
+      </summary>
+      <div className="role-matrix-grid">
+        <article>
+          <strong>Admin</strong>
+          <span>May have no cohort</span>
+          <p>Can manage cohorts, users, invitations, and staff access. Admins are not limited to a single participant group.</p>
+        </article>
+        <article>
+          <strong>Coach</strong>
+          <span>Requires at least one active cohort</span>
+          <p>Supports assigned groups and can create participant invites, but cannot manage admin or coach accounts. Revoked coaches can have no cohort.</p>
+        </article>
+        <article>
+          <strong>Participant</strong>
+          <span>Requires at least one active cohort</span>
+          <p>Uses the household workspace and Mia coaching flow. Revoked participants can be removed from all cohorts.</p>
+        </article>
+      </div>
+    </details>
+  )
+}
+
+function adminDraftsForUsers(users: AdminUser[]) {
+  return users.reduce<Record<number, AdminUserDraft>>((drafts, user) => {
+    drafts[user.id] = adminDraftForUser(user)
+    return drafts
+  }, {})
+}
+
+function adminDraftForUser(user: AdminUser): AdminUserDraft {
+  return {
+    role: user.role,
+    invitation_status: user.invitation_status,
+    cohort_ids: serverCohortIdsForUser(user),
+  }
+}
+
+function serverCohortIdsForUser(user: AdminUser) {
+  return user.cohorts.map((membership) => String(membership.cohort.id))
+}
+
+function roleRequiresCohort(role: UserRole) {
+  return role !== 'admin'
+}
+
+function cohortRequiredFor(role: UserRole, invitationStatus: InvitationStatus) {
+  return roleRequiresCohort(role) && invitationStatus !== 'revoked'
+}
+
+function toggleIdInSet(current: Set<number>, id: number, enabled: boolean) {
+  const next = new Set(current)
+  if (enabled) next.add(id)
+  else next.delete(id)
+  return next
+}
+
+function cohortWithUserStats(cohort: AdminCohort, users: AdminUser[]): AdminCohort {
+  const memberships = users.flatMap((user) => user.cohorts
+    .filter((membership) => membership.cohort.id === cohort.id)
+    .map((membership) => ({ user, membership })))
+
+  return {
+    ...cohort,
+    member_count: memberships.length,
+    participant_count: memberships.filter(({ membership }) => membership.role === 'participant').length,
+    staff_count: memberships.filter(({ membership }) => membership.role === 'admin' || membership.role === 'coach').length,
+  }
+}
+
+function filterAndSortAdminUsers(users: AdminUser[], filters: { search: string; status: UserStatusFilter; role: UserRoleFilter; sort: UserSortKey }) {
+  const search = filters.search.trim().toLowerCase()
+  const filtered = users.filter((user) => {
+    const statusMatches = filters.status === 'all'
+      ? true
+      : filters.status === 'active'
+        ? user.invitation_status !== 'revoked'
+        : user.invitation_status === filters.status
+    const roleMatches = filters.role === 'all' || user.role === filters.role
+    const searchMatches = !search || `${user.full_name} ${user.email}`.toLowerCase().includes(search)
+
+    return statusMatches && roleMatches && searchMatches
+  })
+
+  return [...filtered].sort((left, right) => compareAdminUsers(left, right, filters.sort))
+}
+
+function compareAdminUsers(left: AdminUser, right: AdminUser, sort: UserSortKey) {
+  if (sort === 'email_asc') return left.email.localeCompare(right.email)
+  if (sort === 'role_asc') return compareTextThenName(left.role, right.role, left, right)
+  if (sort === 'status_asc') return compareTextThenName(left.invitation_status, right.invitation_status, left, right)
+  if (sort === 'setup_desc') return right.workspace.profile_completeness - left.workspace.profile_completeness || compareByName(left, right)
+  if (sort === 'invite_desc') return sortableTime(right.invite_email.last_attempted_at) - sortableTime(left.invite_email.last_attempted_at) || compareByName(left, right)
+
+  return compareByName(left, right)
+}
+
+function compareTextThenName(leftValue: string, rightValue: string, leftUser: AdminUser, rightUser: AdminUser) {
+  return leftValue.localeCompare(rightValue) || compareByName(leftUser, rightUser)
+}
+
+function compareByName(left: AdminUser, right: AdminUser) {
+  return left.full_name.localeCompare(right.full_name) || left.email.localeCompare(right.email)
+}
+
+function sortableTime(value: string | null) {
+  return value ? new Date(value).getTime() : 0
+}
+
+function inviteActionNotice(response: AdminUserMutationResponse) {
+  if (response.reactivated) return 'was reactivated'
+  if (response.created === false) return 'was updated'
+
+  return 'is invited'
+}
+
+function inviteDeliveryNotice(response: AdminUserMutationResponse) {
+  if (response.invitation_sent) return 'Invite email sent through Resend.'
+  if (response.invitation_status === 'failed') return `Invite saved, but email delivery failed${response.invitation_error ? `: ${response.invitation_error}` : '.'}`
+  if (response.invitation_status === 'skipped') return 'Invite saved; email delivery was skipped by admin.'
+
+  return 'Invite saved.'
+}
+
+function inviteEmailTone(status: AdminUser['invite_email']['status']): 'green' | 'gold' | 'red' | 'neutral' {
+  if (status === 'sent') return 'green'
+  if (status === 'failed') return 'red'
+  if (status === 'skipped') return 'gold'
+
+  return 'neutral'
+}
+
+function shortDateTime(value: string) {
+  return new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(value))
+}
+
+function cleanCohortDraft(draft: AdminCohortInput): AdminCohortInput {
+  return {
+    name: draft.name.trim(),
+    status: draft.status,
+    starts_on: draft.starts_on || '',
+    ends_on: draft.ends_on || '',
+    notes: draft.notes?.trim() ?? '',
+  }
+}
+
+function cohortDraftFor(cohort: AdminCohort | null): AdminCohortInput | null {
+  if (!cohort) return null
+
+  return {
+    name: cohort.name,
+    status: cohort.status,
+    starts_on: cohort.starts_on ?? '',
+    ends_on: cohort.ends_on ?? '',
+    notes: cohort.notes ?? '',
+  }
+}
+
+function titleize(value: string) {
+  return value.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
+}
+
+function cohortDateRange(cohort: AdminCohort) {
+  if (cohort.starts_on && cohort.ends_on) return `${formatShortDate(cohort.starts_on)} – ${formatShortDate(cohort.ends_on)}`
+  if (cohort.starts_on) return `Starts ${formatShortDate(cohort.starts_on)}`
+  if (cohort.ends_on) return `Ends ${formatShortDate(cohort.ends_on)}`
+
+  return 'Dates not set'
+}
+
+function formatShortDate(value: string) {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
 }
 
 function WorkspaceSetupForm({
@@ -852,6 +1728,24 @@ function MiaMark() {
   return (
     <svg viewBox="0 0 24 24" role="img" aria-label="Mia mark">
       <path d="M12 2.75 14.42 9.2l6.83 2.8-6.83 2.8L12 21.25 9.58 14.8 2.75 12l6.83-2.8L12 2.75Z" />
+    </svg>
+  )
+}
+
+function CohortIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label="Cohort">
+      <path d="M4.5 6.5A2.5 2.5 0 0 1 7 4h10a2.5 2.5 0 0 1 2.5 2.5v11A2.5 2.5 0 0 1 17 20H7a2.5 2.5 0 0 1-2.5-2.5v-11Z" className="icon-stroke" />
+      <path d="M8 9h8M8 12h5M8 15h7" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function UsersIcon() {
+  return (
+    <svg viewBox="0 0 24 24" role="img" aria-label="Users">
+      <path d="M9.2 11.1a3.1 3.1 0 1 0 0-6.2 3.1 3.1 0 0 0 0 6.2ZM4.4 19.1c.55-3.1 2.2-4.65 4.8-4.65 2.58 0 4.22 1.55 4.78 4.65" className="icon-stroke" />
+      <path d="M16.2 11.4a2.55 2.55 0 1 0 0-5.1M15.7 14.45c2.05.18 3.35 1.58 3.9 4.2" className="icon-stroke" />
     </svg>
   )
 }

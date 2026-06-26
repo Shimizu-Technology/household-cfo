@@ -142,6 +142,10 @@ export type MiaMessagesData = {
   disclaimer: string
 }
 
+export type UserRole = 'admin' | 'coach' | 'participant'
+export type InvitationStatus = 'pending' | 'accepted' | 'revoked'
+export type AdminCohortStatus = 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'
+
 export type CurrentUser = {
   id: number
   clerk_id: string
@@ -149,8 +153,8 @@ export type CurrentUser = {
   first_name: string | null
   last_name: string | null
   full_name: string
-  role: 'admin' | 'coach' | 'participant'
-  invitation_status: 'pending' | 'accepted' | 'revoked'
+  role: UserRole
+  invitation_status: InvitationStatus
   invited_at: string | null
   accepted_at: string | null
   last_sign_in_at: string | null
@@ -159,6 +163,119 @@ export type CurrentUser = {
   is_coach: boolean
   is_participant: boolean
   is_staff: boolean
+}
+
+export type AdminCohort = {
+  id: number
+  name: string
+  status: AdminCohortStatus
+  starts_on: string | null
+  ends_on: string | null
+  notes: string
+  member_count: number
+  participant_count: number
+  staff_count: number
+  setup_complete_count: number
+  created_at: string
+  updated_at: string
+  created_by: {
+    id: number
+    email: string
+    full_name: string
+  }
+  members?: Array<{
+    id: number
+    role: 'participant' | 'coach' | 'admin'
+    user: {
+      id: number
+      email: string
+      full_name: string
+      role: UserRole
+      invitation_status: InvitationStatus
+      setup_complete: boolean
+    }
+  }>
+}
+
+export type AdminInviteEmailStatus = 'not_sent' | 'skipped' | 'sent' | 'failed'
+
+export type AdminUser = CurrentUser & {
+  invited_by: null | {
+    id: number
+    email: string
+    full_name: string
+  }
+  invite_email: {
+    status: AdminInviteEmailStatus
+    provider_message_id: string | null
+    error: string | null
+    last_attempted_at: string | null
+    last_sent_at: string | null
+    last_sent_by: null | {
+      id: number
+      email: string
+      full_name: string
+    }
+    delivery_log: Array<{
+      id: number
+      status: AdminInviteEmailStatus
+      attempted_at: string
+      sent_at: string | null
+      sent_by_user_id: number | null
+      sent_by: null | {
+        id: number
+        email: string
+        full_name: string
+      }
+      provider: string
+      provider_message_id: string | null
+      error: string | null
+    }>
+  }
+  cohorts: Array<{
+    id: number
+    role: 'participant' | 'coach' | 'admin'
+    cohort: {
+      id: number
+      name: string
+      status: AdminCohortStatus
+    }
+  }>
+  workspace: {
+    household_id: number | null
+    household_name: string | null
+    setup_complete: boolean
+    profile_completeness: number
+    readiness_label: string
+  }
+}
+
+export type AdminCohortInput = {
+  name: string
+  status: AdminCohortStatus
+  starts_on?: string
+  ends_on?: string
+  notes?: string
+}
+
+export type AdminUserMutationResponse = {
+  user: AdminUser
+  created?: boolean
+  reactivated?: boolean
+  invitation_sent?: boolean
+  invitation_status?: AdminInviteEmailStatus
+  invitation_error?: string | null
+}
+
+export type AdminUserInput = {
+  email?: string
+  first_name?: string
+  last_name?: string
+  role?: UserRole
+  invitation_status?: InvitationStatus
+  cohort_id?: number | string | null
+  cohort_ids?: number[]
+  send_invitation_email?: boolean
 }
 
 export type AppData = {
@@ -228,6 +345,47 @@ async function responseErrorMessage(response: Response, fallback: string) {
 export async function fetchCurrentUser(): Promise<CurrentUser> {
   const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
   return payload.user
+}
+
+export async function fetchAdminUsers(): Promise<AdminUser[]> {
+  const payload = await fetchJson<{ users: AdminUser[] }>('/api/v1/admin/users')
+  return payload.users
+}
+
+export async function fetchAdminCohorts(): Promise<AdminCohort[]> {
+  const payload = await fetchJson<{ cohorts: AdminCohort[] }>('/api/v1/admin/cohorts')
+  return payload.cohorts
+}
+
+export async function createAdminCohort(values: AdminCohortInput): Promise<AdminCohort> {
+  const payload = await postJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', { cohort: values })
+  return payload.cohort
+}
+
+export async function updateAdminCohort(id: number, values: AdminCohortInput): Promise<AdminCohort> {
+  const payload = await fetchJson<{ cohort: AdminCohort }>(`/api/v1/admin/cohorts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cohort: values }),
+  })
+  return payload.cohort
+}
+
+export async function createAdminUser(values: AdminUserInput): Promise<AdminUserMutationResponse> {
+  return postJson<AdminUserMutationResponse>('/api/v1/admin/users', { user: values })
+}
+
+export async function updateAdminUser(id: number, values: AdminUserInput): Promise<AdminUser> {
+  const payload = await fetchJson<{ user: AdminUser }>(`/api/v1/admin/users/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ user: values }),
+  })
+  return payload.user
+}
+
+export async function resendAdminUserInvitation(id: number): Promise<AdminUserMutationResponse> {
+  return postJson<AdminUserMutationResponse>(`/api/v1/admin/users/${id}/resend_invitation`, {})
 }
 
 export async function fetchAppData(realWorkspace = false): Promise<AppData> {
