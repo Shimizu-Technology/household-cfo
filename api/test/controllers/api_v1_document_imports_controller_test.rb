@@ -124,6 +124,50 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not body.key?("s3_key")
   end
 
+  test "destroy removes database record before deleting private source" do
+    document_import = create_import!(s3_key: "household-cfo/test/source.pdf")
+    record_existed_when_s3_deleted = []
+
+    with_s3_stubs(
+      configured?: true,
+      delete: ->(_key) { record_existed_when_s3_deleted << FinancialDocumentImport.exists?(document_import.id); true }
+    ) do
+      delete "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+    end
+
+    assert_response :no_content
+    assert_not FinancialDocumentImport.exists?(document_import.id)
+    assert_equal [ false ], record_existed_when_s3_deleted
+  end
+
+  test "destroy does not delete private source when database destroy fails" do
+    callback = lambda { |item| throw(:abort) if item.label == "Block destroy" }
+    FinancialDocumentImportItem.set_callback(:destroy, :before, callback)
+    document_import = create_import!(s3_key: "household-cfo/test/source.pdf")
+    document_import.items.create!(
+      target_type: "expense_item",
+      label: "Block destroy",
+      amount_cents: 100_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+    deleted_keys = []
+
+    with_s3_stubs(
+      configured?: true,
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      delete "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert FinancialDocumentImport.exists?(document_import.id)
+    assert_empty deleted_keys
+  ensure
+    FinancialDocumentImportItem.skip_callback(:destroy, :before, callback)
+  end
+
   test "destroy_source deletes source without deleting applied values" do
     document_import = create_import!(status: "applied", s3_key: "household-cfo/test/source.pdf", applied_at: Time.current)
     item = document_import.items.create!(

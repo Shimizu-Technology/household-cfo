@@ -76,6 +76,33 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     end
   end
 
+  test "matches existing household records case-insensitively when applying" do
+    @household.income_sources.create!(label: "Primary Income", source_type: "job", amount_cents: 1_000_00, cadence: "monthly")
+    @household.expense_items.create!(label: "Groceries", stack_key: "discretionary", amount_cents: 100_00, cadence: "monthly")
+    @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 250_00)
+    @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 900_00, minimum_payment_cents: 25_00)
+    @household.goals.create!(label: "Vehicle Fund", goal_type: "purchase", target_amount_cents: 10_000_00, priority: 3)
+    @document_import.items.create!(target_type: "income_source", label: "primary income", amount_cents: 5_500_00, cadence: "monthly", source_type: "job")
+    @document_import.items.create!(target_type: "expense_item", label: "groceries", amount_cents: 825_00, cadence: "monthly", stack_key: "discretionary")
+    @document_import.items.create!(target_type: "account", label: "checking", balance_cents: 2_250_00, account_type: "checking")
+    @document_import.items.create!(target_type: "debt", label: "visa", balance_cents: 4_820_00, payment_cents: 150_00, debt_type: "credit_card")
+    @document_import.items.create!(target_type: "goal", label: "vehicle fund", amount_cents: 12_000_00, metadata: { "goal_type" => "purchase" })
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_equal 1, @household.income_sources.where(source_type: "job").count
+    assert_equal 5_500_00, @household.income_sources.find_by!(label: "Primary Income").amount_cents
+    assert_equal 1, @household.expense_items.where(stack_key: "discretionary").count
+    assert_equal 825_00, @household.expense_items.find_by!(label: "Groceries").amount_cents
+    assert_equal 1, @household.accounts.where(account_type: "checking").count
+    assert_equal 2_250_00, @household.accounts.find_by!(label: "Checking").balance_cents
+    assert_equal 1, @household.debts.where(debt_type: "credit_card").count
+    assert_equal 4_820_00, @household.debts.find_by!(label: "Visa").balance_cents
+    assert_equal 1, @household.goals.where(goal_type: "purchase").count
+    assert_equal 12_000_00, @household.goals.find_by!(label: "vehicle fund").target_amount_cents
+  end
+
   test "applies only requested item ids and leaves import partially applied" do
     selected = @document_import.items.create!(
       target_type: "expense_item",

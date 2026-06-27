@@ -98,28 +98,28 @@ module HouseholdFinance
 
     def apply_income_source(item)
       source_type = item.source_type.presence_in(IncomeSource::SOURCE_TYPES) || "other"
-      record = household.income_sources.find_or_initialize_by(label: item.label, source_type: source_type)
+      record = find_label_record_or_initialize(household.income_sources, item.label, source_type: source_type)
       record.update!(amount_cents: item.amount_cents.to_i, cadence: cadence_for(item), active: item.amount_cents.to_i.positive?)
       record
     end
 
     def apply_expense_item(item)
       stack_key = item.stack_key.presence_in(ExpenseItem::STACK_KEYS) || "discretionary"
-      record = household.expense_items.find_or_initialize_by(label: item.label, stack_key: stack_key)
+      record = find_label_record_or_initialize(household.expense_items, item.label, stack_key: stack_key)
       record.update!(amount_cents: item.amount_cents.to_i, cadence: cadence_for(item), active: item.amount_cents.to_i.positive?)
       record
     end
 
     def apply_account(item)
       account_type = item.account_type.presence_in(Account::ACCOUNT_TYPES) || "other"
-      record = household.accounts.find_or_initialize_by(label: item.label, account_type: account_type)
+      record = find_label_record_or_initialize(household.accounts, item.label, account_type: account_type)
       record.update!(balance_cents: item.balance_cents.to_i)
       record
     end
 
     def apply_debt(item)
       debt_type = item.debt_type.presence_in(Debt::DEBT_TYPES) || "other"
-      record = household.debts.find_or_initialize_by(label: item.label, debt_type: debt_type)
+      record = find_label_record_or_initialize(household.debts, item.label, debt_type: debt_type)
       balance_cents = item.balance_cents || record.balance_cents || 0
       payment_cents = item.payment_cents || record.minimum_payment_cents || 0
       record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents)
@@ -132,13 +132,19 @@ module HouseholdFinance
       record = if goal_type.in?(%w[runway transition])
         household.goals.find_or_initialize_by(goal_type: goal_type)
       else
-        household.goals.where(goal_type: goal_type, label: item.label).first_or_initialize
+        find_label_record_or_initialize(household.goals, item.label, goal_type: goal_type)
       end
       record.label = item.label
       record.target_amount_cents = item.amount_cents.to_i
       record.priority = next_goal_priority if record.new_record? && record.priority.to_i.zero?
       record.save!
       record
+    end
+
+    def find_label_record_or_initialize(association, label, attributes)
+      label_text = label.to_s.squish
+      association.where(attributes).where("LOWER(label) = ?", label_text.downcase).first ||
+        association.new(attributes.merge(label: label_text))
     end
 
     def apply_profile_note(item)

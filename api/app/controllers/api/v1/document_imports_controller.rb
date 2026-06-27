@@ -67,13 +67,17 @@ module Api
           return render json: { errors: [ "Delete the source file instead; this import already applied household values" ] }, status: :unprocessable_entity
         end
 
-        deleted = delete_source_if_present(@document_import)
-        return render json: { errors: [ "Could not delete document source" ] }, status: :service_unavailable unless deleted
+        source_key = @document_import.s3_key
+        return render_s3_not_configured if source_key.present? && !S3Service.configured?
 
+        document_import_id = @document_import.id
         @document_import.destroy!
+        delete_source_after_destroy(source_key, document_import_id: document_import_id)
         head :no_content
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
+      rescue ActiveRecord::RecordNotDestroyed
+        render json: { errors: [ "Could not delete document import" ] }, status: :unprocessable_entity
       end
 
       def reprocess
@@ -234,10 +238,12 @@ module Api
         )
       end
 
-      def delete_source_if_present(document_import)
-        return true unless document_import.s3_key.present?
+      def delete_source_after_destroy(source_key, document_import_id:)
+        return true if source_key.blank?
 
-        S3Service.delete(document_import.s3_key)
+        deleted = S3Service.delete(source_key)
+        Rails.logger.warn("[DocumentImportsController] deleted import #{document_import_id} but could not delete private S3 source") unless deleted
+        deleted
       end
 
       def cleanup_failed_upload_import!(document_import)
