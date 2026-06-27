@@ -18,35 +18,22 @@ module HouseholdFinance
     end
 
     def call
-      success = false
-      result = nil
-
       document_import.with_lock do
-        unless reviewable_for_apply?
-          result = failure("Document import is not ready for review")
-          next
-        end
+        next failure("Document import is not ready for review") unless reviewable_for_apply?
 
         household.with_lock do
           items = selected_items.to_a
           if items.empty?
             update_import_status!
-            if unresolved_items_exist?
-              result = failure("No selected extracted values to apply")
-            else
-              success = true
-            end
+            next failure("No selected extracted values to apply") if unresolved_items_exist?
           else
             items.each { |item| apply_item!(item) }
             update_import_status!
-            success = true
           end
+
+          Result.new(success: true, import: document_import.reload, applied_count: applied_count, errors: [])
         end
       end
-
-      return result unless success
-
-      Result.new(success: true, import: document_import.reload, applied_count: applied_count, errors: [])
     rescue ActiveRecord::RecordInvalid => e
       failure(e.record.errors.full_messages.join(", "))
     rescue StandardError => e

@@ -15,6 +15,7 @@ module FinancialDocuments
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
     BASE64_READ_CHUNK_BYTES = 49_152
+    MAX_DATA_URL_SOURCE_BYTES = 12 * 1024 * 1024
 
     Result = Data.define(:success, :data, :error, :metadata) do
       def success?
@@ -36,6 +37,9 @@ module FinancialDocuments
       return failure("AWS S3 storage is not configured") unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
+        payload_size_error = inline_payload_size_error(document_import, tempfile.path)
+        return failure(payload_size_error) if payload_size_error
+
         payload = build_payload(document_import, tempfile.path)
         response = perform_openrouter_request(payload)
         return response unless response.success?
@@ -68,6 +72,21 @@ module FinancialDocuments
       yield tempfile
     ensure
       tempfile&.close!
+    end
+
+    def inline_payload_size_error(document_import, file_path)
+      return unless document_import.image? || document_import.pdf?
+      return if File.size(file_path) <= max_data_url_source_bytes
+
+      "Document source is too large for AI extraction via OpenRouter data upload (max #{max_data_url_source_megabytes} MB for PDFs/images). Compress or split the file and upload again."
+    end
+
+    def max_data_url_source_bytes
+      MAX_DATA_URL_SOURCE_BYTES
+    end
+
+    def max_data_url_source_megabytes
+      max_data_url_source_bytes / (1024 * 1024)
     end
 
     def build_payload(document_import, file_path)
