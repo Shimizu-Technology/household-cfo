@@ -2,17 +2,25 @@ import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
 import './App.css'
 import {
+  applyDocumentImport,
   clearMiaMessages,
   createAdminCohort,
   createAdminUser,
+  deleteDocumentImport,
+  deleteDocumentImportSource,
   fetchAdminCohorts,
   fetchAdminUsers,
   fetchAppData,
+  fetchDocumentImportSourceUrl,
+  fetchDocumentImports,
+  reprocessDocumentImport,
   resendAdminUserInvitation,
   saveWorkspaceSetup,
   sendMiaMessage,
   updateAdminCohort,
   updateAdminUser,
+  updateDocumentImportItem,
+  uploadDocumentImport,
 } from './api'
 import type {
   AdminCohort,
@@ -23,6 +31,10 @@ import type {
   AdminUserMutationResponse,
   AppData,
   CurrentUser,
+  DocumentImportItem,
+  DocumentImportItemInput,
+  DocumentImportKind,
+  FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
   UserRole,
@@ -41,6 +53,46 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
+const SUPPORTED_DOCUMENT_ACCEPTS = '.pdf,.csv,.xlsx,.jpg,.jpeg,.png,.webp'
+const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
+const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
+
+const documentUploadCards: Array<{
+  kind: DocumentImportKind
+  label: string
+  eyebrow: string
+  accepts: string
+  helper: string
+}> = [
+  {
+    kind: 'spreadsheet',
+    label: 'Budget spreadsheet',
+    eyebrow: 'Expense stack',
+    accepts: '.csv,.xlsx',
+    helper: 'Upload a CSV or XLSX budget export. Mia drafts income, expenses, assets, and debts for review.',
+  },
+  {
+    kind: 'statement',
+    label: 'Bank or card statement',
+    eyebrow: 'Fresh balances',
+    accepts: '.pdf',
+    helper: 'Upload a PDF statement to draft balances, payments, and spending categories.',
+  },
+  {
+    kind: 'pay_stub',
+    label: 'Pay stub',
+    eyebrow: 'Income proof',
+    accepts: '.pdf,.jpg,.jpeg,.png,.webp',
+    helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
+  },
+  {
+    kind: 'receipt',
+    label: 'Receipt or photo',
+    eyebrow: 'Quick evidence',
+    accepts: '.jpg,.jpeg,.png,.webp',
+    helper: 'Upload a receipt/photo when one-off evidence should become a profile note or expense item.',
+  },
+]
 
 const sourceDerivedCopy = [
   'Expense Stack',
@@ -78,6 +130,15 @@ function App() {
   const [miaClearing, setMiaClearing] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
+  const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
+  const [documentsLoading, setDocumentsLoading] = useState(false)
+  const [documentsError, setDocumentsError] = useState<string | null>(null)
+  const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
+  const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
+  const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
+  const [itemSavingIds, setItemSavingIds] = useState<Set<number>>(() => new Set())
+  const [documentAction, setDocumentAction] = useState<string | null>(null)
+  const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const chatStorageKey = useMemo(() => {
     const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
@@ -89,8 +150,47 @@ function App() {
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const shouldUseRealWorkspace = auth.isClerkEnabled
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
   const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
+  const selectedImport = useMemo(() => {
+    const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
+    return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
+  }, [documentImports, selectedImportId])
+  const pendingImportsCount = useMemo(
+    () => documentImports.filter((documentImport) => documentImport.status === 'needs_review').length,
+    [documentImports],
+  )
+  const processingImportsCount = useMemo(
+    () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
+    [documentImports],
+  )
+  const documentStatusSignature = useMemo(
+    () => documentImports
+      .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
+      .map((documentImport) => `${documentImport.id}:${documentImport.status}`)
+      .join('|'),
+    [documentImports],
+  )
+
+  const refreshDocumentImports = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
+    if (!isRealWorkspace) {
+      setDocumentImports([])
+      setSelectedImportId(null)
+      return
+    }
+
+    if (!quiet) setDocumentsLoading(true)
+    setDocumentsError(null)
+    try {
+      const imports = await fetchDocumentImports()
+      setDocumentImports(imports)
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document imports could not be loaded.')
+    } finally {
+      if (!quiet) setDocumentsLoading(false)
+    }
+  }, [isRealWorkspace])
 
   useEffect(() => {
     if (!canLoadWorkspace) return
@@ -116,6 +216,29 @@ function App() {
       cancelled = true
     }
   }, [canLoadWorkspace, chatStorageKey, shouldUseRealWorkspace])
+
+  useEffect(() => {
+    if (!workspaceLoadKey) return
+
+    let cancelled = false
+    queueMicrotask(() => {
+      if (!cancelled) void refreshDocumentImports()
+    })
+
+    return () => {
+      cancelled = true
+    }
+  }, [refreshDocumentImports, workspaceLoadKey])
+
+  useEffect(() => {
+    if (!isRealWorkspace || !documentStatusSignature) return
+
+    const intervalId = window.setInterval(() => {
+      void refreshDocumentImports({ quiet: true })
+    }, 3500)
+
+    return () => window.clearInterval(intervalId)
+  }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
   const surplus = useMemo(() => {
     if (!data) return 0
@@ -219,6 +342,147 @@ function App() {
       setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
     } finally {
       setMiaClearing(false)
+    }
+  }
+
+  async function handleDocumentUpload(kind: DocumentImportKind, file: File, origin: 'profile' | 'mia' = 'profile') {
+    if (!isRealWorkspace) {
+      setDocumentsError('Sign in to a real workspace before uploading financial documents.')
+      return
+    }
+
+    setUploadingKind(kind)
+    setDocumentsError(null)
+    setDocumentsNotice(null)
+    try {
+      const documentImport = await uploadDocumentImport(file, kind)
+      setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
+      setSelectedImportId(documentImport.id)
+      setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. Mia is extracting draft values for review.`)
+
+      if (origin === 'mia') {
+        setMessages((current) => [
+          ...current,
+          {
+            role: 'assistant',
+            author: 'Mia',
+            content: `I received ${file.name}. I will treat it as evidence only. Once extraction finishes, review and apply the values before I use them as official household numbers.`,
+          },
+        ])
+      }
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document could not be uploaded.')
+    } finally {
+      setUploadingKind(null)
+    }
+  }
+
+  function handleMiaAttachmentChange(file: File | null) {
+    if (!file) return
+    void handleDocumentUpload(inferDocumentKind(file), file, 'mia')
+  }
+
+  async function handleDocumentItemUpdate(documentImportId: number, itemId: number, values: DocumentImportItemInput) {
+    setItemSavingIds((current) => new Set(current).add(itemId))
+    setDocumentsError(null)
+    try {
+      const item = await updateDocumentImportItem(documentImportId, itemId, values)
+      setDocumentImports((current) => replaceImportItem(current, documentImportId, item))
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Extracted value could not be updated.')
+    } finally {
+      setItemSavingIds((current) => {
+        const next = new Set(current)
+        next.delete(itemId)
+        return next
+      })
+    }
+  }
+
+  async function handleApplyDocumentImport(documentImport: FinancialDocumentImport) {
+    const itemIds = selectedApplyItemIds(documentImport)
+    if (itemIds.length === 0) {
+      setDocumentsError('Select at least one extracted value before applying.')
+      return
+    }
+
+    setDocumentAction(`apply:${documentImport.id}`)
+    setDocumentsError(null)
+    setDocumentsNotice(null)
+    try {
+      const response = await applyDocumentImport(documentImport.id, itemIds)
+      setDocumentImports((current) => replaceImport(current, response.document_import))
+      setData(response.workspace)
+      setSetupDraft(response.workspace.workspace?.setup_values ?? setupDraft)
+      setMessages(response.workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Selected values could not be applied.')
+    } finally {
+      setDocumentAction(null)
+    }
+  }
+
+  async function handleReprocessDocumentImport(documentImport: FinancialDocumentImport) {
+    setDocumentAction(`reprocess:${documentImport.id}`)
+    setDocumentsError(null)
+    setDocumentsNotice(null)
+    try {
+      const reprocessedImport = await reprocessDocumentImport(documentImport.id)
+      setDocumentImports((current) => replaceImport(current, reprocessedImport))
+      setDocumentsNotice('Reprocessing started. The review panel will update when Mia finishes reading the document.')
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document could not be reprocessed.')
+    } finally {
+      setDocumentAction(null)
+    }
+  }
+
+  async function handleDeleteDocumentSource(documentImport: FinancialDocumentImport) {
+    if (!window.confirm('Delete the private source file from S3? Applied household numbers will stay saved.')) return
+
+    setDocumentAction(`source:${documentImport.id}`)
+    setDocumentsError(null)
+    setDocumentsNotice(null)
+    try {
+      const updatedImport = await deleteDocumentImportSource(documentImport.id)
+      setDocumentImports((current) => replaceImport(current, updatedImport))
+      setDocumentsNotice('Private source file deleted. The extracted review record remains for audit context.')
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be deleted.')
+    } finally {
+      setDocumentAction(null)
+    }
+  }
+
+  async function handleDeleteDocumentImport(documentImport: FinancialDocumentImport) {
+    if (!window.confirm('Delete this import record and its source file? This is only available before values are applied.')) return
+
+    setDocumentAction(`delete:${documentImport.id}`)
+    setDocumentsError(null)
+    setDocumentsNotice(null)
+    try {
+      await deleteDocumentImport(documentImport.id)
+      setDocumentImports((current) => current.filter((existing) => existing.id !== documentImport.id))
+      setDocumentsNotice('Document import deleted.')
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document import could not be deleted.')
+    } finally {
+      setDocumentAction(null)
+    }
+  }
+
+  async function handleOpenDocumentSource(documentImport: FinancialDocumentImport) {
+    setDocumentAction(`source-url:${documentImport.id}`)
+    setDocumentsError(null)
+    try {
+      const source = await fetchDocumentImportSourceUrl(documentImport.id)
+      window.open(source.url, '_blank', 'noopener,noreferrer')
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Secure document link could not be created.')
+    } finally {
+      setDocumentAction(null)
     }
   }
 
@@ -388,17 +652,30 @@ function App() {
                   <h3>Context loaded</h3>
                 </div>
               </div>
-              <p>Profile, Expense Stack, runway, debt pressure, and Optionality scenario are ready for Mia to use.</p>
-              <div className="upload-strip" aria-label="Demo-only upload affordances">
-                <button type="button" disabled title="Uploads are a demo placeholder until privacy and OCR scope are approved.">
-                  <AttachmentIcon />
-                  Spreadsheet import demo-only
-                </button>
-                <button type="button" disabled title="Uploads are a demo placeholder until privacy and OCR scope are approved.">
-                  <StatementIcon />
-                  Statement import demo-only
-                </button>
-              </div>
+              <p>
+                Profile, Expense Stack, runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.
+              </p>
+              {isRealWorkspace ? (
+                <DocumentContextCard
+                  imports={documentImports}
+                  pendingCount={pendingImportsCount}
+                  processingCount={processingImportsCount}
+                  onOpenProfile={() => switchSection('My Profile')}
+                  onAttach={() => miaAttachmentInputRef.current?.click()}
+                  uploading={Boolean(uploadingKind)}
+                />
+              ) : (
+                <div className="upload-strip" aria-label="Demo-only upload affordances">
+                  <button type="button" disabled title="Uploads require a signed-in real workspace.">
+                    <AttachmentIcon />
+                    Spreadsheet import demo-only
+                  </button>
+                  <button type="button" disabled title="Uploads require a signed-in real workspace.">
+                    <StatementIcon />
+                    Statement import demo-only
+                  </button>
+                </div>
+              )}
             </article>
 
             <section className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`} aria-label="Ask Mia conversation">
@@ -472,12 +749,23 @@ function App() {
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
 
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
+                <input
+                  type="file"
+                  className="sr-only"
+                  accept={SUPPORTED_DOCUMENT_ACCEPTS}
+                  ref={miaAttachmentInputRef}
+                  onChange={(event) => {
+                    handleMiaAttachmentChange(event.target.files?.[0] ?? null)
+                    event.currentTarget.value = ''
+                  }}
+                />
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled
-                  title="Uploads are demo-only until privacy and OCR scope are approved."
+                  disabled={!isRealWorkspace || Boolean(uploadingKind)}
+                  title={isRealWorkspace ? 'Attach a financial document for review' : 'Sign in to a real workspace before uploading documents.'}
                   aria-label="Attach financial document"
+                  onClick={() => miaAttachmentInputRef.current?.click()}
                 >
                   <AttachmentIcon />
                 </button>
@@ -537,6 +825,27 @@ function App() {
             />
           )}
 
+          <DocumentImportWorkspace
+            isRealWorkspace={Boolean(isRealWorkspace)}
+            imports={documentImports}
+            selectedImport={selectedImport}
+            loading={documentsLoading}
+            error={documentsError}
+            notice={documentsNotice}
+            uploadingKind={uploadingKind}
+            itemSavingIds={itemSavingIds}
+            action={documentAction}
+            demoUploads={data.profile.uploads}
+            onUpload={handleDocumentUpload}
+            onSelectImport={setSelectedImportId}
+            onUpdateItem={handleDocumentItemUpdate}
+            onApply={handleApplyDocumentImport}
+            onReprocess={handleReprocessDocumentImport}
+            onDeleteSource={handleDeleteDocumentSource}
+            onDeleteImport={handleDeleteDocumentImport}
+            onOpenSource={handleOpenDocumentSource}
+          />
+
           <div className="profile-section-grid">
             {data.profile.sections.map((section) => (
               <article className="panel profile-section" key={section.label}>
@@ -551,17 +860,6 @@ function App() {
                     <strong className={item.amount < 0 ? 'negative' : ''}>{currency.format(item.amount)}</strong>
                   </div>
                 ))}
-              </article>
-            ))}
-          </div>
-
-          <div className="upload-grid">
-            {data.profile.uploads.map((upload) => (
-              <article className="upload-card" key={upload.kind}>
-                <span>Upload</span>
-                <h3>{upload.label}</h3>
-                <p>{upload.status}</p>
-                <small>{upload.accepts}</small>
               </article>
             ))}
           </div>
@@ -765,6 +1063,656 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </article>
   )
+}
+
+function DocumentContextCard({
+  imports,
+  pendingCount,
+  processingCount,
+  onOpenProfile,
+  onAttach,
+  uploading,
+}: {
+  imports: FinancialDocumentImport[]
+  pendingCount: number
+  processingCount: number
+  onOpenProfile: () => void
+  onAttach: () => void
+  uploading: boolean
+}) {
+  const latestApplied = latestAppliedImport(imports)
+
+  return (
+    <div className="document-context-card">
+      <div className="document-context-stats" aria-label="Document import context for Mia">
+        <span><strong>{pendingCount}</strong> waiting review</span>
+        <span><strong>{processingCount}</strong> processing</span>
+      </div>
+      <p>
+        {latestApplied
+          ? `Latest approved source: ${documentKindLabel(latestApplied.document_kind)} · ${importPeriodLabel(latestApplied)}.`
+          : 'No approved document sources yet. Mia will use manual numbers until you apply extracted values.'}
+      </p>
+      <div className="upload-strip">
+        <button type="button" onClick={onAttach} disabled={uploading}>
+          <AttachmentIcon />
+          {uploading ? 'Uploading privately' : 'Attach document'}
+        </button>
+        <button type="button" onClick={onOpenProfile}>
+          <StatementIcon />
+          Review imports
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function DocumentImportWorkspace({
+  isRealWorkspace,
+  imports,
+  selectedImport,
+  loading,
+  error,
+  notice,
+  uploadingKind,
+  itemSavingIds,
+  action,
+  demoUploads,
+  onUpload,
+  onSelectImport,
+  onUpdateItem,
+  onApply,
+  onReprocess,
+  onDeleteSource,
+  onDeleteImport,
+  onOpenSource,
+}: {
+  isRealWorkspace: boolean
+  imports: FinancialDocumentImport[]
+  selectedImport: FinancialDocumentImport | null
+  loading: boolean
+  error: string | null
+  notice: string | null
+  uploadingKind: DocumentImportKind | null
+  itemSavingIds: Set<number>
+  action: string | null
+  demoUploads: Array<{ label: string; kind: string; status: string; accepts: string }>
+  onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
+  onSelectImport: (id: number) => void
+  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onApply: (documentImport: FinancialDocumentImport) => void
+  onReprocess: (documentImport: FinancialDocumentImport) => void
+  onDeleteSource: (documentImport: FinancialDocumentImport) => void
+  onDeleteImport: (documentImport: FinancialDocumentImport) => void
+  onOpenSource: (documentImport: FinancialDocumentImport) => void
+}) {
+  const pendingCount = imports.filter((documentImport) => documentImport.status === 'needs_review').length
+  const latestApplied = latestAppliedImport(imports)
+
+  if (!isRealWorkspace) {
+    return (
+      <section className="panel document-import-workspace demo-document-imports" aria-label="Document uploads preview">
+        <div className="document-workspace-heading">
+          <div>
+            <p className="eyebrow">Private document import</p>
+            <h3>Upload review is enabled in signed-in real workspaces.</h3>
+            <p>Demo mode keeps uploads disabled so no private files land in sample data.</p>
+          </div>
+          <span className="document-safe-pill">Private S3 only</span>
+        </div>
+        <div className="upload-grid">
+          {demoUploads.map((upload) => (
+            <article className="upload-card" key={upload.kind}>
+              <span>Upload</span>
+              <h3>{upload.label}</h3>
+              <p>{upload.status}</p>
+              <small>{upload.accepts}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+    )
+  }
+
+  return (
+    <section className="panel document-import-workspace" aria-label="Private financial document imports">
+      <div className="document-workspace-heading">
+        <div>
+          <p className="eyebrow">Private document import</p>
+          <h3>Upload evidence. Review draft facts. Apply only what is right.</h3>
+          <p>Files go to private S3. Mia extracts draft values server-side, then waits for your approval before changing household numbers.</p>
+        </div>
+        <span className="document-safe-pill">Private S3 · Review first</span>
+      </div>
+
+      <div className="document-import-summary-row">
+        <Metric label="Needs review" value={String(pendingCount)} />
+        <Metric label="Total imports" value={String(imports.length)} />
+        <Metric label="Latest source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : 'None yet'} />
+        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : 'Manual'} />
+      </div>
+
+      {error && <p className="document-alert error" role="alert">{error}</p>}
+      {notice && <p className="document-alert success" role="status">{notice}</p>}
+
+      <div className="document-upload-grid">
+        {documentUploadCards.map((card) => (
+          <DocumentUploadCard
+            key={card.kind}
+            card={card}
+            uploading={uploadingKind === card.kind}
+            disabled={Boolean(uploadingKind)}
+            onUpload={(file) => onUpload(card.kind, file, 'profile')}
+          />
+        ))}
+      </div>
+
+      <div className="document-review-layout">
+        <DocumentImportHistory
+          imports={imports}
+          selectedImportId={selectedImport?.id ?? null}
+          loading={loading}
+          onSelectImport={onSelectImport}
+        />
+        <DocumentReviewPanel
+          documentImport={selectedImport}
+          itemSavingIds={itemSavingIds}
+          action={action}
+          onUpdateItem={onUpdateItem}
+          onApply={onApply}
+          onReprocess={onReprocess}
+          onDeleteSource={onDeleteSource}
+          onDeleteImport={onDeleteImport}
+          onOpenSource={onOpenSource}
+        />
+      </div>
+    </section>
+  )
+}
+
+function DocumentUploadCard({
+  card,
+  uploading,
+  disabled,
+  onUpload,
+}: {
+  card: (typeof documentUploadCards)[number]
+  uploading: boolean
+  disabled: boolean
+  onUpload: (file: File) => void
+}) {
+  const inputId = `document-upload-${card.kind}`
+
+  return (
+    <article className="document-upload-card">
+      <input
+        id={inputId}
+        className="sr-only"
+        type="file"
+        accept={card.accepts}
+        disabled={disabled}
+        onChange={(event) => {
+          const file = event.target.files?.[0]
+          if (file) onUpload(file)
+          event.currentTarget.value = ''
+        }}
+      />
+      <label htmlFor={inputId} aria-disabled={disabled}>
+        <span>{card.eyebrow}</span>
+        <h4>{card.label}</h4>
+        <p>{card.helper}</p>
+        <small>{card.accepts.replaceAll(',', ' · ')}</small>
+        <strong>{uploading ? 'Uploading privately' : 'Choose file'}</strong>
+      </label>
+    </article>
+  )
+}
+
+function DocumentImportHistory({
+  imports,
+  selectedImportId,
+  loading,
+  onSelectImport,
+}: {
+  imports: FinancialDocumentImport[]
+  selectedImportId: number | null
+  loading: boolean
+  onSelectImport: (id: number) => void
+}) {
+  return (
+    <aside className="document-history" aria-label="Document import history">
+      <div className="document-history-heading">
+        <h4>Import history</h4>
+        <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
+      </div>
+      {imports.length === 0 ? (
+        <div className="document-empty-state">
+          <StatementIcon />
+          <h4>No documents yet</h4>
+          <p>Upload a sample-safe document to test extraction. Avoid real client statements in local demos.</p>
+        </div>
+      ) : (
+        <div className="document-history-list">
+          {imports.map((documentImport) => (
+            <button
+              type="button"
+              key={documentImport.id}
+              className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
+              onClick={() => onSelectImport(documentImport.id)}
+            >
+              <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
+              <strong>{documentImport.filename}</strong>
+              <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
+              <small>{importPeriodLabel(documentImport)}</small>
+            </button>
+          ))}
+        </div>
+      )}
+    </aside>
+  )
+}
+
+function DocumentReviewPanel({
+  documentImport,
+  itemSavingIds,
+  action,
+  onUpdateItem,
+  onApply,
+  onReprocess,
+  onDeleteSource,
+  onDeleteImport,
+  onOpenSource,
+}: {
+  documentImport: FinancialDocumentImport | null
+  itemSavingIds: Set<number>
+  action: string | null
+  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onApply: (documentImport: FinancialDocumentImport) => void
+  onReprocess: (documentImport: FinancialDocumentImport) => void
+  onDeleteSource: (documentImport: FinancialDocumentImport) => void
+  onDeleteImport: (documentImport: FinancialDocumentImport) => void
+  onOpenSource: (documentImport: FinancialDocumentImport) => void
+}) {
+  if (!documentImport) {
+    return (
+      <article className="document-review-panel document-empty-state">
+        <AttachmentIcon />
+        <h4>Select an import to review</h4>
+        <p>Mia will never apply extracted numbers until you approve them here.</p>
+      </article>
+    )
+  }
+
+  const warnings = metadataWarnings(documentImport)
+  const groupedItems = groupedImportItems(documentImport.items)
+  const selectedCount = selectedApplyItemIds(documentImport).length
+  const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
+  const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
+  const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
+
+  return (
+    <article className="document-review-panel" aria-label={`Review ${documentImport.filename}`}>
+      <div className="document-review-header">
+        <div>
+          <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
+          <h4>{documentImport.filename}</h4>
+          <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
+        </div>
+        <div className="document-review-actions">
+          <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
+            {actionForImport('source-url') ? 'Opening' : 'View source'}
+          </button>
+          <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'applied' || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
+            {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+          </button>
+          <button type="button" className="subtle" onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
+            {actionForImport('source') ? 'Deleting' : 'Delete source'}
+          </button>
+          <button type="button" className="danger" onClick={() => onDeleteImport(documentImport)} disabled={documentImport.items.some((item) => item.applied_at) || actionForImport('delete')}>
+            {actionForImport('delete') ? 'Deleting' : 'Delete import'}
+          </button>
+        </div>
+      </div>
+
+      <div className="document-summary-box">
+        <strong>Mia read</strong>
+        <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
+        {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
+      </div>
+
+      {warnings.length > 0 && (
+        <div className="document-warning-list" role="note" aria-label="Extraction warnings">
+          {warnings.map((warning) => <span key={warning}>{warning}</span>)}
+        </div>
+      )}
+
+      {processing && (
+        <div className="document-processing-state" role="status">
+          <span />
+          <p>Mia is extracting draft values. This panel refreshes automatically.</p>
+        </div>
+      )}
+
+      {documentImport.items.length > 0 && (
+        <div className="document-items-shell">
+          {groupedItems.map(([targetType, items]) => (
+            <section className="document-item-group" key={targetType}>
+              <div className="document-item-group-heading">
+                <h5>{targetTypeLabel(targetType)}</h5>
+                <span>{items.length} draft value{items.length === 1 ? '' : 's'}</span>
+              </div>
+              <div className="document-item-list">
+                {items.map((item) => (
+                  <DocumentImportItemEditor
+                    key={item.id}
+                    documentImport={documentImport}
+                    item={item}
+                    saving={itemSavingIds.has(item.id)}
+                    onUpdate={(values) => onUpdateItem(documentImport.id, item.id, values)}
+                  />
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      <div className="document-apply-bar">
+        <div>
+          <strong>{selectedCount} selected</strong>
+          <span>{reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
+        </div>
+        <button type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
+          {actionForImport('apply') ? 'Applying' : 'Apply selected'}
+        </button>
+      </div>
+    </article>
+  )
+}
+
+function DocumentImportItemEditor({
+  documentImport,
+  item,
+  saving,
+  onUpdate,
+}: {
+  documentImport: FinancialDocumentImport
+  item: DocumentImportItem
+  saving: boolean
+  onUpdate: (values: DocumentImportItemInput) => void
+}) {
+  const disabled = Boolean(item.applied_at) || !REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
+
+  return (
+    <article className={`document-item-card ${item.ignored ? 'ignored' : ''} ${item.applied_at ? 'applied' : ''}`}>
+      <div className="document-item-topline">
+        <label className="document-check">
+          <input
+            type="checkbox"
+            checked={item.selected && !item.ignored}
+            disabled={disabled || saving}
+            onChange={(event) => onUpdate({ selected: event.target.checked, ignored: false })}
+          />
+          <span>{item.applied_at ? 'Applied' : 'Apply'}</span>
+        </label>
+        <button
+          type="button"
+          className="document-ignore-button"
+          disabled={Boolean(item.applied_at) || saving}
+          onClick={() => onUpdate({ ignored: !item.ignored, selected: item.ignored })}
+        >
+          {item.ignored ? 'Restore' : 'Ignore'}
+        </button>
+        {saving && <span className="document-saving">Saving</span>}
+        {item.confidence && <span className={`confidence-pill ${item.confidence}`}>{item.confidence} confidence</span>}
+      </div>
+
+      <div className="document-item-fields">
+        <label className="document-field wide">
+          <span>Label</span>
+          <input
+            defaultValue={item.label}
+            disabled={disabled || saving}
+            onBlur={(event) => updateIfChanged(item.label, event.target.value, (value) => onUpdate({ label: value }))}
+          />
+        </label>
+        <label className="document-field">
+          <span>Target</span>
+          <select value={item.target_type} disabled={disabled || saving} onChange={(event) => onUpdate({ target_type: event.target.value as DocumentImportItem['target_type'] })}>
+            {targetTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </label>
+        {itemMoneyFields(item).map((field) => (
+          <label className="document-field" key={field.key}>
+            <span>{field.label}</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              defaultValue={field.value ?? ''}
+              disabled={disabled || saving}
+              onBlur={(event) => updateMoneyIfChanged(field.value, event.target.value, (value) => onUpdate({ [field.key]: value }))}
+            />
+          </label>
+        ))}
+        {(item.target_type === 'income_source' || item.target_type === 'expense_item') && (
+          <label className="document-field">
+            <span>Cadence</span>
+            <select value={item.cadence ?? 'monthly'} disabled={disabled || saving} onChange={(event) => onUpdate({ cadence: event.target.value })}>
+              {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
+            </select>
+          </label>
+        )}
+        {item.target_type === 'income_source' && (
+          <label className="document-field">
+            <span>Income type</span>
+            <select value={item.source_type ?? 'other'} disabled={disabled || saving} onChange={(event) => onUpdate({ source_type: event.target.value })}>
+              {sourceTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
+            </select>
+          </label>
+        )}
+        {item.target_type === 'expense_item' && (
+          <label className="document-field">
+            <span>Stack</span>
+            <select value={item.stack_key ?? 'discretionary'} disabled={disabled || saving} onChange={(event) => onUpdate({ stack_key: event.target.value })}>
+              {stackKeyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+            </select>
+          </label>
+        )}
+        {item.target_type === 'account' && (
+          <label className="document-field">
+            <span>Account type</span>
+            <select value={item.account_type ?? 'other'} disabled={disabled || saving} onChange={(event) => onUpdate({ account_type: event.target.value })}>
+              {accountTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
+            </select>
+          </label>
+        )}
+        {item.target_type === 'debt' && (
+          <label className="document-field">
+            <span>Debt type</span>
+            <select value={item.debt_type ?? 'other'} disabled={disabled || saving} onChange={(event) => onUpdate({ debt_type: event.target.value })}>
+              {debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
+            </select>
+          </label>
+        )}
+      </div>
+
+      {item.evidence && <p className="document-evidence">{item.evidence}</p>}
+    </article>
+  )
+}
+
+const targetTypeOptions: Array<{ value: DocumentImportItem['target_type']; label: string }> = [
+  { value: 'income_source', label: 'Income' },
+  { value: 'expense_item', label: 'Expense' },
+  { value: 'account', label: 'Account' },
+  { value: 'debt', label: 'Debt' },
+  { value: 'goal', label: 'Goal' },
+  { value: 'profile_note', label: 'Profile note' },
+]
+
+const cadenceOptions = ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual', 'one_time']
+const sourceTypeOptions = ['job', 'business', 'rental', 'passive', 'bonus', 'other']
+const accountTypeOptions = ['checking', 'savings', 'emergency_fund', 'retirement', 'investment', 'property', 'other']
+const debtTypeOptions = ['credit_card', 'student_loan', 'auto_loan', 'mortgage', 'personal_loan', 'medical', 'other']
+const stackKeyOptions = [
+  { value: 'non_discretionary', label: 'Non-discretionary' },
+  { value: 'discretionary', label: 'Discretionary' },
+  { value: 'sinking_expected', label: 'Sinking Fund — Expected' },
+  { value: 'sinking_unexpected', label: 'Sinking Fund — Unexpected' },
+]
+
+function documentKindLabel(kind: DocumentImportKind) {
+  const labels: Record<DocumentImportKind, string> = {
+    spreadsheet: 'Spreadsheet',
+    statement: 'Statement',
+    pay_stub: 'Pay stub',
+    receipt: 'Receipt/photo',
+    other: 'Document',
+  }
+
+  return labels[kind]
+}
+
+function inferDocumentKind(file: File): DocumentImportKind {
+  const name = file.name.toLowerCase()
+  if (name.endsWith('.csv') || name.endsWith('.xlsx')) return 'spreadsheet'
+  if (name.includes('pay') || name.includes('stub')) return 'pay_stub'
+  if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp')) return 'receipt'
+  if (name.endsWith('.pdf')) return 'statement'
+
+  return 'other'
+}
+
+function importStatusLabel(status: FinancialDocumentImport['status']) {
+  return titleize(status)
+}
+
+function importStatusTone(status: FinancialDocumentImport['status']) {
+  if (status === 'applied') return 'green'
+  if (status === 'partially_applied' || status === 'needs_review') return 'gold'
+  if (status === 'failed' || status === 'source_deleted') return 'red'
+
+  return 'blue'
+}
+
+function formatByteSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatOptionalDate(value: string | null) {
+  if (!value) return null
+
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+}
+
+function importPeriodLabel(documentImport: FinancialDocumentImport) {
+  const start = formatOptionalDate(documentImport.period_start_on)
+  const end = formatOptionalDate(documentImport.period_end_on)
+  const documentDate = formatOptionalDate(documentImport.document_date)
+  if (start && end) return `${start} – ${end}`
+  if (end) return `Through ${end}`
+  if (documentDate) return documentDate
+  if (documentImport.applied_at) return `Applied ${shortDateTime(documentImport.applied_at)}`
+  if (documentImport.processed_at) return `Processed ${shortDateTime(documentImport.processed_at)}`
+
+  return 'Date pending'
+}
+
+function metadataWarnings(documentImport: FinancialDocumentImport) {
+  return Array.isArray(documentImport.metadata.warnings)
+    ? documentImport.metadata.warnings.filter((warning): warning is string => typeof warning === 'string' && warning.trim().length > 0).slice(0, 5)
+    : []
+}
+
+function groupedImportItems(items: DocumentImportItem[]) {
+  const groups = new Map<DocumentImportItem['target_type'], DocumentImportItem[]>()
+  items.forEach((item) => {
+    groups.set(item.target_type, [...(groups.get(item.target_type) ?? []), item])
+  })
+
+  return Array.from(groups.entries())
+}
+
+function targetTypeLabel(targetType: DocumentImportItem['target_type']) {
+  return targetTypeOptions.find((option) => option.value === targetType)?.label ?? titleize(targetType)
+}
+
+function itemMoneyFields(item: DocumentImportItem): Array<{ key: 'amount' | 'balance' | 'payment'; label: string; value: number | null }> {
+  if (item.target_type === 'profile_note') return []
+  if (item.target_type === 'account') return [{ key: 'balance', label: 'Balance', value: item.balance }]
+  if (item.target_type === 'debt') {
+    return [
+      { key: 'balance', label: 'Balance', value: item.balance },
+      { key: 'payment', label: 'Payment', value: item.payment },
+    ]
+  }
+
+  return [{ key: 'amount', label: item.target_type === 'goal' ? 'Target amount' : 'Monthly amount', value: item.amount }]
+}
+
+function updateIfChanged(currentValue: string | null, nextValue: string, onChanged: (value: string) => void) {
+  const cleaned = nextValue.trim()
+  if (!cleaned || cleaned === (currentValue ?? '')) return
+  onChanged(cleaned)
+}
+
+function updateMoneyIfChanged(currentValue: number | null, nextValue: string, onChanged: (value: string) => void) {
+  const cleaned = nextValue.trim()
+  if (!cleaned) return
+  const current = currentValue === null ? '' : String(currentValue)
+  if (cleaned === current) return
+  onChanged(cleaned)
+}
+
+function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
+  return documentImport.items
+    .filter((item) => item.selected && !item.ignored && !item.applied_at)
+    .map((item) => item.id)
+}
+
+function latestAppliedImport(imports: FinancialDocumentImport[]) {
+  return imports
+    .filter((documentImport) => documentImport.status === 'applied' || documentImport.status === 'partially_applied')
+    .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
+}
+
+function importTimestamp(documentImport: FinancialDocumentImport) {
+  const timestamp = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
+  return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function replaceImport(imports: FinancialDocumentImport[], documentImport: FinancialDocumentImport) {
+  const exists = imports.some((existing) => existing.id === documentImport.id)
+  const nextImports = exists
+    ? imports.map((existing) => (existing.id === documentImport.id ? documentImport : existing))
+    : [documentImport, ...imports]
+
+  return nextImports.sort((left, right) => right.id - left.id)
+}
+
+function replaceImportItem(imports: FinancialDocumentImport[], documentImportId: number, item: DocumentImportItem) {
+  return imports.map((documentImport) => {
+    if (documentImport.id !== documentImportId) return documentImport
+
+    return {
+      ...documentImport,
+      items: documentImport.items.map((existing) => (existing.id === item.id ? item : existing)),
+    }
+  })
+}
+
+function statusExplainer(documentImport: FinancialDocumentImport) {
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Extraction is in progress. Draft values will appear here when Mia finishes reading the source.'
+  if (documentImport.status === 'failed') return 'Mia could not extract reliable draft values from this upload. You can delete it or reprocess if the source is still available.'
+  if (documentImport.status === 'source_deleted') return 'The private source file has been deleted. Existing extracted metadata remains for audit context.'
+  if (documentImport.status === 'applied') return 'All selected values from this document were approved and applied to the household workspace.'
+  if (documentImport.status === 'partially_applied') return 'Some values were applied. Unapplied values remain available for review.'
+
+  return 'Review each draft value before applying it to your official household numbers.'
 }
 
 type AdminUserDraft = {

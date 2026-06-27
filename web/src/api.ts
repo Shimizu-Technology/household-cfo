@@ -34,6 +34,112 @@ export type ProfileUpload = {
   accepts: string
 }
 
+export type DocumentImportKind = 'spreadsheet' | 'statement' | 'pay_stub' | 'receipt' | 'other'
+export type DocumentImportStatus = 'uploaded' | 'processing' | 'needs_review' | 'applied' | 'partially_applied' | 'failed' | 'source_deleted'
+export type DocumentImportTargetType = 'income_source' | 'expense_item' | 'account' | 'debt' | 'goal' | 'profile_note'
+export type DocumentImportConfidence = 'high' | 'medium' | 'low'
+
+export type DocumentImportUserReference = {
+  id: number
+  email: string
+  full_name: string
+}
+
+export type DocumentImportItem = {
+  id: number
+  target_type: DocumentImportTargetType
+  label: string
+  amount: number | null
+  amount_cents: number | null
+  balance: number | null
+  balance_cents: number | null
+  payment: number | null
+  payment_cents: number | null
+  cadence: string | null
+  source_type: string | null
+  stack_key: string | null
+  account_type: string | null
+  debt_type: string | null
+  confidence: DocumentImportConfidence | null
+  evidence: string | null
+  selected: boolean
+  ignored: boolean
+  applied_at: string | null
+  applied_record_type: string | null
+  applied_record_id: number | null
+  metadata: Record<string, unknown>
+}
+
+export type DocumentImportAttempt = {
+  id: number
+  provider: string
+  model: string
+  status: string
+  prompt_version: string
+  schema_version: string
+  error: string | null
+  started_at: string | null
+  completed_at: string | null
+  metadata: Record<string, unknown>
+}
+
+export type FinancialDocumentImport = {
+  id: number
+  household_id: number
+  document_kind: DocumentImportKind
+  status: DocumentImportStatus
+  filename: string
+  content_type: string
+  byte_size: number
+  document_date: string | null
+  period_start_on: string | null
+  period_end_on: string | null
+  extracted_summary: string | null
+  extraction_error: string | null
+  processed_at: string | null
+  applied_at: string | null
+  source_deleted_at: string | null
+  source_available: boolean
+  uploaded_by: DocumentImportUserReference | null
+  applied_by: DocumentImportUserReference | null
+  source_deleted_by: DocumentImportUserReference | null
+  metadata: {
+    confidence?: DocumentImportConfidence
+    warnings?: string[]
+    original_filename?: string
+    upload_request_id?: string
+    extraction_model?: string
+    last_extracted_at?: string
+    last_applied_count?: number
+    last_applied_at?: string
+  }
+  items: DocumentImportItem[]
+  attempts: DocumentImportAttempt[]
+}
+
+export type DocumentSourceUrl = {
+  url: string
+  expires_in: number
+  filename: string
+  content_type: string
+  inline_supported: boolean
+}
+
+export type DocumentImportItemInput = Partial<Pick<
+  DocumentImportItem,
+  'target_type' | 'label' | 'cadence' | 'source_type' | 'stack_key' | 'account_type' | 'debt_type' | 'confidence' | 'evidence' | 'selected' | 'ignored'
+>> & {
+  amount?: string | number
+  balance?: string | number
+  payment?: string | number
+}
+
+export type DocumentImportApplyResponse = {
+  document_import: FinancialDocumentImport
+  applied_count: number
+  workspace: AppData
+}
+
 export type ProfileData = {
   household: {
     name: string
@@ -443,6 +549,67 @@ export async function clearMiaMessages(realWorkspace = false): Promise<void> {
   if (!realWorkspace) return
 
   await fetchJson<unknown>('/api/v1/mia/messages', { method: 'DELETE' })
+}
+
+export async function fetchDocumentImports(): Promise<FinancialDocumentImport[]> {
+  const payload = await fetchJson<{ document_imports: FinancialDocumentImport[] }>('/api/v1/document_imports')
+  return payload.document_imports
+}
+
+export async function fetchDocumentImport(id: number): Promise<FinancialDocumentImport> {
+  const payload = await fetchJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${id}`)
+  return payload.document_import
+}
+
+export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind): Promise<FinancialDocumentImport> {
+  const formData = new FormData()
+  formData.append('file', file)
+  formData.append('document_kind', documentKind)
+  formData.append('upload_request_id', crypto.randomUUID())
+
+  const response = await fetch(`${API_BASE}/api/v1/document_imports`, {
+    method: 'POST',
+    headers: await authHeaders(),
+    body: formData,
+  })
+
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, 'Document upload failed'))
+  }
+
+  const payload = (await response.json()) as { document_import: FinancialDocumentImport }
+  return payload.document_import
+}
+
+export async function updateDocumentImportItem(documentImportId: number, itemId: number, values: DocumentImportItemInput): Promise<DocumentImportItem> {
+  const payload = await fetchJson<{ item: DocumentImportItem }>(`/api/v1/document_imports/${documentImportId}/items/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: values }),
+  })
+  return payload.item
+}
+
+export async function applyDocumentImport(documentImportId: number, itemIds: number[]): Promise<DocumentImportApplyResponse> {
+  return postJson<DocumentImportApplyResponse>(`/api/v1/document_imports/${documentImportId}/apply`, { item_ids: itemIds })
+}
+
+export async function reprocessDocumentImport(documentImportId: number): Promise<FinancialDocumentImport> {
+  const payload = await postJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${documentImportId}/reprocess`, {})
+  return payload.document_import
+}
+
+export async function deleteDocumentImportSource(documentImportId: number): Promise<FinancialDocumentImport> {
+  const payload = await fetchJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${documentImportId}/source`, { method: 'DELETE' })
+  return payload.document_import
+}
+
+export async function deleteDocumentImport(documentImportId: number): Promise<void> {
+  await fetchJson<unknown>(`/api/v1/document_imports/${documentImportId}`, { method: 'DELETE' })
+}
+
+export async function fetchDocumentImportSourceUrl(documentImportId: number): Promise<DocumentSourceUrl> {
+  return fetchJson<DocumentSourceUrl>(`/api/v1/document_imports/${documentImportId}/source_url`)
 }
 
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {
