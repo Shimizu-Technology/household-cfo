@@ -168,7 +168,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     FinancialDocumentImportItem.skip_callback(:destroy, :before, callback)
   end
 
-  test "destroy_source deletes source without deleting applied values" do
+  test "destroy_source marks source deleted before deleting private source" do
     document_import = create_import!(status: "applied", s3_key: "household-cfo/test/source.pdf", applied_at: Time.current)
     item = document_import.items.create!(
       target_type: "income_source",
@@ -181,10 +181,15 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       applied_by_user: @user
     )
 
+    source_was_marked_deleted_before_s3_delete = []
     deleted_keys = []
     with_s3_stubs(
       configured?: true,
-      delete: ->(key) { deleted_keys << key; true }
+      delete: lambda { |key|
+        deleted_keys << key
+        source_was_marked_deleted_before_s3_delete << !document_import.reload.source_available?
+        true
+      }
     ) do
       delete "/api/v1/document_imports/#{document_import.id}/source", headers: auth_headers(@user)
     end
@@ -196,6 +201,45 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not_nil document_import.source_deleted_at
     assert FinancialDocumentImportItem.exists?(item.id)
     assert_equal [ "household-cfo/test/source.pdf" ], deleted_keys
+    assert_equal [ true ], source_was_marked_deleted_before_s3_delete
+  end
+
+  test "destroy_source does not delete private source when database update fails" do
+    document_import = create_import!(status: "uploaded", s3_key: "household-cfo/test/source.pdf")
+    callback = lambda { |import| throw(:abort) if import.id == document_import.id && import.source_deleted_at_changed? }
+    FinancialDocumentImport.set_callback(:update, :before, callback)
+    deleted_keys = []
+
+    with_s3_stubs(
+      configured?: true,
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      delete "/api/v1/document_imports/#{document_import.id}/source", headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    document_import.reload
+    assert document_import.source_available?
+    assert_empty deleted_keys
+  ensure
+    FinancialDocumentImport.skip_callback(:update, :before, callback)
+  end
+
+  test "destroy_source leaves source unavailable and retryable when private source delete fails" do
+    document_import = create_import!(status: "uploaded", s3_key: "household-cfo/test/source.pdf")
+
+    with_s3_stubs(
+      configured?: true,
+      delete: ->(_key) { false }
+    ) do
+      delete "/api/v1/document_imports/#{document_import.id}/source", headers: auth_headers(@user)
+    end
+
+    assert_response :service_unavailable
+    document_import.reload
+    assert_not document_import.source_available?
+    assert_equal "source_deleted", document_import.status
+    assert_equal "household-cfo/test/source.pdf", document_import.s3_key
   end
 
   test "reprocess rejects imports that already applied household values" do

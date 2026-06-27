@@ -147,20 +147,23 @@ module Api
 
       def destroy_source
         return render_s3_not_configured unless S3Service.configured?
-        return render json: { document_import: serialize_document_import(@document_import) } unless @document_import.source_available?
+        return render json: { document_import: serialize_document_import(@document_import) } if @document_import.s3_key.blank?
 
-        deleted = S3Service.delete(@document_import.s3_key)
-        return render json: { errors: [ "Could not delete document source" ] }, status: :service_unavailable unless deleted
+        source_key = @document_import.s3_key
+        mark_source_deleted_before_s3_delete! unless @document_import.source_deleted_at.present?
 
-        @document_import.update!(
-          s3_key: nil,
-          source_deleted_at: Time.current,
-          source_deleted_by_user: current_user,
-          status: source_deleted_status_for(@document_import)
-        )
+        deleted = S3Service.delete(source_key)
+        unless deleted
+          Rails.logger.warn("[DocumentImportsController] marked source deleted for import #{@document_import.id} but could not delete private S3 source")
+          return render json: { errors: [ "Could not delete document source" ], document_import: serialize_document_import(@document_import.reload) }, status: :service_unavailable
+        end
+
+        @document_import.update_columns(s3_key: nil, updated_at: Time.current)
         render json: { document_import: serialize_document_import(@document_import.reload) }
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
+      rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotSaved
+        render json: { errors: [ "Could not update document source state" ] }, status: :unprocessable_entity
       end
 
       private
@@ -256,6 +259,14 @@ module Api
           updated_at: Time.current
         )
         raise
+      end
+
+      def mark_source_deleted_before_s3_delete!
+        @document_import.update!(
+          source_deleted_at: Time.current,
+          source_deleted_by_user: current_user,
+          status: source_deleted_status_for(@document_import)
+        )
       end
 
       def source_deleted_status_for(document_import)
