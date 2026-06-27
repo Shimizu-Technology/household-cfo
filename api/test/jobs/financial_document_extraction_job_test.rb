@@ -125,6 +125,40 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     FinancialDocumentImportAttempt.skip_callback(:create, :before, callback)
   end
 
+  test "failed extraction clears stale successful extraction fields" do
+    @document_import.update!(
+      extracted_summary: "Old summary",
+      document_date: Date.new(2026, 6, 1),
+      period_start_on: Date.new(2026, 6, 1),
+      period_end_on: Date.new(2026, 6, 30),
+      metadata: {
+        "confidence" => "high",
+        "warnings" => [ "old warning" ],
+        "extraction_model" => "old/model",
+        "last_extracted_at" => "2026-06-01T00:00:00Z",
+        "upload_request_id" => "keep-me"
+      }
+    )
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "model unavailable", metadata: { status_code: 503 })
+    )
+
+    with_extractor_stub(extractor) do
+      FinancialDocumentExtractionJob.perform_now(@document_import.id)
+    end
+
+    @document_import.reload
+    assert_equal "failed", @document_import.status
+    assert_nil @document_import.extracted_summary
+    assert_nil @document_import.document_date
+    assert_nil @document_import.period_start_on
+    assert_nil @document_import.period_end_on
+    assert_equal "keep-me", @document_import.metadata.fetch("upload_request_id")
+    assert_equal true, @document_import.metadata.key?("last_extraction_failed_at")
+    assert_not @document_import.metadata.key?("confidence")
+    assert_not @document_import.metadata.key?("warnings")
+  end
+
   test "failed extraction marks import failed and records attempt" do
     extractor = fake_extractor(
       FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "model unavailable", metadata: { status_code: 503 })

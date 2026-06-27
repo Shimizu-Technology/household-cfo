@@ -47,7 +47,8 @@ module Api
       end
 
       def item_update_attributes
-        attributes = item_params.to_h.symbolize_keys.slice(
+        raw_attributes = item_params.to_h.symbolize_keys
+        attributes = raw_attributes.slice(
           :target_type,
           :label,
           :amount_cents,
@@ -63,9 +64,9 @@ module Api
           :selected,
           :ignored
         )
-        attributes[:amount_cents] = HouseholdFinance::Money.cents(item_params[:amount]) if item_params.key?(:amount)
-        attributes[:balance_cents] = HouseholdFinance::Money.cents(item_params[:balance]) if item_params.key?(:balance)
-        attributes[:payment_cents] = HouseholdFinance::Money.cents(item_params[:payment]) if item_params.key?(:payment)
+        attributes[:amount_cents] = HouseholdFinance::Money.cents(raw_attributes[:amount]) if raw_attributes.key?(:amount)
+        attributes[:balance_cents] = HouseholdFinance::Money.cents(raw_attributes[:balance]) if raw_attributes.key?(:balance)
+        attributes[:payment_cents] = HouseholdFinance::Money.cents(raw_attributes[:payment]) if raw_attributes.key?(:payment)
         attributes[:label] = bounded_text(attributes[:label], 120) if attributes.key?(:label)
         attributes[:evidence] = bounded_text(attributes[:evidence], 1000) if attributes.key?(:evidence)
         normalize_selection_flags!(attributes)

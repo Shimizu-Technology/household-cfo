@@ -19,6 +19,7 @@ module Api
         ".png" => %w[image/png],
         ".webp" => %w[image/webp]
       }.freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at].freeze
 
       def index
         imports = current_household.financial_document_imports.includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user).recent_first.limit(50)
@@ -96,7 +97,16 @@ module Api
           end
 
           @document_import.items.where(applied_at: nil).delete_all
-          @document_import.update!(status: "uploaded", extraction_error: nil, processed_at: nil)
+          @document_import.update!(
+            status: "uploaded",
+            extraction_error: nil,
+            extracted_summary: nil,
+            document_date: nil,
+            period_start_on: nil,
+            period_end_on: nil,
+            processed_at: nil,
+            metadata: reset_extraction_metadata(@document_import.metadata)
+          )
         end
         return render json: { errors: [ reprocess_error ] }, status: :unprocessable_entity if reprocess_error
 
@@ -368,6 +378,10 @@ module Api
 
       def safe_import_metadata(metadata)
         (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "last_extracted_at", "last_applied_count", "last_applied_at")
+      end
+
+      def reset_extraction_metadata(metadata)
+        (metadata || {}).except(*EXTRACTION_METADATA_KEYS)
       end
 
       def dollars_or_nil(cents)

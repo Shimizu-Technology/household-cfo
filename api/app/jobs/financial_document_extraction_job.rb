@@ -5,6 +5,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   ATTEMPT_METADATA_STRING_LENGTH = 120
   ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
+  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at].freeze
 
   def perform(financial_document_import_id)
     document_import = FinancialDocumentImport.find_by(id: financial_document_import_id)
@@ -93,8 +94,12 @@ class FinancialDocumentExtractionJob < ApplicationJob
       document_import.update!(
         status: "failed",
         extraction_error: error.to_s.truncate(500, omission: "…"),
+        extracted_summary: nil,
+        document_date: nil,
+        period_start_on: nil,
+        period_end_on: nil,
         processed_at: Time.current,
-        metadata: (document_import.metadata || {}).merge("last_extraction_failed_at" => Time.current.iso8601)
+        metadata: extraction_failure_metadata(document_import.metadata)
       )
       attempt&.update!(
         status: "failed",
@@ -103,6 +108,10 @@ class FinancialDocumentExtractionJob < ApplicationJob
         metadata: sanitized_attempt_metadata(metadata)
       )
     end
+  end
+
+  def extraction_failure_metadata(metadata)
+    (metadata || {}).except(*EXTRACTION_SUCCESS_METADATA_KEYS).merge("last_extraction_failed_at" => Time.current.iso8601)
   end
 
   def persist_failure_safely(document_import, attempt, error)

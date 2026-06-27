@@ -242,6 +242,42 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "household-cfo/test/source.pdf", document_import.s3_key
   end
 
+  test "item update accepts dollar-form amount balance and payment parameters" do
+    document_import = create_import!(status: "needs_review")
+    expense = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+    debt = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa",
+      balance_cents: 1_000_00,
+      payment_cents: 50_00,
+      debt_type: "credit_card",
+      confidence: "medium"
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{expense.id}",
+      params: { item: { amount: "425.50" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    assert_equal 425_50, expense.reload.amount_cents
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{debt.id}",
+      params: { item: { balance: "2400.25", payment: "125" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    debt.reload
+    assert_equal 2_400_25, debt.balance_cents
+    assert_equal 125_00, debt.payment_cents
+  end
+
   test "item update keeps selected and ignored mutually exclusive" do
     document_import = create_import!(status: "needs_review")
     item = document_import.items.create!(
@@ -293,6 +329,47 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     item.reload
     assert_equal true, item.selected
     assert_equal false, item.ignored
+  end
+
+  test "reprocess clears stale extracted summary and draft facts before new extraction" do
+    document_import = create_import!(
+      status: "needs_review",
+      extracted_summary: "Old summary should not survive failed reprocess.",
+      document_date: Date.new(2026, 6, 1),
+      period_start_on: Date.new(2026, 6, 1),
+      period_end_on: Date.new(2026, 6, 30),
+      metadata: {
+        "confidence" => "high",
+        "warnings" => [ "old warning" ],
+        "extraction_model" => "old/model",
+        "last_extracted_at" => "2026-06-01T00:00:00Z",
+        "upload_request_id" => "keep-me"
+      }
+    )
+    document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+
+    with_s3_stubs(configured?: true) do
+      assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ document_import.id ]) do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :success
+    document_import.reload
+    assert_equal "uploaded", document_import.status
+    assert_nil document_import.extracted_summary
+    assert_nil document_import.document_date
+    assert_nil document_import.period_start_on
+    assert_nil document_import.period_end_on
+    assert_empty document_import.items
+    assert_equal({ "upload_request_id" => "keep-me" }, document_import.metadata)
   end
 
   test "reprocess rejects imports that already applied household values" do
