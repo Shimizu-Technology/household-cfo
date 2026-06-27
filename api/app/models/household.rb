@@ -10,6 +10,7 @@ class Household < ApplicationRecord
   has_many :accounts, dependent: :destroy
   has_many :goals, dependent: :destroy
   has_many :chat_sessions, dependent: :destroy
+  has_many :financial_document_imports, dependent: :destroy
 
   validates :name, presence: true, length: { maximum: 120 }
   validates :primary_goal, length: { maximum: 500 }, allow_blank: true

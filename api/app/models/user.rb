@@ -25,6 +25,10 @@ class User < ApplicationRecord
   has_many :cohort_memberships, dependent: :destroy
   has_many :cohorts, through: :cohort_memberships
   has_many :chat_sessions, dependent: :destroy
+  has_many :uploaded_financial_document_imports, class_name: "FinancialDocumentImport", foreign_key: :uploaded_by_user_id, dependent: :restrict_with_exception, inverse_of: :uploaded_by_user
+  has_many :applied_financial_document_imports, class_name: "FinancialDocumentImport", foreign_key: :applied_by_user_id, dependent: :nullify, inverse_of: :applied_by_user
+  has_many :source_deleted_financial_document_imports, class_name: "FinancialDocumentImport", foreign_key: :source_deleted_by_user_id, dependent: :nullify, inverse_of: :source_deleted_by_user
+  has_many :applied_financial_document_import_items, class_name: "FinancialDocumentImportItem", foreign_key: :applied_by_user_id, dependent: :nullify, inverse_of: :applied_by_user
 
   before_validation :set_defaults
 

@@ -8,7 +8,8 @@ Rails API for Household CFO powered by VERA. It serves the demo-safe Mia/Househo
 - PostgreSQL
 - Clerk JWT verification through JWKS
 - Resend invite email delivery for admin-created invitations
-- OpenRouter optional fallback for Mia responses
+- OpenRouter optional fallback for Mia responses and server-side financial document extraction
+- Private AWS S3 document storage (custom service, no ActiveStorage)
 
 ## Local setup
 
@@ -42,6 +43,23 @@ CLERK_BOOTSTRAP_ADMIN_EMAILS=you@example.com
 
 After the owner admin signs in, use the Admin tab in the web app to create cohorts and invite additional admins, coaches, and participants. Do not commit Clerk keys, Resend keys, participant financial data, or private documents.
 
+## Private document imports
+
+Financial document uploads are stored in a private S3 bucket through `S3Service`; ActiveStorage is intentionally not used. Runtime uploads require S3 configuration, even in local development. Tests stub S3.
+
+```bash
+AWS_REGION=ap-southeast-2
+AWS_ACCESS_KEY_ID=...
+AWS_SECRET_ACCESS_KEY=...
+AWS_S3_BUCKET=household-cfo-private-dev
+AWS_S3_PREFIX=household-cfo/development
+OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
+OPENROUTER_PDF_ENGINE=mistral-ocr
+```
+
+Uploads create draft extracted values first. Users must review/apply selected values before household income, expenses, accounts, debts, or goals are updated.
+
 ## Resend invite emails
 
 Admin-created invites and resend actions call Resend directly when configured:
@@ -72,6 +90,7 @@ bundle exec bundler-audit check --update
 - `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
 - `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
 - `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context.
+- `GET/POST /api/v1/document_imports`, `GET /api/v1/document_imports/:id`, `POST /api/v1/document_imports/:id/apply`, `POST /api/v1/document_imports/:id/reprocess`, `GET /api/v1/document_imports/:id/source_url`, `DELETE /api/v1/document_imports/:id/source` — private S3 document upload, extraction, review, and apply workflow.
 - `GET/POST/PATCH /api/v1/admin/users` and `POST /api/v1/admin/users/:id/resend_invitation` — staff/admin invite records, Resend delivery status, role/status management, and cohort assignment.
 - `GET/POST/PATCH /api/v1/admin/cohorts` — admin-only cohort creation and cohort metadata management.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.

@@ -33,6 +33,10 @@ gem "jwt", "~> 3.2"
 # Transactional email delivery for cohort invitations
 gem "resend", "~> 0.16.0"
 
+# Private S3 storage and spreadsheet parsing for financial document imports
+gem "aws-sdk-s3", "~> 1.0"
+gem "roo", "~> 2.10"
+
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
 gem "rack-cors"
 

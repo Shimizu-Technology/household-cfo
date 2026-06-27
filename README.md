@@ -21,6 +21,7 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 - Manual-entry household setup for income, Expense Stack, emergency fund, debt, assets, and runway target
 - Dashboard/Budget/Wealth/CFO Filter/Optionality calculations from saved user data
 - Server-persisted Mia chat for signed-in users, with dynamic household context
+- Private S3-backed financial document import foundation with review-before-apply extraction flow
 - Clerk auth plumbing with invite-only local `users` records
 - Browser-based admin console for cohorts, role/cohort policy, admin/coach/participant invite records, Resend invite emails, and cohort assignment
 - PostgreSQL database configuration for local, test, and production-like environments
@@ -67,22 +68,23 @@ Local preview works without Clerk. For hosted/cohort environments:
 
 ## Safety / data rule
 
-Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, statements, pay stubs, or private documents.
+Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, statements, pay stubs, or private documents. Runtime document uploads use private S3 storage; never place real financial documents in git.
 
 ## Next phase
 
-The active real-mode build plan and Mia persona template live at:
+The active real-mode build plan, Mia persona template, admin plan, and next document-import architecture live at:
 
 ```text
 docs/real-mode-build-plan.md
 docs/mia-persona-template.md
 docs/admin-cohort-management.md
+docs/private-document-imports-and-mia-context.md
 ```
 
 ## Deferred until after the real-mode MVP
 
 - Stripe subscriptions
 - SMS reminders
-- Real OCR/document parsing
+- Document import review UI and Ask Mia attachment polish
 - Full white-label skin engine
 - Advanced coach/admin onboarding workflows
