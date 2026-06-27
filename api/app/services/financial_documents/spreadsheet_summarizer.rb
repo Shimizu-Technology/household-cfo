@@ -9,6 +9,7 @@ module FinancialDocuments
     MAX_ROWS_PER_SHEET = 80
     MAX_COLUMNS = 20
     MAX_CELL_LENGTH = 120
+    MAX_SHEET_NAME_LENGTH = 80
 
     def initialize(file_path:, filename:)
       @file_path = file_path
@@ -59,7 +60,7 @@ module FinancialDocuments
       return nil if rows.empty?
 
       {
-        name: sheet_name,
+        name: clean_sheet_name(sheet_name),
         row_count: last_row,
         sampled_row_count: rows.length,
         columns_seen: last_column,
@@ -67,9 +68,21 @@ module FinancialDocuments
       }
     end
 
+    def clean_sheet_name(value)
+      clean_text(value, max_length: MAX_SHEET_NAME_LENGTH).presence || "Sheet"
+    end
+
     def clean_cell(value)
-      text = value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish
-      text.truncate(MAX_CELL_LENGTH, omission: "…")
+      clean_text(value, max_length: MAX_CELL_LENGTH)
+    end
+
+    def clean_text(value, max_length:)
+      value.to_s
+        .unicode_normalize(:nfkc)
+        .gsub(/[[:cntrl:]]/, " ")
+        .gsub(/[<>`]/, "")
+        .squish
+        .truncate(max_length, omission: "…")
     end
   end
 end
