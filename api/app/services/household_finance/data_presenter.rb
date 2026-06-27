@@ -321,7 +321,7 @@ module HouseholdFinance
       debt_entered = debt_total.positive?
       [
         { label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
-        { label: "Debt entered", current: 0, target: debt_entered ? debt_total : 0, unit: debt_entered ? "dollars to payoff" : "dollars entered", status: "yellow" },
+        { label: "Debt entered", current: 0, target: debt_entered ? debt_total : 0, unit: debt_entered ? "dollars to payoff" : "dollars entered", status: debt_entered || !financial_inputs_present? ? "yellow" : "green" },
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
       ]
     end
@@ -368,9 +368,10 @@ module HouseholdFinance
     end
 
     def decisions
-      safe = dollars(snapshot.fetch(:safe_to_spend_cents))
+      safe = [ dollars(snapshot.fetch(:safe_to_spend_cents)), 0 ].max
       debt_entered = snapshot.fetch(:total_debt_cents).positive?
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
+      runway_met = snapshot.fetch(:runway_months) >= target_runway_months
       [
         {
           item: "Non-essential purchase",
@@ -387,10 +388,24 @@ module HouseholdFinance
         {
           item: "Runway transfer",
           amount: [ dollars(snapshot.fetch(:baseline_surplus_cents)), 0 ].max,
-          recommendation: baseline_positive && snapshot.fetch(:runway_months) < target_runway_months ? "Approve" : "Wait",
-          reason: baseline_positive ? "Runway buys options and lowers panic." : "No surplus entered yet. Add income and expenses before moving money into runway."
+          recommendation: runway_met ? "Optional" : (baseline_positive ? "Approve" : "Wait"),
+          reason: runway_transfer_reason(runway_met, baseline_positive)
         }
       ]
+    end
+
+    def financial_inputs_present?
+      snapshot.fetch(:monthly_income_cents).positive? ||
+        snapshot.fetch(:total_outflow_cents).positive? ||
+        snapshot.fetch(:total_assets_cents).positive? ||
+        snapshot.fetch(:total_debt_cents).positive?
+    end
+
+    def runway_transfer_reason(runway_met, baseline_positive)
+      return "Runway target is already protected; additional transfers are optional after essentials stay covered." if runway_met
+      return "Runway buys options and lowers panic." if baseline_positive
+
+      "No surplus entered yet. Add income and expenses before moving money into runway."
     end
 
     def targets
