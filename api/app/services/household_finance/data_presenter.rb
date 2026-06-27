@@ -318,9 +318,10 @@ module HouseholdFinance
     def milestones
       runway_target = target_runway_months
       debt_total = dollars(snapshot.fetch(:total_debt_cents))
+      debt_entered = debt_total.positive?
       [
         { label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
-        { label: "Debt entered", current: debt_total.zero? ? 1 : 0, target: debt_total.zero? ? 1 : debt_total, unit: debt_total.zero? ? "clear" : "dollars to payoff", status: debt_total.zero? ? "green" : "yellow" },
+        { label: "Debt entered", current: 0, target: debt_entered ? debt_total : 0, unit: debt_entered ? "dollars to payoff" : "dollars entered", status: "yellow" },
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
       ]
     end
@@ -368,24 +369,26 @@ module HouseholdFinance
 
     def decisions
       safe = dollars(snapshot.fetch(:safe_to_spend_cents))
+      debt_entered = snapshot.fetch(:total_debt_cents).positive?
+      baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       [
         {
           item: "Non-essential purchase",
-          amount: safe.positive? ? safe : 100,
+          amount: safe,
           recommendation: safe.positive? ? "Pause" : "Wait",
           reason: safe.positive? ? "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums." : "Baseline is not ready for wants yet. Protect essentials first."
         },
         {
           item: "Extra debt payment",
-          amount: [ safe, 250 ].max,
-          recommendation: snapshot.fetch(:total_debt_cents).positive? && snapshot.fetch(:baseline_surplus_cents).positive? ? "Approve" : "Wait",
-          reason: snapshot.fetch(:total_debt_cents).positive? ? "Debt payoff helps breathing room, but only after fixed bills and runway are protected." : "No debt entered yet. Add debts before Mia can prioritize payoff."
+          amount: debt_entered && baseline_positive ? [ safe, 250 ].max : 0,
+          recommendation: debt_entered && baseline_positive ? "Approve" : "Wait",
+          reason: debt_entered ? "Debt payoff helps breathing room, but only after fixed bills and runway are protected." : "No debt entered yet. Add debts before Mia can prioritize payoff."
         },
         {
           item: "Runway transfer",
           amount: [ dollars(snapshot.fetch(:baseline_surplus_cents)), 0 ].max,
-          recommendation: snapshot.fetch(:runway_months) < target_runway_months ? "Approve" : "Optional",
-          reason: "Runway buys options and lowers panic."
+          recommendation: baseline_positive && snapshot.fetch(:runway_months) < target_runway_months ? "Approve" : "Wait",
+          reason: baseline_positive ? "Runway buys options and lowers panic." : "No surplus entered yet. Add income and expenses before moving money into runway."
         }
       ]
     end

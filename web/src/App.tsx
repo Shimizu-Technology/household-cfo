@@ -925,7 +925,7 @@ function App() {
               <article className={`milestone-card ${milestone.status}`} key={milestone.label}>
                 <h3>{milestone.label}</h3>
                 <div className="progress-track">
-                  <span style={{ width: `${Math.min((milestone.current / milestone.target) * 100, 100)}%` }} />
+                  <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
                 </div>
                 <p>{milestone.current.toLocaleString()} / {milestone.target.toLocaleString()} {milestone.unit}</p>
               </article>
@@ -1069,6 +1069,12 @@ function Metric({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </article>
   )
+}
+
+function milestoneProgressWidth(current: number, target: number) {
+  if (target <= 0) return current > 0 ? '100%' : '0%'
+
+  return `${Math.min((current / target) * 100, 100)}%`
 }
 
 function DocumentContextCard({
