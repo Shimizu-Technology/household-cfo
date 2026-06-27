@@ -163,6 +163,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_030000) do
     t.check_constraint "balance_cents IS NULL OR balance_cents >= 0", name: "financial_doc_items_balance_cents_non_negative"
     t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying, 'medium'::character varying, 'low'::character varying]::text[]))", name: "financial_document_import_items_confidence_valid"
     t.check_constraint "payment_cents IS NULL OR payment_cents >= 0", name: "financial_doc_items_payment_cents_non_negative"
+    t.check_constraint "NOT (selected AND ignored)", name: "financial_document_import_items_selected_not_ignored"
     t.check_constraint "target_type::text = ANY (ARRAY['income_source'::character varying, 'expense_item'::character varying, 'account'::character varying, 'debt'::character varying, 'goal'::character varying, 'profile_note'::character varying]::text[])", name: "financial_document_import_items_target_type_valid"
   end
 

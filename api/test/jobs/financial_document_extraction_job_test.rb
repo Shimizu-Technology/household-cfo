@@ -110,6 +110,21 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not metadata.key?("raw_response")
   end
 
+  test "attempt creation failure does not leave import stuck processing" do
+    callback = lambda { |attempt| throw(:abort) if attempt.financial_document_import_id == @document_import.id }
+    FinancialDocumentImportAttempt.set_callback(:create, :before, callback)
+
+    assert_no_difference("FinancialDocumentImportAttempt.count") do
+      FinancialDocumentExtractionJob.perform_now(@document_import.id)
+    end
+
+    @document_import.reload
+    assert_equal "uploaded", @document_import.status
+    assert_nil @document_import.processed_at
+  ensure
+    FinancialDocumentImportAttempt.skip_callback(:create, :before, callback)
+  end
+
   test "failed extraction marks import failed and records attempt" do
     extractor = fake_extractor(
       FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "model unavailable", metadata: { status_code: 503 })

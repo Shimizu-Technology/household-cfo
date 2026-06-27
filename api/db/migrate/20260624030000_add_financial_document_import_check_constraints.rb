@@ -13,6 +13,9 @@ class AddFinancialDocumentImportCheckConstraints < ActiveRecord::Migration[8.1]
     add_check_constraint :financial_document_import_items,
       "confidence IS NULL OR confidence IN ('high', 'medium', 'low')",
       name: "financial_document_import_items_confidence_valid"
+    add_check_constraint :financial_document_import_items,
+      "NOT (selected AND ignored)",
+      name: "financial_document_import_items_selected_not_ignored"
 
     add_check_constraint :financial_document_import_attempts,
       "status IN ('processing', 'succeeded', 'failed')",

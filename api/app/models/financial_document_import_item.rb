@@ -19,6 +19,7 @@ class FinancialDocumentImportItem < ApplicationRecord
   validates :confidence, inclusion: { in: CONFIDENCE_LEVELS }, allow_blank: true
   validates :evidence, length: { maximum: 1000 }, allow_blank: true
   validate :required_financial_value_present
+  validate :selected_and_ignored_are_mutually_exclusive
 
   scope :apply_candidates, -> { where(selected: true, ignored: false, applied_at: nil) }
 
@@ -27,6 +28,10 @@ class FinancialDocumentImportItem < ApplicationRecord
   end
 
   private
+
+  def selected_and_ignored_are_mutually_exclusive
+    errors.add(:base, "Extracted value cannot be both selected and ignored") if selected? && ignored?
+  end
 
   def required_financial_value_present
     case target_type

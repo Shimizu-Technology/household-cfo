@@ -21,6 +21,8 @@ module HouseholdFinance
       document_import.with_lock do
         next failure("Document import is not ready for review") unless reviewable_for_apply?
 
+        # Document apply is the only flow that locks both rows. Keep this order
+        # (import, then household) so future mutations avoid lock-order cycles.
         household.with_lock do
           items = selected_items.to_a
           if items.empty?

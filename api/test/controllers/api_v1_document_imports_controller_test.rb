@@ -242,6 +242,59 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "household-cfo/test/source.pdf", document_import.s3_key
   end
 
+  test "item update keeps selected and ignored mutually exclusive" do
+    document_import = create_import!(status: "needs_review")
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { ignored: true } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    item.reload
+    assert_equal false, item.selected
+    assert_equal true, item.ignored
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { selected: true } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    item.reload
+    assert_equal true, item.selected
+    assert_equal false, item.ignored
+  end
+
+  test "item update rejects explicit selected and ignored conflict" do
+    document_import = create_import!(status: "needs_review")
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { selected: true, ignored: true } },
+      headers: auth_headers(@user)
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_match(/cannot be both selected and ignored/i, body.fetch("errors").join)
+    item.reload
+    assert_equal true, item.selected
+    assert_equal false, item.ignored
+  end
+
   test "reprocess rejects imports that already applied household values" do
     document_import = create_import!(status: "applied", s3_key: "household-cfo/test/source.pdf", applied_at: Time.current, applied_by_user: @user)
     document_import.items.create!(

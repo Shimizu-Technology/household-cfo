@@ -68,7 +68,23 @@ module Api
         attributes[:payment_cents] = HouseholdFinance::Money.cents(item_params[:payment]) if item_params.key?(:payment)
         attributes[:label] = bounded_text(attributes[:label], 120) if attributes.key?(:label)
         attributes[:evidence] = bounded_text(attributes[:evidence], 1000) if attributes.key?(:evidence)
+        normalize_selection_flags!(attributes)
         attributes
+      end
+
+      def normalize_selection_flags!(attributes)
+        return unless attributes.key?(:selected) || attributes.key?(:ignored)
+
+        attributes[:selected] = boolean_value(attributes[:selected]) if attributes.key?(:selected)
+        attributes[:ignored] = boolean_value(attributes[:ignored]) if attributes.key?(:ignored)
+        return if attributes.key?(:selected) && attributes.key?(:ignored)
+
+        attributes[:selected] = false if attributes[:ignored]
+        attributes[:ignored] = false if attributes[:selected]
+      end
+
+      def boolean_value(value)
+        ActiveModel::Type::Boolean.new.cast(value)
       end
 
       def bounded_text(value, max_length)

@@ -17,7 +17,6 @@ class FinancialDocumentExtractionJob < ApplicationJob
     document_import.with_lock do
       return if document_import.source_deleted_at.present?
 
-      document_import.update!(status: "processing", extraction_error: nil)
       attempt = document_import.attempts.create!(
         provider: "openrouter",
         model: extractor.model,
@@ -26,6 +25,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         schema_version: FinancialDocuments::Extractor::SCHEMA_VERSION,
         started_at: Time.current
       )
+      document_import.update!(status: "processing", extraction_error: nil)
     end
 
     result = extractor.call(document_import.reload)
