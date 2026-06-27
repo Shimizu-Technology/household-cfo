@@ -1251,15 +1251,8 @@ h3 {
   .choice-grid,
   .milestone-list,
   .setup-field-grid,
-  .admin-stat-row,
-  .document-import-summary-row,
-  .document-upload-grid,
-  .document-item-fields {
+  .admin-stat-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .document-review-layout {
-    grid-template-columns: 1fr;
   }
 }
 

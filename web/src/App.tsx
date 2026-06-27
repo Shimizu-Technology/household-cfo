@@ -470,6 +470,7 @@ function App() {
     try {
       await deleteDocumentImport(documentImport.id)
       setDocumentImports((current) => current.filter((existing) => existing.id !== documentImport.id))
+      setSelectedImportId((current) => (current === documentImport.id ? null : current))
       setDocumentsNotice('Document import deleted.')
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Document import could not be deleted.')
