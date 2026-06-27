@@ -180,13 +180,18 @@ function App() {
       return
     }
 
-    if (!quiet) setDocumentsLoading(true)
-    setDocumentsError(null)
+    if (!quiet) {
+      setDocumentsLoading(true)
+      setDocumentsError(null)
+    }
+
     try {
       const imports = await fetchDocumentImports()
       setDocumentImports(imports)
     } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Document imports could not be loaded.')
+      if (!quiet) {
+        setDocumentsError(caught instanceof Error ? caught.message : 'Document imports could not be loaded.')
+      }
     } finally {
       if (!quiet) setDocumentsLoading(false)
     }
@@ -1576,12 +1581,21 @@ function documentKindLabel(kind: DocumentImportKind) {
 
 function inferDocumentKind(file: File): DocumentImportKind {
   const name = file.name.toLowerCase()
-  if (name.endsWith('.csv') || name.endsWith('.xlsx')) return 'spreadsheet'
-  if (name.includes('pay') || name.includes('stub')) return 'pay_stub'
-  if (name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp')) return 'receipt'
-  if (name.endsWith('.pdf')) return 'statement'
+  const contentType = file.type.toLowerCase()
+  const isSpreadsheet = name.endsWith('.csv') || name.endsWith('.xlsx')
+  const isImage = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || contentType.startsWith('image/')
+  const isPdf = name.endsWith('.pdf') || contentType === 'application/pdf'
+
+  if (isSpreadsheet) return 'spreadsheet'
+  if (isImage) return hasPayStubSignal(name) ? 'pay_stub' : 'receipt'
+  if (isPdf) return hasPayStubSignal(name) ? 'pay_stub' : 'statement'
+  if (hasPayStubSignal(name)) return 'pay_stub'
 
   return 'other'
+}
+
+function hasPayStubSignal(name: string) {
+  return /(^|[^a-z0-9])(pay[-_\s]?stub|pay[-_\s]?slip|payslip|earnings[-_\s]?statement|payroll)([^a-z0-9]|$)/.test(name)
 }
 
 function importStatusLabel(status: FinancialDocumentImport['status']) {
