@@ -75,6 +75,41 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal({ "total_tokens" => 123 }, @document_import.attempts.last.metadata.fetch("usage"))
   end
 
+  test "attempt metadata is allowlisted and bounded" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "No actionable values.",
+          confidence: "medium",
+          warnings: [],
+          items: []
+        },
+        error: nil,
+        metadata: {
+          usage: { "total_tokens" => 123, "debug_blob" => "x" * 5_000 },
+          provider: { "name" => "openrouter-" + ("x" * 500), "raw" => "ignored" },
+          finish_reason: "stop",
+          raw_response: "ignored"
+        }
+      )
+    )
+
+    with_extractor_stub(extractor) do
+      FinancialDocumentExtractionJob.perform_now(@document_import.id)
+    end
+
+    metadata = @document_import.reload.attempts.last.metadata
+    assert_equal({ "total_tokens" => 123 }, metadata.fetch("usage"))
+    assert_equal "stop", metadata.fetch("finish_reason")
+    assert_operator metadata.fetch("provider").length, :<=, FinancialDocumentExtractionJob::ATTEMPT_METADATA_STRING_LENGTH
+    assert_not metadata.key?("raw_response")
+  end
+
   test "failed extraction marks import failed and records attempt" do
     extractor = fake_extractor(
       FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "model unavailable", metadata: { status_code: 503 })

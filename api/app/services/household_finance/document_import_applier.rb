@@ -1,6 +1,7 @@
 module HouseholdFinance
   class DocumentImportApplier
     MAX_PROFILE_NOTES_LENGTH = 2_000
+    PROFILE_NOTES_TRIM_MARKER = "[Older document-derived profile notes trimmed]"
 
     Result = Data.define(:success, :import, :applied_count, :errors) do
       def success?
@@ -26,18 +27,21 @@ module HouseholdFinance
           next
         end
 
-        items = selected_items.to_a
-        if items.empty?
-          update_import_status!
-          if unresolved_items_exist?
-            result = failure("No selected extracted values to apply")
-            next
+        household.with_lock do
+          items = selected_items.to_a
+          if items.empty?
+            update_import_status!
+            if unresolved_items_exist?
+              result = failure("No selected extracted values to apply")
+            else
+              success = true
+            end
+          else
+            items.each { |item| apply_item!(item) }
+            update_import_status!
+            success = true
           end
-        else
-          items.each { |item| apply_item!(item) }
-          update_import_status!
         end
-        success = true
       end
 
       return result unless success
@@ -149,7 +153,8 @@ module HouseholdFinance
       combined = [ existing_notes.presence, note ].compact.join("\n")
       return combined if combined.length <= MAX_PROFILE_NOTES_LENGTH
 
-      "…#{combined.last(MAX_PROFILE_NOTES_LENGTH - 1)}"
+      retained_length = MAX_PROFILE_NOTES_LENGTH - PROFILE_NOTES_TRIM_MARKER.length - 1
+      [ PROFILE_NOTES_TRIM_MARKER, combined.last(retained_length) ].join("\n")
     end
 
     def cadence_for(item)

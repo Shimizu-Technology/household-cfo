@@ -191,6 +191,7 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert result.success?, result.errors.join(", ")
     notes = profile.reload.notes
     assert_operator notes.length, :<=, HouseholdFinance::DocumentImportApplier::MAX_PROFILE_NOTES_LENGTH
+    assert_includes notes, HouseholdFinance::DocumentImportApplier::PROFILE_NOTES_TRIM_MARKER
     assert_includes notes, "Document observation"
     assert_includes notes, "useful coaching note"
   end

@@ -3,6 +3,9 @@
 class FinancialDocumentExtractionJob < ApplicationJob
   queue_as :default
 
+  ATTEMPT_METADATA_STRING_LENGTH = 120
+  ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
+
   def perform(financial_document_import_id)
     document_import = FinancialDocumentImport.find_by(id: financial_document_import_id)
     return unless document_import
@@ -135,6 +138,42 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   def sanitized_attempt_metadata(metadata)
     payload = metadata.is_a?(Hash) ? metadata : {}
-    payload.slice(:usage, :finish_reason, :provider, "usage", "finish_reason", "provider", :status_code, "status_code")
+    {
+      "usage" => sanitized_usage(metadata_value(payload, :usage, "usage")),
+      "finish_reason" => sanitized_metadata_string(metadata_value(payload, :finish_reason, "finish_reason")),
+      "provider" => sanitized_provider(metadata_value(payload, :provider, "provider")),
+      "status_code" => sanitized_status_code(metadata_value(payload, :status_code, "status_code"))
+    }.compact_blank
+  end
+
+  def sanitized_usage(usage)
+    return unless usage.is_a?(Hash)
+
+    usage.each_with_object({}) do |(key, value), sanitized|
+      key = key.to_s
+      next unless key.in?(ATTEMPT_USAGE_KEYS)
+      next unless value.is_a?(Numeric)
+
+      sanitized[key] = value
+    end.presence
+  end
+
+  def sanitized_provider(provider)
+    value = provider.is_a?(Hash) ? provider["name"] || provider[:name] || provider["id"] || provider[:id] : provider
+    sanitized_metadata_string(value)
+  end
+
+  def sanitized_status_code(status_code)
+    Integer(status_code)
+  rescue ArgumentError, TypeError
+    nil
+  end
+
+  def sanitized_metadata_string(value)
+    value.to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish.truncate(ATTEMPT_METADATA_STRING_LENGTH, omission: "…").presence
+  end
+
+  def metadata_value(payload, *keys)
+    keys.find { |key| payload.key?(key) }.then { |key| key ? payload[key] : nil }
   end
 end

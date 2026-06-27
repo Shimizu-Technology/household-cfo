@@ -14,6 +14,7 @@ module FinancialDocuments
     DEFAULT_MODEL = "google/gemini-2.5-flash"
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
+    BASE64_READ_CHUNK_BYTES = 49_152
 
     Result = Data.define(:success, :data, :error, :metadata) do
       def success?
@@ -128,7 +129,12 @@ module FinancialDocuments
     end
 
     def data_url(file_path, content_type)
-      encoded = Base64.strict_encode64(File.binread(file_path))
+      encoded = +""
+      File.open(file_path, "rb") do |file|
+        while (chunk = file.read(BASE64_READ_CHUNK_BYTES))
+          encoded << Base64.strict_encode64(chunk)
+        end
+      end
       "data:#{content_type};base64,#{encoded}"
     end
 
@@ -191,7 +197,14 @@ module FinancialDocuments
                 debt_type: { type: [ "string", "null" ], enum: Debt::DEBT_TYPES + [ nil ] },
                 confidence: { type: [ "string", "null" ], enum: FinancialDocumentImportItem::CONFIDENCE_LEVELS + [ nil ] },
                 evidence: { type: [ "string", "null" ], maxLength: 1000 },
-                metadata: { type: [ "object", "null" ], additionalProperties: true }
+                metadata: {
+                  type: [ "object", "null" ],
+                  additionalProperties: false,
+                  required: %w[goal_type],
+                  properties: {
+                    goal_type: { type: [ "string", "null" ], enum: Goal::GOAL_TYPES + [ nil ] }
+                  }
+                }
               }
             }
           }
@@ -274,7 +287,7 @@ module FinancialDocuments
         debt_type: normalized_value(item["debt_type"], Debt::DEBT_TYPES, fallback: "other"),
         confidence: normalized_confidence(item["confidence"]),
         evidence: sanitized_text(item["evidence"], max_length: 1000),
-        metadata: item["metadata"].is_a?(Hash) ? item["metadata"] : {}
+        metadata: normalized_item_metadata(item["metadata"])
       }
 
       normalized[:balance_cents] ||= normalized[:amount_cents] if target_type.in?(%w[account debt])
@@ -282,6 +295,13 @@ module FinancialDocuments
       return nil unless valid_item_value?(target_type, normalized)
 
       normalized
+    end
+
+    def normalized_item_metadata(metadata)
+      return {} unless metadata.is_a?(Hash)
+
+      goal_type = metadata["goal_type"].to_s
+      goal_type.in?(Goal::GOAL_TYPES) ? { "goal_type" => goal_type } : {}
     end
 
     def valid_item_value?(target_type, item)
