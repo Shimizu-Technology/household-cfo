@@ -154,6 +154,31 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "household-cfo/test/source.pdf" ], deleted_keys
   end
 
+  test "reprocess rejects imports that already applied household values" do
+    document_import = create_import!(status: "applied", s3_key: "household-cfo/test/source.pdf", applied_at: Time.current, applied_by_user: @user)
+    document_import.items.create!(
+      target_type: "income_source",
+      label: "Primary income",
+      amount_cents: 4_000_00,
+      cadence: "monthly",
+      source_type: "job",
+      confidence: "high",
+      applied_at: Time.current,
+      applied_by_user: @user
+    )
+
+    with_s3_stubs(configured?: true) do
+      assert_no_enqueued_jobs only: FinancialDocumentExtractionJob do
+        post "/api/v1/document_imports/#{document_import.id}/reprocess", headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_match(/cannot be reprocessed/i, body.fetch("errors").join)
+    assert_equal "applied", document_import.reload.status
+  end
+
   test "imports are scoped to the authenticated household" do
     other_user = User.create!(clerk_id: "clerk_other_doc_user", email: "other-doc@example.com", role: "participant", invitation_status: "accepted")
     other_household = Household.create!(created_by_user: other_user, name: "Other Household")

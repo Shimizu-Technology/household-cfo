@@ -21,7 +21,7 @@ module Api
       }.freeze
 
       def index
-        imports = current_household.financial_document_imports.includes(:items, :attempts, :uploaded_by_user, :applied_by_user, :source_deleted_by_user).recent_first.limit(50)
+        imports = current_household.financial_document_imports.includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user).recent_first.limit(50)
         render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import) } }
       end
 
@@ -78,12 +78,24 @@ module Api
 
       def reprocess
         return render_s3_not_configured unless S3Service.configured?
-        return render json: { errors: [ "Document source is no longer available" ] }, status: :unprocessable_entity unless @document_import.source_available?
 
+        reprocess_error = nil
         @document_import.with_lock do
+          unless @document_import.source_available?
+            reprocess_error = "Document source is no longer available"
+            next
+          end
+
+          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists?
+            reprocess_error = "Applied document imports cannot be reprocessed; upload a new copy to extract updated values."
+            next
+          end
+
           @document_import.items.where(applied_at: nil).delete_all
           @document_import.update!(status: "uploaded", extraction_error: nil, processed_at: nil)
         end
+        return render json: { errors: [ reprocess_error ] }, status: :unprocessable_entity if reprocess_error
+
         FinancialDocumentExtractionJob.perform_later(@document_import.id)
         render json: { document_import: serialize_document_import(@document_import.reload) }
       end

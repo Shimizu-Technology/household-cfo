@@ -17,18 +17,30 @@ module HouseholdFinance
     end
 
     def call
-      return failure("Document import is not ready for review") unless document_import.needs_review? || document_import.partially_applied?
+      success = false
+      result = nil
 
       document_import.with_lock do
+        unless reviewable_for_apply?
+          result = failure("Document import is not ready for review")
+          next
+        end
+
         items = selected_items.to_a
         if items.empty?
           update_import_status!
-          return failure("No selected extracted values to apply") if unresolved_items_exist?
+          if unresolved_items_exist?
+            result = failure("No selected extracted values to apply")
+            next
+          end
         else
           items.each { |item| apply_item!(item) }
           update_import_status!
         end
+        success = true
       end
+
+      return result unless success
 
       Result.new(success: true, import: document_import.reload, applied_count: applied_count, errors: [])
     rescue ActiveRecord::RecordInvalid => e
@@ -40,6 +52,10 @@ module HouseholdFinance
     private
 
     attr_reader :document_import, :household, :user, :item_ids, :applied_count
+
+    def reviewable_for_apply?
+      document_import.needs_review? || document_import.partially_applied?
+    end
 
     def selected_items
       scope = document_import.items.apply_candidates.order(:id)

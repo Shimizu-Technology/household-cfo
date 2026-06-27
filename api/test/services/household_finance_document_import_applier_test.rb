@@ -154,6 +154,28 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_equal "needs_review", @document_import.reload.status
   end
 
+  test "stale import instance cannot mark reprocessed document applied" do
+    @document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+    FinancialDocumentImportItem.where(financial_document_import_id: @document_import.id).delete_all
+    FinancialDocumentImport.where(id: @document_import.id).update_all(status: "uploaded", applied_at: nil, updated_at: Time.current)
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert_not result.success?
+    assert_equal "Document import is not ready for review", result.errors.first
+    @document_import.reload
+    assert_equal "uploaded", @document_import.status
+    assert_nil @document_import.applied_at
+    assert_nil @document_import.applied_by_user
+  end
+
   test "profile note imports keep household profile notes bounded" do
     profile = @household.household_profile || @household.create_household_profile!
     profile.update!(notes: "older note\n" * 300)
