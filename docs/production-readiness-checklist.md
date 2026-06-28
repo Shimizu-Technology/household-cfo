@@ -62,10 +62,14 @@ Netlify env:
 
 ```bash
 VITE_PUBLIC_POSTHOG_KEY=phc_...
-VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+# Optional override. Production defaults to the same-origin Netlify proxy at /vera-insights.
+VITE_PUBLIC_POSTHOG_HOST=/vera-insights
+VITE_PUBLIC_POSTHOG_UI_HOST=https://us.posthog.com
 # Optional; default is off for financial privacy.
 VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true
 ```
+
+The repo ships Netlify proxy rules for `/vera-insights/*` so production events go through the custom domain instead of directly to `us.i.posthog.com`. This proxy requires the custom domain; if testing analytics on a `.netlify.app` deploy preview, either keep PostHog disabled there or temporarily set `VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com` for that context.
 
 Privacy defaults in code:
 

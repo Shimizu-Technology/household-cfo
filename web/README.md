@@ -23,7 +23,8 @@ VITE_API_BASE_URL=http://localhost:3000
 VITE_SITE_URL=http://localhost:5173
 # VITE_CLERK_PUBLISHABLE_KEY=pk_test_...
 # VITE_PUBLIC_POSTHOG_KEY=phc_...
-VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+# VITE_PUBLIC_POSTHOG_HOST=/vera-insights
+VITE_PUBLIC_POSTHOG_UI_HOST=https://us.posthog.com
 # VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true
 ```
 
@@ -31,7 +32,7 @@ When `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs in local preview mode
 
 Set `VITE_SITE_URL` to the production Netlify URL/custom domain before building so generated `robots.txt`, `sitemap.xml`, and runtime canonical metadata point at the right host.
 
-PostHog analytics is disabled unless `VITE_PUBLIC_POSTHOG_KEY` is present. Session replay is separately opt-in with `VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true` and masks all inputs/text by default because the app handles financial context.
+PostHog analytics is disabled unless `VITE_PUBLIC_POSTHOG_KEY` is present. Production defaults to the same-origin Netlify proxy at `/vera-insights`; use `VITE_PUBLIC_POSTHOG_HOST` only when overriding that proxy. Session replay is separately opt-in with `VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true` and masks all inputs/text by default because the app handles financial context.
 
 Admins see an additional Admin tab after sign-in. Use it to create cohorts, review the role/cohort matrix, invite additional admins/coaches/participants, resend invite emails, and assign users to cohorts without Rails console commands. Admin cohort assignment is optional; coach and participant assignment is required by the API.
 

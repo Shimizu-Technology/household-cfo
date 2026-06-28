@@ -5,7 +5,7 @@ import process from 'node:process'
 const publicDir = path.resolve(process.cwd(), 'public')
 const rawSiteUrl = process.env.VITE_SITE_URL || process.env.URL || 'https://household-cfo.netlify.app'
 const siteUrl = rawSiteUrl.replace(/\/$/, '')
-const lastmod = process.env.SITEMAP_LASTMOD || '2026-06-23'
+const lastmod = process.env.SITEMAP_LASTMOD || new Date().toISOString().slice(0, 10)
 
 const robotsTxt = `# Household CFO powered by VERA
 # ${siteUrl}

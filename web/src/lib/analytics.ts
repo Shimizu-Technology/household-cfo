@@ -7,7 +7,9 @@ type PostHogConfig = NonNullable<Parameters<PostHogClient['init']>[1]>
 
 const placeholderKeys = new Set(['YOUR_POSTHOG_KEY', 'phc_xxxxxxxxxxxxx', ''])
 const posthogKey = (import.meta.env.VITE_PUBLIC_POSTHOG_KEY as string | undefined)?.trim()
-const posthogHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || 'https://us.i.posthog.com'
+const defaultPosthogHost = import.meta.env.PROD ? '/vera-insights' : 'https://us.i.posthog.com'
+const posthogHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || defaultPosthogHost
+const posthogUiHost = import.meta.env.VITE_PUBLIC_POSTHOG_UI_HOST || 'https://us.posthog.com'
 const enableAnalyticsInDev = import.meta.env.VITE_ENABLE_ANALYTICS_IN_DEV === 'true'
 
 export const isAnalyticsEnabled = Boolean(posthogKey && !placeholderKeys.has(posthogKey)) &&
@@ -40,6 +42,7 @@ function sectionSlug(section: string) {
 function analyticsConfig(): PostHogConfig {
   return {
     api_host: posthogHost,
+    ui_host: posthogUiHost,
     defaults: '2025-11-30',
     person_profiles: 'identified_only',
     capture_pageview: false,

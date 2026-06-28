@@ -7,7 +7,6 @@ const APP_SHELL = [
   '/pwa-192x192.png',
   '/pwa-512x512.png',
   '/maskable-icon-512x512.png',
-  '/og-image.png',
 ]
 
 self.addEventListener('install', (event) => {
