@@ -1563,8 +1563,8 @@ function DocumentSourcePreview({
 
   const filename = source?.filename ?? documentImport.filename
   const contentType = source?.content_type ?? documentImport.content_type
-  const isImage = contentType.startsWith('image/')
-  const isPdf = contentType === 'application/pdf'
+  const isImage = source?.inline_supported === true && contentType.startsWith('image/')
+  const isPdf = source?.inline_supported === true && contentType === 'application/pdf'
   const serverPreviewType = usesServerPreview(filename, contentType)
 
   return (
@@ -1718,6 +1718,7 @@ function DocumentImportItemEditor({
         <label className="document-field wide">
           <span>Label</span>
           <input
+            key={`label-${item.id}-${item.label}`}
             defaultValue={item.label}
             disabled={fieldsDisabled}
             onBlur={(event) => updateIfChanged(item.label, event.target.value, (value) => onUpdate({ label: value }))}
@@ -1733,6 +1734,7 @@ function DocumentImportItemEditor({
           <label className="document-field" key={field.key}>
             <span>{field.label}</span>
             <input
+              key={`money-${item.id}-${field.key}-${field.value ?? ''}`}
               type="number"
               min="0"
               step="0.01"

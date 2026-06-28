@@ -162,13 +162,14 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
+    assert_equal true, body.fetch("inline_supported")
     assert_equal "https://private.example.test/inline", body.fetch("url")
     assert_equal "https://private.example.test/attachment", body.fetch("download_url")
     assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
   end
 
-  test "source_url serves csv sources inline for in-app preview and download separately" do
+  test "source_url keeps server-previewed csv sources as attachment links" do
     document_import = create_import!(
       document_kind: "spreadsheet",
       filename: "budget.csv",
@@ -191,10 +192,10 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal true, body.fetch("inline_supported")
-    assert_equal "https://private.example.test/budget-inline.csv", body.fetch("url")
+    assert_equal false, body.fetch("inline_supported")
+    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("url")
     assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("download_url")
-    assert_equal [ :inline, :attachment ], dispositions
+    assert_equal [ :attachment, :attachment ], dispositions
   end
 
   test "source_preview renders spreadsheet rows through Rails without a browser download" do

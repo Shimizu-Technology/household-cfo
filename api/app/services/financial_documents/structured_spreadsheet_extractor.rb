@@ -104,7 +104,7 @@ module FinancialDocuments
       label = clean_text(cell(values, header_map, "label"), max_length: 120)
       return if label.blank? && type != "profile_note"
 
-      amount_cents = money_cents(cell(values, header_map, "amount"))
+      amount_cents = money_cents(cell(values, header_map, "amount"), negative_as_magnitude: accounting_negative_as_magnitude?(type))
       category = normalized_token(cell(values, header_map, "category"))
       cadence = normalized_cadence(cell(values, header_map, "cadence"))
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
@@ -253,24 +253,39 @@ module FinancialDocuments
       category if category.in?(Goal::GOAL_TYPES)
     end
 
-    def payment_cents_for(value, notes)
-      direct = money_cents(value)
-      return direct if direct.present?
-
-      match = notes.to_s.match(/(?:minimum\s+payment|min\s+payment|payment)\D{0,20}(\$?\d[\d,]*(?:\.\d{1,2})?)/i)
-      money_cents(match[1]) if match
+    def accounting_negative_as_magnitude?(type)
+      type.in?(%w[expense_item debt])
     end
 
-    def money_cents(value)
+    def payment_cents_for(value, notes)
+      direct = money_cents(value, negative_as_magnitude: true)
+      return direct if direct.present?
+
+      match = notes.to_s.match(/(?:minimum\s+payment|min\s+payment|payment)\D{0,20}(\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?)/i)
+      money_cents(match[1], negative_as_magnitude: true) if match
+    end
+
+    def money_cents(value, negative_as_magnitude: false)
       text = value.to_s.unicode_normalize(:nfkc).strip
       return nil if text.blank?
 
-      decimal = BigDecimal(text.gsub(/[$,\s]/, ""))
-      return nil if decimal.negative?
+      decimal = parsed_money_decimal(text)
+      if decimal.negative?
+        return nil unless negative_as_magnitude
+
+        decimal = decimal.abs
+      end
 
       (decimal * 100).round.to_i
     rescue ArgumentError, FloatDomainError
       nil
+    end
+
+    def parsed_money_decimal(text)
+      accounting_negative = text.match?(/\A\(\s*\$?\s*\d[\d,\s]*(?:\.\d{1,2})?\s*\)\z/)
+      normalized = text.gsub(/[$,\s]/, "")
+      normalized = "-#{normalized.delete_prefix("(").delete_suffix(")")}" if accounting_negative
+      BigDecimal(normalized)
     end
 
     def clean_text(value, max_length:)

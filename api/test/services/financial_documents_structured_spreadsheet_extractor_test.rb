@@ -35,6 +35,30 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "parses accounting negative expenses and debts as positive magnitudes" do
+    file = Tempfile.new([ "budget", ".csv" ])
+    file.write(<<~CSV)
+      type,label,amount,cadence,category,payment,notes
+      expense_item,Dining out,($420.25),monthly,discretionary,,Accounting export expense
+      debt,Visa card,"($3,400)",monthly,credit_card,($175),Accounting export liability
+      income_source,Reversal,($100),monthly,job,,Negative income adjustment should not import as income
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "budget.csv").call
+
+    assert result.success?, result.error
+    items = result.data.fetch(:items)
+    assert_equal 2, items.length
+    dining_out = items.find { |item| item[:label] == "Dining out" }
+    debt = items.find { |item| item[:label] == "Visa card" }
+    assert_equal 42_025, dining_out.fetch(:amount_cents)
+    assert_equal 340_000, debt.fetch(:balance_cents)
+    assert_equal 17_500, debt.fetch(:payment_cents)
+  ensure
+    file&.close!
+  end
+
   test "extractor uses structured spreadsheet path without OpenRouter key" do
     user = User.create!(clerk_id: "clerk_structured_extractor_user", email: "structured-extractor@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Structured Extractor Household")

@@ -327,8 +327,7 @@ module Api
       end
 
       def inline_supported?(document_import)
-        extension = File.extname(document_import.filename.to_s).downcase
-        document_import.pdf? || document_import.image? || document_import.content_type.in?(%w[text/csv text/plain application/csv]) || extension.in?(%w[.csv .xls .xlsx .docx])
+        document_import.pdf? || document_import.image?
       end
 
       def serialize_document_import(document_import, include_attempts: false)
