@@ -1513,7 +1513,6 @@ function DocumentSourcePreview({
   const [previewLoading, setPreviewLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [previewError, setPreviewError] = useState<string | null>(null)
-  const [officePreviewAllowed, setOfficePreviewAllowed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
@@ -1566,9 +1565,7 @@ function DocumentSourcePreview({
   const contentType = source?.content_type ?? documentImport.content_type
   const isImage = contentType.startsWith('image/')
   const isPdf = contentType === 'application/pdf'
-  const isOffice = isOfficePreviewType(filename, contentType)
   const serverPreviewType = usesServerPreview(filename, contentType)
-  const officePreviewUrl = source && isOffice ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(source.url)}` : null
 
   return (
     <div className="document-preview-overlay" role="presentation">
@@ -1596,19 +1593,9 @@ function DocumentSourcePreview({
               {isImage && <img src={source.url} alt={filename} />}
               {serverPreviewType && previewLoading && <div className="document-preview-state"><span className="document-preview-spinner" />Building safe in-app preview…</div>}
               {serverPreviewType && previewError && <div className="document-preview-state error">{previewError}</div>}
-              {preview?.type === 'spreadsheet' && !officePreviewAllowed && <SpreadsheetSourcePreview preview={preview} />}
-              {preview?.type === 'text' && !officePreviewAllowed && <TextSourcePreview preview={preview} />}
-              {officePreviewUrl && !officePreviewAllowed && (
-                <div className="document-preview-office-note">
-                  <div>
-                    <strong>Need the exact Office layout?</strong>
-                    <p>The table above is rendered privately by Household CFO. Microsoft Office preview is optional and shares this short-lived link with Microsoft.</p>
-                  </div>
-                  <button type="button" onClick={() => setOfficePreviewAllowed(true)}>Preview with Microsoft Office</button>
-                </div>
-              )}
-              {officePreviewUrl && officePreviewAllowed && <iframe src={officePreviewUrl} title={filename} />}
-              {!isPdf && !isImage && !serverPreviewType && !officePreviewUrl && (
+              {preview?.type === 'spreadsheet' && <SpreadsheetSourcePreview preview={preview} />}
+              {preview?.type === 'text' && <TextSourcePreview preview={preview} />}
+              {!isPdf && !isImage && !serverPreviewType && (
                 <div className="document-preview-state">
                   <StatementIcon />
                   <h4>Preview not available for this file type</h4>
@@ -1678,15 +1665,6 @@ function usesServerPreview(filename: string, contentType: string) {
     'text/csv',
     'text/plain',
     'application/csv',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  ].includes(contentType)
-}
-
-function isOfficePreviewType(filename: string, contentType: string) {
-  const name = filename.toLowerCase()
-  return name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.docx') || [
     'application/vnd.ms-excel',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
