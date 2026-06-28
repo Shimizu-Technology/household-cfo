@@ -32,11 +32,15 @@ module FinancialDocuments
     attr_reader :model
 
     def call(document_import)
-      return failure("OpenRouter API key is not configured") if api_key.blank?
       return failure("Document source is no longer available") unless document_import.source_available?
       return failure("AWS S3 storage is not configured") unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
+        structured_result = structured_spreadsheet_result(document_import, tempfile.path)
+        return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" }) if structured_result&.success?
+
+        return failure("OpenRouter API key is not configured") if api_key.blank?
+
         payload_size_error = inline_payload_size_error(document_import, tempfile.path)
         return failure(payload_size_error) if payload_size_error
 
@@ -72,6 +76,16 @@ module FinancialDocuments
       yield tempfile
     ensure
       tempfile&.close!
+    end
+
+    def structured_spreadsheet_result(document_import, file_path)
+      return unless document_import.spreadsheet?
+
+      StructuredSpreadsheetExtractor.new(
+        file_path: file_path,
+        filename: document_import.filename,
+        document_kind: document_import.document_kind
+      ).call
     end
 
     def inline_payload_size_error(document_import, file_path)

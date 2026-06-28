@@ -397,6 +397,14 @@ function App() {
     try {
       const item = await updateDocumentImportItem(documentImportId, itemId, values)
       setDocumentImports((current) => replaceImportItem(current, documentImportId, item))
+      if (item.applied_at) {
+        const refreshed = await fetchAppData(isRealWorkspace)
+        setData(refreshed)
+        setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
+        setMessages(refreshed.mia.messages)
+        setMessagesStorageKey(chatStorageKey)
+        setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
+      }
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Extracted value could not be updated.')
     } finally {
@@ -1395,6 +1403,7 @@ function DocumentReviewPanel({
   const selectedCount = selectedApplyItemIds(documentImport).length
   const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
+  const fullyApplied = documentImport.status === 'applied'
   const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
 
   return (
@@ -1409,9 +1418,13 @@ function DocumentReviewPanel({
           <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
             {actionForImport('source-url') ? 'Opening' : 'Preview source'}
           </button>
-          <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'applied' || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
-            {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
-          </button>
+          {fullyApplied ? (
+            <span className="document-action-hint">Upload a new copy to reprocess</span>
+          ) : (
+            <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
+              {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+            </button>
+          )}
           <button type="button" className="subtle" onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
             {actionForImport('source') ? 'Deleting' : 'Delete source'}
           </button>
@@ -1464,14 +1477,16 @@ function DocumentReviewPanel({
         </div>
       )}
 
-      <div className="document-apply-bar">
+      <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
         <div>
-          <strong>{selectedCount} selected</strong>
-          <span>{reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
+          <strong>{fullyApplied ? 'Saved household numbers' : `${selectedCount} selected`}</strong>
+          <span>{fullyApplied ? 'These values are already applied. Correcting a card above updates Mia and the dashboard immediately.' : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
         </div>
-        <button type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
-          {actionForImport('apply') ? 'Applying' : 'Apply selected'}
-        </button>
+        {!fullyApplied && (
+          <button type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
+            {actionForImport('apply') ? 'Applying' : 'Apply selected'}
+          </button>
+        )}
       </div>
     </article>
   )
@@ -1685,7 +1700,12 @@ function DocumentImportItemEditor({
   saving: boolean
   onUpdate: (values: DocumentImportItemInput) => void
 }) {
-  const disabled = Boolean(item.applied_at) || !REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
+  const applied = Boolean(item.applied_at)
+  const canEditDraft = !applied && REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
+  const canCorrectApplied = applied && documentImport.status !== 'source_deleted'
+  const fieldsDisabled = saving || (!canEditDraft && !canCorrectApplied)
+  const selectionDisabled = saving || applied || !canEditDraft
+  const targetDisabled = saving || applied || !canEditDraft
 
   return (
     <article className={`document-item-card ${item.ignored ? 'ignored' : ''} ${item.applied_at ? 'applied' : ''}`}>
@@ -1694,7 +1714,7 @@ function DocumentImportItemEditor({
           <input
             type="checkbox"
             checked={item.selected && !item.ignored}
-            disabled={disabled || saving}
+            disabled={selectionDisabled}
             onChange={(event) => onUpdate({ selected: event.target.checked, ignored: false })}
           />
           <span>{item.applied_at ? 'Applied' : 'Apply'}</span>
@@ -1702,12 +1722,13 @@ function DocumentImportItemEditor({
         <button
           type="button"
           className="document-ignore-button"
-          disabled={Boolean(item.applied_at) || saving}
+          disabled={selectionDisabled}
           onClick={() => onUpdate({ ignored: !item.ignored, selected: item.ignored })}
         >
           {item.ignored ? 'Restore' : 'Ignore'}
         </button>
         {saving && <span className="document-saving">Saving</span>}
+        {applied && canCorrectApplied && <span className="document-saving applied-editable">Edits update saved numbers</span>}
         {item.confidence && <span className={`confidence-pill ${item.confidence}`}>{item.confidence} confidence</span>}
       </div>
 
@@ -1716,13 +1737,13 @@ function DocumentImportItemEditor({
           <span>Label</span>
           <input
             defaultValue={item.label}
-            disabled={disabled || saving}
+            disabled={fieldsDisabled}
             onBlur={(event) => updateIfChanged(item.label, event.target.value, (value) => onUpdate({ label: value }))}
           />
         </label>
         <label className="document-field">
           <span>Target</span>
-          <select value={item.target_type} disabled={disabled || saving} onChange={(event) => onUpdate({ target_type: event.target.value as DocumentImportItem['target_type'] })}>
+          <select value={item.target_type} disabled={targetDisabled} onChange={(event) => onUpdate({ target_type: event.target.value as DocumentImportItem['target_type'] })}>
             {targetTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
@@ -1734,7 +1755,7 @@ function DocumentImportItemEditor({
               min="0"
               step="0.01"
               defaultValue={field.value ?? ''}
-              disabled={disabled || saving}
+              disabled={fieldsDisabled}
               onBlur={(event) => updateMoneyIfChanged(field.value, event.target.value, (value) => onUpdate({ [field.key]: value }))}
             />
           </label>
@@ -1742,7 +1763,7 @@ function DocumentImportItemEditor({
         {(item.target_type === 'income_source' || item.target_type === 'expense_item') && (
           <label className="document-field">
             <span>Cadence</span>
-            <select value={item.cadence ?? 'monthly'} disabled={disabled || saving} onChange={(event) => onUpdate({ cadence: event.target.value })}>
+            <select value={item.cadence ?? 'monthly'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ cadence: event.target.value })}>
               {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -1750,7 +1771,7 @@ function DocumentImportItemEditor({
         {item.target_type === 'income_source' && (
           <label className="document-field">
             <span>Income type</span>
-            <select value={item.source_type ?? 'other'} disabled={disabled || saving} onChange={(event) => onUpdate({ source_type: event.target.value })}>
+            <select value={item.source_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ source_type: event.target.value })}>
               {sourceTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -1758,7 +1779,7 @@ function DocumentImportItemEditor({
         {item.target_type === 'expense_item' && (
           <label className="document-field">
             <span>Stack</span>
-            <select value={item.stack_key ?? 'discretionary'} disabled={disabled || saving} onChange={(event) => onUpdate({ stack_key: event.target.value })}>
+            <select value={item.stack_key ?? 'discretionary'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ stack_key: event.target.value })}>
               {stackKeyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
@@ -1766,7 +1787,7 @@ function DocumentImportItemEditor({
         {item.target_type === 'account' && (
           <label className="document-field">
             <span>Account type</span>
-            <select value={item.account_type ?? 'other'} disabled={disabled || saving} onChange={(event) => onUpdate({ account_type: event.target.value })}>
+            <select value={item.account_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ account_type: event.target.value })}>
               {accountTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -1774,7 +1795,7 @@ function DocumentImportItemEditor({
         {item.target_type === 'debt' && (
           <label className="document-field">
             <span>Debt type</span>
-            <select value={item.debt_type ?? 'other'} disabled={disabled || saving} onChange={(event) => onUpdate({ debt_type: event.target.value })}>
+            <select value={item.debt_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ debt_type: event.target.value })}>
               {debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -1782,6 +1803,7 @@ function DocumentImportItemEditor({
       </div>
 
       {item.evidence && <p className="document-evidence">{item.evidence}</p>}
+      {applied && canCorrectApplied && <p className="document-evidence applied-note">Correcting this applied card updates the saved household record Mia uses. Set an amount to 0 if that saved value should no longer count.</p>}
     </article>
   )
 }

@@ -1,4 +1,5 @@
 require "test_helper"
+require "marcel"
 require "zip"
 
 class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
@@ -377,6 +378,43 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     debt.reload
     assert_equal 2_400_25, debt.balance_cents
     assert_equal 125_00, debt.payment_cents
+  end
+
+  test "item update can correct an applied saved household value" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    expense = @household.expense_items.create!(
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary"
+    )
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: expense
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { amount: "400", stack_key: "sinking_expected", ignored: true, selected: false } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    item.reload
+    expense.reload
+    assert_equal 400_00, item.amount_cents
+    assert_equal "sinking_expected", item.stack_key
+    assert_equal true, item.selected
+    assert_equal false, item.ignored
+    assert_equal 400_00, expense.amount_cents
+    assert_equal "sinking_expected", expense.stack_key
+    assert_equal true, expense.active?
+    assert item.metadata.key?("last_corrected_at")
   end
 
   test "item update keeps selected and ignored mutually exclusive" do

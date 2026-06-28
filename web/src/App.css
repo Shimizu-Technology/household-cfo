@@ -1883,6 +1883,19 @@ h3 {
   justify-content: flex-end;
 }
 
+.document-action-hint {
+  display: inline-flex;
+  min-height: 38px;
+  align-items: center;
+  border: 1px solid rgba(226, 217, 203, 0.95);
+  border-radius: 999px;
+  padding: 9px 12px;
+  background: rgba(255, 253, 248, 0.88);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
 .document-review-actions button,
 .document-apply-bar button {
   min-height: 38px;
@@ -1996,6 +2009,9 @@ h3 {
 .document-ignore-button,
 .confidence-pill,
 .document-saving {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   min-height: 32px;
   padding: 7px 9px;
   border-radius: 999px;
@@ -2056,6 +2072,20 @@ h3 {
   margin: 0;
   padding-top: 2px;
   font-size: 0.84rem;
+}
+
+.document-evidence.applied-note {
+  padding: 10px 12px;
+  border: 1px solid rgba(15, 76, 58, 0.12);
+  border-radius: 14px;
+  background: rgba(15, 76, 58, 0.05);
+  color: var(--emerald);
+  font-weight: 800;
+}
+
+.document-saving.applied-editable {
+  background: rgba(201, 154, 85, 0.14);
+  color: var(--status-yellow);
 }
 
 .document-apply-bar {
