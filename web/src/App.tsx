@@ -398,12 +398,16 @@ function App() {
       const item = await updateDocumentImportItem(documentImportId, itemId, values)
       setDocumentImports((current) => replaceImportItem(current, documentImportId, item))
       if (item.applied_at) {
-        const refreshed = await fetchAppData(isRealWorkspace)
-        setData(refreshed)
-        setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
-        setMessages(refreshed.mia.messages)
-        setMessagesStorageKey(chatStorageKey)
-        setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
+        try {
+          const refreshed = await fetchAppData(isRealWorkspace)
+          setData(refreshed)
+          setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
+          setMessages(refreshed.mia.messages)
+          setMessagesStorageKey(chatStorageKey)
+          setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
+        } catch {
+          setDocumentsNotice('Applied value saved. Refresh the page if the dashboard does not update immediately.')
+        }
       }
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Extracted value could not be updated.')
