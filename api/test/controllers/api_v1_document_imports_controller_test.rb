@@ -1,4 +1,5 @@
 require "test_helper"
+require "zip"
 
 class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
@@ -102,6 +103,27 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/Could not store document/, body.fetch("errors").join)
   end
 
+  test "create accepts docx financial documents" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      assert_difference("FinancialDocumentImport.count", 1) do
+        assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+          post "/api/v1/document_imports",
+            params: { file: uploaded_docx, document_kind: "other" },
+            headers: auth_headers(@user)
+        end
+      end
+    end
+
+    assert_response :created
+    document_import = FinancialDocumentImport.last
+    assert_equal "other", document_import.document_kind
+    assert_equal "budget-plan.docx", document_import.filename
+    assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document_import.content_type
+  end
+
   test "source_url returns short lived presigned link without exposing s3 key" do
     document_import = create_import!(s3_key: "household-cfo/test/households/#{@household.id}/documents/1/source/statement.pdf")
 
@@ -122,6 +144,31 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_equal "https://private.example.test/presigned", body.fetch("url")
     assert_not body.key?("s3_key")
+  end
+
+  test "source_url serves csv sources inline for in-app preview" do
+    document_import = create_import!(
+      document_kind: "spreadsheet",
+      filename: "budget.csv",
+      content_type: "text/csv",
+      s3_key: "household-cfo/test/source.csv"
+    )
+
+    with_s3_stubs(
+      configured?: true,
+      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
+        assert_equal 300, expires_in
+        assert_equal "budget.csv", filename
+        assert_equal :inline, disposition
+        "https://private.example.test/budget.csv"
+      }
+    ) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal true, body.fetch("inline_supported")
   end
 
   test "destroy removes database record before deleting private source" do
@@ -428,6 +475,30 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     file.write("Category,Amount\nIncome,4000\nGroceries,800\n")
     file.rewind
     Rack::Test::UploadedFile.new(file.path, "text/csv", original_filename: "budget.csv")
+  end
+
+  def uploaded_docx
+    file = Tempfile.new([ "budget-plan", ".docx" ])
+    file.close
+    Zip::File.open(file.path, create: true) do |zip|
+      zip.get_output_stream("[Content_Types].xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+            <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+            <Default Extension="xml" ContentType="application/xml"/>
+            <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+          </Types>
+        XML
+      end
+      zip.get_output_stream("word/document.xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Monthly income 6200</w:t></w:r></w:p></w:body></w:document>
+        XML
+      end
+    end
+    Rack::Test::UploadedFile.new(file.path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", original_filename: "budget-plan.docx")
   end
 
   def uploaded_html_disguised_as_pdf

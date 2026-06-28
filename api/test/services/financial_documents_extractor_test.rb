@@ -16,6 +16,31 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     file&.close!
   end
 
+  test "uses OpenRouter json_object response format for default Gemini model" do
+    user = User.create!(clerk_id: "clerk_extractor_format_user", email: "extractor-format@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Extractor Format Household")
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "spreadsheet",
+      status: "uploaded",
+      filename: "budget.csv",
+      content_type: "text/csv",
+      byte_size: 20,
+      s3_key: "household-cfo/test/budget.csv"
+    )
+    file = Tempfile.new([ "budget", ".csv" ])
+    file.write("type,label,amount\nincome_source,Primary,6200\n")
+    file.flush
+
+    payload = FinancialDocuments::Extractor.new(api_key: "test-key").send(:build_payload, document_import, file.path)
+
+    assert_equal({ type: "json_object" }, payload.fetch(:response_format))
+    assert_not payload.key?(:json_schema)
+  ensure
+    file&.close!
+  end
+
   test "normalizes LLM item metadata to bounded allowlisted keys" do
     item = FinancialDocuments::Extractor.new(api_key: "test-key").send(
       :normalize_item,

@@ -53,7 +53,7 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
-const SUPPORTED_DOCUMENT_ACCEPTS = '.pdf,.csv,.xlsx,.jpg,.jpeg,.png,.webp'
+const SUPPORTED_DOCUMENT_ACCEPTS = '.pdf,.csv,.xls,.xlsx,.docx,.jpg,.jpeg,.png,.webp'
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 
@@ -66,31 +66,31 @@ const documentUploadCards: Array<{
 }> = [
   {
     kind: 'spreadsheet',
-    label: 'Budget spreadsheet',
+    label: 'Budget file',
     eyebrow: 'Expense stack',
-    accepts: '.csv,.xlsx',
-    helper: 'Upload a CSV or XLSX budget export. Mia drafts income, expenses, assets, and debts for review.',
+    accepts: '.csv,.xls,.xlsx,.pdf,.docx',
+    helper: 'Upload a budget CSV, Excel workbook, PDF, or Word doc. Mia drafts income, expenses, assets, and debts for review.',
   },
   {
     kind: 'statement',
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
-    accepts: '.pdf',
-    helper: 'Upload a PDF statement to draft balances, payments, and spending categories.',
+    accepts: '.pdf,.csv,.xls,.xlsx',
+    helper: 'Upload a PDF or spreadsheet statement to draft balances, payments, and spending categories.',
   },
   {
     kind: 'pay_stub',
     label: 'Pay stub',
     eyebrow: 'Income proof',
-    accepts: '.pdf,.jpg,.jpeg,.png,.webp',
+    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp',
     helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
   },
   {
     kind: 'receipt',
-    label: 'Receipt or photo',
+    label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
-    accepts: '.jpg,.jpeg,.png,.webp',
-    helper: 'Upload a receipt/photo when one-off evidence should become a profile note or expense item.',
+    accepts: '.pdf,.jpg,.jpeg,.png,.webp',
+    helper: 'Upload a receipt, PDF, or photo when one-off evidence should become a profile note or expense item.',
   },
 ]
 
@@ -138,6 +138,7 @@ function App() {
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [itemSavingIds, setItemSavingIds] = useState<Set<number>>(() => new Set())
   const [documentAction, setDocumentAction] = useState<string | null>(null)
+  const [previewImport, setPreviewImport] = useState<FinancialDocumentImport | null>(null)
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const chatStorageKey = useMemo(() => {
@@ -479,17 +480,9 @@ function App() {
     }
   }
 
-  async function handleOpenDocumentSource(documentImport: FinancialDocumentImport) {
-    setDocumentAction(`source-url:${documentImport.id}`)
+  function handleOpenDocumentSource(documentImport: FinancialDocumentImport) {
     setDocumentsError(null)
-    try {
-      const source = await fetchDocumentImportSourceUrl(documentImport.id)
-      window.open(source.url, '_blank', 'noopener,noreferrer')
-    } catch (caught) {
-      setDocumentsError(caught instanceof Error ? caught.message : 'Secure document link could not be created.')
-    } finally {
-      setDocumentAction(null)
-    }
+    setPreviewImport(documentImport)
   }
 
   async function handleSetupSubmit(event: FormEvent<HTMLFormElement>) {
@@ -994,6 +987,15 @@ function App() {
       {activeSection === ADMIN_SECTION && auth.currentUser?.is_admin && (
         <AdminConsole currentUser={auth.currentUser} />
       )}
+
+      {previewImport && (
+        <DocumentSourcePreview
+          key={previewImport.id}
+          documentImport={previewImport}
+          onClose={() => setPreviewImport(null)}
+          onFetchSourceUrl={fetchDocumentImportSourceUrl}
+        />
+      )}
     </main>
   )
 }
@@ -1204,6 +1206,14 @@ function DocumentImportWorkspace({
         <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : 'Manual'} />
       </div>
 
+      <div className="document-import-guide">
+        <div>
+          <strong>Not sure what to upload?</strong>
+          <p>Start with our budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. Mia drafts values only after upload.</p>
+        </div>
+        <a href="/household-cfo-budget-template.csv" download>Download budget template</a>
+      </div>
+
       {error && <p className="document-alert error" role="alert">{error}</p>}
       {notice && <p className="document-alert success" role="status">{notice}</p>}
 
@@ -1236,6 +1246,8 @@ function DocumentImportWorkspace({
           onDeleteSource={onDeleteSource}
           onDeleteImport={onDeleteImport}
           onOpenSource={onOpenSource}
+          onUpload={onUpload}
+          uploading={Boolean(uploadingKind)}
         />
       </div>
     </section>
@@ -1334,6 +1346,8 @@ function DocumentReviewPanel({
   onDeleteSource,
   onDeleteImport,
   onOpenSource,
+  onUpload,
+  uploading,
 }: {
   documentImport: FinancialDocumentImport | null
   itemSavingIds: Set<number>
@@ -1344,13 +1358,30 @@ function DocumentReviewPanel({
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
   onDeleteImport: (documentImport: FinancialDocumentImport) => void
   onOpenSource: (documentImport: FinancialDocumentImport) => void
+  onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
+  uploading: boolean
 }) {
   if (!documentImport) {
+    const inputId = 'document-empty-upload'
+
     return (
       <article className="document-review-panel document-empty-state">
         <AttachmentIcon />
-        <h4>Select an import to review</h4>
-        <p>Mia will never apply extracted numbers until you approve them here.</p>
+        <h4>Upload a document to begin</h4>
+        <p>Choose one of the upload cards above, or start here with a budget, statement, PDF, Excel file, Word doc, pay stub, or receipt. Mia will never apply extracted numbers until you approve them.</p>
+        <input
+          id={inputId}
+          className="sr-only"
+          type="file"
+          accept={SUPPORTED_DOCUMENT_ACCEPTS}
+          disabled={uploading}
+          onChange={(event) => {
+            const file = event.target.files?.[0]
+            if (file) onUpload(inferDocumentKind(file), file, 'profile')
+            event.currentTarget.value = ''
+          }}
+        />
+        <label className="document-empty-upload-button" htmlFor={inputId} aria-disabled={uploading}>{uploading ? 'Uploading privately' : 'Choose a document'}</label>
       </article>
     )
   }
@@ -1372,7 +1403,7 @@ function DocumentReviewPanel({
         </div>
         <div className="document-review-actions">
           <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
-            {actionForImport('source-url') ? 'Opening' : 'View source'}
+            {actionForImport('source-url') ? 'Opening' : 'Preview source'}
           </button>
           <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'applied' || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
             {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
@@ -1440,6 +1471,119 @@ function DocumentReviewPanel({
       </div>
     </article>
   )
+}
+
+function DocumentSourcePreview({
+  documentImport,
+  onClose,
+  onFetchSourceUrl,
+}: {
+  documentImport: FinancialDocumentImport
+  onClose: () => void
+  onFetchSourceUrl: (id: number) => Promise<{ url: string; filename: string; content_type: string; expires_in: number; inline_supported: boolean }>
+}) {
+  const [source, setSource] = useState<{ url: string; filename: string; content_type: string; expires_in: number; inline_supported: boolean } | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [officePreviewAllowed, setOfficePreviewAllowed] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+
+    onFetchSourceUrl(documentImport.id)
+      .then((payload) => {
+        if (!cancelled) setSource(payload)
+      })
+      .catch((caught) => {
+        if (!cancelled) setError(caught instanceof Error ? caught.message : 'Secure document preview could not be loaded.')
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [documentImport.id, onFetchSourceUrl])
+
+  useEffect(() => {
+    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') onClose()
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    document.body.style.overflow = 'hidden'
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown)
+      document.body.style.overflow = ''
+    }
+  }, [onClose])
+
+  const filename = source?.filename ?? documentImport.filename
+  const contentType = source?.content_type ?? documentImport.content_type
+  const isImage = contentType.startsWith('image/')
+  const isPdf = contentType === 'application/pdf'
+  const isText = contentType === 'text/csv' || contentType === 'application/csv' || contentType === 'text/plain' || filename.toLowerCase().endsWith('.csv')
+  const isOffice = isOfficePreviewType(filename, contentType)
+  const officePreviewUrl = source && isOffice ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(source.url)}` : null
+  const canInlinePreview = isImage || isPdf || isText
+
+  return (
+    <div className="document-preview-overlay" role="presentation">
+      <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={onClose} />
+      <section className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`}>
+        <header className="document-preview-header">
+          <div>
+            <span className="document-status blue">Private preview</span>
+            <h3>{filename}</h3>
+            <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Link expires in {source?.expires_in ?? 300}s</p>
+          </div>
+          <div className="document-preview-actions">
+            {source && <a href={source.url} target="_blank" rel="noopener noreferrer">Open in new tab</a>}
+            <button type="button" onClick={onClose}>Close</button>
+          </div>
+        </header>
+
+        <div className="document-preview-body">
+          {loading && <div className="document-preview-state"><span className="document-preview-spinner" />Loading private document preview…</div>}
+          {error && <div className="document-preview-state error">{error}</div>}
+
+          {source && !loading && !error && (
+            <>
+              {isPdf && <iframe src={`${source.url}#toolbar=1&navpanes=0`} title={filename} />}
+              {isText && <iframe src={source.url} title={filename} />}
+              {isImage && <img src={source.url} alt={filename} />}
+              {officePreviewUrl && !officePreviewAllowed && (
+                <div className="document-preview-state office">
+                  <StatementIcon />
+                  <h4>Office preview is available</h4>
+                  <p>Excel and Word previews use Microsoft’s online viewer, which temporarily shares this short-lived private link with Microsoft. You can skip preview and open/download the file instead.</p>
+                  <button type="button" onClick={() => setOfficePreviewAllowed(true)}>Preview with Microsoft Office</button>
+                </div>
+              )}
+              {officePreviewUrl && officePreviewAllowed && <iframe src={officePreviewUrl} title={filename} />}
+              {!canInlinePreview && !officePreviewUrl && (
+                <div className="document-preview-state">
+                  <StatementIcon />
+                  <h4>Preview not available for this file type</h4>
+                  <p>Use “Open in new tab” to download or view the secure source file.</p>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+function isOfficePreviewType(filename: string, contentType: string) {
+  const name = filename.toLowerCase()
+  return name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.docx') || [
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ].includes(contentType)
 }
 
 function DocumentImportItemEditor({
@@ -1589,13 +1733,15 @@ function documentKindLabel(kind: DocumentImportKind) {
 function inferDocumentKind(file: File): DocumentImportKind {
   const name = file.name.toLowerCase()
   const contentType = file.type.toLowerCase()
-  const isSpreadsheet = name.endsWith('.csv') || name.endsWith('.xlsx')
+  const isSpreadsheet = name.endsWith('.csv') || name.endsWith('.xls') || name.endsWith('.xlsx')
+  const isWord = name.endsWith('.docx') || contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   const isImage = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || contentType.startsWith('image/')
   const isPdf = name.endsWith('.pdf') || contentType === 'application/pdf'
 
   if (isSpreadsheet) return 'spreadsheet'
   if (isImage) return hasPayStubSignal(name) ? 'pay_stub' : 'receipt'
   if (isPdf) return hasPayStubSignal(name) ? 'pay_stub' : 'statement'
+  if (isWord) return hasPayStubSignal(name) ? 'pay_stub' : 'other'
   if (hasPayStubSignal(name)) return 'pay_stub'
 
   return 'other'
@@ -2604,25 +2750,27 @@ function WorkspaceSetupForm({
       </div>
 
       <div className="setup-field-grid">
-        <label className="setup-field text-wide">
+        <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
           <span>Household name</span>
           <input value={values.household_name} onChange={(event) => onChange('household_name', event.target.value)} />
+          <small>The name Mia should use for this household.</small>
         </label>
-        <label className="setup-field text-wide">
+        <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
           <span>Primary goal</span>
-          <input value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
+          <textarea rows={3} value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
+          <small>Write the goal, worry, or decision Mia should coach around. This box grows for longer notes.</small>
         </label>
-        <MoneyInput label="Primary monthly income" value={values.primary_income} onChange={(value) => onChange('primary_income', value)} />
-        <MoneyInput label="Business monthly income" value={values.business_income} onChange={(value) => onChange('business_income', value)} />
-        <MoneyInput label="Fixed essentials" value={values.fixed_expenses} onChange={(value) => onChange('fixed_expenses', value)} />
-        <MoneyInput label="Flexible spending" value={values.flexible_spend} onChange={(value) => onChange('flexible_spend', value)} />
-        <MoneyInput label="Expected sinking fund" value={values.expected_sinking_fund} onChange={(value) => onChange('expected_sinking_fund', value)} />
-        <MoneyInput label="Unexpected sinking fund" value={values.unexpected_sinking_fund} onChange={(value) => onChange('unexpected_sinking_fund', value)} />
-        <MoneyInput label="Emergency fund" value={values.emergency_fund} onChange={(value) => onChange('emergency_fund', value)} />
-        <MoneyInput label="Other assets" value={values.other_assets} onChange={(value) => onChange('other_assets', value)} />
-        <MoneyInput label="Credit card debt" value={values.credit_card_debt} onChange={(value) => onChange('credit_card_debt', value)} />
-        <MoneyInput label="Debt minimum payment" value={values.debt_payment} onChange={(value) => onChange('debt_payment', value)} />
-        <label className="setup-field">
+        <MoneyInput label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+        <MoneyInput label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+        <MoneyInput label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+        <MoneyInput label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+        <MoneyInput label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
+        <MoneyInput label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+        <MoneyInput label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
+        <MoneyInput label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
+        <MoneyInput label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
+        <MoneyInput label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+        <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
           <span>Target runway months</span>
           <input
             type="number"
@@ -2631,6 +2779,7 @@ function WorkspaceSetupForm({
             value={values.target_runway_months}
             onChange={(event) => onChange('target_runway_months', event.target.value)}
           />
+          <small>How many months of expenses you want protected before bigger moves.</small>
         </label>
       </div>
 
@@ -2639,11 +2788,12 @@ function WorkspaceSetupForm({
   )
 }
 
-function MoneyInput({ label, value, onChange }: { label: string; value: number; onChange: (value: string) => void }) {
+function MoneyInput({ label, value, help, onChange }: { label: string; value: number; help: string; onChange: (value: string) => void }) {
   return (
-    <label className="setup-field">
+    <label className="setup-field" title={help}>
       <span>{label}</span>
       <input type="number" min="0" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
+      <small>{help}</small>
     </label>
   )
 }

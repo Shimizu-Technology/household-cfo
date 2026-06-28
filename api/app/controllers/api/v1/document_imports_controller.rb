@@ -8,12 +8,14 @@ module Api
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url destroy_source]
 
       MAX_UPLOAD_BYTES = 20.megabytes
-      ALLOWED_EXTENSIONS = %w[.pdf .csv .xlsx .jpg .jpeg .png .webp].freeze
-      REJECTED_EXTENSIONS = %w[.xls .zip .rar .7z .exe .svg].freeze
+      ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp].freeze
+      REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
       ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
         ".pdf" => %w[application/pdf],
         ".csv" => %w[text/csv text/plain application/csv application/vnd.ms-excel],
+        ".xls" => %w[application/vnd.ms-excel application/xls application/excel],
         ".xlsx" => %w[application/vnd.openxmlformats-officedocument.spreadsheetml.sheet application/zip],
+        ".docx" => %w[application/vnd.openxmlformats-officedocument.wordprocessingml.document],
         ".jpg" => %w[image/jpeg],
         ".jpeg" => %w[image/jpeg],
         ".png" => %w[image/png],
@@ -190,7 +192,7 @@ module Api
         filename = file.original_filename.to_s
         extension = File.extname(filename).downcase
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLSX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
         return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if File.size(file.tempfile.path) > MAX_UPLOAD_BYTES
 
@@ -225,8 +227,9 @@ module Api
         return requested if requested.in?(FinancialDocumentImport::DOCUMENT_KINDS)
 
         extension = File.extname(file.original_filename.to_s).downcase
-        return "spreadsheet" if extension.in?(%w[.csv .xlsx])
+        return "spreadsheet" if extension.in?(%w[.csv .xls .xlsx])
         return "statement" if extension == ".pdf"
+        return "other" if extension == ".docx"
         return "receipt" if extension.in?(%w[.jpg .jpeg .png .webp])
 
         "other"
@@ -286,7 +289,8 @@ module Api
       end
 
       def inline_supported?(document_import)
-        document_import.pdf? || document_import.image?
+        extension = File.extname(document_import.filename.to_s).downcase
+        document_import.pdf? || document_import.image? || document_import.content_type.in?(%w[text/csv text/plain application/csv]) || extension.in?(%w[.csv .xls .xlsx .docx])
       end
 
       def serialize_document_import(document_import, include_attempts: false)
