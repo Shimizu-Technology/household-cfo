@@ -20,6 +20,21 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal 175_00, debt.fetch(:payment_cents)
   end
 
+  test "skips non-finite spreadsheet amounts without failing whole extraction" do
+    file = Tempfile.new([ "budget", ".csv" ])
+    file.write("type,label,amount,cadence,category,notes\nexpense_item,Broken formula,NaN,monthly,discretionary,Ignore\nexpense_item,Dining out,420,monthly,discretionary,Valid\n")
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "budget.csv").call
+
+    assert result.success?, result.error
+    items = result.data.fetch(:items)
+    assert_equal 1, items.length
+    assert_equal "Dining out", items.first.fetch(:label)
+  ensure
+    file&.close!
+  end
+
   test "extractor uses structured spreadsheet path without OpenRouter key" do
     user = User.create!(clerk_id: "clerk_structured_extractor_user", email: "structured-extractor@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Structured Extractor Household")

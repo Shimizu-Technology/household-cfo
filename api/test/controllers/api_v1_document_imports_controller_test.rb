@@ -417,6 +417,37 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert item.metadata.key?("last_corrected_at")
   end
 
+  test "item update preserves applied debt fields missing from extracted item" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Visa card",
+      balance_cents: 3_400_00,
+      minimum_payment_cents: 175_00,
+      debt_type: "credit_card"
+    )
+    item = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa card",
+      balance_cents: 3_400_00,
+      payment_cents: nil,
+      debt_type: "credit_card",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { label: "Visa rewards card" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    debt.reload
+    assert_equal "Visa rewards card", debt.label
+    assert_equal 3_400_00, debt.balance_cents
+    assert_equal 175_00, debt.minimum_payment_cents
+  end
+
   test "item update keeps selected and ignored mutually exclusive" do
     document_import = create_import!(status: "needs_review")
     item = document_import.items.create!(

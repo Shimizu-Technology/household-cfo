@@ -269,7 +269,7 @@ module FinancialDocuments
       return nil if decimal.negative?
 
       (decimal * 100).round.to_i
-    rescue ArgumentError
+    rescue ArgumentError, FloatDomainError
       nil
     end
 

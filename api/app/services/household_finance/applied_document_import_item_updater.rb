@@ -91,21 +91,23 @@ module HouseholdFinance
 
     def sync_account!
       record = typed_record!(Account)
-      record.update!(
+      attributes = {
         label: item.label,
-        account_type: item.account_type.presence_in(Account::ACCOUNT_TYPES) || record.account_type || "other",
-        balance_cents: item.balance_cents.to_i
-      )
+        account_type: item.account_type.presence_in(Account::ACCOUNT_TYPES) || record.account_type || "other"
+      }
+      attributes[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
+      record.update!(attributes)
     end
 
     def sync_debt!
       record = typed_record!(Debt)
-      record.update!(
+      attributes = {
         label: item.label,
-        debt_type: item.debt_type.presence_in(Debt::DEBT_TYPES) || record.debt_type || "other",
-        balance_cents: item.balance_cents.to_i,
-        minimum_payment_cents: item.payment_cents.to_i
-      )
+        debt_type: item.debt_type.presence_in(Debt::DEBT_TYPES) || record.debt_type || "other"
+      }
+      attributes[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
+      attributes[:minimum_payment_cents] = item.payment_cents unless item.payment_cents.nil?
+      record.update!(attributes)
     end
 
     def sync_goal!
