@@ -4,6 +4,7 @@ class FinancialDocumentImport < ApplicationRecord
   IMAGE_CONTENT_TYPES = %w[image/jpeg image/png image/webp].freeze
   PDF_CONTENT_TYPES = %w[application/pdf].freeze
   SPREADSHEET_CONTENT_TYPES = %w[text/csv application/csv application/vnd.ms-excel application/vnd.openxmlformats-officedocument.spreadsheetml.sheet].freeze
+  WORD_CONTENT_TYPES = %w[application/vnd.openxmlformats-officedocument.wordprocessingml.document].freeze
 
   belongs_to :household
   belongs_to :uploaded_by_user, class_name: "User"
@@ -35,7 +36,11 @@ class FinancialDocumentImport < ApplicationRecord
   end
 
   def spreadsheet?
-    content_type.in?(SPREADSHEET_CONTENT_TYPES) || File.extname(filename.to_s).downcase.in?(%w[.csv .xlsx])
+    content_type.in?(SPREADSHEET_CONTENT_TYPES) || File.extname(filename.to_s).downcase.in?(%w[.csv .xls .xlsx])
+  end
+
+  def word_document?
+    content_type.in?(WORD_CONTENT_TYPES) || File.extname(filename.to_s).downcase == ".docx"
   end
 
   def source_available?

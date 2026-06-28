@@ -6,7 +6,12 @@ module Api
       before_action :set_item
 
       def update
-        return render json: { errors: [ "Applied extracted values cannot be edited" ] }, status: :unprocessable_entity if @item.applied?
+        if @item.applied?
+          result = HouseholdFinance::AppliedDocumentImportItemUpdater.new(@item, user: current_user, attributes: item_update_attributes).call
+          return render json: { errors: result.errors }, status: :unprocessable_entity unless result.success?
+
+          return render json: { item: serialize_item(result.item) }
+        end
 
         @item.update!(item_update_attributes)
         render json: { item: serialize_item(@item.reload) }

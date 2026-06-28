@@ -56,15 +56,17 @@ module HouseholdFinance
     end
 
     def upsert_income(label, source_type, value)
-      cents = Money.cents(value)
-      record = household.income_sources.find_or_initialize_by(label: label, source_type: source_type)
-      record.update!(amount_cents: cents, cadence: "monthly", active: cents.positive?)
+      records = household.income_sources.where(source_type: source_type).order(:id).to_a
+      upsert_monthly_amount_records(records, Money.cents(value), default_label: label) do
+        household.income_sources.new(source_type: source_type)
+      end
     end
 
     def upsert_expense(label, stack_key, value)
-      cents = Money.cents(value)
-      record = household.expense_items.find_or_initialize_by(label: label, stack_key: stack_key)
-      record.update!(amount_cents: cents, cadence: "monthly", active: cents.positive?)
+      records = household.expense_items.where(stack_key: stack_key).order(:id).to_a
+      upsert_monthly_amount_records(records, Money.cents(value), default_label: label) do
+        household.expense_items.new(stack_key: stack_key)
+      end
     end
 
     def upsert_account(label, account_type, value)
@@ -83,13 +85,23 @@ module HouseholdFinance
     end
 
     def upsert_debt(label, debt_type, balance, payment)
-      record = household.debts.find_or_initialize_by(label: label, debt_type: debt_type)
-      balance_cents = missing_value?(balance) ? existing_cents(record, :balance_cents) : Money.cents(balance)
-      payment_cents = missing_value?(payment) ? existing_cents(record, :minimum_payment_cents) : Money.cents(payment)
+      records = household.debts.where(debt_type: debt_type).order(:id).to_a
+      aggregate = records.find { |record| record.label == label }
+      current_balance_cents = records.sum(&:balance_cents)
+      current_payment_cents = records.sum(&:minimum_payment_cents)
+      balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : Money.cents(balance)
+      payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : Money.cents(payment)
+      return if current_balance_cents == balance_cents && current_payment_cents == payment_cents
+
+      return distribute_debt_totals!(records, balance_cents, payment_cents) if records.many?
+
+      record = aggregate || records.first || household.debts.new(label: label, debt_type: debt_type)
       return record.destroy! if record.persisted? && balance_cents.zero?
       return if balance_cents.zero?
 
-      record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents)
+      record.assign_attributes(debt_type: debt_type, balance_cents: balance_cents, minimum_payment_cents: payment_cents)
+      record.label = label if record.new_record? || record.label.blank?
+      record.save!
     end
 
     def upsert_runway_goal
@@ -119,6 +131,76 @@ module HouseholdFinance
       return nil if allow_blank && text.blank?
 
       text
+    end
+
+    def upsert_monthly_amount_records(records, monthly_total_cents, default_label:)
+      active_records = records.select(&:active?)
+      aggregate = records.find { |record| record.label == default_label }
+      return if aggregate.blank? && amount_records_monthly_total(active_records) == monthly_total_cents
+      return distribute_monthly_amount_total!(active_records, monthly_total_cents) if active_records.many?
+
+      record = amount_record_for_single_update(aggregate, active_records, records) || yield
+      if monthly_total_cents.zero?
+        record.update!(amount_cents: 0, cadence: "monthly", active: false) if record.persisted? && record.active?
+        return
+      end
+
+      record.assign_attributes(amount_cents: monthly_total_cents, cadence: "monthly", active: true)
+      record.label = default_label if record.new_record? || record.label.blank?
+      record.save!
+    end
+
+    def amount_record_for_single_update(aggregate, active_records, records)
+      return aggregate if aggregate&.active?
+      return active_records.first if active_records.one?
+
+      aggregate || records.first
+    end
+
+    def distribute_monthly_amount_total!(records, monthly_total_cents)
+      allocations = allocate_cents(monthly_total_cents, records.map { |record| Money.monthly_cents(record.amount_cents, record.cadence) })
+      records.each_with_index do |record, index|
+        amount_cents = allocations.fetch(index)
+        record.update!(amount_cents: amount_cents, cadence: "monthly", active: amount_cents.positive?)
+      end
+    end
+
+    def amount_records_monthly_total(records)
+      records.sum { |record| Money.monthly_cents(record.amount_cents, record.cadence) }
+    end
+
+    def distribute_debt_totals!(records, balance_cents, payment_cents)
+      return records.each(&:destroy!) if balance_cents.zero?
+
+      balances = allocate_cents(balance_cents, records.map(&:balance_cents))
+      payments = allocate_cents(payment_cents, records.map(&:minimum_payment_cents))
+      records.each_with_index do |record, index|
+        record.update!(balance_cents: balances.fetch(index), minimum_payment_cents: payments.fetch(index))
+      end
+    end
+
+    def allocate_cents(total_cents, weights)
+      return [] if weights.empty?
+      return Array.new(weights.length, 0) if total_cents.zero?
+
+      sanitized_weights = weights.map { |weight| [ weight.to_i, 0 ].max }
+      weight_total = sanitized_weights.sum
+      return allocate_evenly(total_cents, sanitized_weights.length) if weight_total.zero?
+
+      allocations = sanitized_weights.map { |weight| (total_cents * weight) / weight_total }
+      remainder = total_cents - allocations.sum
+      ranked_remainders = sanitized_weights.each_with_index.map { |weight, index| [ (total_cents * weight) % weight_total, index ] }
+      ranked_remainders.sort_by { |fractional_cents, index| [ -fractional_cents, index ] }.first(remainder).each do |_fractional_cents, index|
+        allocations[index] += 1
+      end
+      allocations
+    end
+
+    def allocate_evenly(total_cents, count)
+      base, remainder = total_cents.divmod(count)
+      Array.new(count, base).tap do |allocations|
+        remainder.times { |index| allocations[index] += 1 }
+      end
     end
 
     def existing_cents(record, attribute)

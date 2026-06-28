@@ -1,4 +1,6 @@
 require "test_helper"
+require "marcel"
+require "zip"
 
 class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
   include ActiveJob::TestHelper
@@ -102,17 +104,57 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/Could not store document/, body.fetch("errors").join)
   end
 
-  test "source_url returns short lived presigned link without exposing s3 key" do
+  test "create accepts docx financial documents" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      assert_difference("FinancialDocumentImport.count", 1) do
+        assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+          post "/api/v1/document_imports",
+            params: { file: uploaded_docx, document_kind: "other" },
+            headers: auth_headers(@user)
+        end
+      end
+    end
+
+    assert_response :created
+    document_import = FinancialDocumentImport.last
+    assert_equal "other", document_import.document_kind
+    assert_equal "budget-plan.docx", document_import.filename
+    assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document_import.content_type
+  end
+
+  test "create accepts valid docx files when Marcel reports application zip" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      with_singleton_stub(Marcel::MimeType, :for, ->(*, **) { "application/zip" }) do
+        assert_difference("FinancialDocumentImport.count", 1) do
+          post "/api/v1/document_imports",
+            params: { file: uploaded_docx, document_kind: "other" },
+            headers: auth_headers(@user)
+        end
+      end
+    end
+
+    assert_response :created
+    assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", FinancialDocumentImport.last.content_type
+  end
+
+  test "source_url returns preview and download links without exposing s3 key" do
     document_import = create_import!(s3_key: "household-cfo/test/households/#{@household.id}/documents/1/source/statement.pdf")
 
+    dispositions = []
     with_s3_stubs(
       configured?: true,
       presigned_url: ->(key, expires_in:, filename:, disposition:) {
         assert_equal document_import.s3_key, key
         assert_equal 300, expires_in
         assert_equal "statement.pdf", filename
-        assert_equal :inline, disposition
-        "https://private.example.test/presigned"
+        dispositions << disposition
+        "https://private.example.test/#{disposition}"
       }
     ) do
       get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
@@ -120,8 +162,69 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal "https://private.example.test/presigned", body.fetch("url")
+    assert_equal true, body.fetch("inline_supported")
+    assert_equal "https://private.example.test/inline", body.fetch("url")
+    assert_equal "https://private.example.test/attachment", body.fetch("download_url")
+    assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
+  end
+
+  test "source_url keeps server-previewed csv sources as attachment links" do
+    document_import = create_import!(
+      document_kind: "spreadsheet",
+      filename: "budget.csv",
+      content_type: "text/csv",
+      s3_key: "household-cfo/test/source.csv"
+    )
+
+    dispositions = []
+    with_s3_stubs(
+      configured?: true,
+      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
+        assert_equal 300, expires_in
+        assert_equal "budget.csv", filename
+        dispositions << disposition
+        "https://private.example.test/budget-#{disposition}.csv"
+      }
+    ) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("inline_supported")
+    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("url")
+    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("download_url")
+    assert_equal [ :attachment, :attachment ], dispositions
+  end
+
+  test "source_preview renders spreadsheet rows through Rails without a browser download" do
+    document_import = create_import!(
+      document_kind: "spreadsheet",
+      filename: "budget.csv",
+      content_type: "text/csv",
+      s3_key: "household-cfo/test/source.csv"
+    )
+
+    with_s3_stubs(
+      configured?: true,
+      download_to_io: ->(_key, io) {
+        io.write("type,label,amount\nincome_source,Primary salary,6200\nexpense_item,Dining out,420\n")
+        true
+      }
+    ) do
+      get "/api/v1/document_imports/#{document_import.id}/source_preview", headers: auth_headers(@user)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "spreadsheet", body.fetch("type")
+    assert_equal "budget.csv", body.fetch("filename")
+    assert_not body.key?("url")
+    assert_not body.key?("s3_key")
+    rows = body.fetch("sheets").first.fetch("rows")
+    assert_equal [ "type", "label", "amount" ], rows.first.fetch("values")
+    assert_equal [ "income_source", "Primary salary", "6200" ], rows.second.fetch("values")
   end
 
   test "destroy removes database record before deleting private source" do
@@ -278,6 +381,107 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 125_00, debt.payment_cents
   end
 
+  test "item update can correct an applied saved household value" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    expense = @household.expense_items.create!(
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary"
+    )
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: expense
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { amount: "400", stack_key: "sinking_expected", ignored: true, selected: false } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    item.reload
+    expense.reload
+    assert_equal 400_00, item.amount_cents
+    assert_equal "sinking_expected", item.stack_key
+    assert_equal true, item.selected
+    assert_equal false, item.ignored
+    assert_equal 400_00, expense.amount_cents
+    assert_equal "sinking_expected", expense.stack_key
+    assert_equal true, expense.active?
+    assert item.metadata.key?("last_corrected_at")
+  end
+
+  test "item update preserves applied expense amount missing from extracted item" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    expense = @household.expense_items.create!(
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      active: true
+    )
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: expense
+    )
+    item.update_columns(amount_cents: nil, updated_at: Time.current)
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { label: "Dining out corrected" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    expense.reload
+    assert_equal "Dining out corrected", expense.label
+    assert_equal 420_00, expense.amount_cents
+    assert_equal true, expense.active?
+  end
+
+  test "item update preserves applied debt fields missing from extracted item" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Visa card",
+      balance_cents: 3_400_00,
+      minimum_payment_cents: 175_00,
+      debt_type: "credit_card"
+    )
+    item = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa card",
+      balance_cents: 3_400_00,
+      payment_cents: nil,
+      debt_type: "credit_card",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { label: "Visa rewards card" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    debt.reload
+    assert_equal "Visa rewards card", debt.label
+    assert_equal 3_400_00, debt.balance_cents
+    assert_equal 175_00, debt.minimum_payment_cents
+  end
+
   test "item update keeps selected and ignored mutually exclusive" do
     document_import = create_import!(status: "needs_review")
     item = document_import.items.create!(
@@ -430,6 +634,30 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     Rack::Test::UploadedFile.new(file.path, "text/csv", original_filename: "budget.csv")
   end
 
+  def uploaded_docx
+    file = Tempfile.new([ "budget-plan", ".docx" ])
+    file.close
+    Zip::File.open(file.path, create: true) do |zip|
+      zip.get_output_stream("[Content_Types].xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+            <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+            <Default Extension="xml" ContentType="application/xml"/>
+            <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+          </Types>
+        XML
+      end
+      zip.get_output_stream("word/document.xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Monthly income 6200</w:t></w:r></w:p></w:body></w:document>
+        XML
+      end
+    end
+    Rack::Test::UploadedFile.new(file.path, "application/vnd.openxmlformats-officedocument.wordprocessingml.document", original_filename: "budget-plan.docx")
+  end
+
   def uploaded_html_disguised_as_pdf
     file = Tempfile.new([ "statement", ".pdf" ])
     file.write("<html><script>alert('not a pdf')</script></html>")
@@ -448,6 +676,18 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       byte_size: 100,
       s3_key: "household-cfo/test/statement.pdf"
     }.merge(attributes))
+  end
+
+  def with_singleton_stub(target, method_name, replacement)
+    singleton = class << target; self; end
+    original = singleton.instance_method(method_name)
+    singleton.define_method(method_name) do |*args, **kwargs, &block|
+      replacement.call(*args, **kwargs, &block)
+    end
+    yield
+  ensure
+    singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
+    singleton.define_method(method_name, original)
   end
 
   def with_s3_stubs(stubs)

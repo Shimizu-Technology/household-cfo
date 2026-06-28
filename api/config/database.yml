@@ -24,14 +24,19 @@ test:
 production:
   primary: &primary_production
     <<: *default
+    url: <%= ENV["DATABASE_URL"] %>
     database: <%= ENV.fetch("DATABASE_NAME", "household_cfo_api_production") %>
     username: <%= ENV.fetch("DATABASE_USERNAME", "household_cfo_api") %>
     password: <%= ENV["DATABASE_PASSWORD"] || ENV["HOUSEHOLD_CFO_API_DATABASE_PASSWORD"] %>
   cache:
     <<: *primary_production
+    url: <%= ENV["CACHE_DATABASE_URL"] || ENV["DATABASE_URL"] %>
     database: <%= ENV.fetch("CACHE_DATABASE_NAME", "household_cfo_api_production_cache") %>
     migrations_paths: db/cache_migrate
+    schema_dump: db/cache_schema.rb
   queue:
     <<: *primary_production
+    url: <%= ENV["QUEUE_DATABASE_URL"] || ENV["DATABASE_URL"] %>
     database: <%= ENV.fetch("QUEUE_DATABASE_NAME", "household_cfo_api_production_queue") %>
     migrations_paths: db/queue_migrate
+    schema_dump: db/queue_schema.rb

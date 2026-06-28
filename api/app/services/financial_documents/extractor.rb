@@ -9,8 +9,8 @@ require "uri"
 module FinancialDocuments
   class Extractor
     OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-    PROMPT_VERSION = "financial_document_extraction_v1"
-    SCHEMA_VERSION = "financial_document_schema_v1"
+    PROMPT_VERSION = "financial_document_extraction_v2"
+    SCHEMA_VERSION = "financial_document_json_object_v1"
     DEFAULT_MODEL = "google/gemini-2.5-flash"
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
@@ -32,11 +32,15 @@ module FinancialDocuments
     attr_reader :model
 
     def call(document_import)
-      return failure("OpenRouter API key is not configured") if api_key.blank?
       return failure("Document source is no longer available") unless document_import.source_available?
       return failure("AWS S3 storage is not configured") unless S3Service.configured?
 
       with_source_tempfile(document_import) do |tempfile|
+        structured_result = structured_spreadsheet_result(document_import, tempfile.path)
+        return Result.new(success: true, data: structured_result.data, error: nil, metadata: { extraction_mode: "structured_spreadsheet" }) if structured_result&.success?
+
+        return failure("OpenRouter API key is not configured") if api_key.blank?
+
         payload_size_error = inline_payload_size_error(document_import, tempfile.path)
         return failure(payload_size_error) if payload_size_error
 
@@ -74,6 +78,16 @@ module FinancialDocuments
       tempfile&.close!
     end
 
+    def structured_spreadsheet_result(document_import, file_path)
+      return unless document_import.spreadsheet?
+
+      StructuredSpreadsheetExtractor.new(
+        file_path: file_path,
+        filename: document_import.filename,
+        document_kind: document_import.document_kind
+      ).call
+    end
+
     def inline_payload_size_error(document_import, file_path)
       return unless document_import.image? || document_import.pdf?
       return if File.size(file_path) <= max_data_url_source_bytes
@@ -98,7 +112,7 @@ module FinancialDocuments
       payload = {
         model: model,
         messages: messages,
-        response_format: response_format,
+        response_format: { type: "json_object" },
         provider: {
           require_parameters: true,
           data_collection: "deny"
@@ -121,10 +135,14 @@ module FinancialDocuments
 
     def user_content(document_import, file_path)
       instruction = <<~PROMPT.squish
-        Extract draft Household CFO facts from this #{document_import.document_kind.humanize.downcase}.
+        Extract draft Household CFO facts from this uploaded financial document. The user categorized it as #{document_import.document_kind.humanize.downcase}.
         The participant will review before anything is saved. Do not invent missing values.
-        Prefer monthly normalized numbers when a statement/spreadsheet provides enough evidence.
+        Prefer monthly normalized numbers when the document provides enough evidence.
         If the document covers only part of a month, include a warning and use the period dates.
+        Return one JSON object with keys: document_kind, document_date, period_start_on, period_end_on, summary, confidence, warnings, items.
+        Each item must include: target_type, label, amount, balance, payment, cadence, source_type, stack_key, account_type, debt_type, confidence, evidence, metadata.
+        Use null for unknown fields and {"goal_type": null} for metadata when no goal type applies.
+        Valid target_type values: #{FinancialDocumentImportItem::TARGET_TYPES.join(', ')}.
         Map expenses to one of: #{ExpenseItem::STACK_KEYS.join(', ')}.
         Map income sources to one of: #{IncomeSource::SOURCE_TYPES.join(', ')}.
         Map accounts to one of: #{Account::ACCOUNT_TYPES.join(', ')}.
@@ -140,6 +158,9 @@ module FinancialDocuments
       elsif document_import.spreadsheet?
         summary = SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call
         content << { type: "text", text: "Spreadsheet sample JSON:\n#{JSON.generate(summary)}" }
+      elsif document_import.word_document?
+        summary = DocxSummarizer.new(file_path: file_path, filename: document_import.filename).call
+        content << { type: "text", text: "Word document text JSON:\n#{JSON.generate(summary)}" }
       else
         content << { type: "text", text: "Unsupported file type metadata: #{document_import.content_type} / #{document_import.filename}. Return warnings if you cannot extract useful financial facts." }
       end
@@ -166,69 +187,6 @@ module FinancialDocuments
         The user must approve your extracted facts before the app updates saved household numbers.
         Use concise labels. Use positive numbers only. Use null when a field is unknown.
       PROMPT
-    end
-
-    def response_format
-      {
-        type: "json_schema",
-        json_schema: {
-          name: "financial_document_extraction",
-          strict: true,
-          schema: extraction_schema
-        }
-      }
-    end
-
-    def extraction_schema
-      {
-        type: "object",
-        additionalProperties: false,
-        required: %w[document_kind document_date period_start_on period_end_on summary confidence items warnings],
-        properties: {
-          document_kind: { type: [ "string", "null" ], enum: FinancialDocumentImport::DOCUMENT_KINDS + [ nil ] },
-          document_date: { type: [ "string", "null" ], description: "ISO date if visible" },
-          period_start_on: { type: [ "string", "null" ], description: "ISO date if visible" },
-          period_end_on: { type: [ "string", "null" ], description: "ISO date if visible" },
-          summary: { type: [ "string", "null" ], maxLength: 800 },
-          confidence: { type: [ "string", "null" ], enum: FinancialDocumentImportItem::CONFIDENCE_LEVELS + [ nil ] },
-          warnings: {
-            type: "array",
-            maxItems: MAX_WARNINGS,
-            items: { type: "string", maxLength: 240 }
-          },
-          items: {
-            type: "array",
-            maxItems: MAX_ITEMS,
-            items: {
-              type: "object",
-              additionalProperties: false,
-              required: %w[target_type label amount balance payment cadence source_type stack_key account_type debt_type confidence evidence metadata],
-              properties: {
-                target_type: { type: [ "string", "null" ], enum: FinancialDocumentImportItem::TARGET_TYPES + [ nil ] },
-                label: { type: [ "string", "null" ], maxLength: 120 },
-                amount: { type: [ "number", "null" ], description: "Monthly amount or target amount" },
-                balance: { type: [ "number", "null" ], description: "Account/debt balance" },
-                payment: { type: [ "number", "null" ], description: "Minimum or recurring payment" },
-                cadence: { type: [ "string", "null" ], enum: IncomeSource::CADENCES + [ nil ] },
-                source_type: { type: [ "string", "null" ], enum: IncomeSource::SOURCE_TYPES + [ nil ] },
-                stack_key: { type: [ "string", "null" ], enum: ExpenseItem::STACK_KEYS + [ nil ] },
-                account_type: { type: [ "string", "null" ], enum: Account::ACCOUNT_TYPES + [ nil ] },
-                debt_type: { type: [ "string", "null" ], enum: Debt::DEBT_TYPES + [ nil ] },
-                confidence: { type: [ "string", "null" ], enum: FinancialDocumentImportItem::CONFIDENCE_LEVELS + [ nil ] },
-                evidence: { type: [ "string", "null" ], maxLength: 1000 },
-                metadata: {
-                  type: [ "object", "null" ],
-                  additionalProperties: false,
-                  required: %w[goal_type],
-                  properties: {
-                    goal_type: { type: [ "string", "null" ], enum: Goal::GOAL_TYPES + [ nil ] }
-                  }
-                }
-              }
-            }
-          }
-        }
-      }
     end
 
     def perform_openrouter_request(payload)
@@ -281,7 +239,7 @@ module FinancialDocuments
         document_date: parsed_date(payload["document_date"]),
         period_start_on: parsed_date(payload["period_start_on"]),
         period_end_on: parsed_date(payload["period_end_on"]),
-        summary: sanitized_text(payload["summary"], max_length: 800),
+        summary: extraction_summary(payload["summary"], normalized_items),
         confidence: normalized_confidence(payload["confidence"]),
         warnings: warnings,
         items: normalized_items
@@ -314,6 +272,10 @@ module FinancialDocuments
       return nil unless valid_item_value?(target_type, normalized)
 
       normalized
+    end
+
+    def extraction_summary(value, normalized_items)
+      sanitized_text(value, max_length: 800).presence || "Mia found #{normalized_items.length} draft value#{'s' unless normalized_items.length == 1} for review."
     end
 
     def normalized_item_metadata(metadata)

@@ -320,9 +320,16 @@ module HouseholdFinance
       debt_total = dollars(snapshot.fetch(:total_debt_cents))
       [
         { label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
-        { label: "Debt entered", current: debt_total.zero? ? 1 : 0, target: debt_total.zero? ? 1 : debt_total, unit: debt_total.zero? ? "clear" : "dollars to payoff", status: debt_total.zero? ? "green" : "yellow" },
+        debt_milestone(debt_total),
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
       ]
+    end
+
+    def debt_milestone(debt_total)
+      return { label: "Debt entered", current: 0, target: debt_total, unit: "dollars to payoff", status: "yellow" } if debt_total.positive?
+      return { label: "Debt entered", current: 1, target: 1, unit: "clear", status: "green" } if financial_inputs_present?
+
+      { label: "Debt entered", current: 0, target: 0, unit: "dollars entered", status: "yellow" }
     end
 
     def transition_goal
@@ -367,27 +374,44 @@ module HouseholdFinance
     end
 
     def decisions
-      safe = dollars(snapshot.fetch(:safe_to_spend_cents))
+      safe = [ dollars(snapshot.fetch(:safe_to_spend_cents)), 0 ].max
+      debt_entered = snapshot.fetch(:total_debt_cents).positive?
+      baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
+      runway_met = snapshot.fetch(:runway_months) >= target_runway_months
       [
         {
           item: "Non-essential purchase",
-          amount: safe.positive? ? safe : 100,
+          amount: safe,
           recommendation: safe.positive? ? "Pause" : "Wait",
           reason: safe.positive? ? "Only approve wants that fit inside true surplus after bills, sinking funds, and debt minimums." : "Baseline is not ready for wants yet. Protect essentials first."
         },
         {
           item: "Extra debt payment",
-          amount: [ safe, 250 ].max,
-          recommendation: snapshot.fetch(:total_debt_cents).positive? && snapshot.fetch(:baseline_surplus_cents).positive? ? "Approve" : "Wait",
-          reason: snapshot.fetch(:total_debt_cents).positive? ? "Debt payoff helps breathing room, but only after fixed bills and runway are protected." : "No debt entered yet. Add debts before Mia can prioritize payoff."
+          amount: debt_entered && baseline_positive ? [ safe, 250 ].max : 0,
+          recommendation: debt_entered && baseline_positive ? "Approve" : "Wait",
+          reason: debt_entered ? "Debt payoff helps breathing room, but only after fixed bills and runway are protected." : "No debt entered yet. Add debts before Mia can prioritize payoff."
         },
         {
           item: "Runway transfer",
           amount: [ dollars(snapshot.fetch(:baseline_surplus_cents)), 0 ].max,
-          recommendation: snapshot.fetch(:runway_months) < target_runway_months ? "Approve" : "Optional",
-          reason: "Runway buys options and lowers panic."
+          recommendation: runway_met ? "Optional" : (baseline_positive ? "Approve" : "Wait"),
+          reason: runway_transfer_reason(runway_met, baseline_positive)
         }
       ]
+    end
+
+    def financial_inputs_present?
+      snapshot.fetch(:monthly_income_cents).positive? ||
+        snapshot.fetch(:total_outflow_cents).positive? ||
+        snapshot.fetch(:total_assets_cents).positive? ||
+        snapshot.fetch(:total_debt_cents).positive?
+    end
+
+    def runway_transfer_reason(runway_met, baseline_positive)
+      return "Runway target is already protected; additional transfers are optional after essentials stay covered." if runway_met
+      return "Runway buys options and lowers panic." if baseline_positive
+
+      "No surplus entered yet. Add income and expenses before moving money into runway."
     end
 
     def targets

@@ -2,6 +2,7 @@
 
 require "csv"
 require "roo"
+require "roo-xls"
 
 module FinancialDocuments
   class SpreadsheetSummarizer
@@ -35,10 +36,10 @@ module FinancialDocuments
       case File.extname(filename.to_s).downcase
       when ".xlsx"
         Roo::Excelx.new(file_path)
+      when ".xls"
+        Roo::Excel.new(file_path)
       when ".csv"
         Roo::CSV.new(file_path)
-      when ".xls"
-        raise ArgumentError, "Legacy .xls spreadsheets are not supported. Save as .xlsx or CSV and upload again."
       else
         Roo::Spreadsheet.open(file_path)
       end
@@ -73,6 +74,7 @@ module FinancialDocuments
     end
 
     def clean_cell(value)
+      value = value.to_i if value.is_a?(Float) && value.finite? && value == value.to_i
       clean_text(value, max_length: MAX_CELL_LENGTH)
     end
 

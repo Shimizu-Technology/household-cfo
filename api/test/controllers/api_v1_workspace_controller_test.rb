@@ -87,6 +87,110 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 90_000, debt.minimum_payment_cents
   end
 
+  test "workspace setup does not duplicate document-derived detail rows when values are unchanged" do
+    user = create_user(email: "document-detail-setup@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.income_sources.create!(label: "Primary salary", source_type: "job", amount_cents: 620_000, cadence: "monthly")
+    household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 220_000, cadence: "monthly")
+    household.expense_items.create!(label: "Utilities", stack_key: "non_discretionary", amount_cents: 36_000, cadence: "monthly")
+    visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
+    mastercard = household.debts.create!(label: "Mastercard", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 6_000)
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+    setup_values = JSON.parse(response.body).fetch("workspace").fetch("setup_values")
+
+    assert_no_difference("IncomeSource.count") do
+      assert_no_difference("ExpenseItem.count") do
+        assert_no_difference("Debt.count") do
+          patch "/api/v1/workspace/setup",
+            params: { workspace: setup_values },
+            headers: auth_headers(user),
+            as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    assert_equal 620_000, household.income_sources.where(source_type: "job", active: true).sum(:amount_cents)
+    assert_equal 256_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
+    assert_equal 460_000, household.debts.where(debt_type: "credit_card").sum(:balance_cents)
+    assert_equal 340_000, visa.reload.balance_cents
+    assert_equal 17_500, visa.minimum_payment_cents
+    assert_equal 120_000, mastercard.reload.balance_cents
+    assert_equal 6_000, mastercard.minimum_payment_cents
+  end
+
+  test "workspace setup distributes aggregate income and expense edits across detailed rows" do
+    user = create_user(email: "document-detail-distribution@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    salary = household.income_sources.create!(label: "Primary salary", source_type: "job", amount_cents: 620_000, cadence: "monthly")
+    overtime = household.income_sources.create!(label: "Overtime", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+    rent = household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 220_000, cadence: "monthly")
+    utilities = household.expense_items.create!(label: "Utilities", stack_key: "non_discretionary", amount_cents: 36_000, cadence: "monthly")
+
+    assert_no_difference("IncomeSource.count") do
+      assert_no_difference("ExpenseItem.count") do
+        patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_income: 6_000, fixed_expenses: 2_000 } },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :success
+    assert_nil household.income_sources.find_by(label: "Primary income")
+    assert_nil household.expense_items.find_by(label: "Fixed essentials")
+    assert_equal "Primary salary", salary.reload.label
+    assert_equal "Overtime", overtime.reload.label
+    assert_equal "Rent", rent.reload.label
+    assert_equal "Utilities", utilities.reload.label
+    assert salary.active?
+    assert overtime.active?
+    assert rent.active?
+    assert utilities.active?
+    assert_equal 600_000, household.income_sources.where(source_type: "job", active: true).sum(:amount_cents)
+    assert_equal 200_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
+  end
+
+  test "workspace setup updates document-derived debt payment instead of duplicating debt" do
+    user = create_user(email: "document-debt-payment@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 0)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { credit_card_debt: 3_400, debt_payment: 175 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal 1, household.debts.where(debt_type: "credit_card").count
+    assert_equal 340_000, debt.reload.balance_cents
+    assert_equal 17_500, debt.minimum_payment_cents
+  end
+
+  test "workspace setup applies aggregate debt edits across multiple detailed debts" do
+    user = create_user(email: "multi-document-debt@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
+    mastercard = household.debts.create!(label: "Mastercard", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 6_000)
+
+    assert_no_difference("Debt.count") do
+      patch "/api/v1/workspace/setup",
+        params: { workspace: { credit_card_debt: 4_000, debt_payment: 200 } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal 2, household.debts.where(debt_type: "credit_card").count
+    assert_equal "Visa card", visa.reload.label
+    assert_equal "Mastercard", mastercard.reload.label
+    assert_equal 400_000, household.debts.where(debt_type: "credit_card").sum(:balance_cents)
+    assert_equal 20_000, household.debts.where(debt_type: "credit_card").sum(:minimum_payment_cents)
+    assert_operator visa.balance_cents, :<, 340_000
+    assert_operator mastercard.balance_cents, :<, 120_000
+  end
+
   test "workspace setup removes cleared credit card debt" do
     user = create_user(email: "clear-debt@example.com")
 

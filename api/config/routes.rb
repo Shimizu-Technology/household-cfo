@@ -23,6 +23,7 @@ Rails.application.routes.draw do
           post :reprocess
           post :apply
           get :source_url
+          get :source_preview
           delete :source, action: :destroy_source
         end
         resources :items, only: :update, controller: "document_import_items"
