@@ -417,6 +417,39 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert item.metadata.key?("last_corrected_at")
   end
 
+  test "item update preserves applied expense amount missing from extracted item" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    expense = @household.expense_items.create!(
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      active: true
+    )
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: expense
+    )
+    item.update_columns(amount_cents: nil, updated_at: Time.current)
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { label: "Dining out corrected" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    expense.reload
+    assert_equal "Dining out corrected", expense.label
+    assert_equal 420_00, expense.amount_cents
+    assert_equal true, expense.active?
+  end
+
   test "item update preserves applied debt fields missing from extracted item" do
     document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
     debt = @household.debts.create!(

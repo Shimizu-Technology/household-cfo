@@ -21,6 +21,7 @@ module HouseholdFinance
 
       document_import.with_lock do
         household.with_lock do
+          backfill_missing_item_values_from_record!
           item.update!(attributes)
           sync_applied_record!
           item.update!(metadata: correction_metadata)
@@ -46,6 +47,21 @@ module HouseholdFinance
       item.applied_record.household_id == household.id
     end
 
+    def backfill_missing_item_values_from_record!
+      record = item.applied_record
+      case record
+      when IncomeSource, ExpenseItem
+        item.amount_cents = record.amount_cents if item.amount_cents.nil?
+      when Account
+        item.balance_cents = record.balance_cents if item.balance_cents.nil?
+      when Debt
+        item.balance_cents = record.balance_cents if item.balance_cents.nil?
+        item.payment_cents = record.minimum_payment_cents if item.payment_cents.nil?
+      when Goal
+        item.amount_cents = record.target_amount_cents if item.amount_cents.nil?
+      end
+    end
+
     def sync_applied_record!
       case item.target_type
       when "income_source"
@@ -67,26 +83,30 @@ module HouseholdFinance
 
     def sync_income_source!
       record = typed_record!(IncomeSource)
-      cents = item.amount_cents.to_i
-      record.update!(
+      attributes = {
         label: item.label,
         source_type: item.source_type.presence_in(IncomeSource::SOURCE_TYPES) || record.source_type || "other",
-        amount_cents: cents,
-        cadence: cadence_for(item),
-        active: cents.positive?
-      )
+        cadence: cadence_for(item)
+      }
+      unless item.amount_cents.nil?
+        attributes[:amount_cents] = item.amount_cents
+        attributes[:active] = item.amount_cents.positive?
+      end
+      record.update!(attributes)
     end
 
     def sync_expense_item!
       record = typed_record!(ExpenseItem)
-      cents = item.amount_cents.to_i
-      record.update!(
+      attributes = {
         label: item.label,
         stack_key: item.stack_key.presence_in(ExpenseItem::STACK_KEYS) || record.stack_key || "discretionary",
-        amount_cents: cents,
-        cadence: cadence_for(item),
-        active: cents.positive?
-      )
+        cadence: cadence_for(item)
+      }
+      unless item.amount_cents.nil?
+        attributes[:amount_cents] = item.amount_cents
+        attributes[:active] = item.amount_cents.positive?
+      end
+      record.update!(attributes)
     end
 
     def sync_account!
@@ -113,11 +133,12 @@ module HouseholdFinance
     def sync_goal!
       record = typed_record!(Goal)
       goal_type = item.metadata.is_a?(Hash) ? item.metadata["goal_type"].to_s : record.goal_type
-      record.update!(
+      attributes = {
         label: item.label,
-        goal_type: goal_type.presence_in(Goal::GOAL_TYPES) || record.goal_type || "other",
-        target_amount_cents: item.amount_cents.to_i
-      )
+        goal_type: goal_type.presence_in(Goal::GOAL_TYPES) || record.goal_type || "other"
+      }
+      attributes[:target_amount_cents] = item.amount_cents unless item.amount_cents.nil?
+      record.update!(attributes)
     end
 
     def sync_profile_note!
