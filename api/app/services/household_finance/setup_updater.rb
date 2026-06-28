@@ -93,20 +93,23 @@ module HouseholdFinance
     end
 
     def upsert_debt(label, debt_type, balance, payment)
-      scope = household.debts.where(debt_type: debt_type)
-      aggregate = scope.find_by(label: label)
-      current_balance_cents = scope.sum(:balance_cents)
-      current_payment_cents = scope.sum(:minimum_payment_cents)
+      records = household.debts.where(debt_type: debt_type).order(:id).to_a
+      aggregate = records.find { |record| record.label == label }
+      current_balance_cents = records.sum(&:balance_cents)
+      current_payment_cents = records.sum(&:minimum_payment_cents)
       balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : Money.cents(balance)
       payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : Money.cents(payment)
-      return if aggregate.blank? && current_balance_cents == balance_cents && current_payment_cents == payment_cents
-      return if aggregate.blank? && scope.many?
+      return if current_balance_cents == balance_cents && current_payment_cents == payment_cents
 
-      record = aggregate || scope.order(:id).first || household.debts.new(debt_type: debt_type)
+      return distribute_debt_totals!(records, balance_cents, payment_cents) if records.many?
+
+      record = aggregate || records.first || household.debts.new(label: label, debt_type: debt_type)
       return record.destroy! if record.persisted? && balance_cents.zero?
       return if balance_cents.zero?
 
-      record.update!(label: label, debt_type: debt_type, balance_cents: balance_cents, minimum_payment_cents: payment_cents)
+      record.assign_attributes(debt_type: debt_type, balance_cents: balance_cents, minimum_payment_cents: payment_cents)
+      record.label = label if record.new_record? || record.label.blank?
+      record.save!
     end
 
     def upsert_runway_goal
@@ -136,6 +139,40 @@ module HouseholdFinance
       return nil if allow_blank && text.blank?
 
       text
+    end
+
+    def distribute_debt_totals!(records, balance_cents, payment_cents)
+      return records.each(&:destroy!) if balance_cents.zero?
+
+      balances = allocate_cents(balance_cents, records, :balance_cents)
+      payments = allocate_cents(payment_cents, records, :minimum_payment_cents)
+      records.each_with_index do |record, index|
+        record.update!(balance_cents: balances.fetch(index), minimum_payment_cents: payments.fetch(index))
+      end
+    end
+
+    def allocate_cents(total_cents, records, weight_attribute)
+      return [] if records.empty?
+      return Array.new(records.length, 0) if total_cents.zero?
+
+      weights = records.map { |record| [ record.public_send(weight_attribute).to_i, 0 ].max }
+      weight_total = weights.sum
+      return allocate_evenly(total_cents, records.length) if weight_total.zero?
+
+      allocations = weights.map { |weight| (total_cents * weight) / weight_total }
+      remainder = total_cents - allocations.sum
+      ranked_remainders = weights.each_with_index.map { |weight, index| [ (total_cents * weight) % weight_total, index ] }
+      ranked_remainders.sort_by { |fractional_cents, index| [ -fractional_cents, index ] }.first(remainder).each do |_fractional_cents, index|
+        allocations[index] += 1
+      end
+      allocations
+    end
+
+    def allocate_evenly(total_cents, count)
+      base, remainder = total_cents.divmod(count)
+      Array.new(count, base).tap do |allocations|
+        remainder.times { |index| allocations[index] += 1 }
+      end
     end
 
     def active_monthly_total(scope)
