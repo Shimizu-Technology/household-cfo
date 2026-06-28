@@ -57,14 +57,24 @@ module HouseholdFinance
 
     def upsert_income(label, source_type, value)
       cents = Money.cents(value)
-      record = household.income_sources.find_or_initialize_by(label: label, source_type: source_type)
-      record.update!(amount_cents: cents, cadence: "monthly", active: cents.positive?)
+      scope = household.income_sources.where(source_type: source_type)
+      aggregate = scope.find_by(label: label)
+      return if aggregate.blank? && active_monthly_total(scope) == cents
+
+      record = aggregate || scope.order(:id).first || household.income_sources.new(source_type: source_type)
+      deactivate_other_records(scope, record)
+      record.update!(label: label, amount_cents: cents, cadence: "monthly", active: cents.positive?)
     end
 
     def upsert_expense(label, stack_key, value)
       cents = Money.cents(value)
-      record = household.expense_items.find_or_initialize_by(label: label, stack_key: stack_key)
-      record.update!(amount_cents: cents, cadence: "monthly", active: cents.positive?)
+      scope = household.expense_items.where(stack_key: stack_key)
+      aggregate = scope.find_by(label: label)
+      return if aggregate.blank? && active_monthly_total(scope) == cents
+
+      record = aggregate || scope.order(:id).first || household.expense_items.new(stack_key: stack_key)
+      deactivate_other_records(scope, record)
+      record.update!(label: label, amount_cents: cents, cadence: "monthly", active: cents.positive?)
     end
 
     def upsert_account(label, account_type, value)
@@ -83,13 +93,20 @@ module HouseholdFinance
     end
 
     def upsert_debt(label, debt_type, balance, payment)
-      record = household.debts.find_or_initialize_by(label: label, debt_type: debt_type)
-      balance_cents = missing_value?(balance) ? existing_cents(record, :balance_cents) : Money.cents(balance)
-      payment_cents = missing_value?(payment) ? existing_cents(record, :minimum_payment_cents) : Money.cents(payment)
+      scope = household.debts.where(debt_type: debt_type)
+      aggregate = scope.find_by(label: label)
+      current_balance_cents = scope.sum(:balance_cents)
+      current_payment_cents = scope.sum(:minimum_payment_cents)
+      balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : Money.cents(balance)
+      payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : Money.cents(payment)
+      return if aggregate.blank? && current_balance_cents == balance_cents && current_payment_cents == payment_cents
+
+      record = aggregate || scope.order(:id).first || household.debts.new(debt_type: debt_type)
+      scope.where.not(id: record.id).destroy_all if record.persisted?
       return record.destroy! if record.persisted? && balance_cents.zero?
       return if balance_cents.zero?
 
-      record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents)
+      record.update!(label: label, debt_type: debt_type, balance_cents: balance_cents, minimum_payment_cents: payment_cents)
     end
 
     def upsert_runway_goal
@@ -119,6 +136,16 @@ module HouseholdFinance
       return nil if allow_blank && text.blank?
 
       text
+    end
+
+    def active_monthly_total(scope)
+      scope.where(active: true).sum { |record| Money.monthly_cents(record.amount_cents, record.cadence) }
+    end
+
+    def deactivate_other_records(scope, record)
+      return unless record.persisted?
+
+      scope.where.not(id: record.id).update_all(active: false, updated_at: Time.current)
     end
 
     def existing_cents(record, attribute)

@@ -87,6 +87,50 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 90_000, debt.minimum_payment_cents
   end
 
+  test "workspace setup does not duplicate document-derived detail rows when values are unchanged" do
+    user = create_user(email: "document-detail-setup@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.income_sources.create!(label: "Primary salary", source_type: "job", amount_cents: 620_000, cadence: "monthly")
+    household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 220_000, cadence: "monthly")
+    household.expense_items.create!(label: "Utilities", stack_key: "non_discretionary", amount_cents: 36_000, cadence: "monthly")
+    household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+    setup_values = JSON.parse(response.body).fetch("workspace").fetch("setup_values")
+
+    assert_no_difference("IncomeSource.count") do
+      assert_no_difference("ExpenseItem.count") do
+        assert_no_difference("Debt.count") do
+          patch "/api/v1/workspace/setup",
+            params: { workspace: setup_values },
+            headers: auth_headers(user),
+            as: :json
+        end
+      end
+    end
+
+    assert_response :success
+    assert_equal 620_000, household.income_sources.where(source_type: "job", active: true).sum(:amount_cents)
+    assert_equal 256_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
+    assert_equal 340_000, household.debts.where(debt_type: "credit_card").sum(:balance_cents)
+  end
+
+  test "workspace setup updates document-derived debt payment instead of duplicating debt" do
+    user = create_user(email: "document-debt-payment@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    debt = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 0)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { credit_card_debt: 3_400, debt_payment: 175 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal 1, household.debts.where(debt_type: "credit_card").count
+    assert_equal 340_000, debt.reload.balance_cents
+    assert_equal 17_500, debt.minimum_payment_cents
+  end
+
   test "workspace setup removes cleared credit card debt" do
     user = create_user(email: "clear-debt@example.com")
 
