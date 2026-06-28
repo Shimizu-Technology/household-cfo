@@ -507,6 +507,8 @@ DATABASE_URL
 RAILS_ENV=production
 RAILS_MASTER_KEY or SECRET_KEY_BASE
 FRONTEND_URL / FRONTEND_URLS
+# Optional on single Render web service; use a separate worker if available.
+SOLID_QUEUE_IN_PUMA=true
 CLERK_ISSUER or CLERK_JWKS_URL
 CLERK_SECRET_KEY
 OPENROUTER_API_KEY
@@ -514,6 +516,14 @@ OPENROUTER_MODEL=google/gemini-2.5-flash
 VITE_API_BASE_URL
 VITE_CLERK_PUBLISHABLE_KEY
 ```
+
+Render build command for the API can stay simple when `DATABASE_URL` points at Neon/Render Postgres:
+
+```bash
+bundle install && bundle exec rails db:create db:migrate
+```
+
+The production database config points Solid Cache and Solid Queue at `DATABASE_URL` by default. Set `CACHE_DATABASE_URL` and `QUEUE_DATABASE_URL` only if you intentionally provision separate databases.
 
 ## Acceptance criteria for the real-mode PR
 
