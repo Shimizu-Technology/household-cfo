@@ -119,10 +119,32 @@ export type FinancialDocumentImport = {
 
 export type DocumentSourceUrl = {
   url: string
+  download_url: string
   expires_in: number
   filename: string
   content_type: string
   inline_supported: boolean
+}
+
+export type DocumentSourcePreviewRow = {
+  row: number
+  values: string[]
+}
+
+export type DocumentSourcePreviewSheet = {
+  name: string
+  row_count: number
+  sampled_row_count: number
+  columns_seen: number
+  rows: DocumentSourcePreviewRow[]
+}
+
+export type DocumentSourcePreview = {
+  type: 'spreadsheet' | 'text'
+  filename: string
+  content_type: string
+  sheets?: DocumentSourcePreviewSheet[]
+  text?: string
 }
 
 export type DocumentImportItemInput = Partial<Pick<
@@ -610,6 +632,10 @@ export async function deleteDocumentImport(documentImportId: number): Promise<vo
 
 export async function fetchDocumentImportSourceUrl(documentImportId: number): Promise<DocumentSourceUrl> {
   return fetchJson<DocumentSourceUrl>(`/api/v1/document_imports/${documentImportId}/source_url`)
+}
+
+export async function fetchDocumentImportSourcePreview(documentImportId: number): Promise<DocumentSourcePreview> {
+  return fetchJson<DocumentSourcePreview>(`/api/v1/document_imports/${documentImportId}/source_preview`)
 }
 
 function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData, budget: BudgetData, wealth: WealthData): WorkspaceSetupValues {

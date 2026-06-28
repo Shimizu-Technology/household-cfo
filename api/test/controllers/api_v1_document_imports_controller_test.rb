@@ -124,17 +124,36 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document_import.content_type
   end
 
-  test "source_url returns short lived presigned link without exposing s3 key" do
+  test "create accepts valid docx files when Marcel reports application zip" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      with_singleton_stub(Marcel::MimeType, :for, ->(*, **) { "application/zip" }) do
+        assert_difference("FinancialDocumentImport.count", 1) do
+          post "/api/v1/document_imports",
+            params: { file: uploaded_docx, document_kind: "other" },
+            headers: auth_headers(@user)
+        end
+      end
+    end
+
+    assert_response :created
+    assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", FinancialDocumentImport.last.content_type
+  end
+
+  test "source_url returns preview and download links without exposing s3 key" do
     document_import = create_import!(s3_key: "household-cfo/test/households/#{@household.id}/documents/1/source/statement.pdf")
 
+    dispositions = []
     with_s3_stubs(
       configured?: true,
       presigned_url: ->(key, expires_in:, filename:, disposition:) {
         assert_equal document_import.s3_key, key
         assert_equal 300, expires_in
         assert_equal "statement.pdf", filename
-        assert_equal :inline, disposition
-        "https://private.example.test/presigned"
+        dispositions << disposition
+        "https://private.example.test/#{disposition}"
       }
     ) do
       get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
@@ -142,11 +161,42 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal "https://private.example.test/presigned", body.fetch("url")
+    assert_equal "https://private.example.test/inline", body.fetch("url")
+    assert_equal "https://private.example.test/attachment", body.fetch("download_url")
+    assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
   end
 
-  test "source_url serves csv sources inline for in-app preview" do
+  test "source_url serves csv sources inline for in-app preview and download separately" do
+    document_import = create_import!(
+      document_kind: "spreadsheet",
+      filename: "budget.csv",
+      content_type: "text/csv",
+      s3_key: "household-cfo/test/source.csv"
+    )
+
+    dispositions = []
+    with_s3_stubs(
+      configured?: true,
+      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
+        assert_equal 300, expires_in
+        assert_equal "budget.csv", filename
+        dispositions << disposition
+        "https://private.example.test/budget-#{disposition}.csv"
+      }
+    ) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal true, body.fetch("inline_supported")
+    assert_equal "https://private.example.test/budget-inline.csv", body.fetch("url")
+    assert_equal "https://private.example.test/budget-attachment.csv", body.fetch("download_url")
+    assert_equal [ :inline, :attachment ], dispositions
+  end
+
+  test "source_preview renders spreadsheet rows through Rails without a browser download" do
     document_import = create_import!(
       document_kind: "spreadsheet",
       filename: "budget.csv",
@@ -156,19 +206,23 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     with_s3_stubs(
       configured?: true,
-      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
-        assert_equal 300, expires_in
-        assert_equal "budget.csv", filename
-        assert_equal :inline, disposition
-        "https://private.example.test/budget.csv"
+      download_to_io: ->(_key, io) {
+        io.write("type,label,amount\nincome_source,Primary salary,6200\nexpense_item,Dining out,420\n")
+        true
       }
     ) do
-      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+      get "/api/v1/document_imports/#{document_import.id}/source_preview", headers: auth_headers(@user)
     end
 
     assert_response :success
     body = JSON.parse(response.body)
-    assert_equal true, body.fetch("inline_supported")
+    assert_equal "spreadsheet", body.fetch("type")
+    assert_equal "budget.csv", body.fetch("filename")
+    assert_not body.key?("url")
+    assert_not body.key?("s3_key")
+    rows = body.fetch("sheets").first.fetch("rows")
+    assert_equal [ "type", "label", "amount" ], rows.first.fetch("values")
+    assert_equal [ "income_source", "Primary salary", "6200" ], rows.second.fetch("values")
   end
 
   test "destroy removes database record before deleting private source" do
@@ -519,6 +573,18 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       byte_size: 100,
       s3_key: "household-cfo/test/statement.pdf"
     }.merge(attributes))
+  end
+
+  def with_singleton_stub(target, method_name, replacement)
+    singleton = class << target; self; end
+    original = singleton.instance_method(method_name)
+    singleton.define_method(method_name) do |*args, **kwargs, &block|
+      replacement.call(*args, **kwargs, &block)
+    end
+    yield
+  ensure
+    singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
+    singleton.define_method(method_name, original)
   end
 
   def with_s3_stubs(stubs)

@@ -1,11 +1,12 @@
 require "digest"
 require "marcel"
+require "zip"
 
 module Api
   module V1
     class DocumentImportsController < BaseController
       before_action :authenticate_user!
-      before_action :set_document_import, only: %i[show destroy reprocess apply source_url destroy_source]
+      before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
 
       MAX_UPLOAD_BYTES = 20.megabytes
       ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp].freeze
@@ -15,7 +16,7 @@ module Api
         ".csv" => %w[text/csv text/plain application/csv application/vnd.ms-excel],
         ".xls" => %w[application/vnd.ms-excel application/xls application/excel],
         ".xlsx" => %w[application/vnd.openxmlformats-officedocument.spreadsheetml.sheet application/zip],
-        ".docx" => %w[application/vnd.openxmlformats-officedocument.wordprocessingml.document],
+        ".docx" => %w[application/vnd.openxmlformats-officedocument.wordprocessingml.document application/zip],
         ".jpg" => %w[image/jpeg],
         ".jpeg" => %w[image/jpeg],
         ".png" => %w[image/png],
@@ -138,21 +139,41 @@ module Api
         return render_s3_not_configured unless S3Service.configured?
         return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless @document_import.source_available?
 
+        inline_supported = inline_supported?(@document_import)
         url = S3Service.presigned_url(
           @document_import.s3_key,
           expires_in: 300,
           filename: @document_import.filename,
-          disposition: inline_supported?(@document_import) ? :inline : :attachment
+          disposition: inline_supported ? :inline : :attachment
         )
-        return render json: { errors: [ "Could not generate document link" ] }, status: :service_unavailable unless url
+        download_url = S3Service.presigned_url(
+          @document_import.s3_key,
+          expires_in: 300,
+          filename: @document_import.filename,
+          disposition: :attachment
+        )
+        return render json: { errors: [ "Could not generate document link" ] }, status: :service_unavailable unless url && download_url
 
         render json: {
           url: url,
+          download_url: download_url,
           expires_in: 300,
           filename: @document_import.filename,
           content_type: @document_import.content_type,
-          inline_supported: inline_supported?(@document_import)
+          inline_supported: inline_supported
         }
+      rescue S3Service::MissingConfigurationError
+        render_s3_not_configured
+      end
+
+      def source_preview
+        return render_s3_not_configured unless S3Service.configured?
+        return render json: { errors: [ "Document source is no longer available" ] }, status: :not_found unless @document_import.source_available?
+
+        result = FinancialDocuments::SourcePreviewer.new(@document_import).call
+        return render json: result.data if result.success?
+
+        render json: { errors: [ result.error ] }, status: :unprocessable_entity
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
       end
@@ -201,6 +222,9 @@ module Api
         unless content_type.in?(allowed_content_types)
           return "File contents do not match the #{extension.delete_prefix('.').upcase} upload type"
         end
+        if extension.in?(%w[.docx .xlsx]) && !valid_ooxml_package?(file.tempfile.path, extension)
+          return "File contents do not match the #{extension.delete_prefix('.').upcase} upload type"
+        end
 
         nil
       end
@@ -236,7 +260,21 @@ module Api
       end
 
       def normalized_content_type(file)
-        sniffed_content_type(file).presence || file.content_type.to_s.presence || "application/octet-stream"
+        extension = File.extname(file.original_filename.to_s).downcase
+        content_type = sniffed_content_type(file).presence || file.content_type.to_s.presence || "application/octet-stream"
+        return "application/vnd.openxmlformats-officedocument.wordprocessingml.document" if extension == ".docx" && content_type == "application/zip"
+        return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" if extension == ".xlsx" && content_type == "application/zip"
+
+        content_type
+      end
+
+      def valid_ooxml_package?(path, extension)
+        required_entry = extension == ".docx" ? "word/document.xml" : "xl/workbook.xml"
+        Zip::File.open(path) do |zip|
+          zip.find_entry("[Content_Types].xml").present? && zip.find_entry(required_entry).present?
+        end
+      rescue Zip::Error, SystemCallError
+        false
       end
 
       def sniffed_content_type(file)

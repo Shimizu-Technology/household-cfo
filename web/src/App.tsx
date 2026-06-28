@@ -11,6 +11,7 @@ import {
   fetchAdminCohorts,
   fetchAdminUsers,
   fetchAppData,
+  fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
   fetchDocumentImports,
   reprocessDocumentImport,
@@ -34,6 +35,8 @@ import type {
   DocumentImportItem,
   DocumentImportItemInput,
   DocumentImportKind,
+  DocumentSourcePreview as DocumentSourcePreviewData,
+  DocumentSourceUrl,
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
@@ -53,7 +56,7 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
-const SUPPORTED_DOCUMENT_ACCEPTS = '.pdf,.csv,.xls,.xlsx,.docx,.jpg,.jpeg,.png,.webp'
+const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp'
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 
@@ -68,14 +71,14 @@ const documentUploadCards: Array<{
     kind: 'spreadsheet',
     label: 'Budget file',
     eyebrow: 'Expense stack',
-    accepts: '.csv,.xls,.xlsx,.pdf,.docx',
-    helper: 'Upload a budget CSV, Excel workbook, PDF, or Word doc. Mia drafts income, expenses, assets, and debts for review.',
+    accepts: '.xlsx,.xls,.csv,.pdf,.docx',
+    helper: 'Upload an Excel workbook, CSV, PDF, or Word budget. Mia drafts income, expenses, assets, and debts for review.',
   },
   {
     kind: 'statement',
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
-    accepts: '.pdf,.csv,.xls,.xlsx',
+    accepts: '.pdf,.xlsx,.xls,.csv',
     helper: 'Upload a PDF or spreadsheet statement to draft balances, payments, and spending categories.',
   },
   {
@@ -994,6 +997,7 @@ function App() {
           documentImport={previewImport}
           onClose={() => setPreviewImport(null)}
           onFetchSourceUrl={fetchDocumentImportSourceUrl}
+          onFetchSourcePreview={fetchDocumentImportSourcePreview}
         />
       )}
     </main>
@@ -1209,9 +1213,9 @@ function DocumentImportWorkspace({
       <div className="document-import-guide">
         <div>
           <strong>Not sure what to upload?</strong>
-          <p>Start with our budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. Mia drafts values only after upload.</p>
+          <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. Mia drafts values only after upload.</p>
         </div>
-        <a href="/household-cfo-budget-template.csv" download>Download budget template</a>
+        <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
       </div>
 
       {error && <p className="document-alert error" role="alert">{error}</p>}
@@ -1477,14 +1481,19 @@ function DocumentSourcePreview({
   documentImport,
   onClose,
   onFetchSourceUrl,
+  onFetchSourcePreview,
 }: {
   documentImport: FinancialDocumentImport
   onClose: () => void
-  onFetchSourceUrl: (id: number) => Promise<{ url: string; filename: string; content_type: string; expires_in: number; inline_supported: boolean }>
+  onFetchSourceUrl: (id: number) => Promise<DocumentSourceUrl>
+  onFetchSourcePreview: (id: number) => Promise<DocumentSourcePreviewData>
 }) {
-  const [source, setSource] = useState<{ url: string; filename: string; content_type: string; expires_in: number; inline_supported: boolean } | null>(null)
+  const [source, setSource] = useState<DocumentSourceUrl | null>(null)
+  const [preview, setPreview] = useState<DocumentSourcePreviewData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [previewError, setPreviewError] = useState<string | null>(null)
   const [officePreviewAllowed, setOfficePreviewAllowed] = useState(false)
 
   useEffect(() => {
@@ -1492,7 +1501,22 @@ function DocumentSourcePreview({
 
     onFetchSourceUrl(documentImport.id)
       .then((payload) => {
-        if (!cancelled) setSource(payload)
+        if (cancelled) return
+
+        setSource(payload)
+        if (!usesServerPreview(payload.filename, payload.content_type)) return
+
+        setPreviewLoading(true)
+        onFetchSourcePreview(documentImport.id)
+          .then((previewPayload) => {
+            if (!cancelled) setPreview(previewPayload)
+          })
+          .catch((caught) => {
+            if (!cancelled) setPreviewError(caught instanceof Error ? caught.message : 'Secure document preview could not be loaded.')
+          })
+          .finally(() => {
+            if (!cancelled) setPreviewLoading(false)
+          })
       })
       .catch((caught) => {
         if (!cancelled) setError(caught instanceof Error ? caught.message : 'Secure document preview could not be loaded.')
@@ -1504,7 +1528,7 @@ function DocumentSourcePreview({
     return () => {
       cancelled = true
     }
-  }, [documentImport.id, onFetchSourceUrl])
+  }, [documentImport.id, onFetchSourcePreview, onFetchSourceUrl])
 
   useEffect(() => {
     const handleKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -1523,10 +1547,9 @@ function DocumentSourcePreview({
   const contentType = source?.content_type ?? documentImport.content_type
   const isImage = contentType.startsWith('image/')
   const isPdf = contentType === 'application/pdf'
-  const isText = contentType === 'text/csv' || contentType === 'application/csv' || contentType === 'text/plain' || filename.toLowerCase().endsWith('.csv')
   const isOffice = isOfficePreviewType(filename, contentType)
+  const serverPreviewType = usesServerPreview(filename, contentType)
   const officePreviewUrl = source && isOffice ? `https://view.officeapps.live.com/op/embed.aspx?src=${encodeURIComponent(source.url)}` : null
-  const canInlinePreview = isImage || isPdf || isText
 
   return (
     <div className="document-preview-overlay" role="presentation">
@@ -1539,7 +1562,7 @@ function DocumentSourcePreview({
             <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Link expires in {source?.expires_in ?? 300}s</p>
           </div>
           <div className="document-preview-actions">
-            {source && <a href={source.url} target="_blank" rel="noopener noreferrer">Open in new tab</a>}
+            {source && <a href={source.download_url} target="_blank" rel="noopener noreferrer">Download source</a>}
             <button type="button" onClick={onClose}>Close</button>
           </div>
         </header>
@@ -1551,22 +1574,26 @@ function DocumentSourcePreview({
           {source && !loading && !error && (
             <>
               {isPdf && <iframe src={`${source.url}#toolbar=1&navpanes=0`} title={filename} />}
-              {isText && <iframe src={source.url} title={filename} />}
               {isImage && <img src={source.url} alt={filename} />}
+              {serverPreviewType && previewLoading && <div className="document-preview-state"><span className="document-preview-spinner" />Building safe in-app preview…</div>}
+              {serverPreviewType && previewError && <div className="document-preview-state error">{previewError}</div>}
+              {preview?.type === 'spreadsheet' && !officePreviewAllowed && <SpreadsheetSourcePreview preview={preview} />}
+              {preview?.type === 'text' && !officePreviewAllowed && <TextSourcePreview preview={preview} />}
               {officePreviewUrl && !officePreviewAllowed && (
-                <div className="document-preview-state office">
-                  <StatementIcon />
-                  <h4>Office preview is available</h4>
-                  <p>Excel and Word previews use Microsoft’s online viewer, which temporarily shares this short-lived private link with Microsoft. You can skip preview and open/download the file instead.</p>
+                <div className="document-preview-office-note">
+                  <div>
+                    <strong>Need the exact Office layout?</strong>
+                    <p>The table above is rendered privately by Household CFO. Microsoft Office preview is optional and shares this short-lived link with Microsoft.</p>
+                  </div>
                   <button type="button" onClick={() => setOfficePreviewAllowed(true)}>Preview with Microsoft Office</button>
                 </div>
               )}
               {officePreviewUrl && officePreviewAllowed && <iframe src={officePreviewUrl} title={filename} />}
-              {!canInlinePreview && !officePreviewUrl && (
+              {!isPdf && !isImage && !serverPreviewType && !officePreviewUrl && (
                 <div className="document-preview-state">
                   <StatementIcon />
                   <h4>Preview not available for this file type</h4>
-                  <p>Use “Open in new tab” to download or view the secure source file.</p>
+                  <p>Use “Download source” to save the secure source file.</p>
                 </div>
               )}
             </>
@@ -1575,6 +1602,67 @@ function DocumentSourcePreview({
       </section>
     </div>
   )
+}
+
+function SpreadsheetSourcePreview({ preview }: { preview: DocumentSourcePreviewData }) {
+  const sheets = preview.sheets ?? []
+
+  if (sheets.length === 0) {
+    return (
+      <div className="document-preview-state">
+        <StatementIcon />
+        <h4>No rows to preview</h4>
+        <p>The document is readable, but no populated spreadsheet rows were found.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="document-spreadsheet-preview">
+      {sheets.map((sheet) => (
+        <section className="document-preview-sheet" key={sheet.name}>
+          <div className="document-preview-sheet-heading">
+            <strong>{sheet.name}</strong>
+            <span>{sheet.sampled_row_count} of {sheet.row_count} rows shown</span>
+          </div>
+          <div className="document-preview-table-wrap">
+            <table>
+              <tbody>
+                {sheet.rows.map((row) => (
+                  <tr key={row.row}>
+                    <th scope="row">{row.row}</th>
+                    {row.values.map((value, index) => (
+                      <td key={`${row.row}-${index}`}>{value}</td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
+    </div>
+  )
+}
+
+function TextSourcePreview({ preview }: { preview: DocumentSourcePreviewData }) {
+  return (
+    <div className="document-text-preview">
+      <pre>{preview.text || 'No text could be shown for this document.'}</pre>
+    </div>
+  )
+}
+
+function usesServerPreview(filename: string, contentType: string) {
+  const name = filename.toLowerCase()
+  return name.endsWith('.csv') || name.endsWith('.xls') || name.endsWith('.xlsx') || name.endsWith('.docx') || [
+    'text/csv',
+    'text/plain',
+    'application/csv',
+    'application/vnd.ms-excel',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  ].includes(contentType)
 }
 
 function isOfficePreviewType(filename: string, contentType: string) {
