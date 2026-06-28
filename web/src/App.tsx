@@ -43,7 +43,9 @@ import type {
   UserRole,
   WorkspaceSetupValues,
 } from './api'
+import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
+import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload } from './lib/analytics'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -151,6 +153,7 @@ function App() {
   const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const lastTrackedSectionRef = useRef<string | null>(null)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const shouldUseRealWorkspace = auth.isClerkEnabled
   const isRealWorkspace = data?.workspace?.mode === 'real'
@@ -176,6 +179,23 @@ function App() {
       .join('|'),
     [documentImports],
   )
+
+  useEffect(() => {
+    if (!data) return
+
+    const signature = `${activeSection}:${data.workspace?.mode ?? 'demo'}:${auth.currentUser?.role ?? 'preview'}`
+    if (lastTrackedSectionRef.current === signature) return
+
+    captureSectionPageview(activeSection, {
+      workspace_mode: data.workspace?.mode ?? 'demo',
+      auth_mode: auth.isClerkEnabled ? 'clerk' : 'preview',
+      app_role: auth.currentUser?.role ?? 'preview',
+      profile_complete: data.profile.completeness,
+      pending_imports: pendingImportsCount,
+      processing_imports: processingImportsCount,
+    })
+    lastTrackedSectionRef.current = signature
+  }, [activeSection, auth.currentUser?.role, auth.isClerkEnabled, data, pendingImportsCount, processingImportsCount])
 
   const refreshDocumentImports = useCallback(async ({ quiet = false }: { quiet?: boolean } = {}) => {
     if (!isRealWorkspace) {
@@ -288,6 +308,10 @@ function App() {
   }, [activeSection, currentMessages.length, miaLoading])
 
   function switchSection(section: string) {
+    captureAnalyticsEvent('section_selected', {
+      section: section.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      from_section: activeSection.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+    })
     setActive(section)
     if (section !== 'Ask Mia') setIsChatExpanded(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
@@ -310,8 +334,18 @@ function App() {
 
     try {
       const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace)
+      captureAnalyticsEvent('mia_message_sent', {
+        workspace_mode: isRealWorkspace ? 'real' : 'demo',
+        history_count: priorMessages.length,
+        prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
+      })
       setMessages((current) => [...current, assistantMessage])
     } catch {
+      captureAnalyticsEvent('mia_message_failed', {
+        workspace_mode: isRealWorkspace ? 'real' : 'demo',
+        history_count: priorMessages.length,
+        prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
+      })
       setMessages((current) => [
         ...current,
         {
@@ -347,6 +381,9 @@ function App() {
     try {
       if (isRealWorkspace) await clearMiaMessages(true)
       setMessages([])
+      captureAnalyticsEvent('mia_chat_cleared', {
+        workspace_mode: isRealWorkspace ? 'real' : 'demo',
+      })
     } catch (caught) {
       setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
     } finally {
@@ -363,11 +400,18 @@ function App() {
     setUploadingKind(kind)
     setDocumentsError(null)
     setDocumentsNotice(null)
+    trackDocumentUpload(kind, 'started', file)
     try {
       const documentImport = await uploadDocumentImport(file, kind)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
       setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. Mia is extracting draft values for review.`)
+      trackDocumentUpload(kind, 'succeeded', file)
+      captureAnalyticsEvent('document_import_created', {
+        document_kind: kind,
+        origin,
+        status: documentImport.status,
+      })
 
       if (origin === 'mia') {
         setMessages((current) => [
@@ -380,6 +424,7 @@ function App() {
         ])
       }
     } catch (caught) {
+      trackDocumentUpload(kind, 'failed', file)
       setDocumentsError(caught instanceof Error ? caught.message : 'Document could not be uploaded.')
     } finally {
       setUploadingKind(null)
@@ -438,7 +483,17 @@ function App() {
       setMessages(response.workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
+      captureAnalyticsEvent('document_import_applied', {
+        document_kind: documentImport.document_kind,
+        applied_count: response.applied_count,
+        selected_count: itemIds.length,
+        resulting_status: response.document_import.status,
+      })
     } catch (caught) {
+      captureAnalyticsEvent('document_import_apply_failed', {
+        document_kind: documentImport.document_kind,
+        selected_count: itemIds.length,
+      })
       setDocumentsError(caught instanceof Error ? caught.message : 'Selected values could not be applied.')
     } finally {
       setDocumentAction(null)
@@ -512,7 +567,12 @@ function App() {
       setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
       setMessages(payload.mia.messages)
       setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('workspace_setup_saved', {
+        setup_complete: payload.workspace?.setup_complete ?? false,
+        workspace_mode: payload.workspace?.mode ?? 'real',
+      })
     } catch (caught) {
+      captureAnalyticsEvent('workspace_setup_save_failed')
       setSetupError(caught instanceof Error ? caught.message : 'Your numbers could not be saved. Please try again.')
     } finally {
       setSetupSaving(false)
@@ -548,6 +608,7 @@ function App() {
   if (!data) {
     return (
       <main className="app loading-state">
+        <SeoManager section="Home" />
         <section className="hero-panel">
           <p className="eyebrow">Household CFO powered by VERA</p>
           <h1>Loading Mia’s first cohort workspace.</h1>
@@ -559,6 +620,7 @@ function App() {
 
   return (
     <main className="app">
+      <SeoManager section={activeSection} />
       <header className="shell-header">
         <ul className="sr-only" aria-label="Source-derived design requirements">
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
@@ -2817,6 +2879,13 @@ function cohortDateRange(cohort: AdminCohort) {
 
 function formatShortDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+}
+
+function messageLengthBucket(length: number) {
+  if (length < 80) return 'under_80'
+  if (length < 250) return '80_249'
+  if (length < 750) return '250_749'
+  return '750_plus'
 }
 
 function WorkspaceSetupForm({

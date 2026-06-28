@@ -515,6 +515,11 @@ OPENROUTER_API_KEY
 OPENROUTER_MODEL=google/gemini-2.5-flash
 VITE_API_BASE_URL
 VITE_CLERK_PUBLISHABLE_KEY
+VITE_SITE_URL
+# Optional PostHog analytics/session replay
+VITE_PUBLIC_POSTHOG_KEY
+VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com
+VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true
 ```
 
 Render build command for the API can stay simple when `DATABASE_URL` points at Neon/Render Postgres:
