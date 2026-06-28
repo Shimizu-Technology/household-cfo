@@ -56,25 +56,17 @@ module HouseholdFinance
     end
 
     def upsert_income(label, source_type, value)
-      cents = Money.cents(value)
-      scope = household.income_sources.where(source_type: source_type)
-      aggregate = scope.find_by(label: label)
-      return if aggregate.blank? && active_monthly_total(scope) == cents
-
-      record = aggregate || scope.order(:id).first || household.income_sources.new(source_type: source_type)
-      deactivate_other_records(scope, record)
-      record.update!(label: label, amount_cents: cents, cadence: "monthly", active: cents.positive?)
+      records = household.income_sources.where(source_type: source_type).order(:id).to_a
+      upsert_monthly_amount_records(records, Money.cents(value), default_label: label) do
+        household.income_sources.new(source_type: source_type)
+      end
     end
 
     def upsert_expense(label, stack_key, value)
-      cents = Money.cents(value)
-      scope = household.expense_items.where(stack_key: stack_key)
-      aggregate = scope.find_by(label: label)
-      return if aggregate.blank? && active_monthly_total(scope) == cents
-
-      record = aggregate || scope.order(:id).first || household.expense_items.new(stack_key: stack_key)
-      deactivate_other_records(scope, record)
-      record.update!(label: label, amount_cents: cents, cadence: "monthly", active: cents.positive?)
+      records = household.expense_items.where(stack_key: stack_key).order(:id).to_a
+      upsert_monthly_amount_records(records, Money.cents(value), default_label: label) do
+        household.expense_items.new(stack_key: stack_key)
+      end
     end
 
     def upsert_account(label, account_type, value)
@@ -141,27 +133,63 @@ module HouseholdFinance
       text
     end
 
+    def upsert_monthly_amount_records(records, monthly_total_cents, default_label:)
+      active_records = records.select(&:active?)
+      aggregate = records.find { |record| record.label == default_label }
+      return if aggregate.blank? && amount_records_monthly_total(active_records) == monthly_total_cents
+      return distribute_monthly_amount_total!(active_records, monthly_total_cents) if active_records.many?
+
+      record = amount_record_for_single_update(aggregate, active_records, records) || yield
+      if monthly_total_cents.zero?
+        record.update!(amount_cents: 0, cadence: "monthly", active: false) if record.persisted? && record.active?
+        return
+      end
+
+      record.assign_attributes(amount_cents: monthly_total_cents, cadence: "monthly", active: true)
+      record.label = default_label if record.new_record? || record.label.blank?
+      record.save!
+    end
+
+    def amount_record_for_single_update(aggregate, active_records, records)
+      return aggregate if aggregate&.active?
+      return active_records.first if active_records.one?
+
+      aggregate || records.first
+    end
+
+    def distribute_monthly_amount_total!(records, monthly_total_cents)
+      allocations = allocate_cents(monthly_total_cents, records.map { |record| Money.monthly_cents(record.amount_cents, record.cadence) })
+      records.each_with_index do |record, index|
+        amount_cents = allocations.fetch(index)
+        record.update!(amount_cents: amount_cents, cadence: "monthly", active: amount_cents.positive?)
+      end
+    end
+
+    def amount_records_monthly_total(records)
+      records.sum { |record| Money.monthly_cents(record.amount_cents, record.cadence) }
+    end
+
     def distribute_debt_totals!(records, balance_cents, payment_cents)
       return records.each(&:destroy!) if balance_cents.zero?
 
-      balances = allocate_cents(balance_cents, records, :balance_cents)
-      payments = allocate_cents(payment_cents, records, :minimum_payment_cents)
+      balances = allocate_cents(balance_cents, records.map(&:balance_cents))
+      payments = allocate_cents(payment_cents, records.map(&:minimum_payment_cents))
       records.each_with_index do |record, index|
         record.update!(balance_cents: balances.fetch(index), minimum_payment_cents: payments.fetch(index))
       end
     end
 
-    def allocate_cents(total_cents, records, weight_attribute)
-      return [] if records.empty?
-      return Array.new(records.length, 0) if total_cents.zero?
+    def allocate_cents(total_cents, weights)
+      return [] if weights.empty?
+      return Array.new(weights.length, 0) if total_cents.zero?
 
-      weights = records.map { |record| [ record.public_send(weight_attribute).to_i, 0 ].max }
-      weight_total = weights.sum
-      return allocate_evenly(total_cents, records.length) if weight_total.zero?
+      sanitized_weights = weights.map { |weight| [ weight.to_i, 0 ].max }
+      weight_total = sanitized_weights.sum
+      return allocate_evenly(total_cents, sanitized_weights.length) if weight_total.zero?
 
-      allocations = weights.map { |weight| (total_cents * weight) / weight_total }
+      allocations = sanitized_weights.map { |weight| (total_cents * weight) / weight_total }
       remainder = total_cents - allocations.sum
-      ranked_remainders = weights.each_with_index.map { |weight, index| [ (total_cents * weight) % weight_total, index ] }
+      ranked_remainders = sanitized_weights.each_with_index.map { |weight, index| [ (total_cents * weight) % weight_total, index ] }
       ranked_remainders.sort_by { |fractional_cents, index| [ -fractional_cents, index ] }.first(remainder).each do |_fractional_cents, index|
         allocations[index] += 1
       end
@@ -173,16 +201,6 @@ module HouseholdFinance
       Array.new(count, base).tap do |allocations|
         remainder.times { |index| allocations[index] += 1 }
       end
-    end
-
-    def active_monthly_total(scope)
-      scope.where(active: true).sum { |record| Money.monthly_cents(record.amount_cents, record.cadence) }
-    end
-
-    def deactivate_other_records(scope, record)
-      return unless record.persisted?
-
-      scope.where.not(id: record.id).update_all(active: false, updated_at: Time.current)
     end
 
     def existing_cents(record, attribute)
