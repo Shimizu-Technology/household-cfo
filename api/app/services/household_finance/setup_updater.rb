@@ -100,9 +100,9 @@ module HouseholdFinance
       balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : Money.cents(balance)
       payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : Money.cents(payment)
       return if aggregate.blank? && current_balance_cents == balance_cents && current_payment_cents == payment_cents
+      return if aggregate.blank? && scope.many?
 
       record = aggregate || scope.order(:id).first || household.debts.new(debt_type: debt_type)
-      scope.where.not(id: record.id).destroy_all if record.persisted?
       return record.destroy! if record.persisted? && balance_cents.zero?
       return if balance_cents.zero?
 

@@ -131,6 +131,25 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 17_500, debt.minimum_payment_cents
   end
 
+  test "workspace setup preserves multiple detailed debts instead of destructive aggregate replacement" do
+    user = create_user(email: "multi-document-debt@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
+    mastercard = household.debts.create!(label: "Mastercard", debt_type: "credit_card", balance_cents: 120_000, minimum_payment_cents: 6_000)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { credit_card_debt: 4_000, debt_payment: 200 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal 2, household.debts.where(debt_type: "credit_card").count
+    assert_equal 340_000, visa.reload.balance_cents
+    assert_equal 17_500, visa.minimum_payment_cents
+    assert_equal 120_000, mastercard.reload.balance_cents
+    assert_equal 6_000, mastercard.minimum_payment_cents
+  end
+
   test "workspace setup removes cleared credit card debt" do
     user = create_user(email: "clear-debt@example.com")
 
