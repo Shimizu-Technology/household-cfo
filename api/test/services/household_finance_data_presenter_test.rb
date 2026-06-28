@@ -23,6 +23,9 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
     payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
 
+    assert_equal 1, debt_milestone(payload).fetch(:current)
+    assert_equal 1, debt_milestone(payload).fetch(:target)
+    assert_equal "clear", debt_milestone(payload).fetch(:unit)
     assert_equal "green", debt_milestone(payload).fetch(:status)
   end
 

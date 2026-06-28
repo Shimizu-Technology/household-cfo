@@ -318,12 +318,18 @@ module HouseholdFinance
     def milestones
       runway_target = target_runway_months
       debt_total = dollars(snapshot.fetch(:total_debt_cents))
-      debt_entered = debt_total.positive?
       [
         { label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
-        { label: "Debt entered", current: 0, target: debt_entered ? debt_total : 0, unit: debt_entered ? "dollars to payoff" : "dollars entered", status: debt_entered || !financial_inputs_present? ? "yellow" : "green" },
+        debt_milestone(debt_total),
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
       ]
+    end
+
+    def debt_milestone(debt_total)
+      return { label: "Debt entered", current: 0, target: debt_total, unit: "dollars to payoff", status: "yellow" } if debt_total.positive?
+      return { label: "Debt entered", current: 1, target: 1, unit: "clear", status: "green" } if financial_inputs_present?
+
+      { label: "Debt entered", current: 0, target: 0, unit: "dollars entered", status: "yellow" }
     end
 
     def transition_goal
