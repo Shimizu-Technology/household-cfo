@@ -57,7 +57,7 @@ The demo-safe spending fallback intentionally supports the screenshot line:
 Lanya chelu, that purse isn’t in the cards right now.
 ```
 
-That line is deterministic for obvious discretionary purchase prompts such as “Can I buy the purse?” so demos do not depend on model variability. Generic “Can I spend money on this?” prompts use a separate safe-to-spend check, and essential purchases such as groceries are not treated as splurges.
+That line is deterministic for obvious purchase-intent prompts such as “Can I buy the purse?” so demos do not depend on model variability. Generic “Can I spend money on this?” prompts use a separate safe-to-spend check, and essential purchases such as groceries are not treated as splurges. Messages that only mention discretionary categories, such as “How do I track restaurant spending?”, stay on the normal coaching path.
 
 Crisis language is also deterministic. If a user says they may hurt themselves or want to die, Mia stops money coaching and directs the user to immediate support such as 988, 911, or a trusted person.
 

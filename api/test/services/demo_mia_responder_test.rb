@@ -10,12 +10,45 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "*"
   end
 
+  test "bag purchase intent also preserves the screenshot-ready purse line" do
+    response = Demo::MiaResponder.new(api_key: "test-key").call("Should I buy this bag?")
+
+    assert_includes response, "Lanya chelu"
+    assert_includes response, "that purse isn’t in the cards right now"
+  end
+
   test "generic safe to spend question uses local spending check without forcing purse wording" do
     response = Demo::MiaResponder.new(api_key: "test-key").call("Can I spend money on this?")
 
     assert_includes response, "Pump the brakes"
     assert_includes response, "household baseline"
     refute_includes response, "purse"
+  end
+
+  test "non-screenshot discretionary purchases use spending check instead of purse wording" do
+    response = Demo::MiaResponder.new(api_key: "test-key").call("Can I buy coffee today?")
+
+    assert_includes response, "Pump the brakes"
+    assert_includes response, "household baseline"
+    refute_includes response, "that purse isn’t in the cards right now"
+  end
+
+  test "discretionary terms without purchase intent do not trigger spending guardrails" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+
+    [
+      "How do I track restaurant spending?",
+      "I went to a concert last month.",
+      "Are shoes a good tax deduction?",
+      "I can finally afford it.",
+      "I'd love to spend on this someday."
+    ].each do |message|
+      response = responder.call(message)
+
+      refute_includes response, "that purse isn’t in the cards right now", message
+      refute_includes response, "Pump the brakes", message
+      assert_includes response, "protecting the household baseline", message
+    end
   end
 
   test "essential purchase questions are not treated as discretionary splurges" do
