@@ -5,6 +5,17 @@ module Demo
   class MiaResponder
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
+    CRISIS_PATTERNS = [
+      /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm|can't go on|cannot go on)\b/i
+    ].freeze
+    DISCRETIONARY_PURCHASE_TERMS = %w[
+      purse bag handbag shoes vacation trip upgrade coffee latte dining takeout restaurant
+      clothes clothing salon nails concert tickets gadget tv jewelry luxury splurge
+    ].freeze
+    ESSENTIAL_PURCHASE_TERMS = %w[
+      groceries grocery food medicine medication rent mortgage power water utilities utility
+      insurance gas daycare childcare school tuition diapers formula doctor medical dental
+    ].freeze
 
     SAFETY_SYSTEM_PROMPT = <<~PROMPT.squish
       You are an AI coaching and education assistant for Household CFO powered by VERA.
@@ -30,7 +41,10 @@ module Demo
       clean_message = message.to_s.strip
       prompt_context = context.presence || DEMO_CONTEXT
       return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
+      return crisis_response if crisis_message?(clean_message)
       return low_signal_response(clean_message) if low_signal_message?(clean_message)
+      return discretionary_spending_response if discretionary_purchase_question?(clean_message)
+      return spending_check_response if spending_decision_question?(clean_message)
       return fallback_response(clean_message, context: prompt_context) if @api_key.to_s.strip.empty?
 
       openrouter_response(clean_message, history, context: prompt_context)
@@ -108,17 +122,51 @@ module Demo
     end
 
     def fallback_response(message, context:)
-      return spending_response if spending_question?(message)
+      return crisis_response if crisis_message?(message)
+      return discretionary_spending_response if discretionary_purchase_question?(message)
+      return spending_check_response if spending_decision_question?(message)
 
       "I’d start by protecting the household baseline first. For \"#{message}\", check three numbers: monthly cushion, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
     end
 
-    def spending_question?(message)
-      message.to_s.downcase.match?(/\b(buy|spend|purchase|purse|bag|shoes|trip|vacation|upgrade)\b/)
+    def crisis_message?(message)
+      normalized = message.to_s.downcase
+      CRISIS_PATTERNS.any? { |pattern| normalized.match?(pattern) }
     end
 
-    def spending_response
+    def discretionary_purchase_question?(message)
+      normalized = normalized_purchase_text(message)
+      return false if essential_purchase?(normalized)
+
+      DISCRETIONARY_PURCHASE_TERMS.any? { |term| normalized.match?(/\b#{Regexp.escape(term)}\b/) }
+    end
+
+    def spending_decision_question?(message)
+      normalized = normalized_purchase_text(message)
+      return false if essential_purchase?(normalized)
+
+      normalized.match?(/\b(can i|should i|could i|is it okay to|is it ok to)\b.*\b(buy|spend|purchase|afford)\b.*\b(this|that|it)\b/) ||
+        normalized.match?(/\b(buy|spend|purchase|afford)\b.*\b(this|that|it)\b/)
+    end
+
+    def essential_purchase?(normalized_message)
+      ESSENTIAL_PURCHASE_TERMS.any? { |term| normalized_message.match?(/\b#{Regexp.escape(term)}\b/) }
+    end
+
+    def normalized_purchase_text(message)
+      message.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
+    end
+
+    def crisis_response
+      @persona.fallback_response(:crisis)
+    end
+
+    def discretionary_spending_response
       @persona.fallback_response(:spending)
+    end
+
+    def spending_check_response
+      @persona.fallback_response(:spending_check)
     end
 
     def contextual_next_step(context)

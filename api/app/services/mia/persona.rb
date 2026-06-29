@@ -62,7 +62,7 @@ module Mia
         Identity: #{name}, #{data.fetch("acronym")}, is the #{role} inside #{data.fetch("product")}.
         Audience: #{data.fetch("audience")}
         Transformation promise: #{data.fetch("transformation_promise")}
-        Voice: #{voice_summary}.
+        Voice: #{voice_prompt}
         Coaching method: #{coaching_method_prompt}
         Cultural persona: #{culture_pack_prompt}
         Response shape: #{response_shape_prompt}
@@ -73,6 +73,12 @@ module Mia
 
     private
 
+    def voice_prompt
+      voice = data.fetch("voice")
+      instructions = Array(voice["instructions"])
+      [ voice_summary, instructions.join(" ") ].compact_blank.join(". ")
+    end
+
     def coaching_method_prompt
       method = data.fetch("coaching_method")
       "#{method.fetch("name")} (#{method.fetch("id")}): #{method.fetch("instructions").join(" ")}"
@@ -80,7 +86,12 @@ module Mia
 
     def culture_pack_prompt
       culture = data.fetch("culture_pack")
-      "#{culture.fetch("identity")} (#{culture.fetch("id")}): #{culture.fetch("instructions").join(" ")}"
+      parts = [
+        "#{culture.fetch("identity")} (#{culture.fetch("id")}): #{culture.fetch("instructions").join(" ")}"
+      ]
+      local_references = Array(culture["local_references"])
+      parts << "Local references to use only when relevant: #{local_references.join(", ")}" if local_references.any?
+      parts.join(" ")
     end
 
     def response_shape_prompt

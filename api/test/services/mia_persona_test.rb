@@ -11,6 +11,10 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_includes prompt, "Cognitive behavioral coaching"
     assert_includes prompt, "validate before coaching"
     assert_includes prompt, "young Chamorro woman"
+    assert_includes prompt, "Mel's junior coach"
+    assert_includes prompt, "Chamorro words as seasoning"
+    assert_includes prompt, "Local references to use only when relevant"
+    assert_includes prompt, "Expense Stack"
     assert_includes prompt, "Phrase library"
     assert_includes prompt, "Do not"
     assert_includes persona.disclaimer, "inside Household CFO powered by VERA"
@@ -38,5 +42,14 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_includes response, "Lanya chelu"
     assert_includes response, "that purse isn’t in the cards right now"
     assert_includes response, "30-day list"
+  end
+
+  test "default persona includes crisis fallback that prioritizes immediate safety" do
+    response = Mia::Persona.default.fallback_response(:crisis)
+
+    assert_includes response, "988"
+    assert_includes response, "911"
+    assert_includes response, "getting support"
+    refute_includes response.downcase, "monthly cushion"
   end
 end
