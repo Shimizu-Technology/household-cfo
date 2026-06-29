@@ -518,9 +518,7 @@ VITE_CLERK_PUBLISHABLE_KEY
 VITE_SITE_URL
 # Optional PostHog analytics/session replay
 VITE_PUBLIC_POSTHOG_KEY
-VITE_PUBLIC_POSTHOG_HOST=/vera-insights
 VITE_PUBLIC_POSTHOG_UI_HOST=https://us.posthog.com
-VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true
 ```
 
 Render build command for the API can stay simple when `DATABASE_URL` points at Neon/Render Postgres:

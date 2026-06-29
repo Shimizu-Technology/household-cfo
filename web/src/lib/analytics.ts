@@ -7,14 +7,20 @@ type PostHogConfig = NonNullable<Parameters<PostHogClient['init']>[1]>
 
 const placeholderKeys = new Set(['YOUR_POSTHOG_KEY', 'phc_xxxxxxxxxxxxx', ''])
 const posthogKey = (import.meta.env.VITE_PUBLIC_POSTHOG_KEY as string | undefined)?.trim()
-const defaultPosthogHost = import.meta.env.PROD ? '/vera-insights' : 'https://us.i.posthog.com'
-const posthogHost = import.meta.env.VITE_PUBLIC_POSTHOG_HOST || defaultPosthogHost
 const posthogUiHost = import.meta.env.VITE_PUBLIC_POSTHOG_UI_HOST || 'https://us.posthog.com'
+const directPosthogHost = posthogUiHost.includes('eu.posthog.com') ? 'https://eu.i.posthog.com' : 'https://us.i.posthog.com'
 const enableAnalyticsInDev = import.meta.env.VITE_ENABLE_ANALYTICS_IN_DEV === 'true'
 
 export const isAnalyticsEnabled = Boolean(posthogKey && !placeholderKeys.has(posthogKey)) &&
   (import.meta.env.PROD || enableAnalyticsInDev)
-export const isSessionReplayEnabled = isAnalyticsEnabled && import.meta.env.VITE_PUBLIC_POSTHOG_SESSION_REPLAY === 'true'
+export const isSessionReplayEnabled = isAnalyticsEnabled
+
+function defaultPosthogHost() {
+  if (!import.meta.env.PROD) return directPosthogHost
+  if (typeof window !== 'undefined' && window.location.hostname.endsWith('.netlify.app')) return directPosthogHost
+
+  return '/vera-insights'
+}
 
 let posthogPromise: Promise<PostHogClient | null> | null = null
 let initialized = false
@@ -41,7 +47,7 @@ function sectionSlug(section: string) {
 
 function analyticsConfig(): PostHogConfig {
   return {
-    api_host: posthogHost,
+    api_host: defaultPosthogHost(),
     ui_host: posthogUiHost,
     defaults: '2025-11-30',
     person_profiles: 'identified_only',

@@ -62,21 +62,17 @@ Netlify env:
 
 ```bash
 VITE_PUBLIC_POSTHOG_KEY=phc_...
-# Optional override. Production defaults to the same-origin Netlify proxy at /vera-insights.
-VITE_PUBLIC_POSTHOG_HOST=/vera-insights
 VITE_PUBLIC_POSTHOG_UI_HOST=https://us.posthog.com
-# Optional; default is off for financial privacy.
-VITE_PUBLIC_POSTHOG_SESSION_REPLAY=true
 ```
 
-The repo ships Netlify proxy rules for `/vera-insights/*` so production events go through the custom domain instead of directly to `us.i.posthog.com`. This proxy requires the custom domain; if testing analytics on a `.netlify.app` deploy preview, either keep PostHog disabled there or temporarily set `VITE_PUBLIC_POSTHOG_HOST=https://us.i.posthog.com` for that context.
+The repo ships Netlify proxy rules for `/vera-insights/*` so production custom-domain events go through the app domain instead of directly to `us.i.posthog.com`. Host selection is automatic: custom-domain production uses `/vera-insights`; local/dev and `.netlify.app` deploy previews use direct PostHog ingestion so previews do not depend on the custom-domain proxy.
 
 Privacy defaults in code:
 
 - Analytics is disabled unless a PostHog key is present.
 - Autocapture is off; only safe product events are tracked.
 - User identification sends app role/status only, not email/name/financial values.
-- Session replay is opt-in and masks all inputs/text.
+- Session replay is enabled whenever analytics is enabled and masks all inputs/text.
 - Query strings and source document URLs are redacted before replay/network capture.
 
 ## PWA checks
