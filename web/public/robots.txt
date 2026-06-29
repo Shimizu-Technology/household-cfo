@@ -1,0 +1,12 @@
+# Household CFO powered by VERA
+# https://household-cfo.netlify.app
+
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /admin
+Disallow: /admin/
+Disallow: /sign-in
+Disallow: /sign-up
+
+Sitemap: https://household-cfo.netlify.app/sitemap.xml

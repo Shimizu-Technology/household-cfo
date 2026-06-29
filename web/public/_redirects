@@ -1,0 +1,8 @@
+/vera-insights/static/*  https://us-assets.i.posthog.com/static/:splat  200!
+/vera-insights/array/*   https://us-assets.i.posthog.com/array/:splat   200!
+/vera-insights/*         https://us.i.posthog.com/:splat                200!
+/robots.txt              /robots.txt                                    200
+/sitemap.xml             /sitemap.xml                                   200
+/manifest.webmanifest    /manifest.webmanifest                          200
+/sw.js                   /sw.js                                         200
+/*                       /index.html                                    200

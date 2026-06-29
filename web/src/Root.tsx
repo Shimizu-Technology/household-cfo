@@ -1,6 +1,7 @@
 import { ClerkProvider } from '@clerk/clerk-react'
 import App from './App'
 import { AuthProvider } from './contexts/AuthContext'
+import { PostHogProvider } from './providers/PostHogProvider'
 
 const clerkPublishableKey = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY
 const placeholderClerkKeys = new Set(['pk_test_xxx', 'pk_test_dummy', 'your_clerk_publishable_key', 'YOUR_PUBLISHABLE_KEY'])
@@ -13,7 +14,9 @@ if (!isClerkEnabled) {
 function Root() {
   const app = (
     <AuthProvider isClerkEnabled={isClerkEnabled}>
-      <App />
+      <PostHogProvider>
+        <App />
+      </PostHogProvider>
     </AuthProvider>
   )
 
