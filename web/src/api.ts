@@ -197,6 +197,66 @@ export type DashboardData = {
   next_steps: string[]
 }
 
+export type BudgetMonth = {
+  id: number
+  label: string
+  starts_on: string
+  ends_on: string
+  status: string
+}
+
+export type BudgetCategoryMonth = {
+  period_id: number
+  allocation_id: number
+  planned: number
+  actual: number
+  remaining: number
+}
+
+export type BudgetCategoryRow = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  active: boolean
+  months: BudgetCategoryMonth[]
+  planned_total: number
+  actual_total: number
+}
+
+export type TransactionDraft = {
+  id: number
+  occurred_on: string
+  merchant: string
+  amount: number
+  status: string
+  source_type?: string
+  category_id: number | null
+  category_name: string | null
+  stack_label?: string | null
+  summary?: string
+}
+
+export type RecentTransaction = {
+  id: number
+  occurred_on: string
+  merchant: string
+  amount: number
+  source_type: string
+  categories: string[]
+}
+
+export type AnnualBudgetPlan = {
+  year: number
+  months: BudgetMonth[]
+  rows: BudgetCategoryRow[]
+  monthly_income: Record<number, number>
+  pending_transaction_drafts: TransactionDraft[]
+  recent_transactions: RecentTransaction[]
+}
+
+export type BudgetStackKey = 'non_discretionary' | 'discretionary' | 'sinking_expected' | 'sinking_unexpected'
+
 export type BudgetData = {
   framework: string
   intro: string
@@ -211,6 +271,7 @@ export type BudgetData = {
     examples: string[]
   }>
   custom_categories_note: string
+  annual_plan?: AnnualBudgetPlan
 }
 
 export type WealthData = {
@@ -575,15 +636,44 @@ export async function saveWorkspaceSetup(values: WorkspaceSetupValues): Promise<
   })
 }
 
-export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false): Promise<MiaMessage> {
-  const body = await postJson<{ assistant_message: MiaMessage }>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
+export type MiaMessageResponse = {
+  assistant_message: MiaMessage
+  transaction_draft?: TransactionDraft | null
+  budget?: BudgetData
+}
+
+export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false): Promise<MiaMessageResponse> {
+  return postJson<MiaMessageResponse>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
     message,
     messages: history.slice(-12).map((entry) => ({
       role: entry.role,
       content: entry.content,
     })),
   })
-  return body.assistant_message
+}
+
+export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string }): Promise<BudgetData> {
+  const payload = await postJson<{ budget: BudgetData }>('/api/v1/budget_categories', { category: values })
+  return payload.budget
+}
+
+export async function updateBudgetAllocation(id: number, plannedAmount: number | string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_allocations/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ allocation: { planned_amount: plannedAmount } }),
+  })
+  return payload.budget
+}
+
+export async function confirmTransactionDraft(id: number, values: Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> = {}): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, { transaction_draft: values })
+  return payload.workspace
+}
+
+export async function ignoreTransactionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/ignore`, {})
+  return payload.workspace
 }
 
 export async function clearMiaMessages(realWorkspace = false): Promise<void> {

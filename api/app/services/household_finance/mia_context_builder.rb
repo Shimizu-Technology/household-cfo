@@ -35,6 +35,7 @@ module HouseholdFinance
           liquid_assets: money(snapshot.fetch(:liquid_assets_cents))
         },
         expense_stack_totals: expense_stack_totals,
+        annual_budget: annual_budget_context,
         documents: document_context
       }
     end
@@ -42,6 +43,37 @@ module HouseholdFinance
     def expense_stack_totals
       snapshot.fetch(:stack_totals_cents).transform_keys { |stack_key| SnapshotBuilder::STACK_LABELS.fetch(stack_key) }
         .transform_values { |cents| money(cents) }
+    end
+
+    def annual_budget_context
+      plan = AnnualBudgetManager.new(household).plan_data
+      {
+        year: plan.fetch(:year),
+        pending_transaction_drafts_count: household.transaction_drafts.pending.count,
+        recent_transactions: plan.fetch(:recent_transactions).first(3).map do |transaction|
+          {
+            merchant: sanitized_text(transaction.fetch(:merchant), max_length: 120),
+            occurred_on: transaction.fetch(:occurred_on),
+            amount: ActiveSupport::NumberHelper.number_to_currency(transaction.fetch(:amount), precision: 0),
+            categories: transaction.fetch(:categories).first(3)
+          }
+        end,
+        current_month_budget_rows: current_month_budget_rows(plan)
+      }
+    end
+
+    def current_month_budget_rows(plan)
+      current_index = Date.current.month - 1
+      plan.fetch(:rows).first(8).map do |row|
+        month = row.fetch(:months).fetch(current_index)
+        {
+          category: sanitized_text(row.fetch(:name), max_length: 80),
+          stack: row.fetch(:stack_label),
+          planned: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:planned), precision: 0),
+          actual: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:actual), precision: 0),
+          remaining: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:remaining), precision: 0)
+        }
+      end
     end
 
     def document_context

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_25_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -25,6 +25,60 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
     t.index ["household_id", "account_type"], name: "index_accounts_on_household_id_and_account_type"
     t.index ["household_id"], name: "index_accounts_on_household_id"
     t.check_constraint "balance_cents >= 0", name: "accounts_balance_cents_non_negative"
+  end
+
+  create_table "budget_allocations", force: :cascade do |t|
+    t.bigint "budget_category_id", null: false
+    t.bigint "budget_period_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "planned_amount_cents", default: 0, null: false
+    t.string "source", default: "manual", null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_category_id"], name: "index_budget_allocations_on_budget_category_id"
+    t.index ["budget_period_id", "budget_category_id"], name: "idx_on_budget_period_id_budget_category_id_396e159b33", unique: true
+    t.index ["budget_period_id"], name: "index_budget_allocations_on_budget_period_id"
+    t.check_constraint "planned_amount_cents >= 0", name: "budget_allocations_amount_non_negative"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'setup'::character varying, 'imported'::character varying, 'mia_suggested'::character varying]::text[])", name: "budget_allocations_source_valid"
+  end
+
+  create_table "budget_categories", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.string "name", null: false
+    t.integer "sort_order", default: 0, null: false
+    t.string "stack_key", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_id", "active", "sort_order"], name: "idx_on_household_id_active_sort_order_01ee1248fa"
+    t.index ["household_id", "name"], name: "index_budget_categories_on_household_id_and_name", unique: true
+    t.index ["household_id"], name: "index_budget_categories_on_household_id"
+    t.check_constraint "char_length(name::text) <= 80", name: "budget_categories_name_length"
+    t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[])", name: "budget_categories_stack_key_valid"
+  end
+
+  create_table "budget_periods", force: :cascade do |t|
+    t.bigint "budget_year_id", null: false
+    t.datetime "created_at", null: false
+    t.date "ends_on", null: false
+    t.date "starts_on", null: false
+    t.string "status", default: "open", null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_year_id", "starts_on"], name: "index_budget_periods_on_budget_year_id_and_starts_on", unique: true
+    t.index ["budget_year_id"], name: "index_budget_periods_on_budget_year_id"
+    t.check_constraint "ends_on >= starts_on", name: "budget_periods_dates_ordered"
+    t.check_constraint "status::text = ANY (ARRAY['open'::character varying, 'reviewing'::character varying, 'closed'::character varying]::text[])", name: "budget_periods_status_valid"
+  end
+
+  create_table "budget_years", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.string "status", default: "active", null: false
+    t.datetime "updated_at", null: false
+    t.integer "year", null: false
+    t.index ["household_id", "year"], name: "index_budget_years_on_household_id_and_year", unique: true
+    t.index ["household_id"], name: "index_budget_years_on_household_id"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'active'::character varying, 'archived'::character varying]::text[])", name: "budget_years_status_valid"
+    t.check_constraint "year >= 2000 AND year <= 2100", name: "budget_years_year_reasonable"
   end
 
   create_table "chat_messages", force: :cascade do |t|
@@ -245,6 +299,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
     t.index ["household_id"], name: "index_household_profiles_on_household_id", unique: true
   end
 
+  create_table "household_transactions", force: :cascade do |t|
+    t.bigint "budget_period_id", null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.bigint "household_id", null: false
+    t.string "merchant", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.date "occurred_on", null: false
+    t.bigint "source_import_id"
+    t.string "source_type", default: "manual_chat", null: false
+    t.string "status", default: "confirmed", null: false
+    t.integer "total_amount_cents", null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_period_id"], name: "index_household_transactions_on_budget_period_id"
+    t.index ["household_id", "occurred_on"], name: "index_household_transactions_on_household_id_and_occurred_on"
+    t.index ["household_id", "status"], name: "index_household_transactions_on_household_id_and_status"
+    t.index ["household_id"], name: "index_household_transactions_on_household_id"
+    t.index ["source_import_id"], name: "index_household_transactions_on_source_import_id"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "household_transactions_source_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying, 'reconciled'::character varying, 'ignored'::character varying]::text[])", name: "household_transactions_status_valid"
+    t.check_constraint "total_amount_cents >= 0", name: "household_transactions_amount_non_negative"
+  end
+
   create_table "households", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
@@ -423,6 +500,44 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
     t.index ["key"], name: "index_solid_queue_semaphores_on_key", unique: true
   end
 
+  create_table "transaction_drafts", force: :cascade do |t|
+    t.bigint "budget_category_id"
+    t.decimal "confidence", precision: 5, scale: 2
+    t.bigint "confirmed_transaction_id"
+    t.datetime "created_at", null: false
+    t.jsonb "draft_payload", default: {}, null: false
+    t.bigint "financial_document_import_id"
+    t.bigint "household_id", null: false
+    t.string "merchant", null: false
+    t.date "occurred_on", null: false
+    t.text "raw_input"
+    t.string "source_type", default: "manual_chat", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "total_amount_cents", null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_category_id"], name: "index_transaction_drafts_on_budget_category_id"
+    t.index ["confirmed_transaction_id"], name: "index_transaction_drafts_on_confirmed_transaction_id"
+    t.index ["financial_document_import_id"], name: "index_transaction_drafts_on_financial_document_import_id"
+    t.index ["household_id", "status", "created_at"], name: "idx_on_household_id_status_created_at_cf0ad72279"
+    t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying]::text[])", name: "transaction_drafts_status_valid"
+    t.check_constraint "total_amount_cents >= 0", name: "transaction_drafts_amount_non_negative"
+  end
+
+  create_table "transaction_splits", force: :cascade do |t|
+    t.integer "amount_cents", null: false
+    t.bigint "budget_category_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_transaction_id", null: false
+    t.text "notes"
+    t.datetime "updated_at", null: false
+    t.index ["budget_category_id"], name: "index_transaction_splits_on_budget_category_id"
+    t.index ["household_transaction_id", "budget_category_id"], name: "index_transaction_splits_on_transaction_and_category"
+    t.index ["household_transaction_id"], name: "index_transaction_splits_on_household_transaction_id"
+    t.check_constraint "amount_cents >= 0", name: "transaction_splits_amount_non_negative"
+  end
+
   create_table "users", force: :cascade do |t|
     t.datetime "accepted_at"
     t.string "clerk_id", null: false
@@ -453,6 +568,11 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
   end
 
   add_foreign_key "accounts", "households"
+  add_foreign_key "budget_allocations", "budget_categories"
+  add_foreign_key "budget_allocations", "budget_periods"
+  add_foreign_key "budget_categories", "households"
+  add_foreign_key "budget_periods", "budget_years"
+  add_foreign_key "budget_years", "households"
   add_foreign_key "chat_messages", "chat_sessions"
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
@@ -472,6 +592,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
   add_foreign_key "household_memberships", "households"
   add_foreign_key "household_memberships", "users"
   add_foreign_key "household_profiles", "households"
+  add_foreign_key "household_transactions", "budget_periods"
+  add_foreign_key "household_transactions", "financial_document_imports", column: "source_import_id"
+  add_foreign_key "household_transactions", "households"
   add_foreign_key "households", "users", column: "created_by_user_id"
   add_foreign_key "income_sources", "households"
   add_foreign_key "invitation_email_attempts", "users"
@@ -482,6 +605,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_24_050000) do
   add_foreign_key "solid_queue_ready_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_recurring_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_scheduled_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
+  add_foreign_key "transaction_drafts", "budget_categories"
+  add_foreign_key "transaction_drafts", "financial_document_imports"
+  add_foreign_key "transaction_drafts", "household_transactions", column: "confirmed_transaction_id"
+  add_foreign_key "transaction_drafts", "households"
+  add_foreign_key "transaction_splits", "budget_categories"
+  add_foreign_key "transaction_splits", "household_transactions"
   add_foreign_key "users", "users", column: "invited_by_user_id"
   add_foreign_key "users", "users", column: "last_invite_email_sent_by_user_id"
 end

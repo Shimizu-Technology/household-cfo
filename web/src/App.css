@@ -3106,3 +3106,230 @@ h3 {
     border: 0;
   }
 }
+
+.annual-budget-panel {
+  display: grid;
+  gap: 18px;
+  overflow: hidden;
+}
+
+.annual-budget-heading,
+.annual-budget-actions,
+.transaction-draft-card,
+.transaction-draft-actions,
+.recent-transaction-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.annual-budget-heading {
+  align-items: flex-start;
+}
+
+.annual-budget-heading h3,
+.annual-budget-heading p {
+  margin-bottom: 0;
+}
+
+.annual-budget-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.annual-budget-actions span,
+.transaction-draft-card p,
+.recent-transaction-row span,
+.annual-budget-table small,
+.annual-category-form span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.annual-budget-actions span {
+  padding: 8px 10px;
+  border: 1px solid rgba(123, 74, 88, 0.16);
+  border-radius: 999px;
+  background: #f8eee9;
+  color: var(--emerald);
+  font-weight: 800;
+}
+
+.annual-budget-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.transaction-draft-stack {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(185, 115, 82, 0.28);
+  border-radius: 20px;
+  background: #fff7ed;
+}
+
+.transaction-draft-stack h4,
+.transaction-draft-card p {
+  margin: 0;
+}
+
+.transaction-draft-card {
+  padding: 12px;
+  border: 1px solid rgba(31, 36, 33, 0.08);
+  border-radius: 16px;
+  background: white;
+}
+
+.transaction-draft-actions button,
+.annual-category-form button {
+  padding: 10px 13px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.transaction-draft-actions .secondary-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--emerald);
+}
+
+.annual-category-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1fr) minmax(120px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.annual-category-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.annual-category-form input,
+.annual-category-form select,
+.annual-budget-table input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  color: var(--ink);
+}
+
+.annual-category-form input,
+.annual-category-form select {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.annual-budget-table-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.annual-budget-table {
+  width: 100%;
+  min-width: 1060px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+}
+
+.annual-budget-table th,
+.annual-budget-table td {
+  padding: 11px;
+  border-bottom: 1px solid #eee5d9;
+  border-right: 1px solid #eee5d9;
+  text-align: left;
+  vertical-align: top;
+}
+
+.annual-budget-table th:last-child,
+.annual-budget-table td:last-child {
+  border-right: 0;
+}
+
+.annual-budget-table tr:last-child th,
+.annual-budget-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.annual-budget-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f7efe5;
+  color: var(--plum);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.annual-budget-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 190px;
+  background: #fffaf2;
+}
+
+.annual-budget-table tbody th strong,
+.annual-budget-table tbody th span,
+.annual-budget-table td strong,
+.annual-budget-table td small {
+  display: block;
+}
+
+.annual-budget-table input {
+  min-width: 74px;
+  padding: 9px 8px;
+  font-size: 0.86rem;
+}
+
+.annual-budget-table .current-month {
+  background: #f8eee9;
+}
+
+.recent-transaction-list {
+  display: grid;
+  gap: 8px;
+}
+
+.recent-transaction-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+@media (max-width: 900px) {
+  .annual-budget-heading,
+  .transaction-draft-card {
+    display: grid;
+  }
+
+  .annual-budget-actions,
+  .transaction-draft-actions {
+    justify-content: flex-start;
+  }
+
+  .annual-budget-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .annual-category-form {
+    grid-template-columns: 1fr;
+  }
+
+  .recent-transaction-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
+  }
+}

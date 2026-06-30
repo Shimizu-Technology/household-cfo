@@ -16,8 +16,10 @@ module Api
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
         context = HouseholdFinance::MiaContextBuilder.new(current_household).call
         assistant_content = ::Demo::MiaResponder.new.call(content, history: history, context: context)
+        transaction_draft = nil
 
         user_message, assistant_message = ApplicationRecord.transaction do
+          transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(current_household, content).call
           [
             session.chat_messages.create!(role: "user", content: content),
             session.chat_messages.create!(role: "assistant", content: assistant_content)
@@ -26,7 +28,9 @@ module Api
 
         render json: {
           user_message: user_message.as_api_json(author: "You"),
-          assistant_message: assistant_message.as_api_json(author: "Mia")
+          assistant_message: assistant_message.as_api_json(author: "Mia"),
+          transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
+          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).budget
         }, status: :created
       end
 
@@ -36,6 +40,21 @@ module Api
       end
 
       private
+
+      def serialize_transaction_draft(draft)
+        {
+          id: draft.id,
+          occurred_on: draft.occurred_on.iso8601,
+          merchant: draft.merchant,
+          amount: HouseholdFinance::Money.dollars(draft.total_amount_cents),
+          status: draft.status,
+          source_type: draft.source_type,
+          category_id: draft.budget_category_id,
+          category_name: draft.budget_category&.name,
+          stack_label: draft.budget_category&.stack_label,
+          summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 2)}"
+        }
+      end
 
       def current_chat_session
         current_household.chat_sessions.find_by(user: current_user) ||

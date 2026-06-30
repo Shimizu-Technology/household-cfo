@@ -4,8 +4,10 @@ import './App.css'
 import {
   applyDocumentImport,
   clearMiaMessages,
+  confirmTransactionDraft,
   createAdminCohort,
   createAdminUser,
+  createBudgetCategory,
   deleteDocumentImport,
   deleteDocumentImportSource,
   fetchAdminCohorts,
@@ -14,10 +16,12 @@ import {
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
   fetchDocumentImports,
+  ignoreTransactionDraft,
   reprocessDocumentImport,
   resendAdminUserInvitation,
   saveWorkspaceSetup,
   sendMiaMessage,
+  updateBudgetAllocation,
   updateAdminCohort,
   updateAdminUser,
   updateDocumentImportItem,
@@ -30,7 +34,11 @@ import type {
   AdminUser,
   AdminUserInput,
   AdminUserMutationResponse,
+  AnnualBudgetPlan,
   AppData,
+  BudgetCategoryMonth,
+  BudgetCategoryRow,
+  BudgetStackKey,
   CurrentUser,
   DocumentImportItem,
   DocumentImportItemInput,
@@ -40,6 +48,7 @@ import type {
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
+  TransactionDraft,
   UserRole,
   WorkspaceSetupValues,
 } from './api'
@@ -134,6 +143,13 @@ function App() {
   const [miaLoading, setMiaLoading] = useState(false)
   const [miaClearing, setMiaClearing] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
+  const [budgetAction, setBudgetAction] = useState<string | null>(null)
+  const [budgetError, setBudgetError] = useState<string | null>(null)
+  const [newBudgetCategory, setNewBudgetCategory] = useState<{ name: string; stack_key: BudgetStackKey; monthly_amount: string }>({
+    name: '',
+    stack_key: 'discretionary',
+    monthly_amount: '',
+  })
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
@@ -336,13 +352,22 @@ function App() {
     setMessages((current) => [...current, userMessage])
 
     try {
-      const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace)
+      const response = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace)
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
         prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
       })
-      setMessages((current) => [...current, assistantMessage])
+      if (response.budget) {
+        setData((current) => current ? { ...current, budget: response.budget! } : current)
+      }
+      setMessages((current) => [...current, response.assistant_message])
+      if (response.transaction_draft) {
+        setMessages((current) => [
+          ...current,
+          transactionDraftMessage(response.transaction_draft!),
+        ])
+      }
     } catch {
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
@@ -391,6 +416,94 @@ function App() {
       setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
     } finally {
       setMiaClearing(false)
+    }
+  }
+
+  async function handleCreateBudgetCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!isRealWorkspace || !data) {
+      setBudgetError('Sign in to a real workspace before editing the annual budget.')
+      return
+    }
+    if (!newBudgetCategory.name.trim()) {
+      setBudgetError('Add a category name first.')
+      return
+    }
+
+    setBudgetAction('create-category')
+    setBudgetError(null)
+    try {
+      const budget = await createBudgetCategory({
+        name: newBudgetCategory.name,
+        stack_key: newBudgetCategory.stack_key,
+        monthly_amount: newBudgetCategory.monthly_amount || 0,
+      })
+      setData({ ...data, budget })
+      setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
+      captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleAllocationChange(row: BudgetCategoryRow, month: BudgetCategoryMonth, value: string) {
+    if (!isRealWorkspace || !data) return
+
+    setBudgetAction(`allocation:${month.allocation_id}`)
+    setBudgetError(null)
+    try {
+      const budget = await updateBudgetAllocation(month.allocation_id, value || 0)
+      setData({ ...data, budget })
+      captureAnalyticsEvent('budget_allocation_updated', {
+        stack_key: row.stack_key,
+        category_id: row.id,
+      })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget allocation could not be updated.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleConfirmTransactionDraft(draft: TransactionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`confirm-draft:${draft.id}`)
+    setBudgetError(null)
+    try {
+      const workspace = await confirmTransactionDraft(draft.id)
+      setData(workspace)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_confirmed', {
+        source_type: draft.source_type ?? 'manual_chat',
+      })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleIgnoreTransactionDraft(draft: TransactionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`ignore-draft:${draft.id}`)
+    setBudgetError(null)
+    try {
+      const workspace = await ignoreTransactionDraft(draft.id)
+      setData(workspace)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_ignored', {
+        source_type: draft.source_type ?? 'manual_chat',
+      })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.')
+    } finally {
+      setBudgetAction(null)
     }
   }
 
@@ -985,7 +1098,7 @@ function App() {
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
-            title="The Expense Stack keeps life from surprising you every month."
+            title="Build the annual plan, then keep the monthly truth current."
             copy={data.budget.intro}
           />
 
@@ -1006,6 +1119,26 @@ function App() {
               </article>
             ))}
           </div>
+
+          {data.budget.annual_plan ? (
+            <AnnualBudgetPlanner
+              plan={data.budget.annual_plan}
+              isRealWorkspace={Boolean(isRealWorkspace)}
+              action={budgetAction}
+              error={budgetError}
+              newCategory={newBudgetCategory}
+              onNewCategoryChange={setNewBudgetCategory}
+              onCreateCategory={handleCreateBudgetCategory}
+              onAllocationChange={handleAllocationChange}
+              onConfirmDraft={handleConfirmTransactionDraft}
+              onIgnoreDraft={handleIgnoreTransactionDraft}
+            />
+          ) : (
+            <article className="panel coach-panel">
+              <h3>Annual budget foundation</h3>
+              <p>Sign in to a real workspace to plan each month, create custom categories, and confirm transactions from Mia chat.</p>
+            </article>
+          )}
 
           <article className="panel coach-panel">
             <h3>Custom categories matter</h3>
@@ -3079,6 +3212,175 @@ function MoneyInput({ name, label, value, help, onChange }: { name: keyof Worksp
   )
 }
 
+function AnnualBudgetPlanner({
+  plan,
+  isRealWorkspace,
+  action,
+  error,
+  newCategory,
+  onNewCategoryChange,
+  onCreateCategory,
+  onAllocationChange,
+  onConfirmDraft,
+  onIgnoreDraft,
+}: {
+  plan: AnnualBudgetPlan
+  isRealWorkspace: boolean
+  action: string | null
+  error: string | null
+  newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
+  onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
+  onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
+  onAllocationChange: (row: BudgetCategoryRow, month: BudgetCategoryMonth, value: string) => void
+  onConfirmDraft: (draft: TransactionDraft) => void
+  onIgnoreDraft: (draft: TransactionDraft) => void
+}) {
+  const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, plan.year === new Date().getFullYear() ? new Date().getMonth() : 0))
+  const currentMonth = plan.months[currentMonthIndex]
+  const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
+  const annualPlanned = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
+  const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
+  const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
+  const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
+
+  return (
+    <article className="panel annual-budget-panel">
+      <div className="annual-budget-heading">
+        <div>
+          <p className="eyebrow">Annual budget · {plan.year}</p>
+          <h3>Year view with month-to-date truth</h3>
+          <p>Plan the whole year, then let manual entries, receipts, and statements fill the actuals for each month.</p>
+        </div>
+        <div className="annual-budget-actions">
+          <span>{plan.rows.length} categories</span>
+          <span>{plan.pending_transaction_drafts.length} pending drafts</span>
+        </div>
+      </div>
+
+      <div className="annual-budget-metrics">
+        <Metric label={`${currentMonth?.label ?? 'Month'} income`} value={currency.format(currentMonthIncome)} />
+        <Metric label={`${currentMonth?.label ?? 'Month'} planned`} value={currency.format(currentPlanned)} />
+        <Metric label={`${currentMonth?.label ?? 'Month'} actual`} value={currency.format(currentActual)} />
+        <Metric label="Annual planned" value={currency.format(annualPlanned)} />
+        <Metric label="Annual actual" value={currency.format(annualActual)} />
+      </div>
+
+      {plan.pending_transaction_drafts.length > 0 && (
+        <div className="transaction-draft-stack">
+          <div>
+            <p className="eyebrow">Review before applying</p>
+            <h4>Mia drafted these transactions from chat</h4>
+          </div>
+          {plan.pending_transaction_drafts.map((draft) => (
+            <div className="transaction-draft-card" key={draft.id}>
+              <div>
+                <strong>{draft.merchant}</strong>
+                <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
+              </div>
+              <div className="transaction-draft-actions">
+                <button type="button" disabled={!isRealWorkspace || action === `confirm-draft:${draft.id}`} onClick={() => onConfirmDraft(draft)}>
+                  {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
+                </button>
+                <button type="button" className="secondary-button" disabled={!isRealWorkspace || action === `ignore-draft:${draft.id}`} onClick={() => onIgnoreDraft(draft)}>
+                  Ignore
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <form className="annual-category-form" onSubmit={onCreateCategory}>
+        <label>
+          <span>New category</span>
+          <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!isRealWorkspace} />
+        </label>
+        <label>
+          <span>Stack</span>
+          <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!isRealWorkspace}>
+            <option value="non_discretionary">Non-discretionary</option>
+            <option value="discretionary">Discretionary</option>
+            <option value="sinking_expected">Sinking Fund — Expected</option>
+            <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+          </select>
+        </label>
+        <label>
+          <span>Monthly plan</span>
+          <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!isRealWorkspace} />
+        </label>
+        <button type="submit" disabled={!isRealWorkspace || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+      </form>
+
+      {error && <p className="setup-error" role="alert">{error}</p>}
+
+      <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
+        <table className="annual-budget-table">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              {plan.months.map((month, index) => (
+                <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
+              ))}
+              <th scope="col">Year</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.rows.length === 0 ? (
+              <tr>
+                <td colSpan={14}>Add a category to start building the annual plan.</td>
+              </tr>
+            ) : plan.rows.map((row) => (
+              <tr key={row.id}>
+                <th scope="row">
+                  <strong>{row.name}</strong>
+                  <span>{row.stack_label}</span>
+                </th>
+                {row.months.map((month, index) => (
+                  <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id}>
+                    <input
+                      aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
+                      type="number"
+                      min="0"
+                      step="1"
+                      defaultValue={month.planned}
+                      disabled={!isRealWorkspace || action === `allocation:${month.allocation_id}`}
+                      onBlur={(event) => {
+                        if (Number(event.currentTarget.value || 0) !== month.planned) onAllocationChange(row, month, event.currentTarget.value)
+                      }}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') event.currentTarget.blur()
+                      }}
+                    />
+                    <small>{currency.format(month.actual)} actual</small>
+                  </td>
+                ))}
+                <td>
+                  <strong>{currency.format(row.planned_total)}</strong>
+                  <small>{currency.format(row.actual_total)} actual</small>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {plan.recent_transactions.length > 0 && (
+        <div className="recent-transaction-list">
+          <p className="eyebrow">Recent confirmed transactions</p>
+          {plan.recent_transactions.map((transaction) => (
+            <div className="recent-transaction-row" key={transaction.id}>
+              <span>{formatShortDate(transaction.occurred_on)}</span>
+              <strong>{transaction.merchant}</strong>
+              <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
+              <b>{currency.format(transaction.amount)}</b>
+            </div>
+          ))}
+        </div>
+      )}
+    </article>
+  )
+}
+
 function loadStoredMiaMessages(storageKey: string) {
   try {
     const stored = window.localStorage.getItem(storageKey)
@@ -3122,6 +3424,15 @@ function messageParagraphs(message: MiaMessage) {
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
+}
+
+function transactionDraftMessage(draft: TransactionDraft): MiaMessage {
+  const category = draft.category_name ? ` in ${draft.category_name}` : ''
+  return {
+    role: 'assistant',
+    author: 'Mia',
+    content: `I drafted this transaction for review: ${draft.merchant} for ${currency.format(draft.amount)}${category}. Confirm it in the Budget screen before it changes month-to-date actuals.`,
+  }
 }
 
 function MiaMark() {
