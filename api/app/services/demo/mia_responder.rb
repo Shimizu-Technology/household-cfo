@@ -6,7 +6,8 @@ module Demo
     LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     CRISIS_PATTERNS = [
-      /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm|can't go on|cannot go on)\b/i
+      /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
+      /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life))?(?:[.!?,;:]|\z)/i
     ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
     DISCRETIONARY_PURCHASE_TERMS = %w[

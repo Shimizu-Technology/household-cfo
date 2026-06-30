@@ -70,6 +70,29 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response.downcase, "monthly cushion"
   end
 
+  test "standalone can't go on crisis language still returns immediate safety support" do
+    response = Demo::MiaResponder.new(api_key: "test-key").call("I can't go on anymore")
+
+    assert_includes response, "988"
+    assert_includes response, "911"
+    assert_includes response, "getting support"
+  end
+
+  test "financial frustration using can't go on does not over-trigger crisis response" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+
+    [
+      "I can't go on with this budget",
+      "I cannot go on paying these fees"
+    ].each do |message|
+      response = responder.call(message)
+
+      refute_includes response, "988", message
+      refute_includes response, "not budgeting", message
+      assert_includes response, "protecting the household baseline", message
+    end
+  end
+
   test "low signal greeting still works" do
     response = Demo::MiaResponder.new(api_key: "test-key").call("hi")
 
