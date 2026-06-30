@@ -459,8 +459,8 @@ async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T>
       ...options,
       headers,
     })
-  } catch {
-    throw new Error(apiNetworkErrorMessage('API request could not reach the server'))
+  } catch (error) {
+    throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
 
   if (!response.ok) {
@@ -615,8 +615,8 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
       headers: await authHeaders(),
       body: formData,
     })
-  } catch {
-    throw new Error(apiNetworkErrorMessage('Document upload could not reach the API'))
+  } catch (error) {
+    throw new Error(apiNetworkErrorMessage('Document upload could not reach the API'), { cause: error })
   }
 
   if (!response.ok) {

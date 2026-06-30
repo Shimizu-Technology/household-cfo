@@ -53,7 +53,7 @@ module Mia
     end
 
     def system_prompt_seed
-      data.fetch("system_prompt_seed")
+      data["system_prompt_seed"]
     end
 
     def fallback_response(key)
@@ -63,7 +63,7 @@ module Mia
     def system_prompt
       <<~PROMPT.squish
         Coach persona template: #{id}.
-        V1 persona seed, verbatim from the Mia Persona Brief Section 7: #{system_prompt_seed}
+        #{persona_seed_prompt}
         Product frame: the participant is the Household CFO; #{name} is the coach and assistant who helps them make the CFO call.
         Identity: #{name}, #{data.fetch("acronym")}, is the #{role} inside #{data.fetch("product")}.
         Audience: #{data.fetch("audience")}
@@ -78,6 +78,12 @@ module Mia
     end
 
     private
+
+    def persona_seed_prompt
+      return nil if system_prompt_seed.blank?
+
+      "V1 persona seed, verbatim from the Mia Persona Brief Section 7: #{system_prompt_seed}"
+    end
 
     def voice_prompt
       voice = data.fetch("voice")

@@ -52,6 +52,16 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_includes persona.system_prompt, SECTION_7_SYSTEM_PROMPT_SEED
   end
 
+  test "persona seed is optional for future coach skins" do
+    persona_data = Mia::Persona.default.data.deep_dup
+    persona_data.delete("system_prompt_seed")
+    persona = Mia::Persona.new("future_coach", persona_data)
+
+    assert_nil persona.system_prompt_seed
+    refute_includes persona.system_prompt, "Mia Persona Brief Section 7"
+    assert_includes persona.system_prompt, "Product frame: the participant is the Household CFO"
+  end
+
   test "unknown persona ids fall back to the configured default" do
     persona = Mia::Persona.find("missing_persona")
 

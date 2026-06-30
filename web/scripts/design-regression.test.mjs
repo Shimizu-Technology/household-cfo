@@ -16,7 +16,8 @@ assert.ok(
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
-assert.ok(app.includes('You are the household CFO. Mia helps you run the numbers.'), 'top-level copy must frame the participant as the Household CFO')
+assert.ok(app.includes('<h1>Household CFO Method</h1>'), 'top-level copy should lead with the Household CFO Method product name')
+assert.ok(app.includes('Run your home like the C-Suite'), 'hero copy should use Mrs. Mel’s transformation language')
 assert.ok(!app.includes('Mia, your household CFO.'), 'Mia must not be framed as the user’s household CFO')
 assert.ok(!app.includes('Plan, don’t gamble.'), 'Mrs. Mel rejected the Plan, don’t gamble headline')
 

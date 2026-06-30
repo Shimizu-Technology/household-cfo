@@ -661,11 +661,11 @@ function App() {
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
         </ul>
         <div>
-          <p className="eyebrow">Household CFO Method</p>
-          <h1>You are the household CFO. Mia helps you run the numbers.</h1>
+          <p className="eyebrow">Household CFO Method powered by VERA</p>
+          <h1>Household CFO Method</h1>
           <p className="hero-copy">
-            Turn budget stress into an annual operating rhythm: know the numbers, choose the next move,
-            and protect the dream without living in a spreadsheet.
+            Run your home like the C-Suite — not the unpaid maintenance staff. Build the annual budget,
+            track the running totals, and use Mia as your AI coach when the next money decision needs a CFO call.
           </p>
         </div>
         <aside className="mia-status-card">
