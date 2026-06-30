@@ -700,8 +700,8 @@ function App() {
         <section className="screen-grid home-screen">
           <ScreenHeading
             eyebrow="Home"
-            title="Your money picture, without the spiral."
-            copy="A calm snapshot first, anchored to the annual plan. You stay the CFO; Mia highlights what needs attention today."
+            title="Annual runway first. Monthly moves second."
+            copy="Start with the year, then use this month’s numbers to make the next CFO call with Mia’s coaching support."
           />
 
           <div className="status-ribbon">
