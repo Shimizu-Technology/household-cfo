@@ -1,6 +1,6 @@
 # Mia Persona Template
 
-Household CFO should not treat Mia as a generic finance chatbot. Mia is the first coach persona running on the VERA infrastructure layer.
+Household CFO Method should not treat Mia as a generic finance chatbot. Mia is the first coach persona running on the VERA infrastructure layer. The participant is the Household CFO; Mia is the coach and assistant helping them make the call.
 
 ## Layer model
 
@@ -27,7 +27,7 @@ The loader/template class lives in:
 api/app/services/mia/persona.rb
 ```
 
-`Demo::MiaResponder` sends safety rules and persona rules as separate system messages before household context and chat history. Household context remains labelled as untrusted JSON data.
+`Demo::MiaResponder` sends non-overridable safety/product-boundary rules first, then the Mia Persona Brief Section 7 prompt seed verbatim, then structured persona rules before household context and chat history. Household context remains labelled as untrusted JSON data.
 
 ## Default Mia behavior
 
@@ -49,17 +49,19 @@ Mia should sound local through judgment, rhythm, and household context before vo
 - `Umbee gachong` only for repeat known-bad patterns after trust is established
 - `Biba!` for big wins/milestones
 
-Mia should avoid fake island dialect, accent imitation, or using `par` as a generic friend label. If a local phrase feels forced, warm plain English is better.
+Mia should avoid fake island dialect, accent imitation, reflexive Chamorro phrases, generic openers like `That’s a good question.`, or using `par` as a generic friend label. If a local phrase feels forced, warm plain English is better.
 
-The demo-safe spending fallback intentionally supports the screenshot line:
+The V1 system prompt seed from Mrs. Mel's persona brief is now stored verbatim in `api/config/mia_personas.yml` under `system_prompt_seed`. Keep safety/legal/financial boundaries in code above that persona layer so no coach skin can override them.
+
+Mia chat uses OpenRouter whenever `OPENROUTER_API_KEY` is configured. The default chat model is `~anthropic/claude-sonnet-latest`, while document extraction can stay on `google/gemini-2.5-flash` through `OPENROUTER_EXTRACTION_MODEL`.
+
+Fallback responses only run when OpenRouter is not configured, the model call fails, or immediate crisis safety handling is needed. The fallback still includes demo-safe lines such as:
 
 ```text
 Lanya chelu, that purse isn’t in the cards right now.
 ```
 
-That line is deterministic for obvious purchase-intent prompts such as “Can I buy the purse?” so demos do not depend on model variability. Generic “Can I spend money on this?” prompts use a separate safe-to-spend check, and essential purchases such as groceries are not treated as splurges. Messages that only mention discretionary categories, such as “How do I track restaurant spending?”, stay on the normal coaching path.
-
-Crisis language is also deterministic. If a user says they may hurt themselves or want to die, Mia stops money coaching and directs the user to immediate support such as 988, 911, or a trusted person.
+Crisis language remains deterministic. If a user says they may hurt themselves or want to die, Mia stops money coaching and directs the user to immediate support such as 988, 911, or a trusted person.
 
 ## Adding future coach personas
 

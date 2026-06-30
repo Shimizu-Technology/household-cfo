@@ -1,6 +1,8 @@
 # Household CFO product/design brief
 
-Updated: 2026-06-20
+Updated: 2026-06-30
+
+V1 feedback update: Mrs. Mel clarified that the participant is the Household CFO and Mia is the AI coach/assistant. The visual direction should move away from heavy green toward warmer neutrals, dusty rose/deep mauve, terracotta, and sage while keeping red/yellow/green primarily for status.
 
 Sources reviewed:
 
@@ -194,9 +196,9 @@ Prioritize:
 Design posture:
 
 - Use the prototype's warmth, serif/sans contrast, and financial-coach tone.
-- Reduce plum/gold dominance; move toward warm black/white/cream with restrained emerald/gold/status colors.
+- Reduce heavy green/plum/gold dominance; move toward warm black/white/cream with dusty rose, deep mauve, terracotta, and sage.
 - Use Intercom-inspired warm clean surfaces: warm canvas, clear text, simple borders, restrained accent.
-- Keep Mia visually distinct with emerald/deep green and a subtle gold mark.
+- Keep Mia visually distinct with the warm mauve/terracotta mark, not a masculine green identity.
 - Use red/yellow/green for status/readiness only, not decoration.
 
 ## Immediate frontend changes recommended

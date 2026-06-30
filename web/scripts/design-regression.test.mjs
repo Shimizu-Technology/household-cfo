@@ -16,6 +16,18 @@ assert.ok(
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
+assert.ok(app.includes('<h1>Household CFO Method</h1>'), 'top-level copy should lead with the Household CFO Method product name')
+assert.ok(app.includes('Run your home like the C-Suite'), 'hero copy should use Mrs. Mel’s transformation language')
+for (const rejectedCopy of [
+  'Mia, your household CFO.',
+  'Plan, don’t gamble.',
+  "Plan, don't gamble.",
+  'Your money picture, without the spiral.',
+  'Annual runway first. Monthly moves second.',
+]) {
+  assert.ok(!app.includes(rejectedCopy), `App should not include rejected UI copy: ${rejectedCopy}`)
+}
+assert.ok(app.includes('title="CFO snapshot"'), 'home copy should keep the section heading simple')
 
 for (const requiredCopy of [
   'Expense Stack',
@@ -25,7 +37,7 @@ for (const requiredCopy of [
   'Upload spreadsheet',
   'Upload statement',
   'Upload pay stub',
-  'Context loaded',
+  'Approved data loaded',
 ]) {
   assert.ok(app.includes(requiredCopy), `App should include source-derived UI copy: ${requiredCopy}`)
 }
@@ -33,6 +45,10 @@ for (const requiredCopy of [
 for (const token of ['--cream', '--ink', '--emerald', '--status-green', '--status-yellow', '--status-red']) {
   assert.ok(css.includes(token), `CSS should include cleaned design token ${token}`)
 }
+
+assert.ok(css.includes('--emerald: #7b4a58'), 'primary brand token should shift from green to deep mauve')
+assert.ok(css.includes('--emerald-soft: #f1e2e3'), 'soft brand token should use dusty rose')
+assert.ok(!css.includes('#0f4c3a'), 'old masculine green should not remain in main app CSS')
 
 assert.ok(api.includes('budget'), 'API client type should expose budget data')
 assert.ok(api.includes('wealth'), 'API client type should expose wealth data')

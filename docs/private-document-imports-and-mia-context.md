@@ -2,7 +2,7 @@
 
 **Status:** planned next implementation  
 **Date:** 2026-06-23  
-**Product:** Household CFO powered by VERA
+**Product:** Household CFO Method powered by VERA
 
 This document defines how Household CFO should handle participant uploads such as budget spreadsheets, bank/credit-card statements, pay stubs, receipts, and photos. The goal is to build the real feature properly, not a prototype-only OCR demo.
 

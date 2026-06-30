@@ -28,7 +28,7 @@ class UserInviteEmailServiceTest < ActiveSupport::TestCase
     payload = payloads.fetch(0)
     assert_equal "Household CFO <noreply@example.com>", payload.fetch(:from)
     assert_equal "invitee@example.com", payload.fetch(:to)
-    assert_includes payload.fetch(:html), "Open Household CFO"
+    assert_includes payload.fetch(:html), "Open Household CFO Method"
     assert_includes payload.fetch(:html), "invitee@example.com"
     assert_includes payload.fetch(:text), "admin invited you"
   end

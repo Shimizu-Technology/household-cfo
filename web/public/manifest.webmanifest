@@ -1,13 +1,13 @@
 {
   "id": "/",
-  "name": "Household CFO powered by VERA",
+  "name": "Household CFO Method powered by VERA",
   "short_name": "Household CFO",
-  "description": "Mia's first-cohort household money coaching workspace.",
+  "description": "Your Household CFO Method workspace, coached by Mia.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
   "background_color": "#f7f2ea",
-  "theme_color": "#0f4c3a",
+  "theme_color": "#7b4a58",
   "orientation": "portrait-primary",
   "categories": ["finance", "productivity", "education"],
   "icons": [

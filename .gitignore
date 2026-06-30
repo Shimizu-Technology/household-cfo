@@ -45,6 +45,10 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+# Local/private project source docs
+# Keep client-provided/source financial docs out of git unless explicitly scrubbed.
+docs/HouseholdCFO/
+
 # Local/editor
 .idea
 .vscode

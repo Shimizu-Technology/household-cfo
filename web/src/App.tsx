@@ -107,7 +107,7 @@ const sourceDerivedCopy = [
   'Upload spreadsheet',
   'Upload statement',
   'Upload pay stub',
-  'Context loaded',
+  'Approved data loaded',
 ]
 
 const statusCopy = {
@@ -428,7 +428,18 @@ function App() {
       }
     } catch (caught) {
       trackDocumentUpload(kind, 'failed', file)
-      setDocumentsError(caught instanceof Error ? caught.message : 'Document could not be uploaded.')
+      const uploadError = caught instanceof Error ? caught.message : 'Document could not be uploaded.'
+      setDocumentsError(uploadError)
+      if (origin === 'mia') {
+        setMessages((current) => [
+          ...current,
+          {
+            role: 'assistant',
+            author: 'Mia',
+            content: `I could not upload ${file.name}. ${uploadError}`,
+          },
+        ])
+      }
     } finally {
       setUploadingKind(null)
     }
@@ -614,7 +625,7 @@ function App() {
   }
 
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
-    return <AuthStatePanel title="Verifying your Household CFO access" copy="Mia is checking your secure cohort invitation before opening the workspace." />
+    return <AuthStatePanel title="Verifying your Household CFO Method access" copy="Mia is checking your secure cohort invitation before opening the workspace." />
   }
 
   if (auth.isClerkEnabled && !auth.isSignedIn) {
@@ -634,8 +645,8 @@ function App() {
       <main className="app loading-state">
         <SeoManager section="Home" />
         <section className="hero-panel">
-          <p className="eyebrow">Household CFO powered by VERA</p>
-          <h1>Loading Mia’s first cohort workspace.</h1>
+          <p className="eyebrow">Household CFO Method powered by VERA</p>
+          <h1>Loading your first cohort workspace.</h1>
           <p>{error ?? 'Pulling first cohort preview data...'}</p>
         </section>
       </main>
@@ -650,17 +661,17 @@ function App() {
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
         </ul>
         <div>
-          <p className="eyebrow">First cohort preview</p>
-          <h1>Mia, your household CFO.</h1>
+          <p className="eyebrow">Household CFO Method powered by VERA</p>
+          <h1>Household CFO Method</h1>
           <p className="hero-copy">
-            Turn budget stress into a simple operating rhythm: know the numbers, choose the next move,
-            and protect the dream without living in a spreadsheet.
+            Run your home like the C-Suite — not the unpaid maintenance staff. Build the annual budget,
+            track the running totals, and use Mia as your AI coach when the next money decision needs a CFO call.
           </p>
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>Mia is ready</strong>
-          <p>{data.profile.completeness}% profile complete · {data.dashboard.summary.readiness_label}</p>
+          <strong>Your CFO workspace is ready</strong>
+          <p>Mia can coach from {data.profile.completeness}% profile completeness · {data.dashboard.summary.readiness_label}</p>
           {auth.currentUser && (
             <div className="account-pill">
               <span>{auth.currentUser.full_name}</span>
@@ -668,7 +679,7 @@ function App() {
               <UserButton afterSignOutUrl="/" />
             </div>
           )}
-          <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia what this means</button>
+          <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia for the CFO read</button>
         </aside>
       </header>
 
@@ -689,8 +700,8 @@ function App() {
         <section className="screen-grid home-screen">
           <ScreenHeading
             eyebrow="Home"
-            title="Your money picture, without the spiral."
-            copy="A calm snapshot first. Details are still there, but Mia leads with what needs attention today."
+            title="CFO snapshot"
+            copy="Check the baseline, runway, safe-to-spend, and next move before a money decision leaves the household."
           />
 
           <div className="status-ribbon">
@@ -707,11 +718,11 @@ function App() {
 
           <div className="two-column">
             <article className="panel coach-panel">
-              <p className="eyebrow">Mia’s read</p>
-              <h3>Plan, don’t gamble.</h3>
+              <p className="eyebrow">Mia’s coach read</p>
+              <h3>Make the measured CFO move.</h3>
               <p>
-                You have enough stability to move with intention, but not enough to treat this like a leap of faith.
-                The next 90 days should protect runway and prove recurring income.
+                You have enough stability to move with intention, but the annual plan still needs runway protection.
+                The next 90 days should protect cash reserves, cover irregular expenses, and prove recurring income.
               </p>
               <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia for my next move</button>
             </article>
@@ -739,8 +750,8 @@ function App() {
         <section className="screen-grid mia-screen">
           <ScreenHeading
             eyebrow="Ask Mia"
-            title="Ask Mia about the next move."
-            copy="Mia uses your profile, Expense Stack, runway, debt, and Optionality context."
+            title="Ask Mia for the CFO read."
+            copy="Mia uses your approved household context so you can make the next call with the actual numbers in front of you."
           />
 
           <div className="mia-layout">
@@ -748,12 +759,12 @@ function App() {
               <div className="mia-context-heading">
                 <span className="spark" aria-hidden="true"><MiaMark /></span>
                 <div>
-                  <span>What Mia sees</span>
-                  <h3>Context loaded</h3>
+                  <span>Assistant context</span>
+                  <h3>Approved data loaded</h3>
                 </div>
               </div>
               <p>
-                Profile, Expense Stack, runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.
+                Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.
               </p>
               {isRealWorkspace ? (
                 <DocumentContextCard
@@ -783,7 +794,7 @@ function App() {
                 <span className="message-avatar" aria-hidden="true">M</span>
                 <div className="chat-shell-copy">
                   <h3>Ask Mia</h3>
-                  <p>Quick, plain-English coaching from your Household CFO context.</p>
+                  <p>Plain-English coaching while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
@@ -817,7 +828,7 @@ function App() {
                   <div className="empty-chat-state">
                     <span className="message-avatar" aria-hidden="true">M</span>
                     <h3>Mia is ready when you are.</h3>
-                    <p>Choose a quick question or ask what you want to decide next. Mia will use the household context already loaded here.</p>
+                    <p>Ask what you need to decide next. Mia will use the approved household context already loaded here.</p>
                   </div>
                 )}
                 {currentMessages.map((message, index) => (
@@ -863,8 +874,8 @@ function App() {
                   className="composer-attach"
                   type="button"
                   disabled={!isRealWorkspace || Boolean(uploadingKind)}
-                  title={isRealWorkspace ? 'Attach a financial document for review' : 'Sign in to a real workspace before uploading documents.'}
-                  aria-label="Attach financial document"
+                  title={isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
+                  aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
                 >
                   <AttachmentIcon />
@@ -877,7 +888,7 @@ function App() {
                   }}
                   onKeyDown={handleAskMiaKeyDown}
                   aria-label="Ask Mia"
-                  placeholder="Ask Mia..."
+                  placeholder="Ask Mia for the CFO read..."
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
@@ -1112,9 +1123,9 @@ function AuthLanding() {
       <section className="hero-panel auth-panel">
         <span className="spark" aria-hidden="true"><ShieldIcon /></span>
         <p className="eyebrow">Secure cohort access</p>
-        <h1>Sign in to open Mia’s Household CFO workspace.</h1>
+        <h1>Sign in to open your Household CFO Method workspace.</h1>
         <p>
-          Household CFO now uses Clerk authentication backed by the Rails/PostgreSQL user table.
+          Household CFO Method now uses Clerk authentication backed by the Rails/PostgreSQL user table.
           Sign in with the email invited to the first cohort.
         </p>
         <div className="auth-actions">
@@ -1152,7 +1163,7 @@ function AuthStatePanel({ title, copy }: { title: string; copy: string }) {
     <main className="app loading-state auth-state">
       <section className="hero-panel auth-panel">
         <span className="spark" aria-hidden="true"><MiaMark /></span>
-        <p className="eyebrow">Household CFO powered by VERA</p>
+        <p className="eyebrow">Household CFO Method powered by VERA</p>
         <h1>{title}</h1>
         <p>{copy}</p>
       </section>
