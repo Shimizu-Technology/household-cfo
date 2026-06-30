@@ -595,7 +595,7 @@ function App() {
   function handleProfileSectionEdit(sectionLabel: string) {
     if (!isRealWorkspace) return
 
-    const appliedImport = latestAppliedImport(documentImports)
+    const appliedImport = latestFullyAppliedImport(documentImports)
     if (appliedImport) {
       setSelectedImportId(appliedImport.id)
       setExpandedAppliedImportId(appliedImport.id)
@@ -2091,6 +2091,12 @@ function latestAppliedImport(imports: FinancialDocumentImport[]) {
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
+function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
+  return imports
+    .filter((documentImport) => documentImport.status === 'applied')
+    .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
+}
+
 function importTimestamp(documentImport: FinancialDocumentImport) {
   const timestamp = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
   return Number.isNaN(timestamp) ? 0 : timestamp
@@ -2130,7 +2136,8 @@ function setupFocusFieldForSection(sectionLabel: string): keyof WorkspaceSetupVa
   const normalized = sectionLabel.toLowerCase()
   if (normalized.includes('income')) return 'primary_income'
   if (normalized.includes('expense')) return 'fixed_expenses'
-  if (normalized.includes('saving') || normalized.includes('debt')) return 'emergency_fund'
+  if (normalized.includes('debt')) return 'credit_card_debt'
+  if (normalized.includes('saving')) return 'emergency_fund'
 
   return 'household_name'
 }
