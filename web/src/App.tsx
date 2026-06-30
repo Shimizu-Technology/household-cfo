@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import {
   applyDocumentImport,
@@ -143,8 +143,11 @@ function App() {
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [itemSavingIds, setItemSavingIds] = useState<Set<number>>(() => new Set())
   const [documentAction, setDocumentAction] = useState<string | null>(null)
+  const [expandedAppliedImportId, setExpandedAppliedImportId] = useState<number | null>(null)
   const [previewImport, setPreviewImport] = useState<FinancialDocumentImport | null>(null)
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
+  const setupFormRef = useRef<HTMLFormElement | null>(null)
+  const documentImportsRef = useRef<HTMLElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const chatStorageKey = useMemo(() => {
     const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
@@ -589,6 +592,27 @@ function App() {
     })
   }
 
+  function handleProfileSectionEdit(sectionLabel: string) {
+    if (!isRealWorkspace) return
+
+    const appliedImport = latestFullyAppliedImport(documentImports)
+    if (appliedImport) {
+      setSelectedImportId(appliedImport.id)
+      setExpandedAppliedImportId(appliedImport.id)
+      setDocumentsNotice(`${sectionLabel} values are source-backed. I opened the applied import so you can correct the detailed records.`)
+      requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+      return
+    }
+
+    const fieldName = setupFocusFieldForSection(sectionLabel)
+    setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    requestAnimationFrame(() => {
+      const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
+      field?.focus({ preventScroll: true })
+      field?.select()
+    })
+  }
+
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
     return <AuthStatePanel title="Verifying your Household CFO access" copy="Mia is checking your secure cohort invitation before opening the workspace." />
   }
@@ -893,6 +917,7 @@ function App() {
 
           {isRealWorkspace && setupDraft && (
             <WorkspaceSetupForm
+              formRef={setupFormRef}
               values={setupDraft}
               saving={setupSaving}
               error={setupError}
@@ -902,6 +927,7 @@ function App() {
           )}
 
           <DocumentImportWorkspace
+            sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
             selectedImport={selectedImport}
@@ -911,6 +937,8 @@ function App() {
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
+            expandedAppliedImportId={expandedAppliedImportId}
+            onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
             onUpload={handleDocumentUpload}
             onSelectImport={setSelectedImportId}
@@ -927,7 +955,7 @@ function App() {
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
                   <h3>{section.label}</h3>
-                  <button type="button">Edit</button>
+                  <button type="button" onClick={() => handleProfileSectionEdit(section.label)}>Edit</button>
                 </div>
                 <p>{section.summary}</p>
                 {section.items.map((item) => (
@@ -1200,6 +1228,7 @@ function DocumentContextCard({
 }
 
 function DocumentImportWorkspace({
+  sectionRef,
   isRealWorkspace,
   imports,
   selectedImport,
@@ -1209,6 +1238,8 @@ function DocumentImportWorkspace({
   uploadingKind,
   itemSavingIds,
   action,
+  expandedAppliedImportId,
+  onExpandedAppliedImportIdChange,
   demoUploads,
   onUpload,
   onSelectImport,
@@ -1219,6 +1250,7 @@ function DocumentImportWorkspace({
   onDeleteImport,
   onOpenSource,
 }: {
+  sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
   imports: FinancialDocumentImport[]
   selectedImport: FinancialDocumentImport | null
@@ -1228,6 +1260,8 @@ function DocumentImportWorkspace({
   uploadingKind: DocumentImportKind | null
   itemSavingIds: Set<number>
   action: string | null
+  expandedAppliedImportId: number | null
+  onExpandedAppliedImportIdChange: (id: number | null) => void
   demoUploads: Array<{ label: string; kind: string; status: string; accepts: string }>
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   onSelectImport: (id: number) => void
@@ -1243,7 +1277,7 @@ function DocumentImportWorkspace({
 
   if (!isRealWorkspace) {
     return (
-      <section className="panel document-import-workspace demo-document-imports" aria-label="Document uploads preview">
+      <section ref={sectionRef} className="panel document-import-workspace demo-document-imports" aria-label="Document uploads preview">
         <div className="document-workspace-heading">
           <div>
             <p className="eyebrow">Private document import</p>
@@ -1267,7 +1301,7 @@ function DocumentImportWorkspace({
   }
 
   return (
-    <section className="panel document-import-workspace" aria-label="Private financial document imports">
+    <section ref={sectionRef} className="panel document-import-workspace" aria-label="Private financial document imports">
       <div className="document-workspace-heading">
         <div>
           <p className="eyebrow">Private document import</p>
@@ -1318,6 +1352,8 @@ function DocumentImportWorkspace({
           documentImport={selectedImport}
           itemSavingIds={itemSavingIds}
           action={action}
+          appliedDetailsOpen={Boolean(selectedImport && selectedImport.status === 'applied' && selectedImport.id === expandedAppliedImportId)}
+          onAppliedDetailsOpenChange={(open) => onExpandedAppliedImportIdChange(open && selectedImport ? selectedImport.id : null)}
           onUpdateItem={onUpdateItem}
           onApply={onApply}
           onReprocess={onReprocess}
@@ -1418,6 +1454,8 @@ function DocumentReviewPanel({
   documentImport,
   itemSavingIds,
   action,
+  appliedDetailsOpen,
+  onAppliedDetailsOpenChange,
   onUpdateItem,
   onApply,
   onReprocess,
@@ -1430,6 +1468,8 @@ function DocumentReviewPanel({
   documentImport: FinancialDocumentImport | null
   itemSavingIds: Set<number>
   action: string | null
+  appliedDetailsOpen: boolean
+  onAppliedDetailsOpenChange: (open: boolean) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
@@ -1485,7 +1525,12 @@ function DocumentReviewPanel({
             {actionForImport('source-url') ? 'Opening' : 'Preview source'}
           </button>
           {fullyApplied ? (
-            <span className="document-action-hint">Upload a new copy to reprocess</span>
+            <>
+              <span className="document-action-hint">Upload a new copy to reprocess</span>
+              <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
+                {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
+              </button>
+            </>
           ) : (
             <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
               {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
@@ -1519,7 +1564,11 @@ function DocumentReviewPanel({
         </div>
       )}
 
-      {documentImport.items.length > 0 && (
+      {fullyApplied && !appliedDetailsOpen && (
+        <AppliedImportSummary documentImport={documentImport} onEdit={() => onAppliedDetailsOpenChange(true)} />
+      )}
+
+      {documentImport.items.length > 0 && (!fullyApplied || appliedDetailsOpen) && (
         <div className="document-items-shell">
           {groupedItems.map(([targetType, items]) => (
             <section className="document-item-group" key={targetType}>
@@ -1546,9 +1595,13 @@ function DocumentReviewPanel({
       <div className={`document-apply-bar ${fullyApplied ? 'applied' : ''}`}>
         <div>
           <strong>{fullyApplied ? 'Saved household numbers' : `${selectedCount} selected`}</strong>
-          <span>{fullyApplied ? 'These values are already applied. Correcting a card above updates Mia and the dashboard immediately.' : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
+          <span>{fullyApplied ? (appliedDetailsOpen ? 'Correcting a saved value updates Mia and the dashboard immediately.' : 'This source is already applied. Expand only when you need to correct source-backed details.') : reviewable ? 'Approve only values you recognize.' : 'This import is not currently reviewable.'}</span>
         </div>
-        {!fullyApplied && (
+        {fullyApplied ? (
+          <button type="button" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
+            {appliedDetailsOpen ? 'Collapse details' : 'Edit saved values'}
+          </button>
+        ) : (
           <button type="button" onClick={() => onApply(documentImport)} disabled={!reviewable || selectedCount === 0 || actionForImport('apply')}>
             {actionForImport('apply') ? 'Applying' : 'Apply selected'}
           </button>
@@ -1556,6 +1609,41 @@ function DocumentReviewPanel({
       </div>
     </article>
   )
+}
+
+function AppliedImportSummary({ documentImport, onEdit }: { documentImport: FinancialDocumentImport; onEdit: () => void }) {
+  const appliedItems = documentImport.items.filter((item) => item.applied_at)
+  const groups = groupedImportItems(appliedItems)
+  const groupSummary = groups.map(([targetType, items]) => ({
+    label: targetTypeLabel(targetType),
+    count: items.length,
+    total: items.reduce((sum, item) => sum + appliedItemDisplayValue(item), 0),
+  }))
+
+  return (
+    <div className="document-applied-summary">
+      <div className="document-applied-summary-copy">
+        <span className="document-status green">Applied household budget</span>
+        <h5>{appliedItems.length} saved value{appliedItems.length === 1 ? '' : 's'} already feed Mia</h5>
+        <p>The detailed correction cards are tucked away so the profile stays scannable. Open them only when a source-backed number needs a correction.</p>
+      </div>
+      <div className="document-applied-summary-grid" aria-label="Applied import value groups">
+        {groupSummary.map((group) => (
+          <article key={group.label}>
+            <span>{group.label}</span>
+            <strong>{group.count}</strong>
+            <small>{currency.format(group.total)}</small>
+          </article>
+        ))}
+      </div>
+      <button type="button" onClick={onEdit}>Edit saved values</button>
+    </div>
+  )
+}
+
+function appliedItemDisplayValue(item: DocumentImportItem) {
+  if (item.target_type === 'debt') return item.balance ? -item.balance : 0
+  return item.balance ?? item.amount ?? item.payment ?? 0
 }
 
 function DocumentSourcePreview({
@@ -2003,6 +2091,12 @@ function latestAppliedImport(imports: FinancialDocumentImport[]) {
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
+function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
+  return imports
+    .filter((documentImport) => documentImport.status === 'applied')
+    .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
+}
+
 function importTimestamp(documentImport: FinancialDocumentImport) {
   const timestamp = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
   return Number.isNaN(timestamp) ? 0 : timestamp
@@ -2036,6 +2130,16 @@ function statusExplainer(documentImport: FinancialDocumentImport) {
   if (documentImport.status === 'partially_applied') return 'Some values were applied. Unapplied values remain available for review.'
 
   return 'Review each draft value before applying it to your official household numbers.'
+}
+
+function setupFocusFieldForSection(sectionLabel: string): keyof WorkspaceSetupValues {
+  const normalized = sectionLabel.toLowerCase()
+  if (normalized.includes('income')) return 'primary_income'
+  if (normalized.includes('expense')) return 'fixed_expenses'
+  if (normalized.includes('debt')) return 'credit_card_debt'
+  if (normalized.includes('saving')) return 'emergency_fund'
+
+  return 'household_name'
 }
 
 type AdminUserDraft = {
@@ -2889,12 +2993,14 @@ function messageLengthBucket(length: number) {
 }
 
 function WorkspaceSetupForm({
+  formRef,
   values,
   saving,
   error,
   onChange,
   onSubmit,
 }: {
+  formRef?: Ref<HTMLFormElement>
   values: WorkspaceSetupValues
   saving: boolean
   error: string | null
@@ -2902,7 +3008,7 @@ function WorkspaceSetupForm({
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <form className="panel setup-form" onSubmit={onSubmit}>
+    <form ref={formRef} className="panel setup-form" onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
           <p className="eyebrow">Real workspace</p>
@@ -2915,30 +3021,31 @@ function WorkspaceSetupForm({
       <div className="setup-field-grid">
         <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
           <span>Household name</span>
-          <input value={values.household_name} onChange={(event) => onChange('household_name', event.target.value)} />
+          <input name="household_name" value={values.household_name} onChange={(event) => onChange('household_name', event.target.value)} />
           <small>The name Mia should use for this household.</small>
         </label>
         <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
           <span>Primary goal</span>
-          <textarea rows={3} value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
+          <textarea name="primary_goal" rows={3} value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
           <small>Write the goal, worry, or decision Mia should coach around. This box grows for longer notes.</small>
         </label>
-        <MoneyInput label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
-        <MoneyInput label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
-        <MoneyInput label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-        <MoneyInput label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
-        <MoneyInput label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
-        <MoneyInput label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
-        <MoneyInput label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
-        <MoneyInput label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-        <MoneyInput label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
-        <MoneyInput label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+        <MoneyInput name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+        <MoneyInput name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+        <MoneyInput name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+        <MoneyInput name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+        <MoneyInput name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
+        <MoneyInput name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+        <MoneyInput name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
+        <MoneyInput name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
+        <MoneyInput name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
+        <MoneyInput name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
         <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
           <span>Target runway months</span>
           <input
             type="number"
             min="0"
             step="0.5"
+            name="target_runway_months"
             value={values.target_runway_months}
             onChange={(event) => onChange('target_runway_months', event.target.value)}
           />
@@ -2951,11 +3058,11 @@ function WorkspaceSetupForm({
   )
 }
 
-function MoneyInput({ label, value, help, onChange }: { label: string; value: number; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ name, label, value, help, onChange }: { name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
-      <input type="number" min="0" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input name={name} type="number" min="0" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
       <small>{help}</small>
     </label>
   )
