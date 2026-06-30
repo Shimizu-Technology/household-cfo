@@ -700,8 +700,8 @@ function App() {
         <section className="screen-grid home-screen">
           <ScreenHeading
             eyebrow="Home"
-            title="Annual runway first. Monthly moves second."
-            copy="Start with the year, then use this month’s numbers to make the next CFO call with Mia’s coaching support."
+            title="CFO snapshot"
+            copy="Check the baseline, runway, safe-to-spend, and next move before a money decision leaves the household."
           />
 
           <div className="status-ribbon">

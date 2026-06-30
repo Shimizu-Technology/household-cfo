@@ -1,8 +1,23 @@
 require "test_helper"
 
 class DemoMiaResponderTest < ActiveSupport::TestCase
-  test "deterministic discretionary purchase response preserves local demo line even with api key" do
-    response = Demo::MiaResponder.new(api_key: "test-key").call("Can I buy the purse?")
+  test "chat uses OpenRouter for ordinary messages when api key is configured" do
+    responder = stubbed_model_responder("Real model response")
+
+    assert_equal "Real model response", responder.call("hi")
+    assert_equal "Real model response", responder.call("Can I buy the purse?")
+  end
+
+  test "default chat model uses Claude Sonnet latest through OpenRouter" do
+    with_env("OPENROUTER_MODEL" => nil) do
+      responder = Demo::MiaResponder.new(api_key: nil)
+
+      assert_equal "~anthropic/claude-sonnet-latest", responder.instance_variable_get(:@model)
+    end
+  end
+
+  test "fallback discretionary purchase response preserves local demo line when api key is missing" do
+    response = Demo::MiaResponder.new(api_key: nil).call("Can I buy the purse?")
 
     assert_includes response, "Lanya chelu"
     assert_includes response, "that purse isn’t in the cards right now"
@@ -10,23 +25,23 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "*"
   end
 
-  test "bag purchase intent also preserves the screenshot-ready purse line" do
-    response = Demo::MiaResponder.new(api_key: "test-key").call("Should I buy this bag?")
+  test "fallback bag purchase intent also preserves the screenshot-ready purse line" do
+    response = Demo::MiaResponder.new(api_key: nil).call("Should I buy this bag?")
 
     assert_includes response, "Lanya chelu"
     assert_includes response, "that purse isn’t in the cards right now"
   end
 
-  test "generic safe to spend question uses local spending check without forcing purse wording" do
-    response = Demo::MiaResponder.new(api_key: "test-key").call("Can I spend money on this?")
+  test "fallback generic safe to spend question uses local spending check without forcing purse wording" do
+    response = Demo::MiaResponder.new(api_key: nil).call("Can I spend money on this?")
 
     assert_includes response, "Pump the brakes"
     assert_includes response, "household baseline"
     refute_includes response, "purse"
   end
 
-  test "non-screenshot discretionary purchases use spending check instead of purse wording" do
-    response = Demo::MiaResponder.new(api_key: "test-key").call("Can I buy coffee today?")
+  test "fallback non-screenshot discretionary purchases use spending check instead of purse wording" do
+    response = Demo::MiaResponder.new(api_key: nil).call("Can I buy coffee today?")
 
     assert_includes response, "Pump the brakes"
     assert_includes response, "household baseline"
@@ -93,18 +108,19 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
-  test "low signal greeting does not force a Chamorro phrase every time" do
-    response = Demo::MiaResponder.new(api_key: "test-key").call("hi")
+  test "fallback low signal greeting does not force a Chamorro phrase every time" do
+    response = Demo::MiaResponder.new(api_key: nil).call("hi")
 
     assert_includes response, "I’m ready"
     refute_includes response, "Håfa Adai"
   end
 
-  test "safety prompt preserves product frame and generic opener ban" do
+  test "safety prompt preserves product frame, crisis routing, and generic opener ban" do
     prompt = Demo::MiaResponder::SAFETY_SYSTEM_PROMPT
 
     assert_includes prompt, "The participant is the Household CFO"
     assert_includes prompt, "Mia is not the CFO"
+    assert_includes prompt, "call or text 988"
     assert_includes prompt, "That's a good question"
     assert_includes prompt, "Do not use Chamorro words reflexively"
   end
@@ -113,5 +129,29 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     response = Demo::MiaResponder.new(api_key: nil).send(:sanitize_assistant_content, "That’s a good question. Check the annual plan first.")
 
     assert_equal "Check the annual plan first.", response
+  end
+
+  private
+
+  def stubbed_model_responder(response)
+    Demo::MiaResponder.new(api_key: "test-key").tap do |responder|
+      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:|
+        raise "expected household context" if context.blank?
+
+        response
+      end
+    end
+  end
+
+  def with_env(values)
+    previous = values.keys.index_with { |key| ENV.fetch(key, nil) }
+    values.each do |key, value|
+      value.nil? ? ENV.delete(key) : ENV[key] = value
+    end
+    yield
+  ensure
+    previous.each do |key, value|
+      value.nil? ? ENV.delete(key) : ENV[key] = value
+    end
   end
 end

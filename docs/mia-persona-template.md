@@ -53,15 +53,15 @@ Mia should avoid fake island dialect, accent imitation, reflexive Chamorro phras
 
 The V1 system prompt seed from Mrs. Mel's persona brief is now stored verbatim in `api/config/mia_personas.yml` under `system_prompt_seed`. Keep safety/legal/financial boundaries in code above that persona layer so no coach skin can override them.
 
-The demo-safe spending fallback intentionally supports the screenshot line:
+Mia chat uses OpenRouter whenever `OPENROUTER_API_KEY` is configured. The default chat model is `~anthropic/claude-sonnet-latest`, while document extraction can stay on `google/gemini-2.5-flash` through `OPENROUTER_EXTRACTION_MODEL`.
+
+Fallback responses only run when OpenRouter is not configured, the model call fails, or immediate crisis safety handling is needed. The fallback still includes demo-safe lines such as:
 
 ```text
 Lanya chelu, that purse isn’t in the cards right now.
 ```
 
-That line is deterministic for obvious purchase-intent prompts such as “Can I buy the purse?” so demos do not depend on model variability. Generic “Can I spend money on this?” prompts use a separate safe-to-spend check, and essential purchases such as groceries are not treated as splurges. Messages that only mention discretionary categories, such as “How do I track restaurant spending?”, stay on the normal coaching path.
-
-Crisis language is also deterministic. If a user says they may hurt themselves or want to die, Mia stops money coaching and directs the user to immediate support such as 988, 911, or a trusted person.
+Crisis language remains deterministic. If a user says they may hurt themselves or want to die, Mia stops money coaching and directs the user to immediate support such as 988, 911, or a trusted person.
 
 ## Adding future coach personas
 

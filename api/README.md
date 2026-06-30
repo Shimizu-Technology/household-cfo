@@ -54,6 +54,7 @@ AWS_SECRET_ACCESS_KEY=...
 AWS_S3_BUCKET=household-cfo-private-dev
 AWS_S3_PREFIX=household-cfo/development
 OPENROUTER_API_KEY=sk-or-...
+OPENROUTER_MODEL=~anthropic/claude-sonnet-latest
 OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
 OPENROUTER_PDF_ENGINE=mistral-ocr
 ```

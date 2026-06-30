@@ -18,10 +18,16 @@ assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to 
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
 assert.ok(app.includes('<h1>Household CFO Method</h1>'), 'top-level copy should lead with the Household CFO Method product name')
 assert.ok(app.includes('Run your home like the C-Suite'), 'hero copy should use Mrs. Mel’s transformation language')
-assert.ok(!app.includes('Mia, your household CFO.'), 'Mia must not be framed as the user’s household CFO')
-assert.ok(!app.includes('Plan, don’t gamble.'), 'Mrs. Mel rejected the Plan, don’t gamble headline')
-assert.ok(!app.includes('Your money picture, without the spiral.'), 'home copy should avoid the rejected spiral phrasing')
-assert.ok(app.includes('Annual runway first. Monthly moves second.'), 'home copy should lead with annual runway framing')
+for (const rejectedCopy of [
+  'Mia, your household CFO.',
+  'Plan, don’t gamble.',
+  "Plan, don't gamble.",
+  'Your money picture, without the spiral.',
+  'Annual runway first. Monthly moves second.',
+]) {
+  assert.ok(!app.includes(rejectedCopy), `App should not include rejected UI copy: ${rejectedCopy}`)
+}
+assert.ok(app.includes('title="CFO snapshot"'), 'home copy should keep the section heading simple')
 
 for (const requiredCopy of [
   'Expense Stack',
