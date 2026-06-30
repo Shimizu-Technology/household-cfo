@@ -1,6 +1,6 @@
 # Household CFO Web
 
-React/Vite participant workspace for Household CFO powered by VERA. The UI supports safe demo preview mode locally and real participant workspaces when Clerk is configured.
+React/Vite participant workspace for Household CFO Method powered by VERA. The UI supports safe demo preview mode locally and real participant workspaces when Clerk is configured.
 
 ## Local setup
 
@@ -28,7 +28,7 @@ VITE_PUBLIC_POSTHOG_UI_HOST=https://us.posthog.com
 
 When `VITE_CLERK_PUBLISHABLE_KEY` is not set, the app runs in local preview mode without auth and fetches `/api/demo/*`. Hosted/cohort environments should configure Clerk, rely on `/api/v1/auth/me` to verify the invited local user, and fetch the user's real `/api/v1/workspace` data.
 
-Set `VITE_SITE_URL` to the production Netlify URL/custom domain before building so generated `robots.txt`, `sitemap.xml`, and runtime canonical metadata point at the right host.
+Set `VITE_SITE_URL` to the production Netlify URL/custom domain before building so generated `robots.txt`, `sitemap.xml`, and runtime canonical metadata point at the right host. In production, `VITE_API_BASE_URL` must point at the Render API; if it is missing, browser uploads and authenticated API calls will try localhost and fail with a fetch error.
 
 PostHog analytics is disabled unless `VITE_PUBLIC_POSTHOG_KEY` is present. Production custom domains automatically use the same-origin Netlify proxy at `/vera-insights`; local/dev and Netlify deploy previews use the appropriate direct PostHog ingestion host. Session replay is always enabled when analytics is enabled and masks all inputs/text by default because the app handles financial context.
 

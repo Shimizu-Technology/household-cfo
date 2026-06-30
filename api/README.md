@@ -1,6 +1,6 @@
 # Household CFO API
 
-Rails API for Household CFO powered by VERA. It serves the demo-safe Mia/Household CFO preview data today and now includes the Clerk-backed user/auth foundation for cohort access.
+Rails API for Household CFO Method powered by VERA. It serves the demo-safe Mia/Household CFO preview data today and now includes the Clerk-backed user/auth foundation for cohort access.
 
 ## Stack
 

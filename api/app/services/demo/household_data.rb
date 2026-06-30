@@ -238,7 +238,7 @@ module Demo
           {
             role: "assistant",
             author: "Mia",
-            content: "You can move toward it, but the clean path is hybrid first. Your runway is strong enough to plan, not strong enough to gamble. One next move: close one more monthly retainer or add $5,750 to runway before you cut stable income."
+            content: "You can move toward it, but the clean path is hybrid first. Your runway is strong enough to make a measured CFO move, not a leap-of-faith move. One next move: close one more monthly retainer or add $5,750 to runway before you cut stable income."
           }
         ],
         quick_prompts: [

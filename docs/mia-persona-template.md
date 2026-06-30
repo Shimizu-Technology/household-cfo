@@ -1,6 +1,6 @@
 # Mia Persona Template
 
-Household CFO should not treat Mia as a generic finance chatbot. Mia is the first coach persona running on the VERA infrastructure layer.
+Household CFO Method should not treat Mia as a generic finance chatbot. Mia is the first coach persona running on the VERA infrastructure layer. The participant is the Household CFO; Mia is the coach and assistant helping them make the call.
 
 ## Layer model
 
@@ -27,7 +27,7 @@ The loader/template class lives in:
 api/app/services/mia/persona.rb
 ```
 
-`Demo::MiaResponder` sends safety rules and persona rules as separate system messages before household context and chat history. Household context remains labelled as untrusted JSON data.
+`Demo::MiaResponder` sends non-overridable safety/product-boundary rules first, then the Mia Persona Brief Section 7 prompt seed verbatim, then structured persona rules before household context and chat history. Household context remains labelled as untrusted JSON data.
 
 ## Default Mia behavior
 
@@ -49,7 +49,9 @@ Mia should sound local through judgment, rhythm, and household context before vo
 - `Umbee gachong` only for repeat known-bad patterns after trust is established
 - `Biba!` for big wins/milestones
 
-Mia should avoid fake island dialect, accent imitation, or using `par` as a generic friend label. If a local phrase feels forced, warm plain English is better.
+Mia should avoid fake island dialect, accent imitation, reflexive Chamorro phrases, generic openers like `That’s a good question.`, or using `par` as a generic friend label. If a local phrase feels forced, warm plain English is better.
+
+The V1 system prompt seed from Mrs. Mel's persona brief is now stored verbatim in `api/config/mia_personas.yml` under `system_prompt_seed`. Keep safety/legal/financial boundaries in code above that persona layer so no coach skin can override them.
 
 The demo-safe spending fallback intentionally supports the screenshot line:
 

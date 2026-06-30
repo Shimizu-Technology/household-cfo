@@ -36,6 +36,8 @@ References used:
    FRONTEND_URLS=https://your-domain.com,https://www.your-domain.com,https://your-netlify-site.netlify.app
    ```
 
+   The API also ships safe defaults for `https://householdcfomethod.com`, `https://www.householdcfomethod.com`, and `https://household-cfo.netlify.app`, but Render env should still include the canonical production domain so future domains/previews are explicit.
+
 8. Redeploy web and API after env changes.
 
 ## Clerk production setup
@@ -98,6 +100,16 @@ After `VITE_SITE_URL` is set and the web app redeploys:
 4. Add Google Search Console property for the custom domain.
 5. Verify with DNS TXT at GoDaddy or the provided HTML meta tag.
 6. Submit `https://your-domain.com/sitemap.xml`.
+
+## Upload blocker triage
+
+If production uploads fail with `Failed to fetch` or a generic browser network error:
+
+1. Confirm Netlify has `VITE_API_BASE_URL=https://your-render-api.onrender.com` and has been redeployed after the env change.
+2. Confirm Render has `FRONTEND_URL` / `FRONTEND_URLS` for `https://householdcfomethod.com` and any preview host being tested.
+3. Confirm Render has private S3 configuration: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, and `AWS_S3_PREFIX`.
+4. Check Render logs for `[S3Service] Upload failed`, CORS errors, Clerk authorization errors, or `Private S3 document storage is not configured`.
+5. Test an explicit upload from `https://householdcfomethod.com` using a demo-safe `.xlsx` or image file.
 
 ## Full production smoke test
 

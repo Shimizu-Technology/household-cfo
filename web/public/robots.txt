@@ -1,4 +1,4 @@
-# Household CFO powered by VERA
+# Household CFO Method powered by VERA
 # https://household-cfo.netlify.app
 
 User-agent: *

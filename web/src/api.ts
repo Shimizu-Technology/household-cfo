@@ -422,6 +422,20 @@ type AuthTokenGetter = () => Promise<string | null>
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 let authTokenGetter: AuthTokenGetter | null = null
 
+function browserHostIsLocal() {
+  if (typeof window === 'undefined') return true
+
+  return ['localhost', '127.0.0.1', '::1'].includes(window.location.hostname)
+}
+
+function apiNetworkErrorMessage(action: string) {
+  if (!browserHostIsLocal() && /localhost|127\.0\.0\.1/.test(API_BASE)) {
+    return `${action}. This web deploy is still pointing at ${API_BASE}. Set VITE_API_BASE_URL to the production Render API and redeploy Netlify.`
+  }
+
+  return `${action}. Check the production API URL, CORS allowlist, Clerk session, and private S3 configuration.`
+}
+
 export function setAuthTokenGetter(getter: AuthTokenGetter | null) {
   authTokenGetter = getter
 }
@@ -439,10 +453,15 @@ async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T>
     ...(options.headers as Record<string, string> | undefined),
   }
 
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers,
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      ...options,
+      headers,
+    })
+  } catch {
+    throw new Error(apiNetworkErrorMessage('API request could not reach the server'))
+  }
 
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, 'API request failed'))
@@ -589,11 +608,16 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
   formData.append('document_kind', documentKind)
   formData.append('upload_request_id', crypto.randomUUID())
 
-  const response = await fetch(`${API_BASE}/api/v1/document_imports`, {
-    method: 'POST',
-    headers: await authHeaders(),
-    body: formData,
-  })
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/api/v1/document_imports`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: formData,
+    })
+  } catch {
+    throw new Error(apiNetworkErrorMessage('Document upload could not reach the API'))
+  }
 
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, 'Document upload failed'))

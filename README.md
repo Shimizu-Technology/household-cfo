@@ -1,6 +1,6 @@
-# Household CFO powered by VERA
+# Household CFO Method powered by VERA
 
-Phase 1 Household CFO cohort MVP and FinCon-ready VERA foundation for Melanie Mendiola / Household CFO Method.
+Phase 1 Household CFO Method cohort MVP and FinCon-ready VERA foundation for Melanie Mendiola.
 
 This repo is production-shaped while the visible data remains demo-safe:
 

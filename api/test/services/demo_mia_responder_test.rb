@@ -93,9 +93,25 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
-  test "low signal greeting still works" do
+  test "low signal greeting does not force a Chamorro phrase every time" do
     response = Demo::MiaResponder.new(api_key: "test-key").call("hi")
 
-    assert_includes response, "Håfa Adai"
+    assert_includes response, "I’m ready"
+    refute_includes response, "Håfa Adai"
+  end
+
+  test "safety prompt preserves product frame and generic opener ban" do
+    prompt = Demo::MiaResponder::SAFETY_SYSTEM_PROMPT
+
+    assert_includes prompt, "The participant is the Household CFO"
+    assert_includes prompt, "Mia is not the CFO"
+    assert_includes prompt, "That's a good question"
+    assert_includes prompt, "Do not use Chamorro words reflexively"
+  end
+
+  test "model responses have generic opener stripped" do
+    response = Demo::MiaResponder.new(api_key: nil).send(:sanitize_assistant_content, "That’s a good question. Check the annual plan first.")
+
+    assert_equal "Check the annual plan first.", response
   end
 end

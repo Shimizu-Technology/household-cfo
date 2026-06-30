@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
   <title id="title">Household CFO</title>
-  <desc id="desc">Emerald, plum, and gold Household CFO app icon</desc>
-  <rect width="512" height="512" rx="112" fill="#0f4c3a" />
+  <desc id="desc">Deep mauve, cream, and terracotta Household CFO app icon</desc>
+  <rect width="512" height="512" rx="112" fill="#7b4a58" />
   <path d="M0 348c68-38 146-58 234-60 106-3 184-36 278-94v318H0Z" fill="#f7f2ea" opacity="0.95" />
-  <path d="M112 118h288v78H112z" fill="#4a2e35" opacity="0.92" />
-  <path d="m256 58 24 64 68 28-68 28-24 64-24-64-68-28 68-28 24-64Z" fill="#d4af37" />
-  <path d="M122 322v94M186 322v94M122 368h64" fill="none" stroke="#4a2e35" stroke-linecap="round" stroke-linejoin="round" stroke-width="30" />
-  <path d="M371 334c-18-16-41-24-67-20-45 7-76 50-68 95 8 44 50 74 95 67 17-3 33-10 46-21" fill="none" stroke="#4a2e35" stroke-linecap="round" stroke-linejoin="round" stroke-width="30" />
+  <path d="M112 118h288v78H112z" fill="#3f2930" opacity="0.92" />
+  <path d="m256 58 24 64 68 28-68 28-24 64-24-64-68-28 68-28 24-64Z" fill="#b97352" />
+  <path d="M122 322v94M186 322v94M122 368h64" fill="none" stroke="#3f2930" stroke-linecap="round" stroke-linejoin="round" stroke-width="30" />
+  <path d="M371 334c-18-16-41-24-67-20-45 7-76 50-68 95 8 44 50 74 95 67 17-3 33-10 46-21" fill="none" stroke="#3f2930" stroke-linecap="round" stroke-linejoin="round" stroke-width="30" />
 </svg>

@@ -1,8 +1,8 @@
-export const SITE_NAME = 'Household CFO powered by VERA'
-export const DEFAULT_TITLE = `${SITE_NAME} | Mia, your household CFO`
-export const DEFAULT_DESCRIPTION = "A private first-cohort money coaching workspace where Mia helps households review budgets, debt, runway, and next decisions."
-export const DEFAULT_KEYWORDS = 'household CFO, VERA, Mia, financial coaching, budget coaching, Guam financial education'
-export const THEME_COLOR = '#0f4c3a'
+export const SITE_NAME = 'Household CFO Method powered by VERA'
+export const DEFAULT_TITLE = `${SITE_NAME} | You are the CFO, Mia is your coach`
+export const DEFAULT_DESCRIPTION = "A private first-cohort money coaching workspace where households review annual budget rhythm, debt, runway, and next decisions with Mia."
+export const DEFAULT_KEYWORDS = 'household CFO method, VERA, Mia, financial coaching, budget coaching, Guam financial education'
+export const THEME_COLOR = '#7b4a58'
 
 const sectionSeo: Record<string, { title: string; description: string; robots?: string }> = {
   Home: {

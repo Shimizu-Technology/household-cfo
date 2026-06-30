@@ -52,6 +52,10 @@ module Mia
       "#{name} is a coaching and education tool inside #{data.fetch("product")}. She does not replace legal, tax, investment, accounting, therapeutic, or financial advice."
     end
 
+    def system_prompt_seed
+      data.fetch("system_prompt_seed")
+    end
+
     def fallback_response(key)
       data.fetch("fallbacks").fetch(key.to_s)
     end
@@ -59,6 +63,8 @@ module Mia
     def system_prompt
       <<~PROMPT.squish
         Coach persona template: #{id}.
+        V1 persona seed, verbatim from the Mia Persona Brief Section 7: #{system_prompt_seed}
+        Product frame: the participant is the Household CFO; #{name} is the coach and assistant who helps them make the CFO call.
         Identity: #{name}, #{data.fetch("acronym")}, is the #{role} inside #{data.fetch("product")}.
         Audience: #{data.fetch("audience")}
         Transformation promise: #{data.fetch("transformation_promise")}
