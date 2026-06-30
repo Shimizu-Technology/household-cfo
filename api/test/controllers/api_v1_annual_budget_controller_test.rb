@@ -55,6 +55,34 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 325, refreshed_row.fetch("months").first.fetch("planned")
   end
 
+  test "reclassifying a budget category updates the matching expense item instead of duplicating totals" do
+    user = create_user(email: "annual-reclassify@example.com")
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 250 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "non_discretionary", monthly_amount: 300 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    household = user.households.first.reload
+    active_expenses = household.expense_items.where(label: "Dining out", active: true)
+    assert_equal 1, active_expenses.count
+    assert_equal "non_discretionary", active_expenses.first.stack_key
+    assert_equal 30_000, active_expenses.first.amount_cents
+
+    budget = JSON.parse(response.body).fetch("budget")
+    assert_equal 300, budget.fetch("total_monthly_outflow")
+    row = budget.fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Dining out" }
+    assert_equal "Non-discretionary", row.fetch("stack_label")
+    assert_equal 300, row.fetch("months").first.fetch("planned")
+  end
+
   test "allocation updates are scoped to the current household" do
     owner = create_user(email: "allocation-owner@example.com")
     other_user = create_user(email: "allocation-other@example.com")

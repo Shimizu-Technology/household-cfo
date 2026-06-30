@@ -228,8 +228,20 @@ module HouseholdFinance
     end
 
     def sync_expense_item!(category, monthly_amount)
-      expense = household.expense_items.find_or_initialize_by(label: category.name, stack_key: category.stack_key)
-      expense.update!(amount_cents: Money.cents(monthly_amount), cadence: "monthly", active: true)
+      expense = synced_expense_for(category)
+      expense.update!(
+        label: category.name,
+        stack_key: category.stack_key,
+        amount_cents: Money.cents(monthly_amount),
+        cadence: "monthly",
+        active: true
+      )
+      household.expense_items.where(label: category.name).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
+    end
+
+    def synced_expense_for(category)
+      expenses = household.expense_items.where(label: category.name).order(active: :desc, id: :asc).to_a
+      expenses.find { |expense| expense.stack_key == category.stack_key } || expenses.first || household.expense_items.new(label: category.name)
     end
 
     def period_for_year(period_year, month)
