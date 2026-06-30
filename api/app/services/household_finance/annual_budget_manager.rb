@@ -8,16 +8,17 @@ module HouseholdFinance
     end
 
     def ensure_plan!
-      budget_year = nil
-      household.with_lock do
+      return @budget_year if defined?(@budget_year) && @budget_year.present?
+
+      @budget_year = household.with_lock do
         budget_year = household.budget_years.find_or_create_by!(year: year) do |record|
           record.status = "active"
         end
         ensure_periods!(budget_year)
         ensure_categories_from_expenses!
         ensure_allocations_from_expenses!(budget_year)
+        budget_year
       end
-      budget_year
     end
 
     def plan_data

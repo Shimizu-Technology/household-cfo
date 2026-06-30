@@ -19,6 +19,7 @@ This PR adds the first persisted foundation for the Household CFO annual budget 
 - Mia can draft a transaction from chat, but the participant must confirm it before actuals change.
 - Drafts are created from simple spending language only; this is not statement reconciliation yet.
 - Confirmed transactions update budget actuals through `TransactionSplit` rows.
+- Drafts confirmed exactly as proposed end as `confirmed`; drafts confirmed after user edits end as `corrected` with the confirmed transaction attached for audit.
 - Budget planning is editable only in authenticated real workspaces.
 - The annual plan bootstraps from approved setup/imported expense items, not raw documents.
 

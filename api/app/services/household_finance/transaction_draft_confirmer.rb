@@ -12,9 +12,9 @@ module HouseholdFinance
 
       transaction = nil
       ApplicationRecord.transaction do
-        apply_corrections!
+        corrected = apply_corrections!
         transaction = create_transaction!
-        draft.update!(status: "confirmed", confirmed_transaction: transaction)
+        draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
       end
 
       Result.new(success?: true, draft: draft.reload, transaction: transaction, errors: [])
@@ -33,13 +33,15 @@ module HouseholdFinance
         total_amount_cents: attributes.key?(:amount) ? Money.cents(attributes[:amount]) : draft.total_amount_cents,
         budget_category: selected_category || draft.budget_category
       )
-      draft.status = "corrected" if draft.changed?
-      draft.save!
+      corrected = draft.changed?
+      draft.status = "corrected" if corrected
+      draft.save! if draft.changed?
+      corrected
     end
 
     def create_transaction!
       category = draft.budget_category || fallback_category
-      period = AnnualBudgetManager.new(draft.household, year: draft.occurred_on.year).current_period_for(draft.occurred_on)
+      period = annual_budget_manager.current_period_for(draft.occurred_on)
       transaction = draft.household.household_transactions.create!(
         budget_period: period,
         occurred_on: draft.occurred_on,
@@ -61,8 +63,12 @@ module HouseholdFinance
     end
 
     def fallback_category
-      AnnualBudgetManager.new(draft.household, year: draft.occurred_on.year).ensure_plan!
-      draft.household.budget_categories.active.ordered.first || AnnualBudgetManager.new(draft.household, year: draft.occurred_on.year).create_category!(name: "Uncategorized", stack_key: "discretionary")
+      annual_budget_manager.ensure_plan!
+      draft.household.budget_categories.active.ordered.first || annual_budget_manager.create_category!(name: "Uncategorized", stack_key: "discretionary")
+    end
+
+    def annual_budget_manager
+      @annual_budget_manager ||= AnnualBudgetManager.new(draft.household, year: draft.occurred_on.year)
     end
 
     def parsed_date(value)

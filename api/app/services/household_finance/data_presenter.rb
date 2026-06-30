@@ -7,9 +7,10 @@ module HouseholdFinance
       "Can I leave my job?"
     ].freeze
 
-    def initialize(household, user: nil)
+    def initialize(household, user: nil, annual_plan: nil)
       @household = household
       @user = user
+      @annual_plan = annual_plan
       @snapshot_builder = SnapshotBuilder.new(household)
       @persona = ::Mia::Persona.default
     end
@@ -84,7 +85,7 @@ module HouseholdFinance
         baseline_surplus: dollars(snapshot.fetch(:baseline_surplus_cents)),
         stacks: snapshot_builder.budget_stacks,
         custom_categories_note: "Rename these into the language of your household. The stack matters more than perfect accounting labels.",
-        annual_plan: annual_budget_manager.plan_data
+        annual_plan: annual_plan
       }
     end
 
@@ -163,6 +164,10 @@ module HouseholdFinance
     private
 
     attr_reader :household, :user, :snapshot_builder, :persona
+
+    def annual_plan
+      @annual_plan ||= annual_budget_manager.plan_data
+    end
 
     def annual_budget_manager
       @annual_budget_manager ||= AnnualBudgetManager.new(household)

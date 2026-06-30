@@ -3,8 +3,9 @@ module HouseholdFinance
     MAX_HOUSEHOLD_NAME_LENGTH = 80
     MAX_PRIMARY_GOAL_LENGTH = 240
 
-    def initialize(household)
+    def initialize(household, annual_plan: nil)
       @household = household
+      @annual_plan = annual_plan
       @snapshot = SnapshotBuilder.new(household).call
     end
 
@@ -46,7 +47,7 @@ module HouseholdFinance
     end
 
     def annual_budget_context
-      plan = AnnualBudgetManager.new(household).plan_data
+      plan = annual_plan
       {
         year: plan.fetch(:year),
         pending_transaction_drafts_count: household.transaction_drafts.pending.count,
@@ -60,6 +61,10 @@ module HouseholdFinance
         end,
         current_month_budget_rows: current_month_budget_rows(plan)
       }
+    end
+
+    def annual_plan
+      @annual_plan ||= AnnualBudgetManager.new(household).plan_data
     end
 
     def current_month_budget_rows(plan)

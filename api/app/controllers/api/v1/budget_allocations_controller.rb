@@ -4,7 +4,7 @@ module Api
       before_action :authenticate_user!
 
       def update
-        allocation = BudgetAllocation.includes(:budget_category, budget_period: :budget_year).find(params[:id])
+        allocation = current_household_allocation_scope.find(params[:id])
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: allocation.budget_period.budget_year.year).update_allocation!(allocation, allocation_params[:planned_amount])
 
         render json: {
@@ -18,6 +18,13 @@ module Api
       end
 
       private
+
+      def current_household_allocation_scope
+        BudgetAllocation
+          .includes(:budget_category, budget_period: :budget_year)
+          .joins(:budget_category, budget_period: :budget_year)
+          .where(budget_categories: { household_id: current_household.id }, budget_years: { household_id: current_household.id })
+      end
 
       def allocation_params
         params.require(:allocation).permit(:planned_amount)

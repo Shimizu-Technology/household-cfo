@@ -55,6 +55,29 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 325, refreshed_row.fetch("months").first.fetch("planned")
   end
 
+  test "allocation updates are scoped to the current household" do
+    owner = create_user(email: "allocation-owner@example.com")
+    other_user = create_user(email: "allocation-other@example.com")
+    HouseholdFinance::WorkspaceResolver.new(other_user).household
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Groceries", stack_key: "discretionary", monthly_amount: 500 } },
+      headers: auth_headers(owner),
+      as: :json
+
+    assert_response :created
+    row = JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Groceries" }
+    allocation = BudgetAllocation.find(row.fetch("months").first.fetch("allocation_id"))
+
+    patch "/api/v1/budget_allocations/#{allocation.id}",
+      params: { allocation: { planned_amount: 1_000 } },
+      headers: auth_headers(other_user),
+      as: :json
+
+    assert_response :not_found
+    assert_equal 50_000, allocation.reload.planned_amount_cents
+  end
+
   test "Mia chat drafts a transaction and confirmation posts month-to-date actuals" do
     user = create_user(email: "transaction-loop@example.com")
     patch "/api/v1/workspace/setup",
@@ -89,6 +112,35 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     row = annual_plan.fetch("rows").find { |candidate| candidate.fetch("name") == "Flexible spending" }
     assert_equal 25, row.fetch("months").fetch(current_month_index).fetch("actual")
     assert_empty annual_plan.fetch("pending_transaction_drafts")
+  end
+
+  test "confirming with user corrections preserves corrected audit status" do
+    user = create_user(email: "corrected-draft@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+      params: { transaction_draft: { merchant: "McDonald's Dededo", amount: 30 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    response_draft = JSON.parse(response.body).fetch("transaction_draft")
+    assert_equal "corrected", response_draft.fetch("status")
+
+    draft = TransactionDraft.find(draft_id)
+    assert_equal "corrected", draft.status
+    assert_equal "McDonald's Dededo", draft.confirmed_transaction.merchant
+    assert_equal 3_000, draft.confirmed_transaction.total_amount_cents
   end
 
   private

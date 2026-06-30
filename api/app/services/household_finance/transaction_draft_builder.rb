@@ -7,17 +7,19 @@ module HouseholdFinance
       /\b(?:spent|paid|charged)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
     ].freeze
 
-    def initialize(household, message)
+    def initialize(household, message, annual_budget_manager: nil, plan_prepared: false)
       @household = household
       @message = message.to_s.squish
+      prepared_manager = annual_budget_manager if annual_budget_manager && occurred_on.year == Date.current.year
+      @annual_budget_manager = prepared_manager || AnnualBudgetManager.new(household, year: occurred_on.year)
+      @plan_prepared = plan_prepared && prepared_manager.present?
     end
 
     def call
       return nil unless transaction_like?
       return nil unless amount_cents.positive?
 
-      manager = AnnualBudgetManager.new(household, year: occurred_on.year)
-      manager.ensure_plan!
+      ensure_plan!
       household.transaction_drafts.create!(
         occurred_on: occurred_on,
         merchant: merchant,
@@ -41,6 +43,13 @@ module HouseholdFinance
     private
 
     attr_reader :household, :message
+
+    def ensure_plan!
+      return if @plan_prepared
+
+      @annual_budget_manager.ensure_plan!
+      @plan_prepared = true
+    end
 
     def transaction_like?
       message.match?(AMOUNT_PATTERN) && (message.match?(SPEND_PATTERN) || message.match?(/\bmy\s+tab\s+(?:is|was)\b/i))
