@@ -268,7 +268,7 @@ module HouseholdFinance
             merchant: transaction.merchant,
             amount: Money.dollars(transaction.total_amount_cents),
             source_type: transaction.source_type,
-            categories: transaction.transaction_splits.map { |split| split.budget_category.name }
+            categories: transaction.transaction_splits.filter_map { |split| split.budget_category.name if split.budget_category.active? }
           }
         end
     end
