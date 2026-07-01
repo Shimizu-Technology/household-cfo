@@ -8,16 +8,20 @@ module HouseholdFinance
     end
 
     def call
-      return Result.new(success?: false, draft: draft, errors: [ "Transaction draft is not pending" ]) unless draft.pending?
-
       transaction = nil
       ApplicationRecord.transaction do
-        corrected = apply_corrections!
-        transaction = create_transaction!
-        draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
+        draft.with_lock do
+          if draft.pending?
+            corrected = apply_corrections!
+            transaction = create_transaction!
+            draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
+          end
+        end
       end
 
-      Result.new(success?: true, draft: draft.reload, transaction: transaction, errors: [])
+      return Result.new(success?: true, draft: draft.reload, transaction: transaction, errors: []) if transaction
+
+      Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ "Transaction draft is not pending" ])
     rescue ActiveRecord::RecordInvalid => e
       Result.new(success?: false, draft: draft, transaction: transaction, errors: e.record.errors.full_messages)
     end

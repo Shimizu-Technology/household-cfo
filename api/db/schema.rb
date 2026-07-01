@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_06_25_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_25_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -312,6 +312,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_25_000000) do
     t.string "status", default: "confirmed", null: false
     t.integer "total_amount_cents", null: false
     t.datetime "updated_at", null: false
+    t.index ["budget_period_id", "status"], name: "index_household_transactions_on_budget_period_status"
     t.index ["budget_period_id"], name: "index_household_transactions_on_budget_period_id"
     t.index ["household_id", "occurred_on"], name: "index_household_transactions_on_household_id_and_occurred_on"
     t.index ["household_id", "status"], name: "index_household_transactions_on_household_id_and_status"

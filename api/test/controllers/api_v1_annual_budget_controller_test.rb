@@ -140,6 +140,15 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     row = annual_plan.fetch("rows").find { |candidate| candidate.fetch("name") == "Flexible spending" }
     assert_equal 25, row.fetch("months").fetch(current_month_index).fetch("actual")
     assert_empty annual_plan.fetch("pending_transaction_drafts")
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft.fetch("id")}/confirm",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
   end
 
   test "confirming with user corrections preserves corrected audit status" do
