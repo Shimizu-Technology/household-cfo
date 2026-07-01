@@ -150,8 +150,20 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal false, archived_body.fetch("category").fetch("active")
     archived_row = archived_body.fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category_id }
     assert_nil archived_row
+    assert_equal 1, archived_body.fetch("budget").fetch("annual_plan").fetch("archived_categories").length
     assert_equal false, BudgetCategory.find(category_id).active
     assert_equal 0, household.reload.expense_items.where(label: "Restaurants", active: true).count
+
+    post "/api/v1/budget_categories/#{category_id}/restore",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    restored_body = JSON.parse(response.body)
+    assert_equal true, restored_body.fetch("category").fetch("active")
+    restored_row = restored_body.fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category_id }
+    assert_equal "Restaurants", restored_row.fetch("name")
+    assert_empty restored_body.fetch("budget").fetch("annual_plan").fetch("archived_categories")
   end
 
   test "category archive is blocked when transaction history exists" do
@@ -339,6 +351,38 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes messages.last.fetch("content"), "Ignored Starbucks for $40"
   end
 
+  test "budget mutation responses preserve the edited year" do
+    user = create_user(email: "budget-year-response@example.com")
+    prior_year = Date.current.year - 1
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    get "/api/v1/budget?year=#{prior_year}", headers: auth_headers(user)
+    assert_response :success
+    prior_budget = JSON.parse(response.body)
+    assert_equal prior_year, prior_budget.fetch("annual_plan").fetch("year")
+
+    row = prior_budget.fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Flexible spending" }
+    allocation_id = row.fetch("months").first.fetch("allocation_id")
+    patch "/api/v1/budget_allocations/#{allocation_id}",
+      params: { allocation: { planned_amount: 777 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal prior_year, JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("year")
+
+    post "/api/v1/budget_categories?year=#{prior_year}",
+      params: { category: { name: "Prior year only", stack_key: "discretionary", monthly_amount: 11 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    assert_equal prior_year, JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("year")
+  end
+
   test "spending report returns planned actual pending and transaction ledger for date range" do
     user = create_user(email: "spending-report@example.com")
     patch "/api/v1/workspace/setup",
@@ -371,6 +415,32 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Starbucks" ], report.fetch("pending_drafts").map { |draft| draft.fetch("merchant") }
   end
 
+  test "spending report excludes archived categories from active operating totals" do
+    user = create_user(email: "spending-report-archived@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Testing Only", stack_key: "discretionary", monthly_amount: 10 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+    category_id = JSON.parse(response.body).fetch("category").fetch("id")
+
+    delete "/api/v1/budget_categories/#{category_id}", headers: auth_headers(user)
+    assert_response :success
+
+    get "/api/v1/spending_report?start_on=#{Date.current.beginning_of_month.iso8601}&end_on=#{Date.current.end_of_month.iso8601}",
+      headers: auth_headers(user)
+
+    assert_response :success
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 1_000, report.fetch("totals").fetch("planned")
+    refute_includes report.fetch("categories").map { |category| category.fetch("name") }, "Testing Only"
+  end
+
   test "spending report rejects ranges that are too large" do
     user = create_user(email: "spending-report-large-range@example.com")
 
@@ -379,6 +449,41 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_includes JSON.parse(response.body).fetch("errors"), "Invalid report date range"
+  end
+
+  test "mia answers planned spending questions from active budget rows" do
+    user = create_user(email: "mia-planned-budget@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining Out", stack_key: "discretionary", monthly_amount: 250 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Testing Only", stack_key: "discretionary", monthly_amount: 10 } },
+      headers: auth_headers(user),
+      as: :json
+    archived_id = JSON.parse(response.body).fetch("category").fetch("id")
+    delete "/api/v1/budget_categories/#{archived_id}", headers: auth_headers(user)
+    assert_response :success
+
+    post "/api/v1/mia/messages",
+      params: { message: "How much money do I have set aside for spending for #{Date::MONTHNAMES.fetch(Date.current.month)}? Like for food and stuff?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "active discretionary plan is $1,250"
+    assert_includes content, "Dining Out $250 planned"
+    assert_includes content, "Archived categories stay out"
+    refute_includes content, "Testing Only"
+    refute_includes content, "$1,260"
   end
 
   test "mia can answer last month spending reports from stored actuals" do

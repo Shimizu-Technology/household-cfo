@@ -11,6 +11,7 @@ class BudgetCategory < ApplicationRecord
   validates :sort_order, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
 
   scope :active, -> { where(active: true) }
+  scope :archived, -> { where(active: false) }
   scope :ordered, -> { order(:sort_order, :name) }
 
   def stack_label

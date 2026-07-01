@@ -19,7 +19,9 @@ Rails.application.routes.draw do
           delete "messages", to: "mia_messages#destroy"
         end
       end
-      resources :budget_categories, only: %i[create update destroy]
+      resources :budget_categories, only: %i[create update destroy] do
+        post :restore, on: :member
+      end
       resources :budget_allocations, only: :update
       resources :transaction_drafts, only: [] do
         member do

@@ -22,6 +22,7 @@ import {
   ignoreTransactionDraft,
   reprocessDocumentImport,
   resendAdminUserInvitation,
+  restoreBudgetCategory,
   saveWorkspaceSetup,
   sendMiaMessage,
   updateBudgetAllocation,
@@ -495,7 +496,7 @@ function App() {
         name: newBudgetCategory.name,
         stack_key: newBudgetCategory.stack_key,
         monthly_amount: newBudgetCategory.monthly_amount || 0,
-      })
+      }, selectedBudgetYear)
       setData({ ...data, budget })
       setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
@@ -533,7 +534,7 @@ function App() {
     let appliedChanges = 0
     try {
       for (const change of changes.categories) {
-        latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key })
+        latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key }, selectedBudgetYear)
         appliedChanges += 1
         setData((current) => current ? { ...current, budget: latestBudget } : current)
       }
@@ -568,11 +569,27 @@ function App() {
     setBudgetAction(`archive-category:${row.id}`)
     setBudgetError(null)
     try {
-      const budget = await archiveBudgetCategory(row.id)
+      const budget = await archiveBudgetCategory(row.id, selectedBudgetYear)
       setData({ ...data, budget })
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleRestoreBudgetCategory(categoryId: number) {
+    if (!isRealWorkspace || !data) return
+
+    setBudgetAction(`restore-category:${categoryId}`)
+    setBudgetError(null)
+    try {
+      const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear)
+      setData({ ...data, budget })
+      captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
     } finally {
       setBudgetAction(null)
     }
@@ -1258,6 +1275,7 @@ function App() {
               onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
+              onRestoreCategory={handleRestoreBudgetCategory}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
             />
@@ -3602,6 +3620,7 @@ function AnnualBudgetPlanner({
   onBudgetViewChange,
   onSaveBudgetEdits,
   onArchiveCategory,
+  onRestoreCategory,
   onConfirmDraft,
   onIgnoreDraft,
 }: {
@@ -3619,6 +3638,7 @@ function AnnualBudgetPlanner({
   onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
+  onRestoreCategory: (categoryId: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
 }) {
@@ -3655,6 +3675,7 @@ function AnnualBudgetPlanner({
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
+  const archivedCategories = plan.archived_categories ?? []
 
   function beginBudgetEdit() {
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
@@ -3791,6 +3812,35 @@ function AnnualBudgetPlanner({
       </form>
 
       {error && <p className="setup-error" role="alert">{error}</p>}
+
+      {archivedCategories.length > 0 && (
+        <details className="archived-categories-panel">
+          <summary>
+            <span>Archived categories</span>
+            <strong>{archivedCategories.length}</strong>
+          </summary>
+          <p>Archived categories stay out of the active budget, operating view, and Mia's spending reports until restored.</p>
+          <div className="archived-category-list">
+            {archivedCategories.map((category) => (
+              <div className="archived-category-row" key={category.id}>
+                <div>
+                  <strong>{category.name}</strong>
+                  <span>{category.stack_label}</span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!editableBudget || action === `restore-category:${category.id}`}
+                  onClick={() => onRestoreCategory(category.id)}
+                >
+                  {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
+                </button>
+              </div>
+            ))}
+          </div>
+          {!editableBudget && <small>Click Edit annual budget to restore archived categories.</small>}
+        </details>
+      )}
 
       <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
         <table className="annual-budget-table">

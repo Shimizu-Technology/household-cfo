@@ -258,6 +258,14 @@ export type SpendingReportCategory = {
   remaining: number
 }
 
+export type ArchivedBudgetCategory = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  active: boolean
+}
+
 export type SpendingReport = {
   period_label: string
   start_on: string
@@ -287,6 +295,7 @@ export type AnnualBudgetPlan = {
   monthly_income: Record<number, number>
   pending_transaction_drafts: TransactionDraft[]
   recent_transactions: RecentTransaction[]
+  archived_categories?: ArchivedBudgetCategory[]
 }
 
 export type BudgetStackKey = 'non_discretionary' | 'discretionary' | 'sinking_expected' | 'sinking_unexpected'
@@ -698,13 +707,17 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
   })
 }
 
-export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string }): Promise<BudgetData> {
-  const payload = await postJson<{ budget: BudgetData }>('/api/v1/budget_categories', { category: values })
+function yearQuery(year?: number) {
+  return year ? `?year=${encodeURIComponent(year)}` : ''
+}
+
+export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string }, year?: number): Promise<BudgetData> {
+  const payload = await postJson<{ budget: BudgetData }>(`/api/v1/budget_categories${yearQuery(year)}`, { category: values })
   return payload.budget
 }
 
-export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey }): Promise<BudgetData> {
-  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}`, {
+export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey }, year?: number): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}${yearQuery(year)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ category: values }),
@@ -712,8 +725,13 @@ export async function updateBudgetCategory(id: number, values: { name: string; s
   return payload.budget
 }
 
-export async function archiveBudgetCategory(id: number): Promise<BudgetData> {
-  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}`, { method: 'DELETE' })
+export async function archiveBudgetCategory(id: number, year?: number): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}${yearQuery(year)}`, { method: 'DELETE' })
+  return payload.budget
+}
+
+export async function restoreBudgetCategory(id: number, year?: number): Promise<BudgetData> {
+  const payload = await postJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}/restore${yearQuery(year)}`, {})
   return payload.budget
 }
 

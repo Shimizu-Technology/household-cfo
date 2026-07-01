@@ -68,7 +68,7 @@ module HouseholdFinance
     def allocation_sums
       @allocation_sums ||= BudgetAllocation
         .joins(:budget_category, budget_period: :budget_year)
-        .where(budget_categories: { household_id: household.id })
+        .where(budget_categories: { household_id: household.id, active: true })
         .where(budget_years: { household_id: household.id })
         .where("budget_periods.starts_on <= ? AND budget_periods.ends_on >= ?", end_on, start_on)
         .group(:budget_category_id)
@@ -78,7 +78,7 @@ module HouseholdFinance
     def actual_sums
       @actual_sums ||= TransactionSplit
         .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id })
+        .where(budget_categories: { household_id: household.id, active: true })
         .where(household_transactions: { household_id: household.id, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .group(:budget_category_id)
         .sum(:amount_cents)
@@ -86,8 +86,9 @@ module HouseholdFinance
 
     def pending_sums
       @pending_sums ||= household.transaction_drafts.pending
+        .joins(:budget_category)
+        .where(budget_categories: { active: true })
         .where(occurred_on: start_on..end_on)
-        .where.not(budget_category_id: nil)
         .group(:budget_category_id)
         .sum(:total_amount_cents)
     end
@@ -95,7 +96,10 @@ module HouseholdFinance
     def transactions_payload
       household.household_transactions
         .includes(transaction_splits: :budget_category)
+        .joins(transaction_splits: :budget_category)
+        .where(budget_categories: { active: true })
         .where(status: %w[confirmed reconciled], occurred_on: start_on..end_on)
+        .distinct
         .order(occurred_on: :desc, created_at: :desc)
         .limit(MAX_TRANSACTIONS)
         .map do |transaction|
@@ -112,6 +116,8 @@ module HouseholdFinance
 
     def pending_drafts_payload
       household.transaction_drafts.pending.includes(:budget_category)
+        .joins(:budget_category)
+        .where(budget_categories: { active: true })
         .where(occurred_on: start_on..end_on)
         .recent_first
         .limit(MAX_TRANSACTIONS)

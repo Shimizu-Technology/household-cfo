@@ -31,7 +31,6 @@ class CreateAnnualBudgetsAndTransactions < ActiveRecord::Migration[8.1]
       t.integer :sort_order, null: false, default: 0
       t.timestamps
 
-      t.index [ :household_id, :name ], unique: true
       t.index [ :household_id, :active, :sort_order ]
       t.check_constraint "stack_key IN ('non_discretionary', 'discretionary', 'sinking_expected', 'sinking_unexpected')", name: "budget_categories_stack_key_valid"
       t.check_constraint "char_length(name) <= 80", name: "budget_categories_name_length"

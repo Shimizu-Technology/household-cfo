@@ -3377,6 +3377,55 @@ h3 {
   padding: 0 12px;
 }
 
+.archived-categories-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px dashed rgba(143, 74, 95, 0.28);
+  border-radius: 20px;
+  background: rgba(248, 238, 233, 0.48);
+}
+
+.archived-categories-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  color: var(--mauve);
+  font-weight: 900;
+}
+
+.archived-categories-panel summary::marker {
+  color: var(--mauve);
+}
+
+.archived-categories-panel p,
+.archived-categories-panel small,
+.archived-category-row span {
+  margin: 0;
+  color: var(--muted);
+}
+
+.archived-category-list {
+  display: grid;
+  gap: 8px;
+}
+
+.archived-category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.archived-category-row > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
 .annual-budget-table-wrap {
   overflow-x: auto;
   padding-bottom: 4px;
@@ -3506,7 +3555,8 @@ h3 {
   .annual-budget-heading,
   .transaction-draft-card,
   .current-month-activity-heading,
-  .month-activity-row {
+  .month-activity-row,
+  .archived-category-row {
     display: grid;
   }
 

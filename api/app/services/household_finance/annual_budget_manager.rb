@@ -39,7 +39,8 @@ module HouseholdFinance
         end,
         monthly_income: monthly_income_by_period(periods),
         pending_transaction_drafts: pending_drafts_payload,
-        recent_transactions: recent_transactions_payload
+        recent_transactions: recent_transactions_payload,
+        archived_categories: archived_categories_payload
       }
     end
 
@@ -93,6 +94,19 @@ module HouseholdFinance
         ensure_category_can_archive!(category)
         category.update!(active: false)
         archive_synced_expense_item!(category)
+      end
+      category
+    end
+
+    def restore_category!(category)
+      budget_year = ensure_plan!
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      household.with_lock do
+        category.lock!
+        category.update!(active: true, sort_order: category.sort_order.to_i.positive? ? category.sort_order : next_sort_order)
+        sync_expense_item_after_category_change!(category, category.name, category.stack_key)
+        ensure_allocations_for_active_categories!(budget_year)
       end
       category
     end
@@ -257,6 +271,18 @@ module HouseholdFinance
             categories: transaction.transaction_splits.map { |split| split.budget_category.name }
           }
         end
+    end
+
+    def archived_categories_payload
+      household.budget_categories.archived.ordered.map do |category|
+        {
+          id: category.id,
+          name: category.name,
+          stack_key: category.stack_key,
+          stack_label: category.stack_label,
+          active: category.active
+        }
+      end
     end
 
     def draft_payload(draft)

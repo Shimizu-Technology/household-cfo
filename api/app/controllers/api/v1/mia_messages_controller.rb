@@ -16,9 +16,10 @@ module Api
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household)
         annual_plan = annual_budget_manager.plan_data
-        spending_report = spending_report_for(content)
+        budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
+        spending_report = budget_answer ? nil : spending_report_for(content)
         transaction_draft = nil
-        unless spending_report
+        unless spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
             current_household,
             content,
@@ -28,7 +29,7 @@ module Api
           annual_plan = annual_budget_manager.plan_data if transaction_draft
         end
         context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
-        assistant_content = assistant_content_for(content, history, context, spending_report, transaction_draft)
+        assistant_content = assistant_content_for(content, history, context, spending_report, transaction_draft, budget_answer)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
@@ -61,7 +62,8 @@ module Api
         nil
       end
 
-      def assistant_content_for(content, history, context, spending_report, transaction_draft)
+      def assistant_content_for(content, history, context, spending_report, transaction_draft, budget_answer)
+        return budget_answer if budget_answer
         return HouseholdFinance::SpendingReportNarrator.new(spending_report).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
 

@@ -5,11 +5,13 @@ module Api
 
       def update
         allocation = current_household_allocation_scope.find(params[:id])
-        HouseholdFinance::AnnualBudgetManager.new(current_household, year: allocation.budget_period.budget_year.year).update_allocation!(allocation, allocation_params[:planned_amount])
+        manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: allocation.budget_period.budget_year.year)
+        manager.update_allocation!(allocation, allocation_params[:planned_amount])
+        annual_plan = manager.plan_data
 
         render json: {
           allocation: serialize_allocation(allocation.reload),
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).budget
+          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget
         }
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Budget allocation not found" ] }, status: :not_found

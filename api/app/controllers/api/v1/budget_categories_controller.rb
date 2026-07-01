@@ -39,10 +39,26 @@ module Api
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
+      def restore
+        category = budget_manager.restore_category!(scoped_category)
+
+        render_category_response(category)
+      rescue ActiveRecord::RecordNotFound
+        render json: { errors: [ "Budget category not found" ] }, status: :not_found
+      rescue ActiveRecord::RecordInvalid => e
+        render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      end
+
       private
 
       def budget_manager
-        @budget_manager ||= HouseholdFinance::AnnualBudgetManager.new(current_household)
+        @budget_manager ||= HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
+      end
+
+      def budget_year_param
+        return Date.current.year if params[:year].blank?
+
+        params[:year].to_i.clamp(2000, 2100)
       end
 
       def scoped_category
@@ -56,7 +72,7 @@ module Api
       def render_category_response(category, status: :ok)
         render json: {
           category: serialize_category(category),
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).budget
+          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: budget_manager.plan_data).budget
         }, status: status
       end
 

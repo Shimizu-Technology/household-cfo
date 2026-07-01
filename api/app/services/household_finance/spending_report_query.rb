@@ -1,6 +1,7 @@
 module HouseholdFinance
   class SpendingReportQuery
     REPORT_TERMS = /\b(spending|spent|actuals?|transactions?|budget report|month|quarter|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i
+    PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance)\b/i
 
     def initialize(message, today: Date.current)
       @message = message.to_s.downcase.squish
@@ -18,6 +19,8 @@ module HouseholdFinance
     attr_reader :message, :today
 
     def report_like?
+      return false if message.match?(PLANNED_BUDGET_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|report)\b/i)
+
       message.match?(REPORT_TERMS) && message.match?(/\b(how|what|show|report|spend|spent|actual|transaction|last|this|from|between|for|in)\b/i)
     end
 
