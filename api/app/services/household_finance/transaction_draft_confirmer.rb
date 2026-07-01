@@ -1,5 +1,6 @@
 module HouseholdFinance
   class TransactionDraftConfirmer
+    InvalidDraftCorrection = Class.new(StandardError)
     Result = Struct.new(:success?, :draft, :transaction, :errors, keyword_init: true)
 
     def initialize(draft, attributes = {})
@@ -22,6 +23,8 @@ module HouseholdFinance
       return Result.new(success?: true, draft: draft.reload, transaction: transaction, errors: []) if transaction
 
       Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ "Transaction draft is not pending" ])
+    rescue InvalidDraftCorrection => e
+      Result.new(success?: false, draft: draft.reload, transaction: transaction, errors: [ e.message ])
     rescue ActiveRecord::RecordInvalid => e
       Result.new(success?: false, draft: draft, transaction: transaction, errors: e.record.errors.full_messages)
     end
@@ -63,7 +66,7 @@ module HouseholdFinance
     def selected_category
       return nil unless attributes[:budget_category_id].present?
 
-      draft.household.budget_categories.find(attributes[:budget_category_id])
+      draft.household.budget_categories.find_by(id: attributes[:budget_category_id]) || raise(InvalidDraftCorrection, "Budget category not found")
     end
 
     def fallback_category

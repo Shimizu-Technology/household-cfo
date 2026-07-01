@@ -18,11 +18,18 @@ module Api
       end
 
       def ignore
-        unless @draft.pending?
+        ignored = false
+        @draft.with_lock do
+          if @draft.pending?
+            @draft.update!(status: "ignored")
+            ignored = true
+          end
+        end
+
+        unless ignored
           return render json: { errors: [ "Transaction draft is not pending" ] }, status: :unprocessable_entity
         end
 
-        @draft.update!(status: "ignored")
         render json: {
           transaction_draft: serialize_draft(@draft),
           workspace: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).app_data

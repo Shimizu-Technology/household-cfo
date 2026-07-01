@@ -149,6 +149,44 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
+
+    post "/api/v1/transaction_drafts/#{draft.fetch("id")}/ignore",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
+    assert_equal "confirmed", TransactionDraft.find(draft.fetch("id")).status
+  end
+
+  test "confirming with a category from another household returns validation errors" do
+    user = create_user(email: "foreign-category-draft@example.com")
+    other_user = create_user(email: "foreign-category-other@example.com")
+    other_household = HouseholdFinance::WorkspaceResolver.new(other_user).household
+    other_category = HouseholdFinance::AnnualBudgetManager.new(other_household).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 100)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+        params: { transaction_draft: { budget_category_id: other_category.id } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category not found"
+    assert_equal "pending", TransactionDraft.find(draft_id).status
   end
 
   test "confirming with user corrections preserves corrected audit status" do
