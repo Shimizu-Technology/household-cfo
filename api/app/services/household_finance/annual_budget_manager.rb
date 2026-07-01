@@ -151,15 +151,9 @@ module HouseholdFinance
 
     def category_payload(category, periods, allocations, actuals)
       month_cells = periods.map do |period|
-        allocation = allocations.fetch([ category.id, period.id ])
+        allocation = allocations[[ category.id, period.id ]]
         actual_cents = actuals[[ category.id, period.id ]] || 0
-        {
-          period_id: period.id,
-          allocation_id: allocation.id,
-          planned: Money.dollars(allocation.planned_amount_cents),
-          actual: Money.dollars(actual_cents),
-          remaining: Money.dollars(allocation.planned_amount_cents - actual_cents)
-        }
+        allocation ? allocation_cell(period, allocation, actual_cents) : missing_allocation_cell(period, category, actual_cents)
       end
 
       {
@@ -171,6 +165,29 @@ module HouseholdFinance
         months: month_cells,
         planned_total: month_cells.sum { |cell| cell[:planned] },
         actual_total: month_cells.sum { |cell| cell[:actual] }
+      }
+    end
+
+    def allocation_cell(period, allocation, actual_cents)
+      {
+        period_id: period.id,
+        allocation_id: allocation.id,
+        planned: Money.dollars(allocation.planned_amount_cents),
+        actual: Money.dollars(actual_cents),
+        remaining: Money.dollars(allocation.planned_amount_cents - actual_cents),
+        allocation_missing: false
+      }
+    end
+
+    def missing_allocation_cell(period, category, actual_cents)
+      Rails.logger.warn("Missing budget allocation for category_id=#{category.id} period_id=#{period.id}")
+      {
+        period_id: period.id,
+        allocation_id: nil,
+        planned: 0,
+        actual: Money.dollars(actual_cents),
+        remaining: Money.dollars(-actual_cents),
+        allocation_missing: true
       }
     end
 

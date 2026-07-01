@@ -450,6 +450,10 @@ function App() {
 
   async function handleAllocationChange(row: BudgetCategoryRow, month: BudgetCategoryMonth, value: string) {
     if (!isRealWorkspace || !data) return
+    if (!month.allocation_id) {
+      setBudgetError('This budget cell is missing its allocation record. Refresh the page to repair the annual plan, then try again.')
+      return
+    }
 
     setBudgetAction(`allocation:${month.allocation_id}`)
     setBudgetError(null)
@@ -3335,26 +3339,31 @@ function AnnualBudgetPlanner({
                   <strong>{row.name}</strong>
                   <span>{row.stack_label}</span>
                 </th>
-                {row.months.map((month, index) => (
-                  <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id}>
-                    <input
-                      key={`${month.allocation_id}:${month.planned}`}
-                      aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
-                      type="number"
-                      min="0"
-                      step="1"
-                      defaultValue={month.planned}
-                      disabled={!isRealWorkspace || action === `allocation:${month.allocation_id}`}
-                      onBlur={(event) => {
-                        if (Number(event.currentTarget.value || 0) !== month.planned) onAllocationChange(row, month, event.currentTarget.value)
-                      }}
-                      onKeyDown={(event) => {
-                        if (event.key === 'Enter') event.currentTarget.blur()
-                      }}
-                    />
-                    <small>{currency.format(month.actual)} actual</small>
-                  </td>
-                ))}
+                {row.months.map((month, index) => {
+                  const allocationMissing = !month.allocation_id || month.allocation_missing
+                  const allocationActionKey = month.allocation_id ? `allocation:${month.allocation_id}` : `allocation-missing:${month.period_id}`
+
+                  return (
+                    <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
+                      <input
+                        key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
+                        aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
+                        type="number"
+                        min="0"
+                        step="1"
+                        defaultValue={month.planned}
+                        disabled={!isRealWorkspace || allocationMissing || action === allocationActionKey}
+                        onBlur={(event) => {
+                          if (!allocationMissing && Number(event.currentTarget.value || 0) !== month.planned) onAllocationChange(row, month, event.currentTarget.value)
+                        }}
+                        onKeyDown={(event) => {
+                          if (event.key === 'Enter') event.currentTarget.blur()
+                        }}
+                      />
+                      <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
+                    </td>
+                  )
+                })}
                 <td>
                   <strong>{currency.format(row.planned_total)}</strong>
                   <small>{currency.format(row.actual_total)} actual</small>

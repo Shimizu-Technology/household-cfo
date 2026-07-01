@@ -207,10 +207,11 @@ export type BudgetMonth = {
 
 export type BudgetCategoryMonth = {
   period_id: number
-  allocation_id: number
+  allocation_id: number | null
   planned: number
   actual: number
   remaining: number
+  allocation_missing?: boolean
 }
 
 export type BudgetCategoryRow = {
