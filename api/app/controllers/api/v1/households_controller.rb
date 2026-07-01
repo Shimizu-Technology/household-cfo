@@ -12,7 +12,7 @@ module Api
       end
 
       def budget
-        render json: presenter.budget
+        render json: budget_presenter.budget
       end
 
       def wealth
@@ -31,6 +31,14 @@ module Api
 
       def presenter
         @presenter ||= HouseholdFinance::DataPresenter.new(current_household, user: current_user)
+      end
+
+      def budget_presenter
+        return presenter if params[:year].blank?
+
+        year = params[:year].to_i.clamp(2000, 2100)
+        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: year).plan_data
+        HouseholdFinance::DataPresenter.new(current_household, user: current_user, annual_plan: annual_plan)
       end
     end
   end

@@ -136,12 +136,24 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     response = Demo::MiaResponder.new(api_key: nil).send(
       :sanitize_assistant_content,
       "I've added that $25 to Dining Out and updated actuals.",
-      user_message: "I spent $25 at McDonald's for Dining Out today"
+      user_message: "I spent $25 at McDonald's for Dining Out today",
+      draft_capable: true
     )
 
     assert_includes response, "draft that transaction for review"
     assert_includes response, "actuals will not change until you confirm"
     refute_includes response, "added"
+  end
+
+  test "demo mode does not tell users to confirm unavailable drafts" do
+    response = Demo::MiaResponder.new(api_key: nil).send(
+      :sanitize_assistant_content,
+      "I drafted that transaction for review. Confirm the draft.",
+      user_message: "I spent $25 at McDonald's today",
+      draft_capable: false
+    )
+
+    assert_includes response, "demo chat cannot create reviewable transaction drafts"
   end
 
   test "zero dollar reported spend does not say a draft was created" do
@@ -159,7 +171,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
   def stubbed_model_responder(response)
     Demo::MiaResponder.new(api_key: "test-key").tap do |responder|
-      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:|
+      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false|
         raise "expected household context" if context.blank?
 
         response

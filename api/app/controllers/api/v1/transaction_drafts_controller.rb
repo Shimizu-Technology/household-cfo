@@ -10,6 +10,8 @@ module Api
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
+        append_chat_status_message(confirmed_message(result.draft))
+
         render json: {
           transaction_draft: serialize_draft(result.draft),
           transaction: serialize_transaction(result.transaction),
@@ -30,6 +32,8 @@ module Api
           return render json: { errors: [ "Transaction draft is not pending" ] }, status: :unprocessable_entity
         end
 
+        append_chat_status_message(ignored_message(@draft))
+
         render json: {
           transaction_draft: serialize_draft(@draft),
           workspace: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).app_data
@@ -43,7 +47,27 @@ module Api
       end
 
       def confirm_params
-        params.fetch(:transaction_draft, {}).permit(:occurred_on, :merchant, :amount, :budget_category_id)
+        params.fetch(:transaction_draft, ActionController::Parameters.new).permit(:occurred_on, :merchant, :amount, :budget_category_id)
+      end
+
+      def append_chat_status_message(content)
+        current_chat_session.chat_messages.create!(role: "assistant", content: content)
+      end
+
+      def current_chat_session
+        current_household.chat_sessions.find_by(user: current_user) ||
+          current_household.chat_sessions.create!(user: current_user, title: "Ask Mia")
+      rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+        current_household.chat_sessions.find_by!(user: current_user)
+      end
+
+      def confirmed_message(draft)
+        category = draft.budget_category&.name || "Uncategorized"
+        "Confirmed #{draft.merchant} for #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 0)} in #{category}. I updated month-to-date actuals."
+      end
+
+      def ignored_message(draft)
+        "Ignored #{draft.merchant} for #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 0)}. Month-to-date actuals did not change."
       end
 
       def serialize_draft(draft)

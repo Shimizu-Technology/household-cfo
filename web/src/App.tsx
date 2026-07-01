@@ -14,9 +14,11 @@ import {
   fetchAdminCohorts,
   fetchAdminUsers,
   fetchAppData,
+  fetchBudget,
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
   fetchDocumentImports,
+  fetchSpendingReport,
   ignoreTransactionDraft,
   reprocessDocumentImport,
   resendAdminUserInvitation,
@@ -51,6 +53,7 @@ import type {
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
+  SpendingReport,
   TransactionDraft,
   UserRole,
   WorkspaceSetupValues,
@@ -166,6 +169,10 @@ function App() {
   const [miaError, setMiaError] = useState<string | null>(null)
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
+  const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
+  const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
+  const [spendingReportLoading, setSpendingReportLoading] = useState(false)
+  const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
   const [newBudgetCategory, setNewBudgetCategory] = useState<{ name: string; stack_key: BudgetStackKey; monthly_amount: string }>({
     name: '',
     stack_key: 'discretionary',
@@ -213,6 +220,10 @@ function App() {
     [documentImports],
   )
   const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const activeBudgetPlan = data?.budget.annual_plan
+  const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const documentStatusSignature = useMemo(
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
@@ -310,6 +321,29 @@ function App() {
     return () => window.clearInterval(intervalId)
   }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
+  useEffect(() => {
+    if (!isRealWorkspace || !selectedBudgetMonth) return
+
+    let cancelled = false
+    async function loadSpendingReport() {
+      setSpendingReportLoading(true)
+      setSpendingReportError(null)
+      try {
+        const report = await fetchSpendingReport(selectedBudgetMonth!.starts_on, selectedBudgetMonth!.ends_on)
+        if (!cancelled) setSpendingReport(report)
+      } catch (caught) {
+        if (!cancelled) setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      } finally {
+        if (!cancelled) setSpendingReportLoading(false)
+      }
+    }
+
+    void loadSpendingReport()
+    return () => {
+      cancelled = true
+    }
+  }, [isRealWorkspace, selectedBudgetMonth])
+
   const surplus = useMemo(() => {
     if (!data) return 0
     return data.budget.monthly_income - data.budget.total_monthly_outflow
@@ -382,6 +416,9 @@ function App() {
       })
       if (response.budget) {
         setData((current) => current ? { ...current, budget: response.budget! } : current)
+      }
+      if (response.spending_report) {
+        setSpendingReport(response.spending_report)
       }
       setMessages((current) => [...current, response.assistant_message])
       if (response.transaction_draft) {
@@ -464,6 +501,24 @@ function App() {
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleBudgetViewChange(year: number, monthIndex: number) {
+    const normalizedYear = Math.max(2000, Math.min(2100, year))
+    const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
+    setBudgetView({ year: normalizedYear, monthIndex: normalizedMonthIndex })
+    if (!isRealWorkspace || !data || data.budget.annual_plan?.year === normalizedYear) return
+
+    setBudgetAction('load-budget-year')
+    setBudgetError(null)
+    try {
+      const budget = await fetchBudget(normalizedYear)
+      setData({ ...data, budget })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
     } finally {
       setBudgetAction(null)
     }
@@ -1193,9 +1248,14 @@ function App() {
               isRealWorkspace={Boolean(isRealWorkspace)}
               action={budgetAction}
               error={budgetError}
+              selectedMonthIndex={selectedBudgetMonthIndex}
+              spendingReport={spendingReport}
+              spendingReportLoading={spendingReportLoading}
+              spendingReportError={spendingReportError}
               newCategory={newBudgetCategory}
               onNewCategoryChange={setNewBudgetCategory}
               onCreateCategory={handleCreateBudgetCategory}
+              onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
               onConfirmDraft={handleConfirmTransactionDraft}
@@ -3377,7 +3437,19 @@ function TransactionDraftReviewStack({
   )
 }
 
-function CurrentMonthActivityPanel({ plan, currentMonthIndex }: { plan: AnnualBudgetPlan; currentMonthIndex: number }) {
+function CurrentMonthActivityPanel({
+  plan,
+  currentMonthIndex,
+  spendingReport,
+  loading,
+  error,
+}: {
+  plan: AnnualBudgetPlan
+  currentMonthIndex: number
+  spendingReport: SpendingReport | null
+  loading: boolean
+  error: string | null
+}) {
   const month = plan.months[currentMonthIndex]
   const pendingByCategory = useMemo(() => {
     const totals: Record<string, number> = {}
@@ -3388,7 +3460,15 @@ function CurrentMonthActivityPanel({ plan, currentMonthIndex }: { plan: AnnualBu
     })
     return totals
   }, [month, plan.pending_transaction_drafts])
-  const rows = plan.rows.map((row) => {
+  const rows = spendingReport?.categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    stackLabel: category.stack_label,
+    planned: category.planned,
+    actual: category.actual,
+    remaining: category.remaining,
+    pending: category.pending,
+  })) ?? plan.rows.map((row) => {
     const cell = row.months[currentMonthIndex]
     return {
       id: row.id,
@@ -3400,7 +3480,7 @@ function CurrentMonthActivityPanel({ plan, currentMonthIndex }: { plan: AnnualBu
       pending: pendingByCategory[String(row.id)] ?? 0,
     }
   })
-  const totalPending = rows.reduce((sum, row) => sum + row.pending, 0)
+  const totalPending = spendingReport?.totals.pending ?? rows.reduce((sum, row) => sum + row.pending, 0)
 
   return (
     <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
@@ -3409,8 +3489,9 @@ function CurrentMonthActivityPanel({ plan, currentMonthIndex }: { plan: AnnualBu
           <p className="eyebrow">{month?.label ?? 'Current month'} operating view</p>
           <h4>Planned, actual, and pending review</h4>
         </div>
-        {totalPending > 0 && <span>{currency.format(totalPending)} waiting for review</span>}
+        {loading ? <span>Loading report</span> : totalPending > 0 && <span>{currency.format(totalPending)} waiting for review</span>}
       </div>
+      {error && <p className="setup-error" role="alert">{error}</p>}
       <div className="month-activity-list">
         {rows.map((row) => (
           <div className="month-activity-row" key={row.id}>
@@ -3427,7 +3508,34 @@ function CurrentMonthActivityPanel({ plan, currentMonthIndex }: { plan: AnnualBu
           </div>
         ))}
       </div>
+      {spendingReport && <SpendingReportLedger report={spendingReport} />}
     </section>
+  )
+}
+
+function SpendingReportLedger({ report }: { report: SpendingReport }) {
+  return (
+    <div className="spending-report-ledger">
+      <div className="spending-report-summary">
+        <span>{report.period_label}</span>
+        <strong>{currency.format(report.totals.actual)} actual</strong>
+        <span>{currency.format(report.totals.planned)} planned</span>
+        <span>{currency.format(report.totals.pending)} pending</span>
+      </div>
+      <div className="recent-transaction-list">
+        <p className="eyebrow">Confirmed transaction ledger</p>
+        {report.transactions.length === 0 ? (
+          <p className="empty-ledger-copy">No confirmed transactions for this period yet.</p>
+        ) : report.transactions.map((transaction) => (
+          <div className="recent-transaction-row" key={transaction.id}>
+            <span>{formatShortDate(transaction.occurred_on)}</span>
+            <strong>{transaction.merchant}</strong>
+            <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
+            <b>{currency.format(transaction.amount)}</b>
+          </div>
+        ))}
+      </div>
+    </div>
   )
 }
 
@@ -3484,9 +3592,14 @@ function AnnualBudgetPlanner({
   isRealWorkspace,
   action,
   error,
+  selectedMonthIndex,
+  spendingReport,
+  spendingReportLoading,
+  spendingReportError,
   newCategory,
   onNewCategoryChange,
   onCreateCategory,
+  onBudgetViewChange,
   onSaveBudgetEdits,
   onArchiveCategory,
   onConfirmDraft,
@@ -3496,15 +3609,20 @@ function AnnualBudgetPlanner({
   isRealWorkspace: boolean
   action: string | null
   error: string | null
+  selectedMonthIndex: number
+  spendingReport: SpendingReport | null
+  spendingReportLoading: boolean
+  spendingReportError: string | null
   newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
   onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
   onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
+  onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
 }) {
-  const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, plan.year === new Date().getFullYear() ? new Date().getMonth() : 0))
+  const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
   const annualPlanned = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
@@ -3591,6 +3709,16 @@ function AnnualBudgetPlanner({
           <p className="eyebrow">Annual budget · {plan.year}</p>
           <h3>Year view with month-to-date truth</h3>
           <p>Plan the whole year, then let manual entries, receipts, and statements fill the actuals for each month.</p>
+          <div className="budget-view-controls" aria-label="Budget report period controls">
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
+            <label>
+              <span className="sr-only">Report month</span>
+              <select value={currentMonthIndex} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
+                {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
+              </select>
+            </label>
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
+          </div>
         </div>
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
@@ -3632,7 +3760,13 @@ function AnnualBudgetPlanner({
         />
       )}
 
-      <CurrentMonthActivityPanel plan={plan} currentMonthIndex={currentMonthIndex} />
+      <CurrentMonthActivityPanel
+        plan={plan}
+        currentMonthIndex={currentMonthIndex}
+        spendingReport={spendingReport}
+        loading={spendingReportLoading}
+        error={spendingReportError}
+      />
 
       <form className="annual-category-form" onSubmit={onCreateCategory} aria-disabled={!editableBudget}>
         <label>

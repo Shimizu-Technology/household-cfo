@@ -247,6 +247,39 @@ export type RecentTransaction = {
   categories: string[]
 }
 
+export type SpendingReportCategory = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+  stack_label: string
+  planned: number
+  actual: number
+  pending: number
+  remaining: number
+}
+
+export type SpendingReport = {
+  period_label: string
+  start_on: string
+  end_on: string
+  totals: {
+    planned: number
+    actual: number
+    pending: number
+    remaining: number
+  }
+  categories: SpendingReportCategory[]
+  transactions: RecentTransaction[]
+  pending_drafts: Array<{
+    id: number
+    occurred_on: string
+    merchant: string
+    amount: number
+    category_id: number | null
+    category_name: string | null
+  }>
+}
+
 export type AnnualBudgetPlan = {
   year: number
   months: BudgetMonth[]
@@ -637,10 +670,22 @@ export async function saveWorkspaceSetup(values: WorkspaceSetupValues): Promise<
   })
 }
 
+export async function fetchBudget(year?: number): Promise<BudgetData> {
+  const query = year ? `?year=${encodeURIComponent(year)}` : ''
+  return fetchJson<BudgetData>(`/api/v1/budget${query}`)
+}
+
+export async function fetchSpendingReport(startOn: string, endOn: string): Promise<SpendingReport> {
+  const query = new URLSearchParams({ start_on: startOn, end_on: endOn })
+  const payload = await fetchJson<{ spending_report: SpendingReport }>(`/api/v1/spending_report?${query}`)
+  return payload.spending_report
+}
+
 export type MiaMessageResponse = {
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
   budget?: BudgetData
+  spending_report?: SpendingReport | null
 }
 
 export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false): Promise<MiaMessageResponse> {

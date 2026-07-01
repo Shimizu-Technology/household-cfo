@@ -3133,6 +3133,29 @@ h3 {
   margin-bottom: 0;
 }
 
+.budget-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.budget-view-controls button,
+.budget-view-controls select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--mauve);
+  font-weight: 900;
+}
+
+.budget-view-controls select {
+  min-width: 112px;
+}
+
 .annual-budget-actions {
   flex-wrap: wrap;
   justify-content: flex-end;
@@ -3291,6 +3314,29 @@ h3 {
 .month-activity-amounts .pending {
   color: var(--mauve);
   font-weight: 900;
+}
+
+.spending-report-ledger {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.spending-report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.spending-report-summary span,
+.empty-ledger-copy {
+  color: var(--muted);
+}
+
+.spending-report-summary strong {
+  color: var(--ink);
 }
 
 .annual-category-form {

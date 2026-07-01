@@ -16,8 +16,9 @@ module Api
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household)
         annual_plan = annual_budget_manager.plan_data
+        spending_report = spending_report_for(content)
         context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
-        assistant_content = ::Demo::MiaResponder.new.call(content, history: history, context: context)
+        assistant_content = spending_report ? HouseholdFinance::SpendingReportNarrator.new(spending_report).call : ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: true)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
@@ -37,7 +38,8 @@ module Api
           user_message: user_message.as_api_json(author: "You"),
           assistant_message: assistant_message.as_api_json(author: "Mia"),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget
+          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
+          spending_report: spending_report
         }, status: :created
       end
 
@@ -47,6 +49,13 @@ module Api
       end
 
       private
+
+      def spending_report_for(content)
+        range = HouseholdFinance::SpendingReportQuery.new(content).range
+        return unless range
+
+        HouseholdFinance::SpendingReport.new(current_household, start_on: range.fetch(:start_on), end_on: range.fetch(:end_on)).as_json
+      end
 
       def serialize_transaction_draft(draft)
         {

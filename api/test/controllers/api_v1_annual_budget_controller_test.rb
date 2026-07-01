@@ -259,6 +259,111 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "pending", TransactionDraft.find(draft_id).status
   end
 
+  test "confirm works without transaction draft wrapper and appends a chat status message" do
+    user = create_user(email: "confirm-empty-body@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+        params: {},
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    messages = JSON.parse(response.body).fetch("workspace").fetch("mia").fetch("messages")
+    assert_includes messages.last.fetch("content"), "Confirmed McDonald's for $25"
+  end
+
+  test "ignoring a draft appends a chat status message" do
+    user = create_user(email: "ignore-status-message@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $40 at Starbucks today" },
+      headers: auth_headers(user),
+      as: :json
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    post "/api/v1/transaction_drafts/#{draft_id}/ignore",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    messages = JSON.parse(response.body).fetch("workspace").fetch("mia").fetch("messages")
+    assert_includes messages.last.fetch("content"), "Ignored Starbucks for $40"
+  end
+
+  test "spending report returns planned actual pending and transaction ledger for date range" do
+    user = create_user(email: "spending-report@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+    confirmed_draft = JSON.parse(response.body).fetch("transaction_draft")
+    post "/api/v1/transaction_drafts/#{confirmed_draft.fetch("id")}/confirm",
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $40 at Starbucks today" },
+      headers: auth_headers(user),
+      as: :json
+
+    get "/api/v1/spending_report?start_on=#{Date.current.beginning_of_month.iso8601}&end_on=#{Date.current.end_of_month.iso8601}",
+      headers: auth_headers(user)
+
+    assert_response :success
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 25, report.fetch("totals").fetch("actual")
+    assert_equal 40, report.fetch("totals").fetch("pending")
+    assert_equal [ "McDonald's" ], report.fetch("transactions").map { |transaction| transaction.fetch("merchant") }
+    assert_equal [ "Starbucks" ], report.fetch("pending_drafts").map { |draft| draft.fetch("merchant") }
+  end
+
+  test "mia can answer last month spending reports from stored actuals" do
+    user = create_user(email: "mia-report@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.prev_month.year).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    period = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.prev_month.year).current_period_for(Date.current.prev_month.beginning_of_month)
+    transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current.prev_month.beginning_of_month,
+      merchant: "Cafe",
+      total_amount_cents: 4_500,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "How was my spending last month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_includes body.fetch("assistant_message").fetch("content"), "confirmed spending is $45"
+    assert_equal 45, body.fetch("spending_report").fetch("totals").fetch("actual")
+  end
+
   test "confirming with user corrections preserves corrected audit status" do
     user = create_user(email: "corrected-draft@example.com")
     patch "/api/v1/workspace/setup",
