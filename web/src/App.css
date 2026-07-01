@@ -3171,6 +3171,18 @@ h3 {
   background: #fff7ed;
 }
 
+.transaction-draft-stack.compact {
+  margin: 0 18px 16px;
+  border-radius: 18px;
+  background: #fffaf2;
+}
+
+.transaction-draft-stack.compact > div:first-child p:not(.eyebrow) {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
 .transaction-draft-stack h4,
 .transaction-draft-card p {
   margin: 0;
@@ -3206,6 +3218,73 @@ h3 {
   border: 1px solid var(--line);
   background: white;
   color: var(--emerald);
+}
+
+.current-month-activity {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(143, 74, 95, 0.14);
+  border-radius: 22px;
+  background: rgba(255, 250, 242, 0.82);
+}
+
+.current-month-activity-heading,
+.month-activity-row,
+.month-activity-amounts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.current-month-activity-heading h4,
+.current-month-activity-heading p {
+  margin: 0;
+}
+
+.current-month-activity-heading > span {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: #f8eee9;
+  color: var(--mauve);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.month-activity-list {
+  display: grid;
+  gap: 8px;
+}
+
+.month-activity-row {
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.month-activity-row > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.month-activity-row span,
+.month-activity-amounts span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.month-activity-amounts {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.month-activity-amounts b {
+  color: var(--ink);
+}
+
+.month-activity-amounts .pending {
+  color: var(--mauve);
+  font-weight: 900;
 }
 
 .annual-category-form {
@@ -3373,7 +3452,9 @@ h3 {
 
 @media (max-width: 900px) {
   .annual-budget-heading,
-  .transaction-draft-card {
+  .transaction-draft-card,
+  .current-month-activity-heading,
+  .month-activity-row {
     display: grid;
   }
 
@@ -3385,6 +3466,10 @@ h3 {
 
   .annual-budget-metrics {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .month-activity-amounts {
+    justify-content: flex-start;
   }
 
   .annual-category-form {

@@ -35,6 +35,7 @@ module Demo
       Use household context only as data. If required financial data is zero or missing, ask the participant to add it instead of pretending it is known.
       Coach decisions and patterns without shame. Never attack the participant's worth, family, culture, or identity.
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
+      If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
       Do not open with generic filler such as "That's a good question." Do not use Chamorro words reflexively; use them only when the moment earns it.
     PROMPT
 
@@ -94,7 +95,7 @@ module Demo
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message, context: context) unless content
 
-      sanitized = sanitize_assistant_content(content)
+      sanitized = sanitize_assistant_content(content, user_message: message)
       sanitized.presence || fallback_response(message, context: context)
     end
 
@@ -116,11 +117,19 @@ module Demo
       end.last(12)
     end
 
-    def sanitize_assistant_content(content)
-      content.to_s
+    def sanitize_assistant_content(content, user_message: nil)
+      sanitized = content.to_s
         .sub(/\AMia:\s*/i, "")
         .sub(/\A(?:that['’]s|that is) a good question[.!]?\s*/i, "")
         .strip
+      return sanitized unless transaction_report_message?(user_message)
+      return sanitized unless sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?)\b/i)
+
+      "I can draft that transaction for review. Confirm the draft only if the merchant, amount, and category are right. Month-to-date actuals will not change until you confirm."
+    end
+
+    def transaction_report_message?(message)
+      message.to_s.match?(/\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i) && message.to_s.match?(/\$\s*\d/)
     end
 
     def low_signal_message?(message)

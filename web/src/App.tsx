@@ -40,6 +40,7 @@ import type {
   AppData,
   BudgetCategoryMonth,
   BudgetCategoryRow,
+  BudgetMonth,
   BudgetStackKey,
   CurrentUser,
   DocumentImportItem,
@@ -211,6 +212,7 @@ function App() {
     () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
+  const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
   const documentStatusSignature = useMemo(
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
@@ -383,10 +385,9 @@ function App() {
       }
       setMessages((current) => [...current, response.assistant_message])
       if (response.transaction_draft) {
-        setMessages((current) => [
-          ...current,
-          transactionDraftMessage(response.transaction_draft!),
-        ])
+        captureAnalyticsEvent('transaction_draft_presented_in_chat', {
+          source_type: response.transaction_draft.source_type ?? 'manual_chat',
+        })
       }
     } catch {
       captureAnalyticsEvent('mia_message_failed', {
@@ -473,15 +474,20 @@ function App() {
 
     setBudgetAction('save-budget-edits')
     setBudgetError(null)
+    let latestBudget = data.budget
+    let appliedChanges = 0
     try {
-      let latestBudget = data.budget
       for (const change of changes.categories) {
         latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key })
+        appliedChanges += 1
+        setData((current) => current ? { ...current, budget: latestBudget } : current)
       }
       for (const change of changes.allocations) {
         latestBudget = await updateBudgetAllocation(change.allocation_id, change.planned_amount || 0)
+        appliedChanges += 1
+        setData((current) => current ? { ...current, budget: latestBudget } : current)
       }
-      setData({ ...data, budget: latestBudget })
+      setData((current) => current ? { ...current, budget: latestBudget } : current)
       captureAnalyticsEvent('budget_edits_saved', {
         allocation_change_count: changes.allocations.length,
         category_change_count: changes.categories.length,
@@ -491,7 +497,8 @@ function App() {
         ]).size,
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget edits could not be saved.')
+      if (appliedChanges > 0) setData((current) => current ? { ...current, budget: latestBudget } : current)
+      setBudgetError(caught instanceof Error ? `${caught.message} Some earlier changes may have saved; refresh before retrying.` : 'Budget edits could not be saved. Some earlier changes may have saved; refresh before retrying.')
     } finally {
       setBudgetAction(null)
     }
@@ -1018,6 +1025,17 @@ function App() {
                   </div>
                 )}
               </article>
+
+              {pendingTransactionDrafts.length > 0 && (
+                <TransactionDraftReviewStack
+                  drafts={pendingTransactionDrafts}
+                  isRealWorkspace={Boolean(isRealWorkspace)}
+                  action={budgetAction}
+                  compact
+                  onConfirm={handleConfirmTransactionDraft}
+                  onIgnore={handleIgnoreTransactionDraft}
+                />
+              )}
 
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
 
@@ -3312,6 +3330,106 @@ function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record
   })
 }
 
+function TransactionDraftReviewStack({
+  drafts,
+  isRealWorkspace,
+  action,
+  compact = false,
+  onConfirm,
+  onIgnore,
+}: {
+  drafts: TransactionDraft[]
+  isRealWorkspace: boolean
+  action: string | null
+  compact?: boolean
+  onConfirm: (draft: TransactionDraft) => void
+  onIgnore: (draft: TransactionDraft) => void
+}) {
+  return (
+    <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
+      <div>
+        <p className="eyebrow">Review before applying</p>
+        <h4>Mia drafted these transactions from chat</h4>
+        {compact && <p>Confirm only if the merchant, amount, and category are right. Actuals do not change until you approve.</p>}
+      </div>
+      {drafts.map((draft) => (
+        <div className="transaction-draft-card" key={draft.id}>
+          <div>
+            <strong>{draft.merchant}</strong>
+            <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
+          </div>
+          <div className="transaction-draft-actions">
+            <button type="button" disabled={!isRealWorkspace || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+              {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
+            </button>
+            <button type="button" className="secondary-button" disabled={!isRealWorkspace || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+              {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CurrentMonthActivityPanel({ plan, currentMonthIndex }: { plan: AnnualBudgetPlan; currentMonthIndex: number }) {
+  const month = plan.months[currentMonthIndex]
+  const pendingByCategory = useMemo(() => {
+    const totals: Record<string, number> = {}
+    plan.pending_transaction_drafts.forEach((draft) => {
+      if (!month || !draft.category_id || !draftOccursInMonth(draft, month)) return
+
+      totals[String(draft.category_id)] = (totals[String(draft.category_id)] ?? 0) + draft.amount
+    })
+    return totals
+  }, [month, plan.pending_transaction_drafts])
+  const rows = plan.rows.map((row) => {
+    const cell = row.months[currentMonthIndex]
+    return {
+      id: row.id,
+      name: row.name,
+      stackLabel: row.stack_label,
+      planned: cell?.planned ?? 0,
+      actual: cell?.actual ?? 0,
+      remaining: cell?.remaining ?? 0,
+      pending: pendingByCategory[String(row.id)] ?? 0,
+    }
+  })
+  const totalPending = rows.reduce((sum, row) => sum + row.pending, 0)
+
+  return (
+    <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
+      <div className="current-month-activity-heading">
+        <div>
+          <p className="eyebrow">{month?.label ?? 'Current month'} operating view</p>
+          <h4>Planned, actual, and pending review</h4>
+        </div>
+        {totalPending > 0 && <span>{currency.format(totalPending)} waiting for review</span>}
+      </div>
+      <div className="month-activity-list">
+        {rows.map((row) => (
+          <div className="month-activity-row" key={row.id}>
+            <div>
+              <strong>{row.name}</strong>
+              <span>{row.stackLabel}</span>
+            </div>
+            <div className="month-activity-amounts">
+              <span><b>{currency.format(row.planned)}</b> planned</span>
+              <span><b>{currency.format(row.actual)}</b> actual</span>
+              <span><b>{currency.format(row.remaining)}</b> remaining</span>
+              {row.pending > 0 && <span className="pending"><b>{currency.format(row.pending)}</b> pending</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function draftOccursInMonth(draft: TransactionDraft, month: BudgetMonth) {
+  return draft.occurred_on >= month.starts_on && draft.occurred_on <= month.ends_on
+}
+
 function CategoryEditCell({
   row,
   draft,
@@ -3498,29 +3616,16 @@ function AnnualBudgetPlanner({
       </div>
 
       {plan.pending_transaction_drafts.length > 0 && (
-        <div className="transaction-draft-stack">
-          <div>
-            <p className="eyebrow">Review before applying</p>
-            <h4>Mia drafted these transactions from chat</h4>
-          </div>
-          {plan.pending_transaction_drafts.map((draft) => (
-            <div className="transaction-draft-card" key={draft.id}>
-              <div>
-                <strong>{draft.merchant}</strong>
-                <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
-              </div>
-              <div className="transaction-draft-actions">
-                <button type="button" disabled={!isRealWorkspace || action === `confirm-draft:${draft.id}`} onClick={() => onConfirmDraft(draft)}>
-                  {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
-                </button>
-                <button type="button" className="secondary-button" disabled={!isRealWorkspace || action === `ignore-draft:${draft.id}`} onClick={() => onIgnoreDraft(draft)}>
-                  Ignore
-                </button>
-              </div>
-            </div>
-          ))}
-        </div>
+        <TransactionDraftReviewStack
+          drafts={plan.pending_transaction_drafts}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          onConfirm={onConfirmDraft}
+          onIgnore={onIgnoreDraft}
+        />
       )}
+
+      <CurrentMonthActivityPanel plan={plan} currentMonthIndex={currentMonthIndex} />
 
       <form className="annual-category-form" onSubmit={onCreateCategory} aria-disabled={!editableBudget}>
         <label>
@@ -3677,15 +3782,6 @@ function messageParagraphs(message: MiaMessage) {
     .split(/\n{2,}/)
     .map((paragraph) => paragraph.trim())
     .filter(Boolean)
-}
-
-function transactionDraftMessage(draft: TransactionDraft): MiaMessage {
-  const category = draft.category_name ? ` in ${draft.category_name}` : ''
-  return {
-    role: 'assistant',
-    author: 'Mia',
-    content: `I drafted this transaction for review: ${draft.merchant} for ${currency.format(draft.amount)}${category}. Confirm it in the Budget screen before it changes month-to-date actuals.`,
-  }
 }
 
 function MiaMark() {

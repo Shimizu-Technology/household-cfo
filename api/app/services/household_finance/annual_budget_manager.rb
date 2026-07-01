@@ -233,7 +233,7 @@ module HouseholdFinance
     end
 
     def pending_drafts_payload
-      household.transaction_drafts.pending.recent_first.limit(20).map { |draft| draft_payload(draft) }
+      household.transaction_drafts.pending.includes(:budget_category).recent_first.limit(20).map { |draft| draft_payload(draft) }
     end
 
     def recent_transactions_payload
