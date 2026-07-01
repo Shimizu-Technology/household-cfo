@@ -53,7 +53,7 @@ module HouseholdFinance
       label = message.match?(FOOD_TERMS) ? "Food-like active categories I can see" : "Active discretionary categories"
       details = visible_rows.map do |row|
         month = row_month(row)
-        "#{row.fetch(:name)} #{money(month.fetch(:planned))} planned, #{money(month.fetch(:actual))} actual"
+        "#{row.fetch(:name)} #{money(month.fetch(:planned))} planned, #{money(month.fetch(:actual))} actual, #{money(month.fetch(:remaining))} remaining"
       end.to_sentence
       "#{label}: #{details}."
     end
