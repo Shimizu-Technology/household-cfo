@@ -71,6 +71,13 @@ const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 
+type BudgetAllocationChange = {
+  allocation_id: number
+  planned_amount: string
+  category_id: number
+  stack_key: BudgetStackKey
+}
+
 const documentUploadCards: Array<{
   kind: DocumentImportKind
   label: string
@@ -448,24 +455,23 @@ function App() {
     }
   }
 
-  async function handleAllocationChange(row: BudgetCategoryRow, month: BudgetCategoryMonth, value: string) {
-    if (!isRealWorkspace || !data) return
-    if (!month.allocation_id) {
-      setBudgetError('This budget cell is missing its allocation record. Refresh the page to repair the annual plan, then try again.')
-      return
-    }
+  async function handleAllocationSave(changes: BudgetAllocationChange[]) {
+    if (!isRealWorkspace || !data || changes.length === 0) return
 
-    setBudgetAction(`allocation:${month.allocation_id}`)
+    setBudgetAction('save-allocations')
     setBudgetError(null)
     try {
-      const budget = await updateBudgetAllocation(month.allocation_id, value || 0)
-      setData({ ...data, budget })
-      captureAnalyticsEvent('budget_allocation_updated', {
-        stack_key: row.stack_key,
-        category_id: row.id,
+      let latestBudget = data.budget
+      for (const change of changes) {
+        latestBudget = await updateBudgetAllocation(change.allocation_id, change.planned_amount || 0)
+      }
+      setData({ ...data, budget: latestBudget })
+      captureAnalyticsEvent('budget_allocations_saved', {
+        change_count: changes.length,
+        category_count: new Set(changes.map((change) => change.category_id)).size,
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget allocation could not be updated.')
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget allocations could not be saved.')
     } finally {
       setBudgetAction(null)
     }
@@ -1133,7 +1139,7 @@ function App() {
               newCategory={newBudgetCategory}
               onNewCategoryChange={setNewBudgetCategory}
               onCreateCategory={handleCreateBudgetCategory}
-              onAllocationChange={handleAllocationChange}
+              onSaveAllocations={handleAllocationSave}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
             />
@@ -3216,6 +3222,30 @@ function MoneyInput({ name, label, value, help, onChange }: { name: keyof Worksp
   )
 }
 
+function allocationDraftKey(month: BudgetCategoryMonth) {
+  return String(month.allocation_id ?? `missing:${month.period_id}`)
+}
+
+function allocationDraftValue(month: BudgetCategoryMonth, allocationDrafts: Record<string, string>) {
+  return allocationDrafts[allocationDraftKey(month)] ?? String(month.planned)
+}
+
+function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Record<string, string>): BudgetAllocationChange[] {
+  return rows.flatMap((row) => row.months.flatMap((month) => {
+    if (!month.allocation_id || month.allocation_missing) return []
+
+    const draftedValue = allocationDrafts[allocationDraftKey(month)]
+    if (draftedValue === undefined || Number(draftedValue || 0) === month.planned) return []
+
+    return [{
+      allocation_id: month.allocation_id,
+      planned_amount: draftedValue || '0',
+      category_id: row.id,
+      stack_key: row.stack_key,
+    }]
+  }))
+}
+
 function AnnualBudgetPlanner({
   plan,
   isRealWorkspace,
@@ -3224,7 +3254,7 @@ function AnnualBudgetPlanner({
   newCategory,
   onNewCategoryChange,
   onCreateCategory,
-  onAllocationChange,
+  onSaveAllocations,
   onConfirmDraft,
   onIgnoreDraft,
 }: {
@@ -3235,10 +3265,12 @@ function AnnualBudgetPlanner({
   newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
   onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
   onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
-  onAllocationChange: (row: BudgetCategoryRow, month: BudgetCategoryMonth, value: string) => void
+  onSaveAllocations: (changes: BudgetAllocationChange[]) => Promise<void>
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
 }) {
+  const [isEditingBudget, setIsEditingBudget] = useState(false)
+  const [allocationDrafts, setAllocationDrafts] = useState<Record<string, string>>({})
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, plan.year === new Date().getFullYear() ? new Date().getMonth() : 0))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
@@ -3246,6 +3278,37 @@ function AnnualBudgetPlanner({
   const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
   const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
+  const isSavingAllocations = action === 'save-allocations'
+  const editableBudget = isRealWorkspace && isEditingBudget && !isSavingAllocations
+  const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
+
+  useEffect(() => {
+    setAllocationDrafts({})
+    setIsEditingBudget(false)
+  }, [plan])
+
+  function beginBudgetEdit() {
+    setAllocationDrafts({})
+    setIsEditingBudget(true)
+  }
+
+  function cancelBudgetEdit() {
+    setAllocationDrafts({})
+    setIsEditingBudget(false)
+  }
+
+  async function saveBudgetEdits() {
+    if (allocationChanges.length === 0) {
+      cancelBudgetEdit()
+      return
+    }
+
+    await onSaveAllocations(allocationChanges)
+  }
+
+  function updateAllocationDraft(month: BudgetCategoryMonth, value: string) {
+    setAllocationDrafts((current) => ({ ...current, [allocationDraftKey(month)]: value }))
+  }
 
   return (
     <article className="panel annual-budget-panel">
@@ -3258,6 +3321,20 @@ function AnnualBudgetPlanner({
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
           <span>{plan.pending_transaction_drafts.length} pending drafts</span>
+          {isRealWorkspace && (
+            <div className="annual-plan-edit-actions">
+              {isEditingBudget ? (
+                <>
+                  <button type="button" className="secondary-button" disabled={isSavingAllocations} onClick={cancelBudgetEdit}>Cancel</button>
+                  <button type="button" disabled={isSavingAllocations} onClick={() => void saveBudgetEdits()}>
+                    {isSavingAllocations ? 'Saving' : allocationChanges.length > 0 ? `Save ${allocationChanges.length} change${allocationChanges.length === 1 ? '' : 's'}` : 'Done'}
+                  </button>
+                </>
+              ) : (
+                <button type="button" onClick={beginBudgetEdit}>Edit annual budget</button>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -3294,14 +3371,14 @@ function AnnualBudgetPlanner({
         </div>
       )}
 
-      <form className="annual-category-form" onSubmit={onCreateCategory}>
+      <form className="annual-category-form" onSubmit={onCreateCategory} aria-disabled={!editableBudget}>
         <label>
           <span>New category</span>
-          <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!isRealWorkspace} />
+          <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!editableBudget} />
         </label>
         <label>
           <span>Stack</span>
-          <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!isRealWorkspace}>
+          <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!editableBudget}>
             <option value="non_discretionary">Non-discretionary</option>
             <option value="discretionary">Discretionary</option>
             <option value="sinking_expected">Sinking Fund — Expected</option>
@@ -3310,9 +3387,10 @@ function AnnualBudgetPlanner({
         </label>
         <label>
           <span>Monthly plan</span>
-          <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!isRealWorkspace} />
+          <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!editableBudget} />
         </label>
-        <button type="submit" disabled={!isRealWorkspace || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+        <button type="submit" disabled={!editableBudget || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+        {!isEditingBudget && <small className="annual-edit-hint">Click Edit annual budget to add categories or change monthly planned amounts.</small>}
       </form>
 
       {error && <p className="setup-error" role="alert">{error}</p>}
@@ -3341,25 +3419,26 @@ function AnnualBudgetPlanner({
                 </th>
                 {row.months.map((month, index) => {
                   const allocationMissing = !month.allocation_id || month.allocation_missing
-                  const allocationActionKey = month.allocation_id ? `allocation:${month.allocation_id}` : `allocation-missing:${month.period_id}`
+                  const draftValue = allocationDraftValue(month, allocationDrafts)
+                  const draftedAmount = Number(draftValue || 0)
+                  const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
 
                   return (
                     <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
-                      <input
-                        key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
-                        aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
-                        type="number"
-                        min="0"
-                        step="1"
-                        defaultValue={month.planned}
-                        disabled={!isRealWorkspace || allocationMissing || action === allocationActionKey}
-                        onBlur={(event) => {
-                          if (!allocationMissing && Number(event.currentTarget.value || 0) !== month.planned) onAllocationChange(row, month, event.currentTarget.value)
-                        }}
-                        onKeyDown={(event) => {
-                          if (event.key === 'Enter') event.currentTarget.blur()
-                        }}
-                      />
+                      {editableBudget && !allocationMissing ? (
+                        <input
+                          key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
+                          aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={draftValue}
+                          data-dirty={hasDraftChange ? 'true' : undefined}
+                          onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
+                        />
+                      ) : (
+                        <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
+                      )}
                       <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
                     </td>
                   )

@@ -3184,7 +3184,8 @@ h3 {
 }
 
 .transaction-draft-actions button,
-.annual-category-form button {
+.annual-category-form button,
+.annual-plan-edit-actions button {
   padding: 10px 13px;
   border-radius: 999px;
   background: var(--emerald);
@@ -3193,7 +3194,15 @@ h3 {
   font-weight: 900;
 }
 
-.transaction-draft-actions .secondary-button {
+.annual-plan-edit-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.transaction-draft-actions .secondary-button,
+.annual-plan-edit-actions .secondary-button {
   border: 1px solid var(--line);
   background: white;
   color: var(--emerald);
@@ -3204,6 +3213,16 @@ h3 {
   grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1fr) minmax(120px, 0.7fr) auto;
   gap: 10px;
   align-items: end;
+}
+
+.annual-category-form[aria-disabled="true"] {
+  opacity: 0.74;
+}
+
+.annual-edit-hint {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .annual-category-form label {
@@ -3293,6 +3312,18 @@ h3 {
   font-size: 0.86rem;
 }
 
+.annual-budget-table input[data-dirty="true"] {
+  border-color: rgba(185, 115, 82, 0.66);
+  background: #fff7ed;
+  box-shadow: 0 0 0 2px rgba(185, 115, 82, 0.13);
+}
+
+.annual-planned-readonly {
+  min-height: 39px;
+  padding: 9px 0;
+  font-size: 0.95rem;
+}
+
 .annual-budget-table .current-month {
   background: #f8eee9;
 }
@@ -3316,7 +3347,8 @@ h3 {
   }
 
   .annual-budget-actions,
-  .transaction-draft-actions {
+  .transaction-draft-actions,
+  .annual-plan-edit-actions {
     justify-content: flex-start;
   }
 
