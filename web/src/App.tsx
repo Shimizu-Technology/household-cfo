@@ -3338,6 +3338,7 @@ function AnnualBudgetPlanner({
                 {row.months.map((month, index) => (
                   <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id}>
                     <input
+                      key={`${month.allocation_id}:${month.planned}`}
                       aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
                       type="number"
                       min="0"

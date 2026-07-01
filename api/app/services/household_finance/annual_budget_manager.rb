@@ -17,6 +17,7 @@ module HouseholdFinance
         ensure_periods!(budget_year)
         ensure_categories_from_expenses!
         ensure_allocations_from_expenses!(budget_year)
+        ensure_allocations_for_active_categories!(budget_year)
         budget_year
       end
     end
@@ -46,8 +47,9 @@ module HouseholdFinance
       budget_year = ensure_plan!
       category = nil
       household.with_lock do
-        category = household.budget_categories.find_or_initialize_by(name: bounded_name(name))
+        category = budget_category_for_name(bounded_name(name))
         category.assign_attributes(
+          name: bounded_name(name),
           stack_key: stack_key.presence || "discretionary",
           active: true,
           sort_order: category.sort_order.to_i.positive? ? category.sort_order : next_sort_order
@@ -90,8 +92,9 @@ module HouseholdFinance
 
     def ensure_categories_from_expenses!
       active_expenses.each_with_index do |expense, index|
-        category = household.budget_categories.find_or_initialize_by(name: expense.label)
+        category = budget_category_for_name(expense.label)
         category.assign_attributes(
+          name: expense.label,
           stack_key: expense.stack_key,
           active: true,
           sort_order: category.sort_order.to_i.positive? ? category.sort_order : index + 1
@@ -103,13 +106,27 @@ module HouseholdFinance
     def ensure_allocations_from_expenses!(budget_year)
       periods = budget_year.budget_periods.to_a
       active_expenses.each do |expense|
-        category = household.budget_categories.find_by!(name: expense.label)
+        category = budget_category_for_name(expense.label)
         monthly_cents = Money.monthly_cents(expense.amount_cents, expense.cadence)
         periods.each do |period|
           allocation = BudgetAllocation.find_or_initialize_by(budget_period: period, budget_category: category)
           next if allocation.persisted? && allocation.source == "manual"
 
           allocation.update!(planned_amount_cents: monthly_cents, source: "setup")
+        end
+      end
+    end
+
+    def ensure_allocations_for_active_categories!(budget_year)
+      periods = budget_year.budget_periods.to_a
+      household.budget_categories.active.find_each do |category|
+        periods.each do |period|
+          BudgetAllocation.find_or_create_by!(budget_period: period, budget_category: category) do |allocation|
+            allocation.planned_amount_cents = 0
+            allocation.source = "manual"
+          end
+        rescue ActiveRecord::RecordNotUnique
+          next
         end
       end
     end
@@ -134,7 +151,7 @@ module HouseholdFinance
 
     def category_payload(category, periods, allocations, actuals)
       month_cells = periods.map do |period|
-        allocation = allocations[[ category.id, period.id ]] || allocation_for(period, category)
+        allocation = allocations.fetch([ category.id, period.id ])
         actual_cents = actuals[[ category.id, period.id ]] || 0
         {
           period_id: period.id,
@@ -155,15 +172,6 @@ module HouseholdFinance
         planned_total: month_cells.sum { |cell| cell[:planned] },
         actual_total: month_cells.sum { |cell| cell[:actual] }
       }
-    end
-
-    def allocation_for(period, category)
-      BudgetAllocation.find_or_create_by!(budget_period: period, budget_category: category) do |allocation|
-        allocation.planned_amount_cents = 0
-        allocation.source = "manual"
-      end
-    rescue ActiveRecord::RecordNotUnique
-      BudgetAllocation.find_by!(budget_period: period, budget_category: category)
     end
 
     def period_payload(period)
@@ -236,11 +244,11 @@ module HouseholdFinance
         cadence: "monthly",
         active: true
       )
-      household.expense_items.where(label: category.name).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
+      household.expense_items.where("LOWER(label) = ?", category.name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
     end
 
     def synced_expense_for(category)
-      expenses = household.expense_items.where(label: category.name).order(active: :desc, id: :asc).to_a
+      expenses = household.expense_items.where("LOWER(label) = ?", category.name.downcase).order(active: :desc, id: :asc).to_a
       expenses.find { |expense| expense.stack_key == category.stack_key } || expenses.first || household.expense_items.new(label: category.name)
     end
 
@@ -252,6 +260,11 @@ module HouseholdFinance
 
     def bounded_name(name)
       name.to_s.squish.truncate(80, omission: "…").presence || "Custom category"
+    end
+
+    def budget_category_for_name(name)
+      bounded = bounded_name(name)
+      household.budget_categories.where("LOWER(name) = ?", bounded.downcase).first_or_initialize
     end
 
     def next_sort_order

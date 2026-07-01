@@ -18,21 +18,19 @@ module Api
         annual_plan = annual_budget_manager.plan_data
         context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
         assistant_content = ::Demo::MiaResponder.new.call(content, history: history, context: context)
-        transaction_draft = nil
-
         user_message, assistant_message = ApplicationRecord.transaction do
-          transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
-            current_household,
-            content,
-            annual_budget_manager: annual_budget_manager,
-            plan_prepared: true
-          ).call
           [
             session.chat_messages.create!(role: "user", content: content),
             session.chat_messages.create!(role: "assistant", content: assistant_content)
           ]
         end
 
+        transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
+          current_household,
+          content,
+          annual_budget_manager: annual_budget_manager,
+          plan_prepared: true
+        ).call
         annual_plan = annual_budget_manager.plan_data if transaction_draft
 
         render json: {
