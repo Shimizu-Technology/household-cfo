@@ -3230,6 +3230,12 @@ function allocationDraftValue(month: BudgetCategoryMonth, allocationDrafts: Reco
   return allocationDrafts[allocationDraftKey(month)] ?? String(month.planned)
 }
 
+function annualBudgetPlanSignature(plan: AnnualBudgetPlan) {
+  return plan.rows.map((row) => (
+    `${row.id}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}`).join(',')}`
+  )).join('|')
+}
+
 function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Record<string, string>): BudgetAllocationChange[] {
   return rows.flatMap((row) => row.months.flatMap((month) => {
     if (!month.allocation_id || month.allocation_missing) return []
@@ -3269,8 +3275,6 @@ function AnnualBudgetPlanner({
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
 }) {
-  const [isEditingBudget, setIsEditingBudget] = useState(false)
-  const [allocationDrafts, setAllocationDrafts] = useState<Record<string, string>>({})
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, plan.year === new Date().getFullYear() ? new Date().getMonth() : 0))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
@@ -3278,23 +3282,27 @@ function AnnualBudgetPlanner({
   const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
   const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
+  const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
+  const [budgetEditState, setBudgetEditState] = useState<{ signature: string; isEditing: boolean; drafts: Record<string, string> }>({
+    signature: planSignature,
+    isEditing: false,
+    drafts: {},
+  })
+  const allocationDrafts = useMemo(
+    () => budgetEditState.signature === planSignature ? budgetEditState.drafts : {},
+    [budgetEditState.drafts, budgetEditState.signature, planSignature],
+  )
+  const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
   const isSavingAllocations = action === 'save-allocations'
   const editableBudget = isRealWorkspace && isEditingBudget && !isSavingAllocations
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
 
-  useEffect(() => {
-    setAllocationDrafts({})
-    setIsEditingBudget(false)
-  }, [plan])
-
   function beginBudgetEdit() {
-    setAllocationDrafts({})
-    setIsEditingBudget(true)
+    setBudgetEditState({ signature: planSignature, isEditing: true, drafts: {} })
   }
 
   function cancelBudgetEdit() {
-    setAllocationDrafts({})
-    setIsEditingBudget(false)
+    setBudgetEditState({ signature: planSignature, isEditing: false, drafts: {} })
   }
 
   async function saveBudgetEdits() {
@@ -3307,7 +3315,14 @@ function AnnualBudgetPlanner({
   }
 
   function updateAllocationDraft(month: BudgetCategoryMonth, value: string) {
-    setAllocationDrafts((current) => ({ ...current, [allocationDraftKey(month)]: value }))
+    setBudgetEditState((current) => ({
+      signature: planSignature,
+      isEditing: true,
+      drafts: {
+        ...(current.signature === planSignature ? current.drafts : {}),
+        [allocationDraftKey(month)]: value,
+      },
+    }))
   }
 
   return (
