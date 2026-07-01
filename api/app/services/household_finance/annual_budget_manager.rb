@@ -61,6 +61,37 @@ module HouseholdFinance
       category
     end
 
+    def update_category!(category, name:, stack_key:)
+      ensure_plan!
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      household.with_lock do
+        category.lock!
+        old_name = category.name
+        old_stack_key = category.stack_key
+        category.assign_attributes(
+          name: category_update_name(name, fallback: category.name),
+          stack_key: stack_key.presence || category.stack_key
+        )
+        category.save!
+        sync_expense_item_after_category_change!(category, old_name, old_stack_key)
+      end
+      category
+    end
+
+    def archive_category!(category)
+      ensure_plan!
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      household.with_lock do
+        category.lock!
+        ensure_category_can_archive!(category)
+        category.update!(active: false)
+        archive_synced_expense_item!(category)
+      end
+      category
+    end
+
     def update_allocation!(allocation, amount)
       budget_year = ensure_plan!
       raise ActiveRecord::RecordNotFound unless allocation.budget_category.household_id == household.id
@@ -264,6 +295,25 @@ module HouseholdFinance
       household.expense_items.where("LOWER(label) = ?", category.name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
     end
 
+    def sync_expense_item_after_category_change!(category, old_name, old_stack_key)
+      expense = household.expense_items
+        .where("LOWER(label) = ?", old_name.downcase)
+        .where(stack_key: old_stack_key)
+        .order(active: :desc, id: :asc)
+        .first || synced_expense_for(category)
+      expense.amount_cents = representative_planned_cents(category) if expense.new_record?
+      expense.update!(label: category.name, stack_key: category.stack_key, cadence: "monthly", active: category.active?)
+      household.expense_items.where("LOWER(label) = ?", old_name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
+      household.expense_items.where("LOWER(label) = ?", category.name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
+    end
+
+    def archive_synced_expense_item!(category)
+      household.expense_items
+        .where("LOWER(label) = ?", category.name.downcase)
+        .where(stack_key: category.stack_key)
+        .update_all(active: false, updated_at: Time.current)
+    end
+
     def synced_expense_for(category)
       expenses = household.expense_items.where("LOWER(label) = ?", category.name.downcase).order(active: :desc, id: :asc).to_a
       expenses.find { |expense| expense.stack_key == category.stack_key } || expenses.first || household.expense_items.new(label: category.name)
@@ -273,6 +323,23 @@ module HouseholdFinance
       manager = self.class.new(household, year: period_year)
       manager.ensure_plan!
       household.budget_years.find_by!(year: period_year).budget_periods.find_by!(starts_on: Date.new(period_year, month, 1))
+    end
+
+    def ensure_category_can_archive!(category)
+      return unless category.transaction_splits.exists? || category.transaction_drafts.pending.exists?
+
+      category.errors.add(:base, "Category has transaction history or pending drafts. Rename or reclassify it instead of archiving.")
+      raise ActiveRecord::RecordInvalid, category
+    end
+
+    def representative_planned_cents(category)
+      category.budget_allocations.order(updated_at: :desc, id: :desc).first&.planned_amount_cents.to_i
+    end
+
+    def category_update_name(name, fallback:)
+      return fallback if name.nil?
+
+      name.to_s.squish.truncate(80, omission: "…").presence
     end
 
     def bounded_name(name)

@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import './App.css'
 import {
   applyDocumentImport,
+  archiveBudgetCategory,
   clearMiaMessages,
   confirmTransactionDraft,
   createAdminCohort,
@@ -23,6 +24,7 @@ import {
   sendMiaMessage,
   updateBudgetAllocation,
   updateAdminCohort,
+  updateBudgetCategory,
   updateAdminUser,
   updateDocumentImportItem,
   uploadDocumentImport,
@@ -76,6 +78,17 @@ type BudgetAllocationChange = {
   planned_amount: string
   category_id: number
   stack_key: BudgetStackKey
+}
+
+type BudgetCategoryChange = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+}
+
+type BudgetEditChanges = {
+  allocations: BudgetAllocationChange[]
+  categories: BudgetCategoryChange[]
 }
 
 const documentUploadCards: Array<{
@@ -455,23 +468,49 @@ function App() {
     }
   }
 
-  async function handleAllocationSave(changes: BudgetAllocationChange[]) {
-    if (!isRealWorkspace || !data || changes.length === 0) return
+  async function handleBudgetEditSave(changes: BudgetEditChanges) {
+    if (!isRealWorkspace || !data || (changes.allocations.length === 0 && changes.categories.length === 0)) return
 
-    setBudgetAction('save-allocations')
+    setBudgetAction('save-budget-edits')
     setBudgetError(null)
     try {
       let latestBudget = data.budget
-      for (const change of changes) {
+      for (const change of changes.categories) {
+        latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key })
+      }
+      for (const change of changes.allocations) {
         latestBudget = await updateBudgetAllocation(change.allocation_id, change.planned_amount || 0)
       }
       setData({ ...data, budget: latestBudget })
-      captureAnalyticsEvent('budget_allocations_saved', {
-        change_count: changes.length,
-        category_count: new Set(changes.map((change) => change.category_id)).size,
+      captureAnalyticsEvent('budget_edits_saved', {
+        allocation_change_count: changes.allocations.length,
+        category_change_count: changes.categories.length,
+        category_count: new Set([
+          ...changes.allocations.map((change) => change.category_id),
+          ...changes.categories.map((change) => change.id),
+        ]).size,
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Budget allocations could not be saved.')
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget edits could not be saved.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
+    if (!isRealWorkspace || !data) return
+
+    const confirmed = window.confirm(`Archive ${row.name}? Planned amounts will be hidden, but transaction history will not be deleted.`)
+    if (!confirmed) return
+
+    setBudgetAction(`archive-category:${row.id}`)
+    setBudgetError(null)
+    try {
+      const budget = await archiveBudgetCategory(row.id)
+      setData({ ...data, budget })
+      captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
     } finally {
       setBudgetAction(null)
     }
@@ -1139,7 +1178,8 @@ function App() {
               newCategory={newBudgetCategory}
               onNewCategoryChange={setNewBudgetCategory}
               onCreateCategory={handleCreateBudgetCategory}
-              onSaveAllocations={handleAllocationSave}
+              onSaveBudgetEdits={handleBudgetEditSave}
+              onArchiveCategory={handleArchiveBudgetCategory}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
             />
@@ -3226,13 +3266,21 @@ function allocationDraftKey(month: BudgetCategoryMonth) {
   return String(month.allocation_id ?? `missing:${month.period_id}`)
 }
 
+function categoryDraftKey(row: BudgetCategoryRow) {
+  return String(row.id)
+}
+
 function allocationDraftValue(month: BudgetCategoryMonth, allocationDrafts: Record<string, string>) {
   return allocationDrafts[allocationDraftKey(month)] ?? String(month.planned)
 }
 
+function categoryDraftValue(row: BudgetCategoryRow, categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }>) {
+  return categoryDrafts[categoryDraftKey(row)] ?? { name: row.name, stack_key: row.stack_key }
+}
+
 function annualBudgetPlanSignature(plan: AnnualBudgetPlan) {
   return plan.rows.map((row) => (
-    `${row.id}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}`).join(',')}`
+    `${row.id}:${row.name}:${row.stack_key}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}`).join(',')}`
   )).join('|')
 }
 
@@ -3252,6 +3300,62 @@ function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Re
   }))
 }
 
+function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }>): BudgetCategoryChange[] {
+  return rows.flatMap((row) => {
+    const draftedValue = categoryDrafts[categoryDraftKey(row)]
+    if (!draftedValue) return []
+
+    const name = draftedValue.name.trim()
+    if (!name || (name === row.name && draftedValue.stack_key === row.stack_key)) return []
+
+    return [{ id: row.id, name, stack_key: draftedValue.stack_key }]
+  })
+}
+
+function CategoryEditCell({
+  row,
+  draft,
+  hasProtectedData,
+  action,
+  onChange,
+  onArchive,
+}: {
+  row: BudgetCategoryRow
+  draft: { name: string; stack_key: BudgetStackKey }
+  hasProtectedData: boolean
+  action: string | null
+  onChange: (value: { name?: string; stack_key?: BudgetStackKey }) => void
+  onArchive: () => void
+}) {
+  return (
+    <div className="annual-category-cell-editor">
+      <label>
+        <span className="sr-only">Category name</span>
+        <input value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
+      </label>
+      <label>
+        <span className="sr-only">Expense stack</span>
+        <select value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
+          <option value="non_discretionary">Non-discretionary</option>
+          <option value="discretionary">Discretionary</option>
+          <option value="sinking_expected">Sinking Fund — Expected</option>
+          <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+        </select>
+      </label>
+      <button
+        type="button"
+        className="archive-category-button"
+        disabled={hasProtectedData || action === `archive-category:${row.id}`}
+        title={hasProtectedData ? 'This category has transaction history or pending drafts. Rename or reclassify it instead.' : 'Archive this category'}
+        onClick={onArchive}
+      >
+        {action === `archive-category:${row.id}` ? 'Archiving' : 'Archive'}
+      </button>
+      {hasProtectedData && <small>Has activity — keep it, rename it, or move its stack.</small>}
+    </div>
+  )
+}
+
 function AnnualBudgetPlanner({
   plan,
   isRealWorkspace,
@@ -3260,7 +3364,8 @@ function AnnualBudgetPlanner({
   newCategory,
   onNewCategoryChange,
   onCreateCategory,
-  onSaveAllocations,
+  onSaveBudgetEdits,
+  onArchiveCategory,
   onConfirmDraft,
   onIgnoreDraft,
 }: {
@@ -3271,7 +3376,8 @@ function AnnualBudgetPlanner({
   newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
   onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
   onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
-  onSaveAllocations: (changes: BudgetAllocationChange[]) => Promise<void>
+  onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
+  onArchiveCategory: (row: BudgetCategoryRow) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
 }) {
@@ -3283,46 +3389,76 @@ function AnnualBudgetPlanner({
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
   const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
-  const [budgetEditState, setBudgetEditState] = useState<{ signature: string; isEditing: boolean; drafts: Record<string, string> }>({
+  const [budgetEditState, setBudgetEditState] = useState<{
+    signature: string
+    isEditing: boolean
+    allocationDrafts: Record<string, string>
+    categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }>
+  }>({
     signature: planSignature,
     isEditing: false,
-    drafts: {},
+    allocationDrafts: {},
+    categoryDrafts: {},
   })
   const allocationDrafts = useMemo(
-    () => budgetEditState.signature === planSignature ? budgetEditState.drafts : {},
-    [budgetEditState.drafts, budgetEditState.signature, planSignature],
+    () => budgetEditState.signature === planSignature ? budgetEditState.allocationDrafts : {},
+    [budgetEditState.allocationDrafts, budgetEditState.signature, planSignature],
+  )
+  const categoryDrafts = useMemo(
+    () => budgetEditState.signature === planSignature ? budgetEditState.categoryDrafts : {},
+    [budgetEditState.categoryDrafts, budgetEditState.signature, planSignature],
   )
   const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
-  const isSavingAllocations = action === 'save-allocations'
-  const editableBudget = isRealWorkspace && isEditingBudget && !isSavingAllocations
+  const isSavingBudgetEdits = action === 'save-budget-edits'
+  const editableBudget = isRealWorkspace && isEditingBudget && !isSavingBudgetEdits
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
+  const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
+  const totalBudgetChanges = allocationChanges.length + categoryChanges.length
 
   function beginBudgetEdit() {
-    setBudgetEditState({ signature: planSignature, isEditing: true, drafts: {} })
+    setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
   }
 
   function cancelBudgetEdit() {
-    setBudgetEditState({ signature: planSignature, isEditing: false, drafts: {} })
+    setBudgetEditState({ signature: planSignature, isEditing: false, allocationDrafts: {}, categoryDrafts: {} })
   }
 
   async function saveBudgetEdits() {
-    if (allocationChanges.length === 0) {
+    if (totalBudgetChanges === 0) {
       cancelBudgetEdit()
       return
     }
 
-    await onSaveAllocations(allocationChanges)
+    await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
   }
 
   function updateAllocationDraft(month: BudgetCategoryMonth, value: string) {
     setBudgetEditState((current) => ({
       signature: planSignature,
       isEditing: true,
-      drafts: {
-        ...(current.signature === planSignature ? current.drafts : {}),
+      allocationDrafts: {
+        ...(current.signature === planSignature ? current.allocationDrafts : {}),
         [allocationDraftKey(month)]: value,
       },
+      categoryDrafts: current.signature === planSignature ? current.categoryDrafts : {},
     }))
+  }
+
+  function updateCategoryDraft(row: BudgetCategoryRow, value: { name?: string; stack_key?: BudgetStackKey }) {
+    setBudgetEditState((current) => {
+      const currentCategoryDrafts = current.signature === planSignature ? current.categoryDrafts : {}
+      const existingDraft = categoryDraftValue(row, currentCategoryDrafts)
+
+      return {
+        signature: planSignature,
+        isEditing: true,
+        allocationDrafts: current.signature === planSignature ? current.allocationDrafts : {},
+        categoryDrafts: {
+          ...currentCategoryDrafts,
+          [categoryDraftKey(row)]: { ...existingDraft, ...value },
+        },
+      }
+    })
   }
 
   return (
@@ -3340,9 +3476,9 @@ function AnnualBudgetPlanner({
             <div className="annual-plan-edit-actions">
               {isEditingBudget ? (
                 <>
-                  <button type="button" className="secondary-button" disabled={isSavingAllocations} onClick={cancelBudgetEdit}>Cancel</button>
-                  <button type="button" disabled={isSavingAllocations} onClick={() => void saveBudgetEdits()}>
-                    {isSavingAllocations ? 'Saving' : allocationChanges.length > 0 ? `Save ${allocationChanges.length} change${allocationChanges.length === 1 ? '' : 's'}` : 'Done'}
+                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelBudgetEdit}>Cancel</button>
+                  <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+                    {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
                   </button>
                 </>
               ) : (
@@ -3429,8 +3565,21 @@ function AnnualBudgetPlanner({
             ) : plan.rows.map((row) => (
               <tr key={row.id}>
                 <th scope="row">
-                  <strong>{row.name}</strong>
-                  <span>{row.stack_label}</span>
+                  {editableBudget ? (
+                    <CategoryEditCell
+                      row={row}
+                      draft={categoryDraftValue(row, categoryDrafts)}
+                      hasProtectedData={row.actual_total > 0 || plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
+                      action={action}
+                      onChange={(value) => updateCategoryDraft(row, value)}
+                      onArchive={() => onArchiveCategory(row)}
+                    />
+                  ) : (
+                    <>
+                      <strong>{row.name}</strong>
+                      <span>{row.stack_label}</span>
+                    </>
+                  )}
                 </th>
                 {row.months.map((month, index) => {
                   const allocationMissing = !month.allocation_id || month.allocation_missing

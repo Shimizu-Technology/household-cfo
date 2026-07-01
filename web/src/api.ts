@@ -658,6 +658,20 @@ export async function createBudgetCategory(values: { name: string; stack_key: Bu
   return payload.budget
 }
 
+export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey }): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: values }),
+  })
+  return payload.budget
+}
+
+export async function archiveBudgetCategory(id: number): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}`, { method: 'DELETE' })
+  return payload.budget
+}
+
 export async function updateBudgetAllocation(id: number, plannedAmount: number | string): Promise<BudgetData> {
   const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_allocations/${id}`, {
     method: 'PATCH',

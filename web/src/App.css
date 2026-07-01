@@ -3306,10 +3306,41 @@ h3 {
   display: block;
 }
 
-.annual-budget-table input {
+.annual-budget-table input,
+.annual-budget-table select {
   min-width: 74px;
   padding: 9px 8px;
   font-size: 0.86rem;
+}
+
+.annual-category-cell-editor {
+  display: grid;
+  gap: 8px;
+  min-width: 210px;
+}
+
+.annual-category-cell-editor input,
+.annual-category-cell-editor select {
+  width: 100%;
+  min-width: 0;
+  background: white;
+}
+
+.archive-category-button {
+  justify-self: start;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid rgba(143, 74, 95, 0.25);
+  border-radius: 999px;
+  background: rgba(143, 74, 95, 0.08);
+  color: var(--mauve);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.archive-category-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
 }
 
 .annual-budget-table input[data-dirty="true"] {

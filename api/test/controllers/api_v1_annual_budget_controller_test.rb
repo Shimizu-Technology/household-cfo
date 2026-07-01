@@ -84,6 +84,75 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 300, row.fetch("months").first.fetch("planned")
   end
 
+  test "participant can rename reclassify and archive an unused budget category" do
+    user = create_user(email: "category-manage@example.com")
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 250 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    category_id = JSON.parse(response.body).fetch("category").fetch("id")
+
+    patch "/api/v1/budget_categories/#{category_id}",
+      params: { category: { name: "Restaurants", stack_key: "non_discretionary" } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal "Restaurants", body.fetch("category").fetch("name")
+    assert_equal "non_discretionary", body.fetch("category").fetch("stack_key")
+    row = body.fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category_id }
+    assert_equal "Restaurants", row.fetch("name")
+    assert_equal "Non-discretionary", row.fetch("stack_label")
+
+    household = user.households.first.reload
+    assert_equal 1, household.expense_items.where(label: "Restaurants", stack_key: "non_discretionary", active: true).count
+    assert_equal 0, household.expense_items.where(label: "Dining out", active: true).count
+
+    delete "/api/v1/budget_categories/#{category_id}",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    archived_body = JSON.parse(response.body)
+    assert_equal false, archived_body.fetch("category").fetch("active")
+    archived_row = archived_body.fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category_id }
+    assert_nil archived_row
+    assert_equal false, BudgetCategory.find(category_id).active
+    assert_equal 0, household.reload.expense_items.where(label: "Restaurants", active: true).count
+  end
+
+  test "category archive is blocked when transaction history exists" do
+    user = create_user(email: "category-history@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+    category_id = JSON.parse(response.body).fetch("transaction_draft").fetch("category_id")
+
+    post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+
+    delete "/api/v1/budget_categories/#{category_id}",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Category has transaction history or pending drafts. Rename or reclassify it instead of archiving."
+    assert_equal true, BudgetCategory.find(category_id).active
+  end
+
   test "allocation updates are scoped to the current household" do
     owner = create_user(email: "allocation-owner@example.com")
     other_user = create_user(email: "allocation-other@example.com")
