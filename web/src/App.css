@@ -3177,10 +3177,16 @@ h3 {
   background: #fffaf2;
 }
 
-.transaction-draft-stack.compact > div:first-child p:not(.eyebrow) {
+.transaction-draft-stack.compact > div:first-child p:not(.eyebrow),
+.transaction-draft-disabled-reason {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 0.86rem;
+}
+
+.transaction-draft-disabled-reason {
+  color: var(--mauve);
+  font-weight: 800;
 }
 
 .transaction-draft-stack h4,

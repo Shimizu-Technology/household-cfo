@@ -144,6 +144,17 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "added"
   end
 
+  test "zero dollar reported spend does not say a draft was created" do
+    response = Demo::MiaResponder.new(api_key: nil).send(
+      :sanitize_assistant_content,
+      "I drafted that transaction for review.",
+      user_message: "I spent $0 at McDonald's today"
+    )
+
+    assert_includes response, "did not draft a transaction"
+    assert_includes response, "amount is $0"
+  end
+
   private
 
   def stubbed_model_responder(response)

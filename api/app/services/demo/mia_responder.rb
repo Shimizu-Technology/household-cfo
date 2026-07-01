@@ -123,6 +123,10 @@ module Demo
         .sub(/\A(?:that['’]s|that is) a good question[.!]?\s*/i, "")
         .strip
       return sanitized unless transaction_report_message?(user_message)
+
+      if transaction_report_amount_cents(user_message).zero? && sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?|draft(?:ed)?)\b/i)
+        return "I did not draft a transaction because the amount is $0. If money actually moved, send the real amount and I’ll prepare it for review before it changes actuals."
+      end
       return sanitized unless sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?)\b/i)
 
       "I can draft that transaction for review. Confirm the draft only if the merchant, amount, and category are right. Month-to-date actuals will not change until you confirm."
@@ -130,6 +134,11 @@ module Demo
 
     def transaction_report_message?(message)
       message.to_s.match?(/\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i) && message.to_s.match?(/\$\s*\d/)
+    end
+
+    def transaction_report_amount_cents(message)
+      match = message.to_s.match(/\$\s*(\d{1,6}(?:,\d{3})*(?:\.\d{1,2})?|\d{1,6}(?:\.\d{1,2})?)/)
+      HouseholdFinance::Money.cents(match&.[](1).to_s.delete(","))
     end
 
     def low_signal_message?(message)

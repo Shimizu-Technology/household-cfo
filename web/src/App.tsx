@@ -3335,6 +3335,8 @@ function TransactionDraftReviewStack({
   isRealWorkspace,
   action,
   compact = false,
+  draftActionsDisabled = false,
+  disabledReason,
   onConfirm,
   onIgnore,
 }: {
@@ -3342,6 +3344,8 @@ function TransactionDraftReviewStack({
   isRealWorkspace: boolean
   action: string | null
   compact?: boolean
+  draftActionsDisabled?: boolean
+  disabledReason?: string
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
 }) {
@@ -3351,6 +3355,7 @@ function TransactionDraftReviewStack({
         <p className="eyebrow">Review before applying</p>
         <h4>Mia drafted these transactions from chat</h4>
         {compact && <p>Confirm only if the merchant, amount, and category are right. Actuals do not change until you approve.</p>}
+        {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
       </div>
       {drafts.map((draft) => (
         <div className="transaction-draft-card" key={draft.id}>
@@ -3359,10 +3364,10 @@ function TransactionDraftReviewStack({
             <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
           </div>
           <div className="transaction-draft-actions">
-            <button type="button" disabled={!isRealWorkspace || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+            <button type="button" disabled={!isRealWorkspace || draftActionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
               {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
             </button>
-            <button type="button" className="secondary-button" disabled={!isRealWorkspace || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+            <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
               {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
             </button>
           </div>
@@ -3620,6 +3625,8 @@ function AnnualBudgetPlanner({
           drafts={plan.pending_transaction_drafts}
           isRealWorkspace={isRealWorkspace}
           action={action}
+          draftActionsDisabled={isEditingBudget}
+          disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
           onConfirm={onConfirmDraft}
           onIgnore={onIgnoreDraft}
         />
