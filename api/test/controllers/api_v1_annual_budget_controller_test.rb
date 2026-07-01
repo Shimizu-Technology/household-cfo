@@ -64,24 +64,53 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       as: :json
     assert_response :created
 
-    post "/api/v1/budget_categories",
-      params: { category: { name: "dining out", stack_key: "non_discretionary", monthly_amount: 300 } },
+    category_id = JSON.parse(response.body).fetch("category").fetch("id")
+
+    patch "/api/v1/budget_categories/#{category_id}",
+      params: { category: { name: "dining out", stack_key: "non_discretionary" } },
       headers: auth_headers(user),
       as: :json
 
-    assert_response :created
+    assert_response :success
     household = user.households.first.reload
     assert_equal 1, household.budget_categories.where("LOWER(name) = ?", "dining out").count
     active_expenses = household.expense_items.where("LOWER(label) = ?", "dining out").where(active: true)
     assert_equal 1, active_expenses.count
     assert_equal "non_discretionary", active_expenses.first.stack_key
-    assert_equal 30_000, active_expenses.first.amount_cents
+    assert_equal 25_000, active_expenses.first.amount_cents
 
     budget = JSON.parse(response.body).fetch("budget")
-    assert_equal 300, budget.fetch("total_monthly_outflow")
+    assert_equal 250, budget.fetch("total_monthly_outflow")
     row = budget.fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name").casecmp?("dining out") }
     assert_equal "Non-discretionary", row.fetch("stack_label")
-    assert_equal 300, row.fetch("months").first.fetch("planned")
+    assert_equal 250, row.fetch("months").first.fetch("planned")
+  end
+
+  test "duplicate budget category creation is rejected without clobbering tuned allocations" do
+    user = create_user(email: "annual-duplicate-category@example.com")
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 250 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+    row = JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Dining out" }
+    allocation_id = row.fetch("months").first.fetch("allocation_id")
+
+    patch "/api/v1/budget_allocations/#{allocation_id}",
+      params: { allocation: { planned_amount: 325 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "dining out", stack_key: "discretionary" } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Name already exists. Edit the existing category instead."
+    assert_equal 32_500, BudgetAllocation.find(allocation_id).planned_amount_cents
   end
 
   test "participant can rename reclassify and archive an unused budget category" do
@@ -196,6 +225,10 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "McDonald's", draft.fetch("merchant")
     assert_equal 25, draft.fetch("amount")
     assert_equal "Flexible spending", draft.fetch("category_name")
+    assistant_content = body.fetch("assistant_message").fetch("content")
+    assert_includes assistant_content, "I drafted this for review"
+    assert_includes assistant_content, "actuals will not change until you approve"
+    refute_match(/brings your month-to-date actuals/i, assistant_content)
 
     assert_difference("HouseholdTransaction.count", 1) do
       post "/api/v1/transaction_drafts/#{draft.fetch("id")}/confirm",
@@ -336,6 +369,16 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 40, report.fetch("totals").fetch("pending")
     assert_equal [ "McDonald's" ], report.fetch("transactions").map { |transaction| transaction.fetch("merchant") }
     assert_equal [ "Starbucks" ], report.fetch("pending_drafts").map { |draft| draft.fetch("merchant") }
+  end
+
+  test "spending report rejects ranges that are too large" do
+    user = create_user(email: "spending-report-large-range@example.com")
+
+    get "/api/v1/spending_report?start_on=2024-01-01&end_on=2026-12-31",
+      headers: auth_headers(user)
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Invalid report date range"
   end
 
   test "mia can answer last month spending reports from stored actuals" do

@@ -47,12 +47,17 @@ module HouseholdFinance
       budget_year = ensure_plan!
       category = nil
       household.with_lock do
-        category = budget_category_for_name(bounded_name(name))
-        category.assign_attributes(
-          name: bounded_name(name),
+        bounded = bounded_name(name)
+        if (existing_category = household.budget_categories.where("LOWER(name) = ?", bounded.downcase).first)
+          existing_category.errors.add(:name, "already exists. Edit the existing category instead.")
+          raise ActiveRecord::RecordInvalid, existing_category
+        end
+
+        category = household.budget_categories.new(
+          name: bounded,
           stack_key: stack_key.presence || "discretionary",
           active: true,
-          sort_order: category.sort_order.to_i.positive? ? category.sort_order : next_sort_order
+          sort_order: next_sort_order
         )
         category.save!
         sync_expense_item!(category, monthly_amount)

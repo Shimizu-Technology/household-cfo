@@ -17,22 +17,24 @@ module Api
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household)
         annual_plan = annual_budget_manager.plan_data
         spending_report = spending_report_for(content)
+        transaction_draft = nil
+        unless spending_report
+          transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
+            current_household,
+            content,
+            annual_budget_manager: annual_budget_manager,
+            plan_prepared: true
+          ).call
+          annual_plan = annual_budget_manager.plan_data if transaction_draft
+        end
         context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
-        assistant_content = spending_report ? HouseholdFinance::SpendingReportNarrator.new(spending_report).call : ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: true)
+        assistant_content = assistant_content_for(content, history, context, spending_report, transaction_draft)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
             session.chat_messages.create!(role: "assistant", content: assistant_content)
           ]
         end
-
-        transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
-          current_household,
-          content,
-          annual_budget_manager: annual_budget_manager,
-          plan_prepared: true
-        ).call
-        annual_plan = annual_budget_manager.plan_data if transaction_draft
 
         render json: {
           user_message: user_message.as_api_json(author: "You"),
@@ -55,6 +57,20 @@ module Api
         return unless range
 
         HouseholdFinance::SpendingReport.new(current_household, start_on: range.fetch(:start_on), end_on: range.fetch(:end_on)).as_json
+      rescue ArgumentError
+        nil
+      end
+
+      def assistant_content_for(content, history, context, spending_report, transaction_draft)
+        return HouseholdFinance::SpendingReportNarrator.new(spending_report).call if spending_report
+        return drafted_transaction_message(transaction_draft) if transaction_draft
+
+        ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: false)
+      end
+
+      def drafted_transaction_message(draft)
+        category = draft.budget_category&.name || "Uncategorized"
+        "I drafted this for review: #{draft.merchant} for #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 0)} in #{category}. Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
       end
 
       def serialize_transaction_draft(draft)

@@ -1,12 +1,16 @@
 module HouseholdFinance
   class SpendingReport
     MAX_TRANSACTIONS = 100
+    MAX_RANGE_DAYS = 400
+    YEAR_RANGE = 2000..2100
 
     def initialize(household, start_on:, end_on:)
       @household = household
       @start_on = start_on.to_date
       @end_on = end_on.to_date
       raise ArgumentError, "end_on before start_on" if @end_on < @start_on
+      raise ArgumentError, "report range is too large" if (@end_on - @start_on).to_i > MAX_RANGE_DAYS
+      raise ArgumentError, "report year is out of range" unless YEAR_RANGE.cover?(@start_on.year) && YEAR_RANGE.cover?(@end_on.year)
     end
 
     def as_json
