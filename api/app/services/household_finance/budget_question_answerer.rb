@@ -44,7 +44,7 @@ module HouseholdFinance
       planned = sum_for(broad_rows, :planned)
       actual = sum_for(broad_rows, :actual)
       remaining = sum_for(broad_rows, :remaining)
-      "For #{month_label}, your active discretionary plan is #{money(planned)}. Confirmed actuals are #{money(actual)}, leaving #{money(remaining)} before any new approvals."
+      "Based on your active annual plan for #{month_label}, your active discretionary plan is #{money(planned)}. Confirmed actuals are #{money(actual)}, leaving #{money(remaining)} before any new approvals."
     end
 
     def category_line(target_rows)

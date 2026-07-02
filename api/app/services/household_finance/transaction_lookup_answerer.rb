@@ -77,12 +77,12 @@ module HouseholdFinance
       merchant_line = merchant_breakdown(transactions, target)
 
       if count.zero?
-        return "For #{period_label}, I do not see confirmed #{label} spending yet. Pending drafts are not counted until you confirm them."
+        return "For #{period_label}, based on confirmed transactions, I do not see confirmed #{label} spending yet. Pending drafts are not counted until you confirm them."
       end
 
       noun = "transaction".pluralize(count)
       lines = [
-        "For #{period_label}, I found #{count} confirmed #{label} #{noun} totaling #{money(total_cents)}.",
+        "For #{period_label}, based on confirmed transactions, I found #{count} confirmed #{label} #{noun} totaling #{money(total_cents)}.",
         category_line,
         merchant_line,
         "Pending drafts are not counted until you confirm them."

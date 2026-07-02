@@ -17,6 +17,7 @@ This PR adds the first persisted foundation for the Household CFO annual budget 
 ## Guardrails
 
 - Mia can draft a transaction from chat, but the participant must confirm it before actuals change.
+- Mia answers budget/report questions through the Response Contract v1: answer directly, name the data basis, keep planned budget separate from confirmed actuals and pending drafts, and admit when approved data is missing.
 - Drafts are created from simple spending language only; this is not statement reconciliation yet.
 - Confirmed transactions update budget actuals through `TransactionSplit` rows.
 - Drafts confirmed exactly as proposed end as `confirmed`; drafts confirmed after user edits end as `corrected` with the confirmed transaction attached for audit.

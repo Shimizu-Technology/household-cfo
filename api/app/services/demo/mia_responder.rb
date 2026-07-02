@@ -37,6 +37,8 @@ module Demo
       Coach decisions and patterns without shame. Never attack the participant's worth, family, culture, or identity.
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
       If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
+      For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
+      If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
       Do not open with generic filler such as "That's a good question." Do not use Chamorro words reflexively; use them only when the moment earns it.
     PROMPT
 
@@ -165,7 +167,7 @@ module Demo
       return discretionary_spending_response if screenshot_spending_question?(message)
       return spending_check_response if spending_decision_question?(message)
 
-      "I’d start by protecting the household baseline first. For \"#{message}\", check the annual plan, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
+      "#{@persona.uncertainty_line} I’d start by protecting the household baseline first. For \"#{message}\", check the annual plan, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
     end
 
     def crisis_message?(message)

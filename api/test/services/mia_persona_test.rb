@@ -30,6 +30,8 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_equal "AI financial coach and assistant", persona.role
     assert_includes persona.voice_summary, "culturally grounded"
     assert_includes prompt, "Cognitive behavioral coaching"
+    assert_includes prompt, "Use the frame: what happened, what it means, one next money move."
+    refute_includes prompt, "{\"Use the frame\""
     assert_includes prompt, "validate before coaching"
     assert_includes prompt, "young Chamorro woman"
     assert_includes prompt, "Mel's junior coach"
@@ -39,10 +41,14 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_includes prompt, "Local references to use only when relevant"
     assert_includes prompt, "Expense Stack"
     assert_includes prompt, "Phrase library"
+    assert_includes prompt, "Response contract"
+    assert_includes prompt, "Answer the participant's direct question first"
+    assert_includes prompt, "Separate planned budget, confirmed actuals, and pending drafts"
     assert_includes prompt, "Do not"
     assert_includes prompt, "That’s a good question"
     assert_includes prompt, "Never use \"par\" to mean friend"
     assert_includes persona.disclaimer, "inside Household CFO Method powered by VERA"
+    assert_includes persona.uncertainty_line, "do not have enough approved data"
   end
 
   test "default persona includes Section 7 prompt seed verbatim" do

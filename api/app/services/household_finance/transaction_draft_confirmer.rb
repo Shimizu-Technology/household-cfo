@@ -37,7 +37,7 @@ module HouseholdFinance
       draft.assign_attributes(
         occurred_on: parsed_date(attributes[:occurred_on]) || draft.occurred_on,
         merchant: bounded_text(attributes[:merchant], 120).presence || draft.merchant,
-        total_amount_cents: attributes.key?(:amount) ? Money.cents(attributes[:amount]) : draft.total_amount_cents,
+        total_amount_cents: corrected_amount_cents,
         budget_category: selected_category || draft.budget_category
       )
       corrected = draft.changed?
@@ -63,6 +63,15 @@ module HouseholdFinance
       transaction.transaction_splits.create!(budget_category: category, amount_cents: draft.total_amount_cents)
       transaction.validate_split_total!
       transaction
+    end
+
+    def corrected_amount_cents
+      return draft.total_amount_cents unless attributes[:amount].present?
+
+      cents = Money.cents!(attributes[:amount], message: "Transaction amount must be a number")
+      return cents if cents.positive?
+
+      raise InvalidDraftCorrection, "Transaction amount must be greater than $0"
     end
 
     def selected_category

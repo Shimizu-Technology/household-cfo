@@ -870,6 +870,59 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3_000, draft.confirmed_transaction.total_amount_cents
   end
 
+  test "blank confirmation amount keeps the drafted amount" do
+    user = create_user(email: "blank-corrected-amount@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+        params: { transaction_draft: { amount: "" } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    draft = TransactionDraft.find(draft_id)
+    assert_equal 2_500, draft.total_amount_cents
+    assert_equal 2_500, draft.confirmed_transaction.total_amount_cents
+  end
+
+  test "zero confirmation amount is rejected instead of writing zero actuals" do
+    user = create_user(email: "zero-corrected-amount@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+        params: { transaction_draft: { amount: "0" } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction amount must be greater than $0"
+    assert_equal "pending", TransactionDraft.find(draft_id).status
+  end
+
   private
 
   def create_user(email:)

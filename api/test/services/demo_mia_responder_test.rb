@@ -124,6 +124,9 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes prompt, "That's a good question"
     assert_includes prompt, "Do not use Chamorro words reflexively"
     assert_includes prompt, "month-to-date actuals change only after the Household CFO confirms the draft"
+    assert_includes prompt, "answer the direct question first"
+    assert_includes prompt, "separate planned budget from confirmed actuals and pending drafts"
+    assert_includes prompt, "say so plainly instead of guessing"
   end
 
   test "model responses have generic opener stripped" do

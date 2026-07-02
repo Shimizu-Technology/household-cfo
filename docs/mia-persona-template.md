@@ -27,7 +27,13 @@ The loader/template class lives in:
 api/app/services/mia/persona.rb
 ```
 
-`Demo::MiaResponder` sends non-overridable safety/product-boundary rules first, then the Mia Persona Brief Section 7 prompt seed verbatim, then structured persona rules before household context and chat history. Household context remains labelled as untrusted JSON data.
+`Demo::MiaResponder` sends non-overridable safety/product-boundary rules first, then the Mia Persona Brief Section 7 prompt seed verbatim, then structured persona rules and the Mia Response Contract v1 before household context and chat history. Household context remains labelled as untrusted JSON data.
+
+The response contract is documented in:
+
+```text
+docs/mia-response-contract.md
+```
 
 ## Default Mia behavior
 
@@ -51,7 +57,7 @@ Mia should sound local through judgment, rhythm, and household context before vo
 
 Mia should avoid fake island dialect, accent imitation, reflexive Chamorro phrases, generic openers like `That’s a good question.`, or using `par` as a generic friend label. If a local phrase feels forced, warm plain English is better.
 
-The V1 system prompt seed from Mrs. Mel's persona brief is now stored verbatim in `api/config/mia_personas.yml` under `system_prompt_seed`. Keep safety/legal/financial boundaries in code above that persona layer so no coach skin can override them.
+The V1 system prompt seed from Mrs. Mel's persona brief is now stored verbatim in `api/config/mia_personas.yml` under `system_prompt_seed`. The response contract lives beside it under `response_contract`, so model-guided answers and deterministic Rails narrators share the same answer shape: answer directly, name the data basis, separate planned/actual/pending, admit uncertainty, and end with one next CFO move. Keep safety/legal/financial boundaries in code above that persona layer so no coach skin can override them.
 
 Mia chat uses OpenRouter whenever `OPENROUTER_API_KEY` is configured. The default chat model is `~anthropic/claude-sonnet-latest`, while document extraction can stay on `google/gemini-2.5-flash` through `OPENROUTER_EXTRACTION_MODEL`.
 

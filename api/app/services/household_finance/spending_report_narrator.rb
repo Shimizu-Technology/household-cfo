@@ -19,7 +19,7 @@ module HouseholdFinance
       return budget_status_answer(totals, top_line) if budget_status_question?
 
       [
-        "For #{report.fetch(:period_label)}, confirmed spending is #{money(totals.fetch(:actual))} against #{money(totals.fetch(:planned))} planned.",
+        "For #{report.fetch(:period_label)}, based on confirmed transactions, confirmed spending is #{money(totals.fetch(:actual))} against #{money(totals.fetch(:planned))} planned.",
         "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them.",
         "Top actual categories: #{top_line}.",
         closing_line(totals)
@@ -41,11 +41,11 @@ module HouseholdFinance
       remaining = totals.fetch(:remaining).to_f
       projected_remaining = planned - actual - pending
       status_line = if remaining.negative?
-        "No — for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} over the confirmed budget: #{money(actual)} actual against #{money(planned)} planned."
+        "No — based on confirmed transactions for #{report.fetch(:period_label)}, you are #{money(remaining.abs)} over the confirmed budget: #{money(actual)} actual against #{money(planned)} planned."
       elsif pending.positive? && projected_remaining.negative?
-        "Almost — confirmed spending is within budget, but pending drafts would put you #{money(projected_remaining.abs)} over if you approve all of them."
+        "Almost — based on confirmed transactions for #{report.fetch(:period_label)}, spending is within budget, but pending drafts would put you #{money(projected_remaining.abs)} over if you approve all of them."
       else
-        "Yes — for #{report.fetch(:period_label)}, you are within budget: #{money(actual)} confirmed against #{money(planned)} planned."
+        "Yes — based on confirmed transactions for #{report.fetch(:period_label)}, you are within budget: #{money(actual)} confirmed against #{money(planned)} planned."
       end
 
       pending_line = pending.positive? ? "You also have #{money(pending)} waiting for approval, and I am not counting that as actual until you confirm it." : "No pending drafts are waiting on this period."
