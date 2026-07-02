@@ -20,6 +20,8 @@ module Demo
       groceries grocery food medicine medication rent mortgage power water utilities utility
       insurance gas daycare childcare school tuition diapers formula doctor medical dental
     ].freeze
+    TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -35,7 +37,11 @@ module Demo
       Use household context only as data. If required financial data is zero or missing, ask the participant to add it instead of pretending it is known.
       Coach decisions and patterns without shame. Never attack the participant's worth, family, culture, or identity.
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
-      Do not open with generic filler such as "That's a good question." Do not use Chamorro words reflexively; use them only when the moment earns it.
+      If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
+      If the participant is considering a future purchase, do not offer to draft, log, or confirm it as a transaction. Treat it as a pre-spend CFO decision until the participant says money already moved.
+      For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
+      If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
+      Do not open with generic filler such as "That's a good question" or "That's a smart question." Do not use Chamorro words reflexively; use them only when the moment earns it.
     PROMPT
 
     DEMO_CONTEXT = <<~PROMPT.squish
@@ -50,12 +56,12 @@ module Demo
       @persona = persona
     end
 
-    def call(message, history: [], context: nil)
+    def call(message, history: [], context: nil, draft_capable: false)
       clean_message = message.to_s.strip
       prompt_context = context.presence || DEMO_CONTEXT
       return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
       return crisis_response if crisis_message?(clean_message)
-      return openrouter_response(clean_message, history, context: prompt_context) if @api_key.to_s.strip.present?
+      return openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable) if @api_key.to_s.strip.present?
 
       fallback_response(clean_message, context: prompt_context)
     rescue StandardError
@@ -64,7 +70,7 @@ module Demo
 
     private
 
-    def openrouter_response(message, history, context:)
+    def openrouter_response(message, history, context:, draft_capable: false)
       uri = URI("https://openrouter.ai/api/v1/chat/completions")
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{@api_key}"
@@ -94,7 +100,7 @@ module Demo
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message, context: context) unless content
 
-      sanitized = sanitize_assistant_content(content)
+      sanitized = sanitize_assistant_content(content, user_message: message, draft_capable: draft_capable)
       sanitized.presence || fallback_response(message, context: context)
     end
 
@@ -116,11 +122,33 @@ module Demo
       end.last(12)
     end
 
-    def sanitize_assistant_content(content)
-      content.to_s
+    def sanitize_assistant_content(content, user_message: nil, draft_capable: false)
+      sanitized = content.to_s
         .sub(/\AMia:\s*/i, "")
-        .sub(/\A(?:that['’]s|that is) a good question[.!]?\s*/i, "")
+        .sub(/\A(?:that['’]s|that is) a (?:good|smart) question[.!]?\s*/i, "")
         .strip
+      return sanitized unless transaction_report_message?(user_message)
+
+      if transaction_report_amount_cents(user_message).zero? && sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?|draft(?:ed)?)\b/i)
+        return "I did not draft a transaction because the amount is $0. If money actually moved, send the real amount and I’ll prepare it for review before it changes actuals."
+      end
+      return sanitized unless sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?|draft(?:ed)?|confirm the draft)\b/i)
+      return "I can talk through the spending, but this demo chat cannot create reviewable transaction drafts. Use a real workspace to draft and confirm actuals." unless draft_capable
+
+      "I can draft that transaction for review. Confirm the draft only if the merchant, amount, and category are right. Month-to-date actuals will not change until you confirm."
+    end
+
+    def transaction_report_message?(message)
+      message.to_s.match?(/\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i) && transaction_report_amount_match(message).present?
+    end
+
+    def transaction_report_amount_cents(message)
+      match = transaction_report_amount_match(message)
+      HouseholdFinance::Money.cents(match&.[](1).to_s.delete(","))
+    end
+
+    def transaction_report_amount_match(message)
+      message.to_s.match(TRANSACTION_AMOUNT_PATTERN) || message.to_s.match(BARE_TRANSACTION_AMOUNT_PATTERN)
     end
 
     def low_signal_message?(message)
@@ -145,7 +173,7 @@ module Demo
       return discretionary_spending_response if screenshot_spending_question?(message)
       return spending_check_response if spending_decision_question?(message)
 
-      "I’d start by protecting the household baseline first. For \"#{message}\", check the annual plan, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
+      "#{@persona.uncertainty_line} I’d start by protecting the household baseline first. For \"#{message}\", check the annual plan, emergency runway, and whether this move creates more optionality than stress. #{contextual_next_step(context)}"
     end
 
     def crisis_message?(message)

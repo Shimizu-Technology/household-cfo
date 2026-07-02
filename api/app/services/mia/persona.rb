@@ -60,6 +60,10 @@ module Mia
       data.fetch("fallbacks").fetch(key.to_s)
     end
 
+    def uncertainty_line
+      data.fetch("response_contract").fetch("uncertainty_line")
+    end
+
     def system_prompt
       <<~PROMPT.squish
         Coach persona template: #{id}.
@@ -72,6 +76,7 @@ module Mia
         Coaching method: #{coaching_method_prompt}
         Cultural persona: #{culture_pack_prompt}
         Response shape: #{response_shape_prompt}
+        Response contract: #{response_contract_prompt}
         Phrase library: #{phrase_library_prompt}
         Do not: #{data.fetch("do_not").join("; ")}.
       PROMPT
@@ -115,6 +120,12 @@ module Mia
       rules << "validate before coaching" if shape.fetch("validate_before_coaching")
       rules << "one next move is required" if shape.fetch("next_move_required")
       rules.join("; ")
+    end
+
+    def response_contract_prompt
+      contract = data.fetch("response_contract")
+      instructions = Array(contract["instructions"]).join(" ")
+      [ contract["summary"], instructions, "Uncertainty line to use when needed: #{contract.fetch("uncertainty_line")}" ].compact_blank.join(" ")
     end
 
     def phrase_library_prompt

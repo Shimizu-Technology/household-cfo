@@ -8,6 +8,7 @@ Rails.application.routes.draw do
       get "profile", to: "households#profile"
       get "dashboard", to: "households#dashboard"
       get "budget", to: "households#budget"
+      get "spending_report", to: "spending_reports#show"
       get "wealth", to: "households#wealth"
       get "optionality", to: "households#optionality"
       get "cfo-filter", to: "households#cfo_filter"
@@ -16,6 +17,16 @@ Rails.application.routes.draw do
           get "messages", to: "mia_messages#index"
           post "messages", to: "mia_messages#create"
           delete "messages", to: "mia_messages#destroy"
+        end
+      end
+      resources :budget_categories, only: %i[create update destroy] do
+        post :restore, on: :member
+      end
+      resources :budget_allocations, only: :update
+      resources :transaction_drafts, only: [] do
+        member do
+          post :confirm
+          post :ignore
         end
       end
       resources :document_imports, only: %i[index show create destroy] do

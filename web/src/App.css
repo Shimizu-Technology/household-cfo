@@ -677,13 +677,26 @@ h3 {
   margin-bottom: 0;
 }
 
-.setup-form-heading button {
+.setup-form-actions {
+  display: inline-flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.setup-form-heading button {
   padding: 12px 16px;
   border-radius: 999px;
   background: var(--emerald);
   color: white;
   font-weight: 900;
+}
+
+.setup-form-heading .secondary-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--emerald);
 }
 
 .setup-field-grid {
@@ -718,6 +731,14 @@ h3 {
   padding: 10px 12px;
   background: #fffdf8;
   color: var(--ink);
+}
+
+.setup-field input:disabled,
+.setup-field textarea:disabled {
+  cursor: default;
+  background: rgba(255, 250, 242, 0.7);
+  color: var(--ink);
+  opacity: 1;
 }
 
 .setup-field textarea {
@@ -3104,5 +3125,597 @@ h3 {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+}
+
+.annual-budget-panel {
+  display: grid;
+  gap: 18px;
+  overflow: visible;
+}
+
+.annual-budget-heading,
+.annual-budget-actions,
+.annual-budget-editor-toolbar,
+.transaction-draft-card,
+.transaction-draft-actions,
+.transaction-ledger-heading,
+.transaction-ledger-pagination,
+.recent-transaction-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.annual-budget-heading {
+  align-items: flex-start;
+}
+
+.annual-budget-heading h3,
+.annual-budget-heading p {
+  margin-bottom: 0;
+}
+
+.budget-view-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.budget-view-controls button,
+.budget-view-controls select {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--mauve);
+  font-weight: 900;
+}
+
+.budget-view-controls select {
+  min-width: 112px;
+}
+
+.budget-view-controls .current-period-button {
+  border-color: rgba(143, 74, 95, 0.22);
+  background: #f8eee9;
+  color: var(--mauve);
+}
+
+.annual-budget-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.annual-budget-actions span,
+.transaction-draft-card p,
+.recent-transaction-row span,
+.annual-budget-table small,
+.annual-category-form span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.annual-budget-actions span {
+  padding: 8px 10px;
+  border: 1px solid rgba(123, 74, 88, 0.16);
+  border-radius: 999px;
+  background: #f8eee9;
+  color: var(--emerald);
+  font-weight: 800;
+}
+
+.annual-budget-metrics {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.transaction-draft-stack {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(185, 115, 82, 0.28);
+  border-radius: 20px;
+  background: #fff7ed;
+}
+
+.transaction-draft-stack.compact {
+  margin: 0 18px 16px;
+  border-radius: 18px;
+  background: #fffaf2;
+}
+
+.transaction-draft-stack.compact > div:first-child p:not(.eyebrow),
+.transaction-draft-disabled-reason {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.transaction-draft-disabled-reason {
+  color: var(--mauve);
+  font-weight: 800;
+}
+
+.transaction-draft-stack h4,
+.transaction-draft-card p {
+  margin: 0;
+}
+
+.transaction-draft-card {
+  padding: 12px;
+  border: 1px solid rgba(31, 36, 33, 0.08);
+  border-radius: 16px;
+  background: white;
+}
+
+.transaction-draft-actions button,
+.annual-category-form button,
+.annual-plan-edit-actions button {
+  padding: 10px 13px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.annual-plan-edit-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.transaction-draft-actions .secondary-button,
+.annual-plan-edit-actions .secondary-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--emerald);
+}
+
+.current-month-activity {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(143, 74, 95, 0.14);
+  border-radius: 22px;
+  background: rgba(255, 250, 242, 0.82);
+}
+
+.current-month-activity-heading,
+.month-activity-row,
+.month-activity-amounts {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.current-month-activity-heading h4,
+.current-month-activity-heading p {
+  margin: 0;
+}
+
+.current-month-activity-heading > span {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: #f8eee9;
+  color: var(--mauve);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.month-activity-list {
+  display: grid;
+  gap: 8px;
+}
+
+.month-activity-row {
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.month-activity-row > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.month-activity-row span,
+.month-activity-amounts span {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.month-activity-amounts {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.month-activity-amounts b {
+  color: var(--ink);
+}
+
+.month-activity-amounts .pending {
+  color: var(--mauve);
+  font-weight: 900;
+}
+
+.spending-report-ledger {
+  display: grid;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.spending-report-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.spending-report-summary span,
+.empty-ledger-copy {
+  color: var(--muted);
+}
+
+.spending-report-summary strong {
+  color: var(--ink);
+}
+
+.annual-budget-editor-toolbar {
+  position: sticky;
+  top: 92px;
+  z-index: 3;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  border: 1px solid rgba(143, 74, 95, 0.16);
+  border-radius: 20px;
+  background: rgba(255, 250, 242, 0.94);
+  box-shadow: 0 16px 34px rgba(54, 42, 36, 0.08);
+  backdrop-filter: blur(12px);
+}
+
+.annual-budget-editor-toolbar > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.annual-budget-editor-toolbar strong {
+  color: var(--ink);
+}
+
+.annual-budget-editor-toolbar span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.annual-category-form {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.4fr) minmax(160px, 1fr) minmax(120px, 0.7fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.annual-category-form[aria-disabled="true"] {
+  opacity: 0.74;
+}
+
+.annual-edit-hint {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.annual-category-form label {
+  display: grid;
+  gap: 7px;
+}
+
+.annual-category-form input,
+.annual-category-form select,
+.annual-budget-table input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+  color: var(--ink);
+}
+
+.annual-category-form input,
+.annual-category-form select {
+  min-height: 44px;
+  padding: 0 12px;
+}
+
+.archived-categories-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px dashed rgba(143, 74, 95, 0.28);
+  border-radius: 20px;
+  background: rgba(248, 238, 233, 0.48);
+}
+
+.archived-categories-panel summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  color: var(--mauve);
+  font-weight: 900;
+}
+
+.archived-categories-panel summary::marker {
+  color: var(--mauve);
+}
+
+.archived-categories-panel p,
+.archived-categories-panel small,
+.archived-category-row span {
+  margin: 0;
+  color: var(--muted);
+}
+
+.archived-category-list {
+  display: grid;
+  gap: 8px;
+}
+
+.archived-category-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+.archived-category-row > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.annual-budget-table-wrap {
+  overflow-x: auto;
+  padding-bottom: 4px;
+}
+
+.annual-budget-table {
+  width: 100%;
+  min-width: 1060px;
+  border-collapse: separate;
+  border-spacing: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: white;
+}
+
+.annual-budget-table th,
+.annual-budget-table td {
+  padding: 11px;
+  border-bottom: 1px solid #eee5d9;
+  border-right: 1px solid #eee5d9;
+  text-align: left;
+  vertical-align: top;
+}
+
+.annual-budget-table th:last-child,
+.annual-budget-table td:last-child {
+  border-right: 0;
+}
+
+.annual-budget-table tr:last-child th,
+.annual-budget-table tr:last-child td {
+  border-bottom: 0;
+}
+
+.annual-budget-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f7efe5;
+  color: var(--plum);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.annual-budget-table tbody th {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 190px;
+  background: #fffaf2;
+}
+
+.annual-budget-table tbody th strong,
+.annual-budget-table tbody th span,
+.annual-budget-table td strong,
+.annual-budget-table td small {
+  display: block;
+}
+
+.annual-budget-table input,
+.annual-budget-table select {
+  min-width: 74px;
+  padding: 9px 8px;
+  font-size: 0.86rem;
+}
+
+.annual-category-cell-editor {
+  display: grid;
+  gap: 8px;
+  min-width: 210px;
+}
+
+.annual-category-cell-editor input,
+.annual-category-cell-editor select {
+  width: 100%;
+  min-width: 0;
+  background: white;
+}
+
+.archive-category-button {
+  justify-self: start;
+  min-height: 36px;
+  padding: 7px 12px;
+  border: 1px solid rgba(143, 74, 95, 0.25);
+  border-radius: 999px;
+  background: rgba(143, 74, 95, 0.08);
+  color: var(--mauve);
+  font-size: 0.74rem;
+  font-weight: 900;
+}
+
+.archive-category-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.54;
+}
+
+.annual-budget-table input[data-dirty="true"] {
+  border-color: rgba(185, 115, 82, 0.66);
+  background: #fff7ed;
+  box-shadow: 0 0 0 2px rgba(185, 115, 82, 0.13);
+}
+
+.annual-planned-readonly {
+  min-height: 39px;
+  padding: 9px 0;
+  font-size: 0.95rem;
+}
+
+.annual-budget-table .current-month {
+  background: #f8eee9;
+}
+
+.recent-transaction-list {
+  display: grid;
+  gap: 8px;
+}
+
+.transaction-ledger-list {
+  padding-top: 4px;
+}
+
+.transaction-ledger-heading {
+  flex-wrap: wrap;
+  align-items: flex-start;
+}
+
+.transaction-ledger-heading p,
+.transaction-ledger-heading span {
+  margin: 0;
+}
+
+.transaction-ledger-heading span,
+.transaction-ledger-pagination span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.transaction-ledger-controls {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.transaction-ledger-controls input,
+.transaction-ledger-controls select {
+  min-height: 38px;
+  max-width: 190px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--ink);
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.transaction-ledger-controls input {
+  padding: 0 12px;
+}
+
+.transaction-ledger-controls select {
+  padding: 0 30px 0 12px;
+}
+
+.transaction-ledger-pagination {
+  justify-content: flex-end;
+  padding-top: 6px;
+}
+
+.transaction-ledger-pagination button {
+  min-height: 34px;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--emerald);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.recent-transaction-row {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1.2fr) minmax(0, 1fr) auto;
+  padding: 10px 0;
+  border-top: 1px solid rgba(31, 36, 33, 0.08);
+}
+
+@media (max-width: 900px) {
+  .annual-budget-heading,
+  .annual-budget-editor-toolbar,
+  .transaction-draft-card,
+  .current-month-activity-heading,
+  .month-activity-row,
+  .archived-category-row,
+  .transaction-ledger-heading {
+    display: grid;
+  }
+
+  .annual-budget-actions,
+  .setup-form-actions,
+  .transaction-draft-actions,
+  .annual-plan-edit-actions,
+  .transaction-ledger-controls,
+  .transaction-ledger-pagination {
+    justify-content: flex-start;
+  }
+
+  .annual-budget-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .month-activity-amounts {
+    justify-content: flex-start;
+  }
+
+  .annual-budget-editor-toolbar {
+    position: static;
+  }
+
+  .annual-category-form {
+    grid-template-columns: 1fr;
+  }
+
+  .transaction-ledger-controls input,
+  .transaction-ledger-controls select {
+    max-width: none;
+    width: 100%;
+  }
+
+  .recent-transaction-row {
+    grid-template-columns: 1fr;
+    gap: 3px;
   }
 }
