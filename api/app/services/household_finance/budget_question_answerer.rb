@@ -14,6 +14,7 @@ module HouseholdFinance
 
     def call
       return nil unless budget_question?
+      return nil if month_index.nil?
 
       discretionary_rows = rows.select { |row| row.fetch(:stack_key) == "discretionary" }
       food_rows = rows.select { |row| normalized(row.fetch(:name)).match?(FOOD_CATEGORY_TERMS) }
@@ -75,15 +76,38 @@ module HouseholdFinance
     end
 
     def month_index
-      @month_index ||= parsed_month_index || (today.month - 1)
+      return @month_index if defined?(@month_index)
+
+      @month_index = relative_month_date ? relative_month_index : explicit_month_index || default_month_index
     end
 
-    def parsed_month_index
-      return today.month - 1 if normalized(message).match?(/\b(this|current) month\b/)
-      return today.next_month.month - 1 if normalized(message).match?(/\bnext month\b/)
-      return today.prev_month.month - 1 if normalized(message).match?(/\blast month\b/)
+    def relative_month_index
+      relative_date = relative_month_date
+      return unless relative_date
+      return unless relative_date.year == annual_plan_year
 
+      relative_date.month - 1
+    end
+
+    def relative_month_date
+      return today if normalized(message).match?(/\b(this|current) month\b/)
+      return today.next_month if normalized(message).match?(/\bnext month\b/)
+
+      today.prev_month if normalized(message).match?(/\blast month\b/)
+    end
+
+    def explicit_month_index
       MonthTerms.detect_index(message)
+    end
+
+    def default_month_index
+      return unless annual_plan_year == today.year
+
+      today.month - 1
+    end
+
+    def annual_plan_year
+      annual_plan.fetch(:year).to_i
     end
 
     def month_label
