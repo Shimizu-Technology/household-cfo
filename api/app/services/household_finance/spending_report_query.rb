@@ -1,6 +1,7 @@
 module HouseholdFinance
   class SpendingReportQuery
     REPORT_TERMS = /\b(spending|spent|actuals?|transactions?|budget report|month|quarter|year|ytd|year to date|looking|look|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i
+    BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|on track|off track|am i okay|are we okay)\b/i
     PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance)\b/i
 
     def initialize(message, today: Date.current)
@@ -11,7 +12,7 @@ module HouseholdFinance
     def range
       return nil unless report_like?
 
-      explicit_date_range || named_range || month_span_range || month_range
+      explicit_date_range || named_range || month_span_range || month_range || budget_status_default_range
     end
 
     private
@@ -19,6 +20,7 @@ module HouseholdFinance
     attr_reader :message, :today
 
     def report_like?
+      return true if message.match?(BUDGET_STATUS_TERMS)
       return false if message.match?(PLANNED_BUDGET_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|report)\b/i)
 
       message.match?(REPORT_TERMS) && message.match?(/\b(how|what|show|report|spend|spent|actual|transaction|look|looking|last|this|from|between|for|in)\b/i)
@@ -75,6 +77,12 @@ module HouseholdFinance
       end_year = end_month < start_month ? year + 1 : year
       end_date = Date.new(end_year, end_month, 1).end_of_month
       build_range(start_date, end_date)
+    end
+
+    def budget_status_default_range
+      return unless message.match?(BUDGET_STATUS_TERMS)
+
+      build_range(today.beginning_of_month, today)
     end
 
     def year_near(month_name)

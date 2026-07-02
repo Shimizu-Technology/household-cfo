@@ -13,6 +13,10 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     assert_equal Date.new(2026, 1, 1), year_range.fetch(:start_on)
     assert_equal Date.new(2026, 7, 15), year_range.fetch(:end_on)
 
+    budget_status_range = HouseholdFinance::SpendingReportQuery.new("Am I staying within my budget?", today: Date.new(2026, 7, 15)).range
+    assert_equal Date.new(2026, 7, 1), budget_status_range.fetch(:start_on)
+    assert_equal Date.new(2026, 7, 15), budget_status_range.fetch(:end_on)
+
     answer = HouseholdFinance::BudgetQuestionAnswerer.new("How much is set aside for July food?", annual_plan: annual_plan(2026), today: Date.new(2026, 1, 15)).call
     assert_includes answer, "Jul 2026"
     assert_includes answer, "Dining Out $70 planned"

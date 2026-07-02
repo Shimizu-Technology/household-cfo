@@ -87,7 +87,7 @@ module Api
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer)
         return transaction_lookup_answer if transaction_lookup_answer
         return budget_answer if budget_answer
-        return HouseholdFinance::SpendingReportNarrator.new(spending_report).call if spending_report
+        return HouseholdFinance::SpendingReportNarrator.new(spending_report, prompt: content).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
 
         context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan, reference_month: budget_month_param).call

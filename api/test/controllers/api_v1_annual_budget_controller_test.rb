@@ -686,6 +686,36 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "Dining Out $30"
   end
 
+  test "mia answers budget status questions directly" do
+    user = create_user(email: "mia-budget-status@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    period = manager.current_period_for(Date.current)
+    transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current,
+      merchant: "Cafe",
+      total_amount_cents: 4_500,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "Am I staying within my budget?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    content = body.fetch("assistant_message").fetch("content")
+    assert_equal Date.current.beginning_of_month.iso8601, body.fetch("spending_report").fetch("start_on")
+    assert_includes content, "Yes —"
+    assert_includes content, "within budget"
+    assert_includes content, "$45 confirmed against $300 planned"
+  end
+
   test "annual plan recent transactions are scoped to the plan year" do
     user = create_user(email: "recent-transaction-year@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

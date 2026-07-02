@@ -3911,7 +3911,7 @@ function AnnualBudgetPlanner({
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
             {!isViewingCurrentYear && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentMonthIndex)}>This year</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
             )}
             <label>
               <span className="sr-only">Report month</span>
@@ -3919,7 +3919,7 @@ function AnnualBudgetPlanner({
                 {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
               </select>
             </label>
-            {!isViewingCurrentMonth && (
+            {isViewingCurrentYear && !isViewingCurrentMonth && (
               <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
             )}
             <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
