@@ -158,6 +158,7 @@ function App() {
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupValues | null>(null)
+  const [isProfileEditing, setIsProfileEditing] = useState(false)
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [active, setActive] = useState(() => {
@@ -826,6 +827,7 @@ function App() {
       const payload = await saveWorkspaceSetup(setupDraft)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
+      setIsProfileEditing(false)
       setMessages(payload.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('workspace_setup_saved', {
@@ -841,6 +843,8 @@ function App() {
   }
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
+    if (!isProfileEditing) return
+
     setSetupError(null)
     setSetupDraft((current) => {
       if (!current) return current
@@ -848,6 +852,12 @@ function App() {
 
       return { ...current, [key]: Number(value) || 0 }
     })
+  }
+
+  function cancelProfileEditing() {
+    setSetupError(null)
+    setSetupDraft(data?.workspace?.setup_values ?? setupDraft)
+    setIsProfileEditing(false)
   }
 
   function handleProfileSectionEdit(sectionLabel: string) {
@@ -863,6 +873,7 @@ function App() {
     }
 
     const fieldName = setupFocusFieldForSection(sectionLabel)
+    setIsProfileEditing(true)
     setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     requestAnimationFrame(() => {
       const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
@@ -1188,8 +1199,11 @@ function App() {
             <WorkspaceSetupForm
               formRef={setupFormRef}
               values={setupDraft}
+              editing={isProfileEditing}
               saving={setupSaving}
               error={setupError}
+              onBeginEdit={() => setIsProfileEditing(true)}
+              onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
             />
@@ -3296,15 +3310,21 @@ function messageLengthBucket(length: number) {
 function WorkspaceSetupForm({
   formRef,
   values,
+  editing,
   saving,
   error,
+  onBeginEdit,
+  onCancel,
   onChange,
   onSubmit,
 }: {
   formRef?: Ref<HTMLFormElement>
   values: WorkspaceSetupValues
+  editing: boolean
   saving: boolean
   error: string | null
+  onBeginEdit: () => void
+  onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
@@ -3313,33 +3333,42 @@ function WorkspaceSetupForm({
       <div className="row-between setup-form-heading">
         <div>
           <p className="eyebrow">Real workspace</p>
-          <h3>Plug in your household numbers</h3>
-          <p>Mia will recalculate the screens and use these numbers as context.</p>
+          <h3>{editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
+          <p>{editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
         </div>
-        <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
+        <div className="setup-form-actions">
+          {editing ? (
+            <>
+              <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
+              <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
+            </>
+          ) : (
+            <button type="button" onClick={onBeginEdit}>Edit profile</button>
+          )}
+        </div>
       </div>
 
       <div className="setup-field-grid">
         <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
           <span>Household name</span>
-          <input name="household_name" value={values.household_name} onChange={(event) => onChange('household_name', event.target.value)} />
+          <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
           <small>The name Mia should use for this household.</small>
         </label>
         <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
           <span>Primary goal</span>
-          <textarea name="primary_goal" rows={3} value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
+          <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
           <small>Write the goal, worry, or decision Mia should coach around. This box grows for longer notes.</small>
         </label>
-        <MoneyInput name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
-        <MoneyInput name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
-        <MoneyInput name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-        <MoneyInput name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
-        <MoneyInput name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
-        <MoneyInput name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
-        <MoneyInput name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
-        <MoneyInput name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-        <MoneyInput name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
-        <MoneyInput name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+        <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+        <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+        <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+        <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+        <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
+        <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+        <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
+        <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
+        <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
+        <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
         <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
           <span>Target runway months</span>
           <input
@@ -3348,6 +3377,7 @@ function WorkspaceSetupForm({
             step="0.5"
             name="target_runway_months"
             value={values.target_runway_months}
+            disabled={!editing}
             onChange={(event) => onChange('target_runway_months', event.target.value)}
           />
           <small>How many months of expenses you want protected before bigger moves.</small>
@@ -3359,11 +3389,11 @@ function WorkspaceSetupForm({
   )
 }
 
-function MoneyInput({ name, label, value, help, onChange }: { name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
-      <input name={name} type="number" min="0" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input name={name} type="number" min="0" step="1" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       <small>{help}</small>
     </label>
   )
@@ -3800,6 +3830,11 @@ function AnnualBudgetPlanner({
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
   const archivedCategories = plan.archived_categories ?? []
+  const today = new Date()
+  const currentCalendarYear = today.getFullYear()
+  const currentCalendarMonthIndex = today.getMonth()
+  const isViewingCurrentYear = plan.year === currentCalendarYear
+  const isViewingCurrentMonth = isViewingCurrentYear && currentMonthIndex === currentCalendarMonthIndex
 
   function beginBudgetEdit() {
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
@@ -3875,12 +3910,18 @@ function AnnualBudgetPlanner({
           <p>Plan the whole year, then let manual entries, receipts, and statements fill the actuals for each month.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
+            {!isViewingCurrentYear && (
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentMonthIndex)}>This year</button>
+            )}
             <label>
               <span className="sr-only">Report month</span>
               <select value={currentMonthIndex} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
                 {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
               </select>
             </label>
+            {!isViewingCurrentMonth && (
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
+            )}
             <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
           </div>
         </div>
@@ -3928,27 +3969,30 @@ function AnnualBudgetPlanner({
         {renderBudgetEditActions()}
       </div>
 
-      <form className="annual-category-form" onSubmit={onCreateCategory} aria-disabled={!editableBudget}>
-        <label>
-          <span>New category</span>
-          <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!editableBudget} />
-        </label>
-        <label>
-          <span>Stack</span>
-          <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!editableBudget}>
-            <option value="non_discretionary">Non-discretionary</option>
-            <option value="discretionary">Discretionary</option>
-            <option value="sinking_expected">Sinking Fund — Expected</option>
-            <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
-          </select>
-        </label>
-        <label>
-          <span>Monthly plan</span>
-          <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!editableBudget} />
-        </label>
-        <button type="submit" disabled={!editableBudget || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
-        {!isEditingBudget && <small className="annual-edit-hint">Click Edit annual budget to add categories or change monthly planned amounts.</small>}
-      </form>
+      {isEditingBudget ? (
+        <form className="annual-category-form" onSubmit={onCreateCategory}>
+          <label>
+            <span>New category</span>
+            <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!editableBudget} />
+          </label>
+          <label>
+            <span>Stack</span>
+            <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!editableBudget}>
+              <option value="non_discretionary">Non-discretionary</option>
+              <option value="discretionary">Discretionary</option>
+              <option value="sinking_expected">Sinking Fund — Expected</option>
+              <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+            </select>
+          </label>
+          <label>
+            <span>Monthly plan</span>
+            <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!editableBudget} />
+          </label>
+          <button type="submit" disabled={!editableBudget || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+        </form>
+      ) : (
+        <p className="annual-edit-hint">Click Edit annual budget to add categories or change monthly planned amounts.</p>
+      )}
 
       {error && <p className="setup-error" role="alert">{error}</p>}
 
