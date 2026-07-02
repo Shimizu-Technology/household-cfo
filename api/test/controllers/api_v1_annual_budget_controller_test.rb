@@ -211,6 +211,27 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal true, BudgetCategory.find(category_id).active
   end
 
+  test "allocation update rejects nonnumeric planned amount without clobbering" do
+    user = create_user(email: "annual-invalid-allocation@example.com")
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Dining out", stack_key: "discretionary", monthly_amount: 250 } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+    row = JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Dining out" }
+    allocation_id = row.fetch("months").first.fetch("allocation_id")
+
+    patch "/api/v1/budget_allocations/#{allocation_id}",
+      params: { allocation: { planned_amount: "not-a-number" } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Planned amount must be a number"
+    assert_equal 25_000, BudgetAllocation.find(allocation_id).planned_amount_cents
+  end
+
   test "allocation updates are scoped to the current household" do
     owner = create_user(email: "allocation-owner@example.com")
     other_user = create_user(email: "allocation-other@example.com")

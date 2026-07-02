@@ -17,6 +17,8 @@ module Api
         render json: { errors: [ "Budget allocation not found" ] }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue ArgumentError => e
+        render json: { errors: [ e.message ] }, status: :unprocessable_entity
       end
 
       private

@@ -14,4 +14,11 @@ class HouseholdTransaction < ApplicationRecord
   validates :total_amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :status, inclusion: { in: STATUSES }
+
+  def validate_split_total!
+    return true if transaction_splits.sum(:amount_cents) == total_amount_cents
+
+    errors.add(:base, "Transaction splits must equal transaction total")
+    raise ActiveRecord::RecordInvalid, self
+  end
 end

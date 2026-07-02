@@ -120,7 +120,7 @@ module HouseholdFinance
       raise ActiveRecord::RecordNotFound unless allocation.budget_category.household_id == household.id
       raise ActiveRecord::RecordNotFound unless allocation.budget_period.budget_year_id == budget_year.id
 
-      allocation.update!(planned_amount_cents: Money.cents(amount), source: "manual")
+      allocation.update!(planned_amount_cents: Money.cents!(amount, message: "Planned amount must be a number"), source: "manual")
       allocation
     end
 

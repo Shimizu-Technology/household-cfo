@@ -13,6 +13,14 @@ module HouseholdFinance
       0
     end
 
+    def cents!(value, message: "Amount must be a number")
+      text = value.to_s.strip
+      raise ArgumentError, message if text.blank?
+      raise ArgumentError, message unless text.match?(/\A\d{1,9}(?:\.\d{1,2})?\z/)
+
+      cents(value)
+    end
+
     def monthly_cents(amount_cents, cadence)
       case cadence.to_s
       when "weekly"

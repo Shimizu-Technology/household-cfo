@@ -15,10 +15,14 @@ module Api
         session = current_chat_session
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
-        annual_plan = annual_budget_manager.plan_data
-        budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
-        spending_report = budget_answer ? nil : spending_report_for(content)
+        spending_report = spending_report_for(content)
+        annual_plan = nil
+        budget_answer = nil
         transaction_draft = nil
+        unless spending_report
+          annual_plan = annual_budget_manager.plan_data
+          budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
+        end
         unless spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
             current_household,
@@ -28,8 +32,7 @@ module Api
           ).call
           annual_plan = annual_budget_manager.plan_data if transaction_draft
         end
-        context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
-        assistant_content = assistant_content_for(content, history, context, spending_report, transaction_draft, budget_answer)
+        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
@@ -41,7 +44,7 @@ module Api
           user_message: user_message.as_api_json(author: "You"),
           assistant_message: assistant_message.as_api_json(author: "Mia"),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
+          budget: annual_plan ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }, status: :created
       end
@@ -68,11 +71,12 @@ module Api
         nil
       end
 
-      def assistant_content_for(content, history, context, spending_report, transaction_draft, budget_answer)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer)
         return budget_answer if budget_answer
         return HouseholdFinance::SpendingReportNarrator.new(spending_report).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
 
+        context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
         ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: false)
       end
 

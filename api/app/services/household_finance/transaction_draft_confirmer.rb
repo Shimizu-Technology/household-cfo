@@ -61,6 +61,7 @@ module HouseholdFinance
         metadata: { "draft_id" => draft.id }
       )
       transaction.transaction_splits.create!(budget_category: category, amount_cents: draft.total_amount_cents)
+      transaction.validate_split_total!
       transaction
     end
 
