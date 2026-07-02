@@ -38,8 +38,10 @@ module HouseholdFinance
     attr_reader :household, :start_on, :end_on
 
     def ensure_plans!
-      (start_on.year..end_on.year).each do |year|
-        AnnualBudgetManager.new(household, year: year).ensure_plan!
+      household.with_lock do
+        (start_on.year..end_on.year).each do |year|
+          AnnualBudgetManager.new(household, year: year).ensure_plan_inside_household_lock!
+        end
       end
     end
 

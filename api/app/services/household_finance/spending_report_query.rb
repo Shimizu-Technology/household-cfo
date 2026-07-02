@@ -56,7 +56,7 @@ module HouseholdFinance
     end
 
     def month_range
-      month_name, month_number = month_tokens.find { |name, _number| message.match?(/\b#{Regexp.escape(name)}\b/) }
+      month_name, month_number = MonthTerms.detect(message)
       return unless month_name
 
       year = year_near(month_name) || today.year
@@ -65,32 +65,16 @@ module HouseholdFinance
     end
 
     def month_span_range
-      match = message.match(/\b(#{month_pattern})\b\s*(?:-|to|through)\s*\b(#{month_pattern})\b(?:\s+(\d{4}))?/)
+      match = message.match(/\b(#{MonthTerms.pattern})\b\s*(?:-|to|through)\s*\b(#{MonthTerms.pattern})\b(?:\s+(\d{4}))?/)
       return unless match
 
-      start_month = month_number(match[1])
-      end_month = month_number(match[2])
+      start_month = MonthTerms.number(match[1])
+      end_month = MonthTerms.number(match[2])
       year = match[3]&.to_i || today.year
       start_date = Date.new(year, start_month, 1)
       end_year = end_month < start_month ? year + 1 : year
       end_date = Date.new(end_year, end_month, 1).end_of_month
       build_range(start_date, end_date)
-    end
-
-    def month_tokens
-      @month_tokens ||= begin
-        full_names = Date::MONTHNAMES.each_with_index.filter_map { |name, index| [ name.downcase, index ] if name }
-        abbreviations = Date::ABBR_MONTHNAMES.each_with_index.filter_map { |name, index| [ name.downcase, index ] if name }
-        (full_names + abbreviations + [ [ "sept", 9 ] ]).uniq.sort_by { |name, _number| -name.length }
-      end
-    end
-
-    def month_pattern
-      @month_pattern ||= month_tokens.map { |name, _number| Regexp.escape(name) }.join("|")
-    end
-
-    def month_number(name)
-      month_tokens.find { |candidate, _number| candidate == name.downcase }&.last
     end
 
     def year_near(month_name)

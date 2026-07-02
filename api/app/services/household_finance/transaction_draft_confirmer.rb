@@ -23,7 +23,7 @@ module HouseholdFinance
       return Result.new(success?: true, draft: draft.reload, transaction: transaction, errors: []) if transaction
 
       Result.new(success?: false, draft: draft.reload, transaction: nil, errors: [ "Transaction draft is not pending" ])
-    rescue InvalidDraftCorrection => e
+    rescue InvalidDraftCorrection, ArgumentError => e
       Result.new(success?: false, draft: draft.reload, transaction: transaction, errors: [ e.message ])
     rescue ActiveRecord::RecordInvalid => e
       Result.new(success?: false, draft: draft, transaction: transaction, errors: e.record.errors.full_messages)
@@ -47,7 +47,8 @@ module HouseholdFinance
     end
 
     def create_transaction!
-      category = draft.budget_category || fallback_category
+      ensure_supported_transaction_date!
+      category = transaction_category
       period = annual_budget_manager.current_period_for(draft.occurred_on)
       transaction = draft.household.household_transactions.create!(
         budget_period: period,
@@ -66,7 +67,14 @@ module HouseholdFinance
     def selected_category
       return nil unless attributes[:budget_category_id].present?
 
-      draft.household.budget_categories.find_by(id: attributes[:budget_category_id]) || raise(InvalidDraftCorrection, "Budget category not found")
+      draft.household.budget_categories.active.find_by(id: attributes[:budget_category_id]) || raise(InvalidDraftCorrection, "Budget category not found")
+    end
+
+    def transaction_category
+      return draft.budget_category if draft.budget_category&.active?
+      return fallback_category if draft.budget_category.nil?
+
+      raise InvalidDraftCorrection, "Budget category not found"
     end
 
     def fallback_category
@@ -78,10 +86,19 @@ module HouseholdFinance
       @annual_budget_manager ||= AnnualBudgetManager.new(draft.household, year: draft.occurred_on.year)
     end
 
+    def ensure_supported_transaction_date!
+      return if AnnualBudgetManager.supported_year?(draft.occurred_on.year)
+
+      raise InvalidDraftCorrection, "Transaction date is outside supported budget years"
+    end
+
     def parsed_date(value)
       return nil if value.blank?
 
-      Date.iso8601(value.to_s)
+      date = Date.iso8601(value.to_s)
+      raise InvalidDraftCorrection, "Transaction date is outside supported budget years" unless AnnualBudgetManager.supported_year?(date.year)
+
+      date
     rescue ArgumentError
       nil
     end

@@ -15,7 +15,7 @@ module Api
         render json: {
           transaction_draft: serialize_draft(result.draft),
           transaction: serialize_transaction(result.transaction),
-          workspace: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).app_data
+          workspace: workspace_payload_for(result.transaction.budget_period.budget_year.year)
         }
       end
 
@@ -36,7 +36,7 @@ module Api
 
         render json: {
           transaction_draft: serialize_draft(@draft),
-          workspace: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user).app_data
+          workspace: workspace_payload_for(@draft.occurred_on.year)
         }
       end
 
@@ -59,6 +59,12 @@ module Api
           current_household.chat_sessions.create!(user: current_user, title: "Ask Mia")
       rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
         current_household.chat_sessions.find_by!(user: current_user)
+      end
+
+      def workspace_payload_for(year)
+        response_year = HouseholdFinance::AnnualBudgetManager.supported_year?(year) ? year : Date.current.year
+        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: response_year).plan_data
+        HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).app_data
       end
 
       def confirmed_message(draft)

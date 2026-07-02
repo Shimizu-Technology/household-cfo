@@ -603,6 +603,7 @@ function App() {
     try {
       const workspace = await confirmTransactionDraft(draft.id)
       setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: monthIndexFromIsoDate(draft.occurred_on) })
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_confirmed', {
@@ -623,6 +624,7 @@ function App() {
     try {
       const workspace = await ignoreTransactionDraft(draft.id)
       setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: monthIndexFromIsoDate(draft.occurred_on) })
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_ignored', {
@@ -3273,6 +3275,11 @@ function cohortDateRange(cohort: AdminCohort) {
 
 function formatShortDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
+}
+
+function monthIndexFromIsoDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`)
+  return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
 }
 
 function messageLengthBucket(length: number) {

@@ -1,6 +1,11 @@
 module HouseholdFinance
   class AnnualBudgetManager
     MONTH_NAMES = %w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec].freeze
+    SUPPORTED_YEARS = 2000..2100
+
+    def self.supported_year?(value)
+      SUPPORTED_YEARS.cover?(value.to_i)
+    end
 
     def initialize(household, year: Date.current.year)
       @household = household
@@ -10,16 +15,13 @@ module HouseholdFinance
     def ensure_plan!
       return @budget_year if defined?(@budget_year) && @budget_year.present?
 
-      @budget_year = household.with_lock do
-        budget_year = household.budget_years.find_or_create_by!(year: year) do |record|
-          record.status = "active"
-        end
-        ensure_periods!(budget_year)
-        ensure_categories_from_expenses!
-        ensure_allocations_from_expenses!(budget_year)
-        ensure_allocations_for_active_categories!(budget_year)
-        budget_year
-      end
+      @budget_year = household.with_lock { ensure_plan_records! }
+    end
+
+    def ensure_plan_inside_household_lock!
+      return @budget_year if defined?(@budget_year) && @budget_year.present?
+
+      @budget_year = ensure_plan_records!
     end
 
     def plan_data
@@ -121,14 +123,31 @@ module HouseholdFinance
     end
 
     def current_period_for(date)
-      budget_year = ensure_plan!
       date = date.to_date
-      budget_year.budget_periods.where("starts_on <= ? AND ends_on >= ?", date, date).first || period_for_year(date.year, date.month)
+      raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(date.year)
+      return period_for_year(date.year, date.month) unless date.year == year
+
+      budget_year = ensure_plan!
+      starts_on = Date.new(date.year, date.month, 1)
+      budget_year.budget_periods.find_by(starts_on: starts_on) || period_for_year(date.year, date.month)
     end
 
     private
 
     attr_reader :household, :year
+
+    def ensure_plan_records!
+      raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(year)
+
+      budget_year = household.budget_years.find_or_create_by!(year: year) do |record|
+        record.status = "active"
+      end
+      ensure_periods!(budget_year)
+      ensure_categories_from_expenses!
+      ensure_allocations_from_expenses!(budget_year)
+      ensure_allocations_for_active_categories!(budget_year)
+      budget_year
+    end
 
     def ensure_periods!(budget_year)
       (1..12).each do |month|
@@ -351,9 +370,16 @@ module HouseholdFinance
     end
 
     def period_for_year(period_year, month)
+      period_year = period_year.to_i
+      raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(period_year)
+
       manager = self.class.new(household, year: period_year)
-      manager.ensure_plan!
-      household.budget_years.find_by!(year: period_year).budget_periods.find_by!(starts_on: Date.new(period_year, month, 1))
+      budget_year = manager.ensure_plan!
+      starts_on = Date.new(period_year, month.to_i, 1)
+      budget_year.budget_periods.find_or_create_by!(starts_on: starts_on) do |period|
+        period.ends_on = starts_on.end_of_month
+        period.status = "open"
+      end
     end
 
     def ensure_category_can_archive!(category)

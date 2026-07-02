@@ -512,6 +512,109 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 45, body.fetch("spending_report").fetch("totals").fetch("actual")
   end
 
+  test "confirming a prior year draft returns the prior year annual plan" do
+    user = create_user(email: "prior-year-confirm@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    occurred_on = Date.new(Date.current.year - 1, 7, 1)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: occurred_on.year)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    draft = household.transaction_drafts.create!(
+      occurred_on: occurred_on,
+      merchant: "Prior Cafe",
+      total_amount_cents: 1_200,
+      budget_category: category,
+      source_type: "manual_chat",
+      status: "pending",
+      confidence: 0.8,
+      raw_input: "I spent $12 at Prior Cafe"
+    )
+
+    post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    annual_plan = JSON.parse(response.body).fetch("workspace").fetch("budget").fetch("annual_plan")
+    assert_equal occurred_on.year, annual_plan.fetch("year")
+    row = annual_plan.fetch("rows").find { |candidate| candidate.fetch("id") == category.id }
+    assert_equal 12, row.fetch("months").fetch(6).fetch("actual")
+  end
+
+  test "confirming an out of range draft date returns a validation error" do
+    user = create_user(email: "out-of-range-confirm@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.new(1900, 1, 1),
+      merchant: "Old Cafe",
+      total_amount_cents: 1_200,
+      budget_category: category,
+      source_type: "manual_chat",
+      status: "pending"
+    )
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Transaction date is outside supported budget years"
+  end
+
+  test "confirming a draft whose category was archived returns validation errors" do
+    user = create_user(email: "archived-draft-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    archived_category = manager.create_category!(name: "Testing Only", stack_key: "discretionary", monthly_amount: 10)
+    archived_category.update!(active: false)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Cafe",
+      total_amount_cents: 1_200,
+      budget_category: archived_category,
+      source_type: "manual_chat",
+      status: "pending"
+    )
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category not found"
+  end
+
+  test "confirming with an archived correction category returns validation errors" do
+    user = create_user(email: "archived-confirm-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    active_category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    archived_category = manager.create_category!(name: "Testing Only", stack_key: "discretionary", monthly_amount: 10)
+    manager.archive_category!(archived_category)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Cafe",
+      total_amount_cents: 1_200,
+      budget_category: active_category,
+      source_type: "manual_chat",
+      status: "pending"
+    )
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        params: { transaction_draft: { budget_category_id: archived_category.id } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category not found"
+  end
+
   test "confirming with user corrections preserves corrected audit status" do
     user = create_user(email: "corrected-draft@example.com")
     patch "/api/v1/workspace/setup",

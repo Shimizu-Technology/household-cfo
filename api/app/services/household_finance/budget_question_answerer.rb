@@ -83,15 +83,7 @@ module HouseholdFinance
       return today.next_month.month - 1 if normalized(message).match?(/\bnext month\b/)
       return today.prev_month.month - 1 if normalized(message).match?(/\blast month\b/)
 
-      month_tokens.find { |name, _index| normalized(message).match?(/\b#{Regexp.escape(name)}\b/) }&.last
-    end
-
-    def month_tokens
-      @month_tokens ||= begin
-        full = Date::MONTHNAMES.each_with_index.filter_map { |name, index| [ name.downcase, index - 1 ] if name }
-        abbreviated = Date::ABBR_MONTHNAMES.each_with_index.filter_map { |name, index| [ name.downcase, index - 1 ] if name }
-        (full + abbreviated + [ [ "sept", 8 ] ]).uniq.sort_by { |name, _index| -name.length }
-      end
+      MonthTerms.detect_index(message)
     end
 
     def month_label
