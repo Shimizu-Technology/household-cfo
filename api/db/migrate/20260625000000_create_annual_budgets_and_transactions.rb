@@ -63,7 +63,7 @@ class CreateAnnualBudgetsAndTransactions < ActiveRecord::Migration[8.1]
 
       t.index [ :household_id, :occurred_on ]
       t.index [ :household_id, :status ]
-      t.check_constraint "total_amount_cents >= 0", name: "household_transactions_amount_non_negative"
+      t.check_constraint "total_amount_cents > 0", name: "household_transactions_amount_positive"
       t.check_constraint "status IN ('confirmed', 'reconciled', 'ignored')", name: "household_transactions_status_valid"
       t.check_constraint "source_type IN ('manual_chat', 'manual_ui', 'receipt', 'screenshot', 'statement', 'import')", name: "household_transactions_source_type_valid"
     end
@@ -76,7 +76,7 @@ class CreateAnnualBudgetsAndTransactions < ActiveRecord::Migration[8.1]
       t.timestamps
 
       t.index [ :household_transaction_id, :budget_category_id ], name: "index_transaction_splits_on_transaction_and_category"
-      t.check_constraint "amount_cents >= 0", name: "transaction_splits_amount_non_negative"
+      t.check_constraint "amount_cents > 0", name: "transaction_splits_amount_positive"
     end
 
     create_table :transaction_drafts do |t|
@@ -95,7 +95,7 @@ class CreateAnnualBudgetsAndTransactions < ActiveRecord::Migration[8.1]
       t.timestamps
 
       t.index [ :household_id, :status, :created_at ]
-      t.check_constraint "total_amount_cents >= 0", name: "transaction_drafts_amount_non_negative"
+      t.check_constraint "total_amount_cents > 0", name: "transaction_drafts_amount_positive"
       t.check_constraint "status IN ('pending', 'confirmed', 'corrected', 'ignored')", name: "transaction_drafts_status_valid"
       t.check_constraint "source_type IN ('manual_chat', 'manual_ui', 'receipt', 'screenshot', 'statement', 'import')", name: "transaction_drafts_source_type_valid"
     end

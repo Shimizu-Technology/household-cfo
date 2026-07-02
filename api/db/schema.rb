@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_06_25_020000) do
+ActiveRecord::Schema[8.1].define(version: 2026_06_25_030000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -51,6 +51,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_25_020000) do
     t.datetime "updated_at", null: false
     t.index "household_id, lower((name)::text)", name: "index_budget_categories_on_household_lower_name", unique: true
     t.index ["household_id", "active", "sort_order"], name: "idx_on_household_id_active_sort_order_01ee1248fa"
+    t.index ["household_id", "name"], name: "index_budget_categories_on_household_id_and_name", unique: true
     t.index ["household_id"], name: "index_budget_categories_on_household_id"
     t.check_constraint "char_length(name::text) <= 80", name: "budget_categories_name_length"
     t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[])", name: "budget_categories_stack_key_valid"
@@ -320,7 +321,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_25_020000) do
     t.index ["source_import_id"], name: "index_household_transactions_on_source_import_id"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "household_transactions_source_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying, 'reconciled'::character varying, 'ignored'::character varying]::text[])", name: "household_transactions_status_valid"
-    t.check_constraint "total_amount_cents >= 0", name: "household_transactions_amount_non_negative"
+    t.check_constraint "total_amount_cents > 0", name: "household_transactions_amount_positive"
   end
 
   create_table "households", force: :cascade do |t|
@@ -523,7 +524,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_25_020000) do
     t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying]::text[])", name: "transaction_drafts_status_valid"
-    t.check_constraint "total_amount_cents >= 0", name: "transaction_drafts_amount_non_negative"
+    t.check_constraint "total_amount_cents > 0", name: "transaction_drafts_amount_positive"
   end
 
   create_table "transaction_splits", force: :cascade do |t|
@@ -536,7 +537,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_06_25_020000) do
     t.index ["budget_category_id"], name: "index_transaction_splits_on_budget_category_id"
     t.index ["household_transaction_id", "budget_category_id"], name: "index_transaction_splits_on_transaction_and_category"
     t.index ["household_transaction_id"], name: "index_transaction_splits_on_household_transaction_id"
-    t.check_constraint "amount_cents >= 0", name: "transaction_splits_amount_non_negative"
+    t.check_constraint "amount_cents > 0", name: "transaction_splits_amount_positive"
   end
 
   create_table "users", force: :cascade do |t|

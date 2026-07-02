@@ -227,6 +227,8 @@ function App() {
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
   const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
+  const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
+  const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
   const documentStatusSignature = useMemo(
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
@@ -325,14 +327,16 @@ function App() {
   }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
   useEffect(() => {
-    if (!isRealWorkspace || !selectedBudgetMonth) return
+    if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
 
+    const startsOn = selectedBudgetMonthStartsOn
+    const endsOn = selectedBudgetMonthEndsOn
     let cancelled = false
     async function loadSpendingReport() {
       setSpendingReportLoading(true)
       setSpendingReportError(null)
       try {
-        const report = await fetchSpendingReport(selectedBudgetMonth!.starts_on, selectedBudgetMonth!.ends_on)
+        const report = await fetchSpendingReport(startsOn, endsOn)
         if (!cancelled) setSpendingReport(report)
       } catch (caught) {
         if (!cancelled) setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
@@ -345,7 +349,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [isRealWorkspace, selectedBudgetMonth])
+  }, [isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn])
 
   const surplus = useMemo(() => {
     if (!data) return 0
