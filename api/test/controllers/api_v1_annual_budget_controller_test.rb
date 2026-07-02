@@ -166,6 +166,23 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_empty restored_body.fetch("budget").fetch("annual_plan").fetch("archived_categories")
   end
 
+  test "archived category is not reactivated by same-name active expense during plan bootstrap" do
+    user = create_user(email: "archive-reactivation@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    category = manager.create_category!(name: "Testing Only", stack_key: "discretionary", monthly_amount: 10)
+    manager.archive_category!(category)
+    household.expense_items.create!(label: "Testing Only", stack_key: "non_discretionary", amount_cents: 10_000, cadence: "monthly", active: true)
+
+    get "/api/v1/budget", headers: auth_headers(user)
+
+    assert_response :success
+    plan = JSON.parse(response.body).fetch("annual_plan")
+    assert_equal false, category.reload.active
+    refute_includes plan.fetch("rows").map { |row| row.fetch("name") }, "Testing Only"
+    assert_includes plan.fetch("archived_categories").map { |row| row.fetch("name") }, "Testing Only"
+  end
+
   test "category archive is blocked when transaction history exists" do
     user = create_user(email: "category-history@example.com")
     patch "/api/v1/workspace/setup",
@@ -527,6 +544,28 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_includes body.fetch("assistant_message").fetch("content"), "confirmed spending is $45"
     assert_equal 45, body.fetch("spending_report").fetch("totals").fetch("actual")
+  end
+
+  test "annual plan recent transactions are scoped to the plan year" do
+    user = create_user(email: "recent-transaction-year@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    prior_date = Date.new(Date.current.year - 1, 7, 1)
+    current_date = Date.current.beginning_of_month
+    prior_manager = HouseholdFinance::AnnualBudgetManager.new(household, year: prior_date.year)
+    current_manager = HouseholdFinance::AnnualBudgetManager.new(household, year: current_date.year)
+    category = prior_manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    prior_period = prior_manager.current_period_for(prior_date)
+    current_period = current_manager.current_period_for(current_date)
+    prior_transaction = household.household_transactions.create!(budget_period: prior_period, occurred_on: prior_date, merchant: "Prior Cafe", total_amount_cents: 1_200, source_type: "manual_ui", status: "confirmed")
+    current_transaction = household.household_transactions.create!(budget_period: current_period, occurred_on: current_date, merchant: "Current Cafe", total_amount_cents: 1_500, source_type: "manual_ui", status: "confirmed")
+    prior_transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_200)
+    current_transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_500)
+
+    get "/api/v1/budget?year=#{prior_date.year}", headers: auth_headers(user)
+
+    assert_response :success
+    recent_merchants = JSON.parse(response.body).fetch("annual_plan").fetch("recent_transactions").map { |transaction| transaction.fetch("merchant") }
+    assert_equal [ "Prior Cafe" ], recent_merchants
   end
 
   test "confirming a prior year draft returns the prior year annual plan" do

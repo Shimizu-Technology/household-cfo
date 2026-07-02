@@ -43,7 +43,7 @@ module HouseholdFinance
         end,
         monthly_income: monthly_income_by_period(periods),
         pending_transaction_drafts: pending_drafts_payload,
-        recent_transactions: recent_transactions_payload,
+        recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
       }
     end
@@ -163,9 +163,11 @@ module HouseholdFinance
 
     def ensure_categories_from_expenses!
       active_expenses.each_with_index do |expense, index|
-        category = budget_category_for_name(expense.label)
+        category = budget_category_for_active_expense(expense)
+        next unless category
+
         category.assign_attributes(
-          name: expense.label,
+          name: bounded_name(expense.label),
           stack_key: expense.stack_key,
           active: true,
           sort_order: category.sort_order.to_i.positive? ? category.sort_order : index + 1
@@ -177,7 +179,9 @@ module HouseholdFinance
     def ensure_allocations_from_expenses!(budget_year)
       periods = budget_year.budget_periods.to_a
       active_expenses.each do |expense|
-        category = budget_category_for_name(expense.label)
+        category = active_budget_category_for_name(expense.label)
+        next unless category
+
         monthly_cents = Money.monthly_cents(expense.amount_cents, expense.cadence)
         periods.each do |period|
           allocation = BudgetAllocation.find_or_initialize_by(budget_period: period, budget_category: category)
@@ -276,10 +280,10 @@ module HouseholdFinance
       household.transaction_drafts.pending.includes(:budget_category).recent_first.limit(20).map { |draft| draft_payload(draft) }
     end
 
-    def recent_transactions_payload
+    def recent_transactions_payload(periods)
       household.household_transactions
         .includes(transaction_splits: :budget_category)
-        .where(status: %w[confirmed reconciled])
+        .where(budget_period_id: periods.map(&:id), status: %w[confirmed reconciled])
         .order(occurred_on: :desc, created_at: :desc)
         .limit(8)
         .map do |transaction|
@@ -362,7 +366,6 @@ module HouseholdFinance
     def archive_synced_expense_item!(category)
       household.expense_items
         .where("LOWER(label) = ?", category.name.downcase)
-        .where(stack_key: category.stack_key)
         .update_all(active: false, updated_at: Time.current)
     end
 
@@ -405,9 +408,20 @@ module HouseholdFinance
       name.to_s.squish.truncate(80, omission: "…").presence || "Custom category"
     end
 
-    def budget_category_for_name(name)
+    def budget_category_for_active_expense(expense)
+      active_budget_category_for_name(expense.label) || new_budget_category_unless_archived(expense.label)
+    end
+
+    def active_budget_category_for_name(name)
       bounded = bounded_name(name)
-      household.budget_categories.where("LOWER(name) = ?", bounded.downcase).first_or_initialize
+      household.budget_categories.active.where("LOWER(name) = ?", bounded.downcase).first
+    end
+
+    def new_budget_category_unless_archived(name)
+      bounded = bounded_name(name)
+      return if household.budget_categories.archived.where("LOWER(name) = ?", bounded.downcase).exists?
+
+      household.budget_categories.new(name: bounded)
     end
 
     def next_sort_order
