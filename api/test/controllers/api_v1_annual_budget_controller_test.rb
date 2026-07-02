@@ -449,6 +449,30 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Starbucks" ], report.fetch("pending_drafts").map { |draft| draft.fetch("merchant") }
   end
 
+  test "spending report includes uncategorized pending drafts in totals and draft list" do
+    user = create_user(email: "spending-report-uncategorized-pending@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Uncategorized Cafe",
+      total_amount_cents: 1_200,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $12 at Uncategorized Cafe"
+    )
+
+    get "/api/v1/spending_report?start_on=#{Date.current.beginning_of_month.iso8601}&end_on=#{Date.current.end_of_month.iso8601}",
+      headers: auth_headers(user)
+
+    assert_response :success
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 12, report.fetch("totals").fetch("pending")
+    draft = report.fetch("pending_drafts").sole
+    assert_equal "Uncategorized Cafe", draft.fetch("merchant")
+    assert_nil draft.fetch("category_id")
+    assert_nil draft.fetch("category_name")
+  end
+
   test "spending report excludes archived categories from active operating totals" do
     user = create_user(email: "spending-report-archived@example.com")
     patch "/api/v1/workspace/setup",

@@ -24,7 +24,7 @@ module HouseholdFinance
         totals: {
           planned: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) }),
           actual: Money.dollars(rows.sum { |row| row.fetch(:actual_cents) }),
-          pending: Money.dollars(rows.sum { |row| row.fetch(:pending_cents) }),
+          pending: Money.dollars(rows.sum { |row| row.fetch(:pending_cents) } + uncategorized_pending_cents),
           remaining: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) - row.fetch(:actual_cents) })
         },
         categories: rows.map { |row| category_payload(row) },
@@ -88,11 +88,15 @@ module HouseholdFinance
 
     def pending_sums
       @pending_sums ||= household.transaction_drafts.pending
-        .joins(:budget_category)
-        .where(budget_categories: { active: true })
+        .left_outer_joins(:budget_category)
+        .where("transaction_drafts.budget_category_id IS NULL OR budget_categories.active = ?", true)
         .where(occurred_on: start_on..end_on)
         .group(:budget_category_id)
         .sum(:total_amount_cents)
+    end
+
+    def uncategorized_pending_cents
+      pending_sums[nil].to_i
     end
 
     def transactions_payload
@@ -118,8 +122,8 @@ module HouseholdFinance
 
     def pending_drafts_payload
       household.transaction_drafts.pending.includes(:budget_category)
-        .joins(:budget_category)
-        .where(budget_categories: { active: true })
+        .left_outer_joins(:budget_category)
+        .where("transaction_drafts.budget_category_id IS NULL OR budget_categories.active = ?", true)
         .where(occurred_on: start_on..end_on)
         .recent_first
         .limit(MAX_TRANSACTIONS)
