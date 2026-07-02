@@ -55,7 +55,7 @@ module HouseholdFinance
       end
       return { type: :merchant, label: known_merchant } if known_merchant.present?
 
-      extracted = message.match(/\b(?:at|from|to)\s+([a-z0-9'&.\-\s]+?)(?:\s+(?:this|last|in|for|during|between|from|and how|how much|how many)|[?.!]|$)/i)&.[](1)&.squish
+      extracted = message.match(/\b(?:at|from)\s+([a-z0-9'&.\-\s]+?)(?:\s+(?:this|last|in|for|during|between|from|and how|how much|how many)|[?.!]|$)/i)&.[](1)&.squish
       extracted = extracted&.gsub(/\b(today|yesterday)\b/i, "")&.squish
       return if extracted.blank? || extracted.length > 80
 

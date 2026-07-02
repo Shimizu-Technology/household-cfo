@@ -53,7 +53,7 @@ Persona and model-guided answers:
 
 Deterministic financial answers:
 
-- Rails still computes money truth for reports, budget Q&A, transaction lookup, and transaction drafts.
+- Rails still computes money truth for reports, budget Q&A, transaction lookup, transaction drafts, and common coaching branches such as discretionary purchase checks, readiness planning, and expected sinking-fund bills like car registration.
 - Deterministic narrators should still sound like Mia by naming the basis of the answer and giving one next move.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
 

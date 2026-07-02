@@ -36,13 +36,21 @@ module HouseholdFinance
           suggested_category_reason: suggested_category_reason
         }
       )
-    rescue ActiveRecord::RecordInvalid
+    rescue ActiveRecord::RecordInvalid => e
+      log_invalid_draft(e.record)
       nil
     end
 
     private
 
     attr_reader :household, :message
+
+    def log_invalid_draft(record)
+      Rails.logger.warn(
+        "TransactionDraftBuilder could not create draft " \
+          "household_id=#{household.id} errors=#{record.errors.full_messages.to_sentence}"
+      )
+    end
 
     def ensure_plan!
       return if @plan_prepared

@@ -653,6 +653,107 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes body.fetch("assistant_message").fetch("content"), "confirmed spending is $45"
   end
 
+  test "mia creates a readiness plan instead of treating plan language as merchant lookup" do
+    user = create_user(email: "mia-readiness-plan@example.com")
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          primary_income: 8_000,
+          fixed_expenses: 4_000,
+          flexible_spend: 1_250,
+          expected_sinking_fund: 300,
+          unexpected_sinking_fund: 200,
+          emergency_fund: 10_000,
+          credit_card_debt: 2_000,
+          debt_payment: 150,
+          target_runway_months: 6
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "So help me create a plan to get in the yellow and then green - what do we need to do to do this?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("spending_report")
+    content = body.fetch("assistant_message").fetch("content")
+    assert_includes content, "approved household numbers"
+    assert_includes content, "Yellow"
+    assert_includes content, "green gap"
+    assert_includes content, "Next CFO move"
+    refute_includes content, "confirmed get spending"
+  end
+
+  test "mia coaches car registration as an expected sinking fund instead of a generic discretionary pause" do
+    user = create_user(email: "mia-car-registration@example.com")
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          primary_income: 8_000,
+          fixed_expenses: 4_000,
+          flexible_spend: 1_250,
+          expected_sinking_fund: 300,
+          unexpected_sinking_fund: 200,
+          emergency_fund: 10_000,
+          credit_card_debt: 2_000,
+          debt_payment: 150,
+          target_runway_months: 6
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "Can I afford my car registration next month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "Sinking Fund — Expected"
+    assert_includes content, "specific car registration line"
+    assert_includes content, "amount or due date"
+    assert_includes content, "Next CFO move"
+    refute_includes content, "random want"
+  end
+
+  test "mia gives contextual purchase coaching for discretionary wants" do
+    user = create_user(email: "mia-shoes-purchase@example.com")
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          primary_income: 8_000,
+          fixed_expenses: 4_000,
+          flexible_spend: 1_250,
+          expected_sinking_fund: 300,
+          unexpected_sinking_fund: 200,
+          emergency_fund: 10_000,
+          credit_card_debt: 2_000,
+          debt_payment: 150,
+          target_runway_months: 6
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "So can I buy basketball shoes right now?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "basketball shoes"
+    assert_includes content, "safe-to-spend"
+    assert_includes content, "price"
+    assert_includes content, "need or a want"
+    assert_includes content, "Next CFO move"
+  end
+
   test "mia can answer merchant count and spend questions from confirmed transactions" do
     user = create_user(email: "mia-merchant-report@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
