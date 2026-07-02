@@ -754,6 +754,73 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "Next CFO move"
   end
 
+  test "mia treats purchase follow up amount as a pre-spend decision, not a transaction draft" do
+    user = create_user(email: "mia-purchase-follow-up@example.com")
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          primary_income: 8_000,
+          fixed_expenses: 4_000,
+          flexible_spend: 1_250,
+          expected_sinking_fund: 300,
+          unexpected_sinking_fund: 200,
+          emergency_fund: 10_000,
+          credit_card_debt: 2_000,
+          debt_payment: 150,
+          target_runway_months: 6
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_no_difference("TransactionDraft.count") do
+      post "/api/v1/mia/messages",
+        params: { message: "They cost $85 and are for my kid's basketball league. Does that change the answer?" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "family need or commitment"
+    assert_includes content, "pre-spend CFO decision"
+    assert_includes content, "money has not left yet"
+    refute_includes content.downcase, "confirm the draft"
+  end
+
+  test "mia gives a weekly readiness plan instead of treating get out of red as a purchase" do
+    user = create_user(email: "mia-weekly-red-plan@example.com")
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          primary_income: 8_000,
+          fixed_expenses: 4_000,
+          flexible_spend: 1_250,
+          expected_sinking_fund: 300,
+          unexpected_sinking_fund: 200,
+          emergency_fund: 10_000,
+          credit_card_debt: 2_000,
+          debt_payment: 150,
+          target_runway_months: 6
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "What should I do this week to get out of red?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "This week"
+    assert_includes content, "yellow runway gap"
+    assert_includes content, "Next CFO move"
+    refute_includes content, "For out of red"
+    refute_includes content, "need or a want"
+  end
+
   test "mia can answer merchant count and spend questions from confirmed transactions" do
     user = create_user(email: "mia-merchant-report@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

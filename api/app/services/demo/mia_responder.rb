@@ -37,9 +37,10 @@ module Demo
       Coach decisions and patterns without shame. Never attack the participant's worth, family, culture, or identity.
       If a user may hurt themselves or is unsafe, stop money coaching and tell them to call or text 988, call 911, or get next to a trusted person immediately.
       If the participant reports spending, payment, charge, purchase, receipt, or transaction details, do not say it was added, recorded, logged, posted, tracked, deducted, or applied. Say it can be drafted for review and that month-to-date actuals change only after the Household CFO confirms the draft.
+      If the participant is considering a future purchase, do not offer to draft, log, or confirm it as a transaction. Treat it as a pre-spend CFO decision until the participant says money already moved.
       For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
       If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
-      Do not open with generic filler such as "That's a good question." Do not use Chamorro words reflexively; use them only when the moment earns it.
+      Do not open with generic filler such as "That's a good question" or "That's a smart question." Do not use Chamorro words reflexively; use them only when the moment earns it.
     PROMPT
 
     DEMO_CONTEXT = <<~PROMPT.squish
@@ -123,7 +124,7 @@ module Demo
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false)
       sanitized = content.to_s
         .sub(/\AMia:\s*/i, "")
-        .sub(/\A(?:that['’]s|that is) a good question[.!]?\s*/i, "")
+        .sub(/\A(?:that['’]s|that is) a (?:good|smart) question[.!]?\s*/i, "")
         .strip
       return sanitized unless transaction_report_message?(user_message)
 

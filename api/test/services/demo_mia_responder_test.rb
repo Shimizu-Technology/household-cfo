@@ -124,15 +124,18 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes prompt, "That's a good question"
     assert_includes prompt, "Do not use Chamorro words reflexively"
     assert_includes prompt, "month-to-date actuals change only after the Household CFO confirms the draft"
+    assert_includes prompt, "pre-spend CFO decision"
+    assert_includes prompt, "That's a smart question"
     assert_includes prompt, "answer the direct question first"
     assert_includes prompt, "separate planned budget from confirmed actuals and pending drafts"
     assert_includes prompt, "say so plainly instead of guessing"
   end
 
   test "model responses have generic opener stripped" do
-    response = Demo::MiaResponder.new(api_key: nil).send(:sanitize_assistant_content, "That’s a good question. Check the annual plan first.")
+    responder = Demo::MiaResponder.new(api_key: nil)
 
-    assert_equal "Check the annual plan first.", response
+    assert_equal "Check the annual plan first.", responder.send(:sanitize_assistant_content, "That’s a good question. Check the annual plan first.")
+    assert_equal "Build runway first.", responder.send(:sanitize_assistant_content, "That's a smart question. Build runway first.")
   end
 
   test "model responses cannot claim a reported transaction was already applied" do

@@ -86,6 +86,12 @@ Can I afford my car registration next month?
 
 Mia should not guess. She should say what she can see, what is missing, and what to verify next.
 
+Post-v1 browser/internet research is documented in:
+
+```text
+docs/mia-browser-research-post-v1.md
+```
+
 ## Source references
 
 - Persona brief implementation: `docs/mia-persona-template.md`
