@@ -29,11 +29,11 @@ module HouseholdFinance
     def plan_data
       budget_year = ensure_plan!
       periods = budget_year.budget_periods.order(:starts_on).to_a
-      categories = household.budget_categories.active.ordered.to_a
+      categories = plan_categories(periods)
       allocations_by_category_and_period = BudgetAllocation
         .where(budget_category: categories, budget_period: periods)
         .index_by { |allocation| [ allocation.budget_category_id, allocation.budget_period_id ] }
-      actuals = actuals_by_category_and_period(categories, periods)
+      actuals = actuals_by_category_and_period(categories.map(&:id), periods)
 
       {
         year: budget_year.year,
@@ -211,10 +211,26 @@ module HouseholdFinance
       @active_expenses ||= household.expense_items.where(active: true).order(:stack_key, :label).to_a
     end
 
-    def actuals_by_category_and_period(categories, periods)
+    def plan_categories(periods)
+      active_ids = household.budget_categories.active.pluck(:id)
+      actual_ids = category_ids_with_actuals(periods)
+      household.budget_categories.where(id: (active_ids + actual_ids).uniq).ordered.to_a
+    end
+
+    def category_ids_with_actuals(periods)
       TransactionSplit
-        .joins(:household_transaction)
-        .where(budget_category: categories, household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
+        .joins(:budget_category, :household_transaction)
+        .where(budget_categories: { household_id: household.id })
+        .where(household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
+        .distinct
+        .pluck(:budget_category_id)
+    end
+
+    def actuals_by_category_and_period(category_ids, periods)
+      TransactionSplit
+        .joins(:budget_category, :household_transaction)
+        .where(budget_categories: { household_id: household.id })
+        .where(budget_category_id: category_ids, household_transactions: { budget_period_id: periods.map(&:id), status: %w[confirmed reconciled] })
         .group(:budget_category_id, "household_transactions.budget_period_id")
         .sum(:amount_cents)
     end
@@ -298,7 +314,7 @@ module HouseholdFinance
             merchant: transaction.merchant,
             amount: Money.dollars(transaction.total_amount_cents),
             source_type: transaction.source_type,
-            categories: transaction.transaction_splits.filter_map { |split| split.budget_category.name if split.budget_category.active? }
+            categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }
           }
         end
     end

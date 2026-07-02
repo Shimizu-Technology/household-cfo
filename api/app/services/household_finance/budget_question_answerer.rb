@@ -17,14 +17,15 @@ module HouseholdFinance
       return nil if month_index.nil?
 
       discretionary_rows = rows.select { |row| row.fetch(:stack_key) == "discretionary" }
+      explicit_rows = rows.select { |row| normalized(row.fetch(:name)).present? && normalized(message).include?(normalized(row.fetch(:name))) }
       food_rows = rows.select { |row| normalized(row.fetch(:name)).match?(FOOD_CATEGORY_TERMS) }
-      selected_rows = message.match?(FOOD_TERMS) && food_rows.any? ? food_rows : discretionary_rows
+      selected_rows = explicit_rows.presence || (message.match?(FOOD_TERMS) && food_rows.any? ? food_rows : discretionary_rows)
       return nil if discretionary_rows.empty? && selected_rows.empty?
 
       [
-        summary_line(discretionary_rows, selected_rows),
-        category_line(food_rows.presence || selected_rows),
-        pending_line(discretionary_rows.presence || selected_rows)
+        summary_line(discretionary_rows, selected_rows, focused: explicit_rows.any?),
+        category_line(explicit_rows.presence || food_rows.presence || selected_rows),
+        pending_line(selected_rows.presence || discretionary_rows)
       ].compact.join("\n\n")
     end
 
@@ -39,12 +40,13 @@ module HouseholdFinance
       true
     end
 
-    def summary_line(discretionary_rows, selected_rows)
-      broad_rows = discretionary_rows.presence || selected_rows
-      planned = sum_for(broad_rows, :planned)
-      actual = sum_for(broad_rows, :actual)
-      remaining = sum_for(broad_rows, :remaining)
-      "Based on your active annual plan for #{month_label}, your active discretionary plan is #{money(planned)}. Confirmed actuals are #{money(actual)}, leaving #{money(remaining)} before any new approvals."
+    def summary_line(discretionary_rows, selected_rows, focused: false)
+      target_rows = focused ? selected_rows : discretionary_rows.presence || selected_rows
+      planned = sum_for(target_rows, :planned)
+      actual = sum_for(target_rows, :actual)
+      remaining = sum_for(target_rows, :remaining)
+      plan_label = focused ? "active #{target_rows.map { |row| row.fetch(:name) }.to_sentence} plan" : "active discretionary plan"
+      "Based on your active annual plan for #{month_label}, your #{plan_label} is #{money(planned)}. Confirmed actuals are #{money(actual)}, leaving #{money(remaining)} before any new approvals."
     end
 
     def category_line(target_rows)

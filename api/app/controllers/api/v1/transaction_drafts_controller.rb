@@ -52,6 +52,9 @@ module Api
 
       def append_chat_status_message(content)
         current_chat_session.chat_messages.create!(role: "assistant", content: content)
+      rescue StandardError => e
+        Rails.logger.warn("Transaction draft status message was not saved draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
+        false
       end
 
       def current_chat_session

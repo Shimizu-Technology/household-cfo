@@ -400,6 +400,39 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes messages.last.fetch("content"), "Confirmed McDonald's for $25"
   end
 
+  test "confirm still returns workspace if chat status message cannot be saved" do
+    user = create_user(email: "confirm-status-best-effort@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    callback = lambda do |record|
+      raise "status message failed" if Thread.current[:fail_transaction_status_message] && record.role == "assistant" && record.content.start_with?("Confirmed")
+    end
+    ChatMessage.set_callback(:create, :before, callback)
+    Thread.current[:fail_transaction_status_message] = true
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "confirmed", TransactionDraft.find(draft_id).status
+    assert JSON.parse(response.body).fetch("workspace").fetch("budget").fetch("annual_plan")
+  ensure
+    Thread.current[:fail_transaction_status_message] = false
+    ChatMessage.skip_callback(:create, :before, callback) if defined?(callback) && callback
+  end
+
   test "ignoring a draft appends a chat status message" do
     user = create_user(email: "ignore-status-message@example.com")
     patch "/api/v1/workspace/setup",
@@ -525,6 +558,41 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Uncategorized Cafe", draft.fetch("merchant")
     assert_nil draft.fetch("category_id")
     assert_nil draft.fetch("category_name")
+  end
+
+  test "legacy archived category actuals remain visible in historical reports" do
+    user = create_user(email: "spending-report-archived-history@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    category = manager.create_category!(name: "Legacy Groceries", stack_key: "discretionary", monthly_amount: 300)
+    period = manager.current_period_for(Date.current)
+    transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current,
+      merchant: "Legacy Market",
+      total_amount_cents: 4_200,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_200)
+    category.update!(active: false)
+
+    get "/api/v1/spending_report?start_on=#{Date.current.beginning_of_month.iso8601}&end_on=#{Date.current.end_of_month.iso8601}",
+      headers: auth_headers(user)
+
+    assert_response :success
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 42, report.fetch("totals").fetch("actual")
+    archived_row = report.fetch("categories").find { |row| row.fetch("name") == "Legacy Groceries" }
+    assert_equal 42, archived_row.fetch("actual")
+    assert_equal false, archived_row.fetch("active")
+
+    get "/api/v1/budget", headers: auth_headers(user)
+    assert_response :success
+    plan = JSON.parse(response.body).fetch("annual_plan")
+    row = plan.fetch("rows").find { |candidate| candidate.fetch("name") == "Legacy Groceries" }
+    assert_equal false, row.fetch("active")
+    assert_equal 42, row.fetch("months").fetch(Date.current.month - 1).fetch("actual")
   end
 
   test "spending report excludes archived categories from active operating totals" do
@@ -786,6 +854,19 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "pre-spend CFO decision"
     assert_includes content, "money has not left yet"
     refute_includes content.downcase, "confirm the draft"
+
+    assert_no_difference("TransactionDraft.count") do
+      post "/api/v1/mia/messages",
+        params: { message: "My kid needs $120 in school supplies. Can I cover that?" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    school_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes school_content, "family need or commitment"
+    assert_includes school_content, "pre-spend CFO decision"
+    refute_includes school_content.downcase, "confirm the draft"
   end
 
   test "mia gives a weekly readiness plan instead of treating get out of red as a purchase" do
@@ -821,6 +902,56 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     refute_includes content, "need or a want"
   end
 
+  test "mia answers category remaining questions from the active budget instead of broad reports" do
+    user = create_user(email: "mia-category-left@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    period = manager.current_period_for(Date.current)
+    transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current,
+      merchant: "Cafe",
+      total_amount_cents: 4_500,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "How much is left for Dining Out this month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("spending_report")
+    content = body.fetch("assistant_message").fetch("content")
+    assert_includes content, "active Dining Out plan is $300"
+    assert_includes content, "leaving $255"
+  end
+
+  test "mia drafts simple spending when the user omits the dollar sign" do
+    user = create_user(email: "mia-bare-amount-draft@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_difference("TransactionDraft.count", 1) do
+      post "/api/v1/mia/messages",
+        params: { message: "I spent 7 at No Dollar Cafe for Dining Out today" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("transaction_draft")
+    assert_equal "No Dollar Cafe", draft.fetch("merchant")
+    assert_equal 7, draft.fetch("amount")
+    assert_includes JSON.parse(response.body).fetch("assistant_message").fetch("content"), "I drafted this for review"
+  end
+
   test "mia can answer merchant count and spend questions from confirmed transactions" do
     user = create_user(email: "mia-merchant-report@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -852,6 +983,27 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "2 confirmed McDonald's transactions"
     assert_includes content, "totaling $30"
     assert_includes content, "Dining Out $30"
+
+    post "/api/v1/mia/messages",
+      params: { message: "How much did I spend at Coffee Bean this month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    coffee_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes coffee_content, "1 confirmed Coffee Bean transaction"
+    assert_includes coffee_content, "totaling $9"
+    refute_includes coffee_content, "food-like categories"
+
+    post "/api/v1/mia/messages",
+      params: { message: "Did I spend more at McDonald's or Coffee Bean?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    comparison_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes comparison_content, "McDonald's is higher"
+    assert_includes comparison_content, "Coffee Bean $9"
   end
 
   test "mia answers budget status questions directly" do

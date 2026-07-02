@@ -2,7 +2,7 @@ module HouseholdFinance
   class SpendingReportQuery
     REPORT_TERMS = /\b(spending|spent|actuals?|transactions?|budget report|month|quarter|year|ytd|year to date|looking|look|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i
     BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|on track|off track|am i okay|are we okay)\b/i
-    PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance)\b/i
+    PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
 
     def initialize(message, today: Date.current)
       @message = message.to_s.downcase.squish

@@ -11,7 +11,7 @@ module HouseholdFinance
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
     SCREENSHOT_PURCHASE_TERMS = /\b(?:purse|bag|handbag)\b/i.freeze
-    PLANNED_PURCHASE_DETAIL_PATTERN = /\b(?:costs?|price|\$\s*\d|does that change|for my kid|for school|for work|league)\b/i.freeze
+    PLANNED_PURCHASE_DETAIL_PATTERN = /(?:costs?|price|\$\s*\d|does that change|kid|school|work|league)/i.freeze
     FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asked|borrow|lend|loan|help|support|give)\b|\b(?:asked|borrow|lend|loan|help|support|give)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
     JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop)\b.*\b(?:job|work)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b/i.freeze

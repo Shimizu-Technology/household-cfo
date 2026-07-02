@@ -47,7 +47,7 @@ module HouseholdFinance
 
     def category_rows
       @category_rows ||= begin
-        ids = (allocation_sums.keys + actual_sums.keys + pending_sums.keys + active_category_ids).compact.uniq
+        ids = (allocation_sums.keys + actual_sums.keys + pending_sums.keys + report_category_ids).compact.uniq
         categories = household.budget_categories.where(id: ids).ordered.index_by(&:id)
         ids.filter_map do |id|
           category = categories[id]
@@ -63,14 +63,27 @@ module HouseholdFinance
       end
     end
 
+    def report_category_ids
+      @report_category_ids ||= (active_category_ids + category_ids_with_actuals).uniq
+    end
+
     def active_category_ids
       household.budget_categories.active.pluck(:id)
+    end
+
+    def category_ids_with_actuals
+      TransactionSplit
+        .joins(:budget_category, :household_transaction)
+        .where(budget_categories: { household_id: household.id })
+        .where(household_transactions: { household_id: household.id, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
+        .distinct
+        .pluck(:budget_category_id)
     end
 
     def allocation_sums
       @allocation_sums ||= BudgetAllocation
         .joins(:budget_category, budget_period: :budget_year)
-        .where(budget_categories: { household_id: household.id, active: true })
+        .where(budget_categories: { household_id: household.id, id: report_category_ids })
         .where(budget_years: { household_id: household.id })
         .where("budget_periods.starts_on <= ? AND budget_periods.ends_on >= ?", end_on, start_on)
         .group(:budget_category_id)
@@ -80,7 +93,7 @@ module HouseholdFinance
     def actual_sums
       @actual_sums ||= TransactionSplit
         .joins(:budget_category, :household_transaction)
-        .where(budget_categories: { household_id: household.id, active: true })
+        .where(budget_categories: { household_id: household.id })
         .where(household_transactions: { household_id: household.id, status: %w[confirmed reconciled], occurred_on: start_on..end_on })
         .group(:budget_category_id)
         .sum(:amount_cents)
@@ -103,7 +116,7 @@ module HouseholdFinance
       household.household_transactions
         .includes(transaction_splits: :budget_category)
         .joins(transaction_splits: :budget_category)
-        .where(budget_categories: { active: true })
+        .where(budget_categories: { household_id: household.id })
         .where(status: %w[confirmed reconciled], occurred_on: start_on..end_on)
         .distinct
         .order(occurred_on: :desc, created_at: :desc)
@@ -115,7 +128,7 @@ module HouseholdFinance
             merchant: transaction.merchant,
             amount: Money.dollars(transaction.total_amount_cents),
             source_type: transaction.source_type,
-            categories: transaction.transaction_splits.filter_map { |split| split.budget_category.name if split.budget_category.active? }
+            categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }
           }
         end
     end
@@ -153,7 +166,8 @@ module HouseholdFinance
         planned: Money.dollars(planned_cents),
         actual: Money.dollars(actual_cents),
         pending: Money.dollars(pending_cents),
-        remaining: Money.dollars(planned_cents - actual_cents)
+        remaining: Money.dollars(planned_cents - actual_cents),
+        active: category.active
       }
     end
 

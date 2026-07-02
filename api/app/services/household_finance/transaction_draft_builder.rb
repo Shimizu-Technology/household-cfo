@@ -1,6 +1,7 @@
 module HouseholdFinance
   class TransactionDraftBuilder
     AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
@@ -60,11 +61,11 @@ module HouseholdFinance
     end
 
     def transaction_like?
-      message.match?(AMOUNT_PATTERN) && (message.match?(SPEND_PATTERN) || message.match?(/\bmy\s+tab\s+(?:is|was)\b/i))
+      (amount_match.present? && message.match?(SPEND_PATTERN)) || (message.match?(AMOUNT_PATTERN) && message.match?(/\bmy\s+tab\s+(?:is|was)\b/i))
     end
 
     def amount_match
-      @amount_match ||= message.match(AMOUNT_PATTERN)
+      @amount_match ||= message.match(AMOUNT_PATTERN) || message.match(BARE_SPEND_AMOUNT_PATTERN)
     end
 
     def amount_cents

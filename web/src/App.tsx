@@ -3531,6 +3531,7 @@ function CurrentMonthActivityPanel({
     actual: category.actual,
     remaining: category.remaining,
     pending: category.pending,
+    active: category.active ?? true,
   })) ?? plan.rows.map((row) => {
     const cell = row.months[currentMonthIndex]
     return {
@@ -3541,6 +3542,7 @@ function CurrentMonthActivityPanel({
       actual: cell?.actual ?? 0,
       remaining: cell?.remaining ?? 0,
       pending: pendingByCategory[String(row.id)] ?? 0,
+      active: row.active,
     }
   })
   const totalPending = spendingReport?.totals.pending ?? rows.reduce((sum, row) => sum + row.pending, 0)
@@ -3560,7 +3562,7 @@ function CurrentMonthActivityPanel({
           <div className="month-activity-row" key={row.id}>
             <div>
               <strong>{row.name}</strong>
-              <span>{row.stackLabel}</span>
+              <span>{row.stackLabel}{row.active ? '' : ' · Archived'}</span>
             </div>
             <div className="month-activity-amounts">
               <span><b>{currency.format(row.planned)}</b> planned</span>

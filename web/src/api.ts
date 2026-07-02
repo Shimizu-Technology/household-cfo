@@ -256,6 +256,7 @@ export type SpendingReportCategory = {
   actual: number
   pending: number
   remaining: number
+  active?: boolean
 }
 
 export type ArchivedBudgetCategory = {

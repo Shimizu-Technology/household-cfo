@@ -21,6 +21,8 @@ This PR adds the first persisted foundation for the Household CFO annual budget 
 - Drafts are created from simple spending language only; this is not statement reconciliation yet.
 - Confirmed transactions update budget actuals through `TransactionSplit` rows.
 - Drafts confirmed exactly as proposed end as `confirmed`; drafts confirmed after user edits end as `corrected` with the confirmed transaction attached for audit.
+- Budget categories are archived/restored instead of hard deleted; categories with confirmed history or pending drafts must be renamed/reclassified instead of archived.
+- Archived categories are excluded from active operating totals unless legacy/inconsistent data already has confirmed actuals on them; those historical actuals stay visible and marked archived instead of disappearing from reports.
 - Budget planning is editable only in authenticated real workspaces.
 - The annual plan bootstraps from approved setup/imported expense items, not raw documents.
 

@@ -16,6 +16,8 @@ module HouseholdFinance
       target = lookup_target
       return nil unless target
 
+      return build_merchant_comparison_answer(target.fetch(:labels)) if target.fetch(:type) == :merchant_comparison
+
       transactions = matching_transactions(target)
       build_answer(target, transactions)
     end
@@ -31,15 +33,19 @@ module HouseholdFinance
     end
 
     def lookup_target
-      category_target || merchant_target
+      exact_category_target || merchant_comparison_target || merchant_target || food_category_target
     end
 
-    def category_target
+    def exact_category_target
       active_categories.each do |category|
         normalized_name = normalize(category.name)
         return { type: :category, label: category.name, category_ids: [ category.id ] } if normalized_name.present? && normalized_message.include?(normalized_name)
       end
 
+      nil
+    end
+
+    def food_category_target
       return unless message.match?(FOOD_TERMS)
 
       food_categories = active_categories.select { |category| category.name.match?(FOOD_TERMS) }
@@ -48,8 +54,17 @@ module HouseholdFinance
       { type: :category, label: "food-like categories", category_ids: food_categories.map(&:id) }
     end
 
+    def merchant_comparison_target
+      return unless message.match?(/\b(more|less|compare|versus|vs\.?|or)\b/i)
+
+      matches = known_merchants.select { |merchant| normalized_message.include?(normalize(merchant)) }.first(4)
+      return if matches.length < 2
+
+      { type: :merchant_comparison, labels: matches }
+    end
+
     def merchant_target
-      known_merchant = base_transactions.map(&:merchant).compact.uniq.find do |merchant|
+      known_merchant = known_merchants.find do |merchant|
         normalized_merchant = normalize(merchant)
         normalized_merchant.present? && normalized_message.include?(normalized_merchant)
       end
@@ -88,6 +103,20 @@ module HouseholdFinance
         "Pending drafts are not counted until you confirm them."
       ]
       lines.compact.join("\n\n")
+    end
+
+    def build_merchant_comparison_answer(labels)
+      summaries = labels.map do |label|
+        transactions = base_transactions.select { |transaction| merchant_matches?(transaction.merchant, label) }
+        cents = transactions.sum(&:total_amount_cents)
+        { label: label, count: transactions.length, cents: cents }
+      end
+      winner = summaries.max_by { |summary| summary.fetch(:cents) }
+      details = summaries.map do |summary|
+        "#{summary.fetch(:label)} #{money(summary.fetch(:cents))} (#{summary.fetch(:count)} #{'time'.pluralize(summary.fetch(:count))})"
+      end.to_sentence
+
+      "For #{period_label}, based on confirmed transactions, #{winner.fetch(:label)} is higher at #{money(winner.fetch(:cents))}. Comparison: #{details}. Pending drafts are not counted until you confirm them."
     end
 
     def category_breakdown(transactions, target)
@@ -136,6 +165,10 @@ module HouseholdFinance
 
     def transaction_category_ids(transaction)
       active_splits(transaction).map(&:budget_category_id)
+    end
+
+    def known_merchants
+      @known_merchants ||= base_transactions.map(&:merchant).compact.uniq
     end
 
     def base_transactions

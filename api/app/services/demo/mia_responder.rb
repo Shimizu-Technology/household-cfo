@@ -21,6 +21,7 @@ module Demo
       insurance gas daycare childcare school tuition diapers formula doctor medical dental
     ].freeze
     TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -138,12 +139,16 @@ module Demo
     end
 
     def transaction_report_message?(message)
-      message.to_s.match?(/\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i) && message.to_s.match?(TRANSACTION_AMOUNT_PATTERN)
+      message.to_s.match?(/\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i) && transaction_report_amount_match(message).present?
     end
 
     def transaction_report_amount_cents(message)
-      match = message.to_s.match(TRANSACTION_AMOUNT_PATTERN)
+      match = transaction_report_amount_match(message)
       HouseholdFinance::Money.cents(match&.[](1).to_s.delete(","))
+    end
+
+    def transaction_report_amount_match(message)
+      message.to_s.match(TRANSACTION_AMOUNT_PATTERN) || message.to_s.match(BARE_TRANSACTION_AMOUNT_PATTERN)
     end
 
     def low_signal_message?(message)
