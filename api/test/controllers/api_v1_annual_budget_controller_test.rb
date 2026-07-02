@@ -113,6 +113,19 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 32_500, BudgetAllocation.find(allocation_id).planned_amount_cents
   end
 
+  test "category creation rejects nonnumeric monthly amount without creating a zeroed category" do
+    user = create_user(email: "annual-invalid-category-monthly@example.com")
+
+    post "/api/v1/budget_categories",
+      params: { category: { name: "Bad Input", stack_key: "discretionary", monthly_amount: "not-a-number" } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Planned amount must be a number"
+    refute user.households.first.budget_categories.where(name: "Bad Input").exists?
+  end
+
   test "participant can rename reclassify and archive an unused budget category" do
     user = create_user(email: "category-manage@example.com")
 
@@ -310,6 +323,26 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     assert_includes JSON.parse(response.body).fetch("errors"), "Transaction draft is not pending"
     assert_equal "confirmed", TransactionDraft.find(draft.fetch("id")).status
+  end
+
+  test "Mia draft response follows the draft year when user is viewing another year" do
+    user = create_user(email: "draft-year-crossing@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year - 1, message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    draft = body.fetch("transaction_draft")
+    plan = body.fetch("budget").fetch("annual_plan")
+    assert_equal Date.current.year, plan.fetch("year")
+    assert_equal [ draft.fetch("id") ], plan.fetch("pending_transaction_drafts").map { |pending| pending.fetch("id") }
   end
 
   test "confirming with a category from another household returns validation errors" do

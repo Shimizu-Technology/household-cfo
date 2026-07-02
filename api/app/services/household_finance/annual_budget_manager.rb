@@ -53,6 +53,7 @@ module HouseholdFinance
       category = nil
       household.with_lock do
         bounded = bounded_name(name)
+        monthly_cents = parsed_monthly_amount_cents(monthly_amount)
         if (existing_category = household.budget_categories.where("LOWER(name) = ?", bounded.downcase).first)
           existing_category.errors.add(:name, "already exists. Edit the existing category instead.")
           raise ActiveRecord::RecordInvalid, existing_category
@@ -65,8 +66,8 @@ module HouseholdFinance
           sort_order: next_sort_order
         )
         category.save!
-        sync_expense_item!(category, monthly_amount)
-        apply_monthly_amount!(budget_year, category, Money.cents(monthly_amount), source: "manual")
+        sync_expense_item!(category, monthly_cents)
+        apply_monthly_amount!(budget_year, category, monthly_cents, source: "manual")
       end
       category
     end
@@ -343,12 +344,12 @@ module HouseholdFinance
       end
     end
 
-    def sync_expense_item!(category, monthly_amount)
+    def sync_expense_item!(category, monthly_cents)
       expense = synced_expense_for(category)
       expense.update!(
         label: category.name,
         stack_key: category.stack_key,
-        amount_cents: Money.cents(monthly_amount),
+        amount_cents: monthly_cents,
         cadence: "monthly",
         active: true
       )
@@ -400,6 +401,12 @@ module HouseholdFinance
 
     def representative_planned_cents(category)
       category.budget_allocations.order(updated_at: :desc, id: :desc).first&.planned_amount_cents.to_i
+    end
+
+    def parsed_monthly_amount_cents(value)
+      return 0 if value.blank?
+
+      Money.cents!(value, message: "Planned amount must be a number")
     end
 
     def category_update_name(name, fallback:)

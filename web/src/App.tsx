@@ -418,6 +418,9 @@ function App() {
       })
       if (response.budget) {
         setData((current) => current ? { ...current, budget: response.budget! } : current)
+        if (response.transaction_draft && response.budget.annual_plan) {
+          setBudgetView({ year: response.budget.annual_plan.year, monthIndex: monthIndexFromIsoDate(response.transaction_draft.occurred_on) })
+        }
       }
       if (response.spending_report) {
         setSpendingReport(response.spending_report)

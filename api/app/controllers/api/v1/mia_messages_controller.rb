@@ -31,7 +31,7 @@ module Api
             annual_budget_manager: annual_budget_manager,
             plan_prepared: true
           ).call
-          annual_plan = annual_budget_manager.plan_data if transaction_draft
+          annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end
         assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer)
         user_message, assistant_message = ApplicationRecord.transaction do
@@ -76,6 +76,12 @@ module Api
         HouseholdFinance::SpendingReport.new(current_household, start_on: range.fetch(:start_on), end_on: range.fetch(:end_on)).as_json
       rescue ArgumentError
         nil
+      end
+
+      def annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager)
+        return annual_budget_manager.plan_data if annual_budget_manager.year == transaction_draft.occurred_on.year
+
+        HouseholdFinance::AnnualBudgetManager.new(current_household, year: transaction_draft.occurred_on.year).plan_data
       end
 
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer)
