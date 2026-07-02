@@ -42,7 +42,7 @@ module HouseholdFinance
           category_payload(category, periods, allocations_by_category_and_period, actuals)
         end,
         monthly_income: monthly_income_by_period(periods),
-        pending_transaction_drafts: pending_drafts_payload,
+        pending_transaction_drafts: pending_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
       }
@@ -276,8 +276,12 @@ module HouseholdFinance
       }
     end
 
-    def pending_drafts_payload
-      household.transaction_drafts.pending.includes(:budget_category).recent_first.limit(20).map { |draft| draft_payload(draft) }
+    def pending_drafts_payload(budget_year)
+      household.transaction_drafts.pending.includes(:budget_category)
+        .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
+        .recent_first
+        .limit(20)
+        .map { |draft| draft_payload(draft) }
     end
 
     def recent_transactions_payload(periods)

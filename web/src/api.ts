@@ -697,10 +697,11 @@ export type MiaMessageResponse = {
   spending_report?: SpendingReport | null
 }
 
-export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number): Promise<MiaMessageResponse> {
+export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number): Promise<MiaMessageResponse> {
   return postJson<MiaMessageResponse>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
     message,
     ...(realWorkspace && year ? { year } : {}),
+    ...(realWorkspace && month ? { month } : {}),
     messages: history.slice(-12).map((entry) => ({
       role: entry.role,
       content: entry.content,

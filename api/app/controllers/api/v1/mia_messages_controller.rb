@@ -63,6 +63,12 @@ module Api
         params[:year].to_i.clamp(2000, 2100)
       end
 
+      def budget_month_param
+        return Date.current.month if params[:month].blank?
+
+        params[:month].to_i.clamp(1, 12)
+      end
+
       def spending_report_for(content)
         range = HouseholdFinance::SpendingReportQuery.new(content).range
         return unless range
@@ -78,7 +84,7 @@ module Api
         return HouseholdFinance::SpendingReportNarrator.new(spending_report).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
 
-        context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan).call
+        context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan, reference_month: budget_month_param).call
         ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: false)
       end
 
