@@ -497,7 +497,7 @@ function App() {
         stack_key: newBudgetCategory.stack_key,
         monthly_amount: newBudgetCategory.monthly_amount || 0,
       }, selectedBudgetYear)
-      setData({ ...data, budget })
+      setData((current) => current ? { ...current, budget } : current)
       setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
@@ -517,7 +517,7 @@ function App() {
     setBudgetError(null)
     try {
       const budget = await fetchBudget(normalizedYear)
-      setData({ ...data, budget })
+      setData((current) => current ? { ...current, budget } : current)
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
     } finally {
@@ -570,7 +570,7 @@ function App() {
     setBudgetError(null)
     try {
       const budget = await archiveBudgetCategory(row.id, selectedBudgetYear)
-      setData({ ...data, budget })
+      setData((current) => current ? { ...current, budget } : current)
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
@@ -586,7 +586,7 @@ function App() {
     setBudgetError(null)
     try {
       const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear)
-      setData({ ...data, budget })
+      setData((current) => current ? { ...current, budget } : current)
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
