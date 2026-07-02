@@ -9,7 +9,7 @@ class TransactionDraft < ApplicationRecord
 
   validates :occurred_on, presence: true
   validates :merchant, presence: true, length: { maximum: 120 }
-  validates :total_amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :total_amount_cents, numericality: { only_integer: true, greater_than: 0 }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :status, inclusion: { in: STATUSES }
 
