@@ -351,6 +351,23 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes messages.last.fetch("content"), "Ignored Starbucks for $40"
   end
 
+  test "mia message response preserves requested budget year" do
+    user = create_user(email: "mia-budget-year@example.com")
+    prior_year = Date.current.year - 1
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "Can I buy the purse?", year: prior_year },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    assert_equal prior_year, JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("year")
+  end
+
   test "budget mutation responses preserve the edited year" do
     user = create_user(email: "budget-year-response@example.com")
     prior_year = Date.current.year - 1

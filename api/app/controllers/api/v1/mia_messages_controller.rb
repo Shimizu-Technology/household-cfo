@@ -14,7 +14,7 @@ module Api
 
         session = current_chat_session
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
-        annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household)
+        annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         annual_plan = annual_budget_manager.plan_data
         budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
         spending_report = budget_answer ? nil : spending_report_for(content)
@@ -52,6 +52,12 @@ module Api
       end
 
       private
+
+      def budget_year_param
+        return Date.current.year if params[:year].blank?
+
+        params[:year].to_i.clamp(2000, 2100)
+      end
 
       def spending_report_for(content)
         range = HouseholdFinance::SpendingReportQuery.new(content).range

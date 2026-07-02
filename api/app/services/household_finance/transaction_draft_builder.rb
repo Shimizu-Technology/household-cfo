@@ -10,7 +10,7 @@ module HouseholdFinance
     def initialize(household, message, annual_budget_manager: nil, plan_prepared: false)
       @household = household
       @message = message.to_s.squish
-      prepared_manager = annual_budget_manager if annual_budget_manager && occurred_on.year == Date.current.year
+      prepared_manager = annual_budget_manager if annual_budget_manager&.year == occurred_on.year
       @annual_budget_manager = prepared_manager || AnnualBudgetManager.new(household, year: occurred_on.year)
       @plan_prepared = plan_prepared && prepared_manager.present?
     end

@@ -409,7 +409,7 @@ function App() {
     setMessages((current) => [...current, userMessage])
 
     try {
-      const response = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace)
+      const response = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace, selectedBudgetYear)
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,

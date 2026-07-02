@@ -7,6 +7,8 @@ module HouseholdFinance
       SUPPORTED_YEARS.cover?(value.to_i)
     end
 
+    attr_reader :year
+
     def initialize(household, year: Date.current.year)
       @household = household
       @year = year.to_i
@@ -134,7 +136,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :year
+    attr_reader :household
 
     def ensure_plan_records!
       raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(year)
