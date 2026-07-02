@@ -160,6 +160,8 @@ module HouseholdFinance
     def period_label
       if start_on == start_on.beginning_of_month && end_on == start_on.end_of_month
         start_on.strftime("%B %Y")
+      elsif start_on == start_on.beginning_of_year && end_on == Date.current
+        "#{start_on.year} year to date"
       elsif start_on == start_on.beginning_of_year && end_on == start_on.end_of_year
         start_on.year.to_s
       else

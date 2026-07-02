@@ -54,6 +54,7 @@ import type {
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
+  RecentTransaction,
   SpendingReport,
   TransactionDraft,
   UserRole,
@@ -3547,21 +3548,134 @@ function SpendingReportLedger({ report }: { report: SpendingReport }) {
         <span>{currency.format(report.totals.planned)} planned</span>
         <span>{currency.format(report.totals.pending)} pending</span>
       </div>
-      <div className="recent-transaction-list">
-        <p className="eyebrow">Confirmed transaction ledger</p>
-        {report.transactions.length === 0 ? (
-          <p className="empty-ledger-copy">No confirmed transactions for this period yet.</p>
-        ) : report.transactions.map((transaction) => (
-          <div className="recent-transaction-row" key={transaction.id}>
-            <span>{formatShortDate(transaction.occurred_on)}</span>
-            <strong>{transaction.merchant}</strong>
-            <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
-            <b>{currency.format(transaction.amount)}</b>
-          </div>
-        ))}
-      </div>
+      <TransactionLedger
+        title="Confirmed transaction ledger"
+        transactions={report.transactions}
+        emptyMessage="No confirmed transactions for this period yet."
+        pageSize={8}
+      />
     </div>
   )
+}
+
+function TransactionLedger({
+  title,
+  transactions,
+  emptyMessage,
+  pageSize = 8,
+}: {
+  title: string
+  transactions: RecentTransaction[]
+  emptyMessage: string
+  pageSize?: number
+}) {
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'amount_desc' | 'amount_asc' | 'merchant'>('newest')
+  const [page, setPage] = useState(1)
+  const categoryOptions = useMemo(() => {
+    const names = new Set<string>()
+    transactions.forEach((transaction) => transaction.categories.forEach((category) => names.add(category)))
+    return Array.from(names).sort((a, b) => a.localeCompare(b))
+  }, [transactions])
+  const filteredTransactions = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return [...transactions]
+      .filter((transaction) => categoryFilter === 'all' || transaction.categories.includes(categoryFilter))
+      .filter((transaction) => {
+        if (!query) return true
+
+        const haystack = [
+          transaction.merchant,
+          transaction.categories.join(' '),
+          transaction.occurred_on,
+          formatShortDate(transaction.occurred_on),
+          String(transaction.amount),
+        ].join(' ').toLowerCase()
+        return haystack.includes(query)
+      })
+      .sort((left, right) => sortTransactions(left, right, sortOrder))
+  }, [categoryFilter, search, sortOrder, transactions])
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pageStart = (safePage - 1) * pageSize
+  const visibleTransactions = filteredTransactions.slice(pageStart, pageStart + pageSize)
+  const filteredTotal = filteredTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
+
+  return (
+    <div className="recent-transaction-list transaction-ledger-list">
+      <div className="transaction-ledger-heading">
+        <div>
+          <p className="eyebrow">{title}</p>
+          {transactions.length > 0 && (
+            <span>
+              Showing {visibleTransactions.length === 0 ? 0 : pageStart + 1}–{pageStart + visibleTransactions.length} of {filteredTransactions.length} · {currency.format(filteredTotal)} selected
+            </span>
+          )}
+        </div>
+        {transactions.length > 0 && (
+          <div className="transaction-ledger-controls" aria-label={`${title} filters`}>
+            <label>
+              <span className="sr-only">Search transactions</span>
+              <input value={search} placeholder="Search merchant" onChange={(event) => { setSearch(event.currentTarget.value); setPage(1) }} />
+            </label>
+            <label>
+              <span className="sr-only">Filter by category</span>
+              <select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.currentTarget.value); setPage(1) }}>
+                <option value="all">All categories</option>
+                {categoryOptions.map((category) => <option value={category} key={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">Sort transactions</span>
+              <select value={sortOrder} onChange={(event) => { setSortOrder(event.currentTarget.value as typeof sortOrder); setPage(1) }}>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="amount_desc">Amount high to low</option>
+                <option value="amount_asc">Amount low to high</option>
+                <option value="merchant">Merchant A to Z</option>
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
+      {transactions.length === 0 ? (
+        <p className="empty-ledger-copy">{emptyMessage}</p>
+      ) : visibleTransactions.length === 0 ? (
+        <p className="empty-ledger-copy">No confirmed transactions match those filters.</p>
+      ) : visibleTransactions.map((transaction) => (
+        <div className="recent-transaction-row" key={transaction.id}>
+          <span>{formatShortDate(transaction.occurred_on)}</span>
+          <strong>{transaction.merchant}</strong>
+          <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
+          <b>{currency.format(transaction.amount)}</b>
+        </div>
+      ))}
+      {filteredTransactions.length > pageSize && (
+        <div className="transaction-ledger-pagination" aria-label={`${title} pagination`}>
+          <button type="button" className="secondary-button" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <span>Page {safePage} of {totalPages}</span>
+          <button type="button" className="secondary-button" disabled={safePage === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function sortTransactions(left: RecentTransaction, right: RecentTransaction, sortOrder: 'newest' | 'oldest' | 'amount_desc' | 'amount_asc' | 'merchant') {
+  switch (sortOrder) {
+    case 'oldest':
+      return left.occurred_on.localeCompare(right.occurred_on) || left.id - right.id
+    case 'amount_desc':
+      return right.amount - left.amount || right.occurred_on.localeCompare(left.occurred_on)
+    case 'amount_asc':
+      return left.amount - right.amount || right.occurred_on.localeCompare(left.occurred_on)
+    case 'merchant':
+      return left.merchant.localeCompare(right.merchant) || right.occurred_on.localeCompare(left.occurred_on)
+    case 'newest':
+    default:
+      return right.occurred_on.localeCompare(left.occurred_on) || right.id - left.id
+  }
 }
 
 function draftOccursInMonth(draft: TransactionDraft, month: BudgetMonth) {
@@ -3730,6 +3844,25 @@ function AnnualBudgetPlanner({
     })
   }
 
+  function renderBudgetEditActions() {
+    if (!isRealWorkspace) return null
+
+    return (
+      <div className="annual-plan-edit-actions">
+        {isEditingBudget ? (
+          <>
+            <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelBudgetEdit}>Cancel</button>
+            <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+              {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
+            </button>
+          </>
+        ) : (
+          <button type="button" onClick={beginBudgetEdit}>Edit annual budget</button>
+        )}
+      </div>
+    )
+  }
+
   return (
     <article className="panel annual-budget-panel">
       <div className="annual-budget-heading">
@@ -3751,20 +3884,7 @@ function AnnualBudgetPlanner({
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
           <span>{plan.pending_transaction_drafts.length} pending drafts</span>
-          {isRealWorkspace && (
-            <div className="annual-plan-edit-actions">
-              {isEditingBudget ? (
-                <>
-                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelBudgetEdit}>Cancel</button>
-                  <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
-                    {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
-                  </button>
-                </>
-              ) : (
-                <button type="button" onClick={beginBudgetEdit}>Edit annual budget</button>
-              )}
-            </div>
-          )}
+          {renderBudgetEditActions()}
         </div>
       </div>
 
@@ -3796,6 +3916,15 @@ function AnnualBudgetPlanner({
         error={spendingReportError}
       />
 
+      <div className="annual-budget-editor-toolbar">
+        <div>
+          <p className="eyebrow">Annual plan editor</p>
+          <strong>{isEditingBudget ? 'Editing is on' : 'Budget is read-only'}</strong>
+          <span>{isEditingBudget ? 'Change monthly cells, rename categories, or add a new row below.' : 'Turn on editing when you want to change the annual plan.'}</span>
+        </div>
+        {renderBudgetEditActions()}
+      </div>
+
       <form className="annual-category-form" onSubmit={onCreateCategory} aria-disabled={!editableBudget}>
         <label>
           <span>New category</span>
@@ -3819,35 +3948,6 @@ function AnnualBudgetPlanner({
       </form>
 
       {error && <p className="setup-error" role="alert">{error}</p>}
-
-      {archivedCategories.length > 0 && (
-        <details className="archived-categories-panel">
-          <summary>
-            <span>Archived categories</span>
-            <strong>{archivedCategories.length}</strong>
-          </summary>
-          <p>Archived categories stay out of the active budget, operating view, and Mia's spending reports until restored.</p>
-          <div className="archived-category-list">
-            {archivedCategories.map((category) => (
-              <div className="archived-category-row" key={category.id}>
-                <div>
-                  <strong>{category.name}</strong>
-                  <span>{category.stack_label}</span>
-                </div>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={!editableBudget || action === `restore-category:${category.id}`}
-                  onClick={() => onRestoreCategory(category.id)}
-                >
-                  {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
-                </button>
-              </div>
-            ))}
-          </div>
-          {!editableBudget && <small>Click Edit annual budget to restore archived categories.</small>}
-        </details>
-      )}
 
       <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
         <table className="annual-budget-table">
@@ -3920,18 +4020,42 @@ function AnnualBudgetPlanner({
         </table>
       </div>
 
+      {archivedCategories.length > 0 && (
+        <details className="archived-categories-panel">
+          <summary>
+            <span>Archived categories</span>
+            <strong>{archivedCategories.length}</strong>
+          </summary>
+          <p>Archived categories stay out of the active budget, operating view, and Mia's spending reports until restored.</p>
+          <div className="archived-category-list">
+            {archivedCategories.map((category) => (
+              <div className="archived-category-row" key={category.id}>
+                <div>
+                  <strong>{category.name}</strong>
+                  <span>{category.stack_label}</span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!editableBudget || action === `restore-category:${category.id}`}
+                  onClick={() => onRestoreCategory(category.id)}
+                >
+                  {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
+                </button>
+              </div>
+            ))}
+          </div>
+          {!editableBudget && <small>Click Edit annual budget to restore archived categories.</small>}
+        </details>
+      )}
+
       {plan.recent_transactions.length > 0 && (
-        <div className="recent-transaction-list">
-          <p className="eyebrow">Recent confirmed transactions</p>
-          {plan.recent_transactions.map((transaction) => (
-            <div className="recent-transaction-row" key={transaction.id}>
-              <span>{formatShortDate(transaction.occurred_on)}</span>
-              <strong>{transaction.merchant}</strong>
-              <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
-              <b>{currency.format(transaction.amount)}</b>
-            </div>
-          ))}
-        </div>
+        <TransactionLedger
+          title="Recent confirmed transactions"
+          transactions={plan.recent_transactions}
+          emptyMessage="No confirmed transactions for this budget year yet."
+          pageSize={8}
+        />
       )}
     </article>
   )

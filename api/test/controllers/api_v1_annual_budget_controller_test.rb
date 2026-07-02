@@ -591,6 +591,68 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 45, body.fetch("spending_report").fetch("totals").fetch("actual")
   end
 
+  test "mia treats broad year check-ins as year-to-date spending reports" do
+    user = create_user(email: "mia-year-check-in@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    period = manager.current_period_for(Date.current)
+    transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current,
+      merchant: "Cafe",
+      total_amount_cents: 4_500,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "How am I looking this year?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_equal Date.current.beginning_of_year.iso8601, body.fetch("spending_report").fetch("start_on")
+    assert_equal Date.current.iso8601, body.fetch("spending_report").fetch("end_on")
+    assert_includes body.fetch("assistant_message").fetch("content"), "For #{Date.current.year} year to date"
+    assert_includes body.fetch("assistant_message").fetch("content"), "confirmed spending is $45"
+  end
+
+  test "mia can answer merchant count and spend questions from confirmed transactions" do
+    user = create_user(email: "mia-merchant-report@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    period = manager.current_period_for(Date.current)
+
+    [ [ "McDonald's", 2_500 ], [ "McDonald's", 500 ], [ "Coffee Bean", 900 ] ].each do |merchant, amount_cents|
+      transaction = household.household_transactions.create!(
+        budget_period: period,
+        occurred_on: Date.current,
+        merchant: merchant,
+        total_amount_cents: amount_cents,
+        source_type: "manual_ui",
+        status: "confirmed"
+      )
+      transaction.transaction_splits.create!(budget_category: category, amount_cents: amount_cents)
+    end
+
+    post "/api/v1/mia/messages",
+      params: { message: "How many times did I go to McDonalds this month and how much did I spend?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("spending_report")
+    content = body.fetch("assistant_message").fetch("content")
+    assert_includes content, "2 confirmed McDonald's transactions"
+    assert_includes content, "totaling $30"
+    assert_includes content, "Dining Out $30"
+  end
+
   test "annual plan recent transactions are scoped to the plan year" do
     user = create_user(email: "recent-transaction-year@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

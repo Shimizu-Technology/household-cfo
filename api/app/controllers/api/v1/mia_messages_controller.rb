@@ -15,15 +15,16 @@ module Api
         session = current_chat_session
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
-        spending_report = spending_report_for(content)
+        transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
+        spending_report = transaction_lookup_answer ? nil : spending_report_for(content)
         annual_plan = nil
         budget_answer = nil
         transaction_draft = nil
-        unless spending_report
+        unless transaction_lookup_answer || spending_report
           annual_plan = annual_budget_manager.plan_data
           budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
         end
-        unless spending_report || budget_answer
+        unless transaction_lookup_answer || spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
             current_household,
             content,
@@ -32,7 +33,7 @@ module Api
           ).call
           annual_plan = annual_budget_manager.plan_data if transaction_draft
         end
-        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer)
+        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
@@ -71,7 +72,8 @@ module Api
         nil
       end
 
-      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer)
+        return transaction_lookup_answer if transaction_lookup_answer
         return budget_answer if budget_answer
         return HouseholdFinance::SpendingReportNarrator.new(spending_report).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
