@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_03_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -51,7 +51,6 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_010000) do
     t.datetime "updated_at", null: false
     t.index "household_id, lower((name)::text)", name: "index_budget_categories_on_household_lower_name", unique: true
     t.index ["household_id", "active", "sort_order"], name: "idx_on_household_id_active_sort_order_01ee1248fa"
-    t.index ["household_id", "name"], name: "index_budget_categories_on_household_id_and_name", unique: true
     t.index ["household_id"], name: "index_budget_categories_on_household_id"
     t.check_constraint "char_length(name::text) <= 80", name: "budget_categories_name_length"
     t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[])", name: "budget_categories_stack_key_valid"
