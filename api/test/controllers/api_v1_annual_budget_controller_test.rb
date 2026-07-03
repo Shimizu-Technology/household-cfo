@@ -373,6 +373,23 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ draft.fetch("id") ], plan.fetch("pending_transaction_drafts").map { |pending| pending.fetch("id") }
   end
 
+  test "generic Mia fallback uses the viewed budget year" do
+    user = create_user(email: "generic-mia-prior-year@example.com")
+    prior_year = Date.current.year - 1
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household, year: prior_year).create_category!(name: "Prior Dining", stack_key: "discretionary", monthly_amount: 75)
+
+    post "/api/v1/mia/messages",
+      params: { year: prior_year, month: 7, message: "Tell me how to think about money routines." },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_equal prior_year, body.fetch("budget").fetch("annual_plan").fetch("year")
+    assert_includes body.fetch("budget").fetch("annual_plan").fetch("rows").map { |row| row.fetch("name") }, "Prior Dining"
+  end
+
   test "confirming with a category from another household returns validation errors" do
     user = create_user(email: "foreign-category-draft@example.com")
     other_user = create_user(email: "foreign-category-other@example.com")

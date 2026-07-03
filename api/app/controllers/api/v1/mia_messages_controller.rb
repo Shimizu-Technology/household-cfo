@@ -45,6 +45,9 @@ module Api
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end
+        unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer || transaction_draft
+          annual_plan ||= annual_budget_manager.plan_data
+        end
         assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
