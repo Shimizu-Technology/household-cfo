@@ -409,9 +409,9 @@ module HouseholdFinance
     end
 
     def ensure_category_can_archive!(category)
-      return unless category.transaction_splits.exists? || category.transaction_drafts.pending.exists?
+      return unless category.transaction_drafts.pending.exists?
 
-      category.errors.add(:base, "Category has transaction history or pending drafts. Rename or reclassify it instead of archiving.")
+      category.errors.add(:base, "Category has pending drafts. Confirm, correct, or ignore those drafts before archiving.")
       raise ActiveRecord::RecordInvalid, category
     end
 

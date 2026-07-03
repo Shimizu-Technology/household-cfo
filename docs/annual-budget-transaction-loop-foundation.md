@@ -18,11 +18,12 @@ This PR adds the first persisted foundation for the Household CFO annual budget 
 
 - Mia can draft a transaction from chat, but the participant must confirm it before actuals change.
 - Mia answers budget/report questions through the Response Contract v1: answer directly, name the data basis, keep planned budget separate from confirmed actuals and pending drafts, and admit when approved data is missing.
+- Mia keeps compacted conversation continuity on the server so follow-up questions can use the active/open topic across long chats, tomorrow pickup, and same-user device changes without treating chat memory as financial truth.
 - Drafts are created from simple spending language only; this is not statement reconciliation yet.
 - Confirmed transactions update budget actuals through `TransactionSplit` rows.
 - Drafts confirmed exactly as proposed end as `confirmed`; drafts confirmed after user edits end as `corrected` with the confirmed transaction attached for audit.
-- Budget categories are archived/restored instead of hard deleted; categories with confirmed history or pending drafts must be renamed/reclassified instead of archived.
-- Archived categories are excluded from active operating totals unless legacy/inconsistent data already has confirmed actuals on them; those historical actuals stay visible and marked archived instead of disappearing from reports.
+- Budget categories are archived/restored instead of hard deleted; categories with pending drafts must be confirmed, corrected, or ignored before archiving.
+- Categories with confirmed transaction history can be archived; historical actuals stay visible and marked archived instead of disappearing from reports.
 - Budget planning is editable only in authenticated real workspaces.
 - The annual plan bootstraps from approved setup/imported expense items, not raw documents.
 

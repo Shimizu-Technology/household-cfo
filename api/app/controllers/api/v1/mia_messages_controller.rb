@@ -14,22 +14,25 @@ module Api
 
         session = current_chat_session
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
+        conversation_context = HouseholdFinance::ConversationContextBuilder.new(session).call
+        followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
+        routed_content = followup.message
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
-        coach_answer = HouseholdFinance::MiaCoachAnswerer.new(
+        coach_answer = followup.direct_answer || HouseholdFinance::MiaCoachAnswerer.new(
           current_household,
-          content,
+          routed_content,
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param
         ).call
-        transaction_lookup_answer = coach_answer ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
-        pending_draft_answer = (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, content).call
-        spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(content)
+        transaction_lookup_answer = coach_answer ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
+        pending_draft_answer = (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
+        spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(routed_content)
         annual_plan = coach_answer ? annual_budget_manager.plan_data : nil
         budget_answer = nil
         transaction_draft = nil
         unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report
           annual_plan = annual_budget_manager.plan_data
-          budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
+          budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(routed_content, annual_plan: annual_plan).call
         end
         unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
@@ -40,13 +43,15 @@ module Api
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end
-        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer)
+        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
             session.chat_messages.create!(role: "assistant", content: assistant_content)
           ]
         end
+
+        compact_conversation(session, user_message, assistant_message, follow_up: followup.follow_up?)
 
         render json: {
           user_message: user_message.as_api_json(author: "You"),
@@ -58,7 +63,10 @@ module Api
       end
 
       def destroy
-        current_household.chat_sessions.find_by(user: current_user)&.chat_messages&.delete_all
+        if (session = current_household.chat_sessions.find_by(user: current_user))
+          session.chat_messages.delete_all
+          session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
+        end
         head :no_content
       end
 
@@ -91,7 +99,7 @@ module Api
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: transaction_draft.occurred_on.year).plan_data
       end
 
-      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
         return coach_answer if coach_answer
         return transaction_lookup_answer if transaction_lookup_answer
         return pending_draft_answer if pending_draft_answer
@@ -99,7 +107,12 @@ module Api
         return HouseholdFinance::SpendingReportNarrator.new(spending_report, prompt: content).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
 
-        context = HouseholdFinance::MiaContextBuilder.new(current_household, annual_plan: annual_plan, reference_month: budget_month_param).call
+        context = HouseholdFinance::MiaContextBuilder.new(
+          current_household,
+          annual_plan: annual_plan,
+          reference_month: budget_month_param,
+          conversation_context: conversation_context
+        ).call
         ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: false)
       end
 
@@ -128,6 +141,15 @@ module Api
           stack_label: draft.budget_category&.stack_label,
           summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 2)}"
         }
+      end
+
+      def compact_conversation(session, user_message, assistant_message, follow_up: false)
+        HouseholdFinance::ConversationCompactor.new(
+          session,
+          user_message: user_message,
+          assistant_message: assistant_message,
+          follow_up: follow_up
+        ).call
       end
 
       def current_chat_session

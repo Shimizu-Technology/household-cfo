@@ -57,6 +57,13 @@ Deterministic financial answers:
 - Deterministic narrators should still sound like Mia by naming the basis of the answer and giving one next move.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
 
+Conversation continuity:
+
+- Mia keeps a server-side compacted summary on each chat session, including active/open topics, amounts discussed, latest recommendation, and next move.
+- The compacted conversation state travels across devices for the same signed-in user because it is stored in Postgres with the chat session.
+- Conversation continuity is context only, not financial truth. Confirmed actuals, balances, plans, transactions, due dates, and approved document facts still come from structured records.
+- Clearing Mia chat also clears the compacted conversation summary and open-topic state.
+
 Document context:
 
 - Mia receives approved structured facts and source/freshness metadata, not raw private files or S3 keys.

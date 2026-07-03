@@ -3,10 +3,11 @@ module HouseholdFinance
     MAX_HOUSEHOLD_NAME_LENGTH = 80
     MAX_PRIMARY_GOAL_LENGTH = 240
 
-    def initialize(household, annual_plan: nil, reference_month: Date.current.month)
+    def initialize(household, annual_plan: nil, reference_month: Date.current.month, conversation_context: nil)
       @household = household
       @annual_plan = annual_plan
       @reference_month = reference_month.to_i.clamp(1, 12)
+      @conversation_context = conversation_context
       @snapshot = SnapshotBuilder.new(household).call
     end
 
@@ -16,7 +17,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :snapshot
+    attr_reader :household, :snapshot, :conversation_context
 
     def context_payload
       {
@@ -38,7 +39,8 @@ module HouseholdFinance
         },
         expense_stack_totals: expense_stack_totals,
         annual_budget: annual_budget_context,
-        documents: document_context
+        documents: document_context,
+        conversation_continuity: conversation_context
       }
     end
 

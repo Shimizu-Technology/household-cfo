@@ -572,7 +572,7 @@ function App() {
   async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
     if (!isRealWorkspace || !data) return
 
-    const confirmed = window.confirm(`Archive ${row.name}? Planned amounts will be hidden, but transaction history will not be deleted.`)
+    const confirmed = window.confirm(`Archive ${row.name}? It will leave active planning, but confirmed transaction history will not be deleted.`)
     if (!confirmed) return
 
     setBudgetAction(`archive-category:${row.id}`)
@@ -3724,14 +3724,14 @@ function draftOccursInMonth(draft: TransactionDraft, month: BudgetMonth) {
 function CategoryEditCell({
   row,
   draft,
-  hasProtectedData,
+  hasPendingDrafts,
   action,
   onChange,
   onArchive,
 }: {
   row: BudgetCategoryRow
   draft: { name: string; stack_key: BudgetStackKey }
-  hasProtectedData: boolean
+  hasPendingDrafts: boolean
   action: string | null
   onChange: (value: { name?: string; stack_key?: BudgetStackKey }) => void
   onArchive: () => void
@@ -3754,13 +3754,13 @@ function CategoryEditCell({
       <button
         type="button"
         className="archive-category-button"
-        disabled={hasProtectedData || action === `archive-category:${row.id}`}
-        title={hasProtectedData ? 'This category has transaction history or pending drafts. Rename or reclassify it instead.' : 'Archive this category'}
+        disabled={hasPendingDrafts || action === `archive-category:${row.id}`}
+        title={hasPendingDrafts ? 'This category has pending drafts. Confirm, correct, or ignore those drafts before archiving.' : 'Archive this category'}
         onClick={onArchive}
       >
         {action === `archive-category:${row.id}` ? 'Archiving' : 'Archive'}
       </button>
-      {hasProtectedData && <small>Has activity — keep it, rename it, or move its stack.</small>}
+      {hasPendingDrafts && <small>Pending drafts must be resolved before archiving.</small>}
     </div>
   )
 }
@@ -4021,11 +4021,11 @@ function AnnualBudgetPlanner({
             ) : plan.rows.map((row) => (
               <tr key={row.id}>
                 <th scope="row">
-                  {editableBudget ? (
+                  {editableBudget && row.active ? (
                     <CategoryEditCell
                       row={row}
                       draft={categoryDraftValue(row, categoryDrafts)}
-                      hasProtectedData={row.actual_total > 0 || plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
+                      hasPendingDrafts={plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
                       action={action}
                       onChange={(value) => updateCategoryDraft(row, value)}
                       onArchive={() => onArchiveCategory(row)}
@@ -4033,7 +4033,7 @@ function AnnualBudgetPlanner({
                   ) : (
                     <>
                       <strong>{row.name}</strong>
-                      <span>{row.stack_label}</span>
+                      <span>{row.stack_label}{row.active ? '' : ' · Archived'}</span>
                     </>
                   )}
                 </th>
@@ -4045,7 +4045,7 @@ function AnnualBudgetPlanner({
 
                   return (
                     <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
-                      {editableBudget && !allocationMissing ? (
+                      {editableBudget && row.active && !allocationMissing ? (
                         <input
                           key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
                           aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
@@ -4079,7 +4079,7 @@ function AnnualBudgetPlanner({
             <span>Archived categories</span>
             <strong>{archivedCategories.length}</strong>
           </summary>
-          <p>Archived categories stay out of the active budget, operating view, and Mia's spending reports until restored.</p>
+          <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
           <div className="archived-category-list">
             {archivedCategories.map((category) => (
               <div className="archived-category-row" key={category.id}>

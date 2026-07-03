@@ -49,6 +49,37 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal "$60", annual_budget.fetch("selected_month_budget_rows").first.fetch("planned")
   end
 
+  test "includes compacted conversation continuity as context only" do
+    user = User.create!(
+      clerk_id: "clerk_#{SecureRandom.hex(6)}",
+      email: "conversation-context@example.com",
+      role: "participant",
+      invitation_status: "accepted"
+    )
+    household = Household.create!(created_by_user: user, name: "Conversation Context Household")
+    household.household_memberships.create!(user: user, role: "owner")
+    conversation_context = {
+      context_type: "conversation_continuity",
+      memory_rule: "Conversation continuity is context only, not financial truth.",
+      rolling_summary: "Open topic: car repair for work.",
+      active_topic: { title: "Car repair", type: "car_repair", amount_label: "$640" },
+      open_topics: [ { title: "Car repair", type: "car_repair", amount_label: "$640" } ]
+    }
+
+    payload = JSON.parse(
+      HouseholdFinance::MiaContextBuilder.new(
+        household,
+        annual_plan: annual_plan(Date.current.year),
+        conversation_context: conversation_context
+      ).call
+    )
+
+    continuity = payload.fetch("conversation_continuity")
+    assert_equal "conversation_continuity", continuity.fetch("context_type")
+    assert_includes continuity.fetch("memory_rule"), "not financial truth"
+    assert_equal "Car repair", continuity.dig("active_topic", "title")
+  end
+
   test "includes document freshness without raw source details" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

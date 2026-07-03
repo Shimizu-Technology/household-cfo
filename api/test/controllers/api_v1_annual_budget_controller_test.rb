@@ -196,7 +196,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes plan.fetch("archived_categories").map { |row| row.fetch("name") }, "Testing Only"
   end
 
-  test "category archive is blocked when transaction history exists" do
+  test "category archive is allowed when transaction history exists and keeps actuals visible" do
     user = create_user(email: "category-history@example.com")
     patch "/api/v1/workspace/setup",
       params: { workspace: { flexible_spend: 1_000 } },
@@ -219,8 +219,34 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       headers: auth_headers(user),
       as: :json
 
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("category").fetch("active")
+    assert_equal false, BudgetCategory.find(category_id).active
+    archived_row = body.fetch("budget").fetch("annual_plan").fetch("rows").find { |row| row.fetch("id") == category_id }
+    assert_equal false, archived_row.fetch("active")
+    assert_equal 25, archived_row.fetch("actual_total")
+  end
+
+  test "category archive is blocked while pending drafts exist" do
+    user = create_user(email: "category-pending-draft@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+    category_id = JSON.parse(response.body).fetch("transaction_draft").fetch("category_id")
+
+    delete "/api/v1/budget_categories/#{category_id}",
+      headers: auth_headers(user),
+      as: :json
+
     assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Category has transaction history or pending drafts. Rename or reclassify it instead of archiving."
+    assert_includes JSON.parse(response.body).fetch("errors"), "Category has pending drafts. Confirm, correct, or ignore those drafts before archiving."
     assert_equal true, BudgetCategory.find(category_id).active
   end
 
