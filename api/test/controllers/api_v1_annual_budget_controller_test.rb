@@ -1262,6 +1262,38 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Prior Cafe" ], recent_merchants
   end
 
+  test "confirming an uncategorized draft restores archived Uncategorized fallback category" do
+    user = create_user(email: "archived-uncategorized-confirm@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    archived_category = manager.create_category!(name: "Uncategorized", stack_key: "discretionary", monthly_amount: 0)
+    manager.archive_category!(archived_category)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Cash Store",
+      total_amount_cents: 1_200,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $12 at Cash Store"
+    )
+
+    assert_nil household.budget_categories.active.where("LOWER(name) = ?", "uncategorized").first
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    restored_category = archived_category.reload
+    assert restored_category.active?
+    assert_equal restored_category, draft.reload.confirmed_transaction.transaction_splits.sole.budget_category
+    annual_plan = JSON.parse(response.body).fetch("workspace").fetch("budget").fetch("annual_plan")
+    row = annual_plan.fetch("rows").find { |candidate| candidate.fetch("name") == "Uncategorized" }
+    assert row.fetch("active")
+    assert_equal 12, row.fetch("months").fetch(Date.current.month - 1).fetch("actual")
+  end
+
   test "confirming a prior year draft returns the prior year annual plan" do
     user = create_user(email: "prior-year-confirm@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

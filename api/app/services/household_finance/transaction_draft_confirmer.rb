@@ -89,7 +89,16 @@ module HouseholdFinance
 
     def fallback_category
       annual_budget_manager.ensure_plan!
-      draft.household.budget_categories.active.ordered.first || annual_budget_manager.create_category!(name: "Uncategorized", stack_key: "discretionary")
+      draft.household.budget_categories.active.ordered.first ||
+        restore_archived_uncategorized_category ||
+        annual_budget_manager.create_category!(name: "Uncategorized", stack_key: "discretionary")
+    end
+
+    def restore_archived_uncategorized_category
+      category = draft.household.budget_categories.archived.where("LOWER(name) = ?", "uncategorized").ordered.first
+      return unless category
+
+      annual_budget_manager.restore_category!(category)
     end
 
     def annual_budget_manager
