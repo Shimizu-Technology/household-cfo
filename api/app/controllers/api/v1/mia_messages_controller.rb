@@ -18,16 +18,17 @@ module Api
         followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
         routed_content = followup.message
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
-        coach_answer = followup.direct_answer || HouseholdFinance::MiaCoachAnswerer.new(
+        coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
           current_household,
           routed_content,
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param
-        ).call
+        )
+        coach_answer = followup.direct_answer || coach_answerer.call
         transaction_lookup_answer = coach_answer ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
         pending_draft_answer = (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
         spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(routed_content)
-        annual_plan = coach_answer ? annual_budget_manager.plan_data : nil
+        annual_plan = coach_answer ? coach_answerer.prepared_annual_plan : nil
         budget_answer = nil
         transaction_draft = nil
         unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report
@@ -40,7 +41,7 @@ module Api
             current_household,
             content,
             annual_budget_manager: annual_budget_manager,
-            plan_prepared: true
+            plan_prepared: annual_plan.present?
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end

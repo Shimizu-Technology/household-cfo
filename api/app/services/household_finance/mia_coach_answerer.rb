@@ -45,6 +45,10 @@ module HouseholdFinance
       memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
+    def prepared_annual_plan
+      @active_plan if defined?(@active_plan)
+    end
+
     private
 
     attr_reader :household, :message, :annual_budget_manager, :reference_month
