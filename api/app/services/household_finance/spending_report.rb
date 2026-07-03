@@ -81,13 +81,30 @@ module HouseholdFinance
     end
 
     def allocation_sums
-      @allocation_sums ||= BudgetAllocation
-        .joins(:budget_category, budget_period: :budget_year)
-        .where(budget_categories: { household_id: household.id, id: report_category_ids })
-        .where(budget_years: { household_id: household.id })
-        .where("budget_periods.starts_on <= ? AND budget_periods.ends_on >= ?", end_on, start_on)
-        .group(:budget_category_id)
-        .sum(:planned_amount_cents)
+      @allocation_sums ||= begin
+        sums = Hash.new(0.to_r)
+        BudgetAllocation
+          .joins(:budget_category, budget_period: :budget_year)
+          .includes(:budget_period)
+          .where(budget_categories: { household_id: household.id, id: report_category_ids })
+          .where(budget_years: { household_id: household.id })
+          .where("budget_periods.starts_on <= ? AND budget_periods.ends_on >= ?", end_on, start_on)
+          .find_each do |allocation|
+            sums[allocation.budget_category_id] += prorated_planned_cents(allocation)
+          end
+        sums.transform_values(&:round)
+      end
+    end
+
+    def prorated_planned_cents(allocation)
+      period = allocation.budget_period
+      overlap_start = [ period.starts_on, start_on ].max
+      overlap_end = [ period.ends_on, end_on ].min
+      return 0.to_r if overlap_end < overlap_start
+
+      overlap_days = (overlap_end - overlap_start).to_i + 1
+      period_days = (period.ends_on - period.starts_on).to_i + 1
+      (allocation.planned_amount_cents * overlap_days).to_r / period_days
     end
 
     def actual_sums

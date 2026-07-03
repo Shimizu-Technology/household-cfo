@@ -564,6 +564,21 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "Starbucks" ], report.fetch("pending_drafts").map { |draft| draft.fetch("merchant") }
   end
 
+  test "spending report prorates planned amounts for partial date ranges" do
+    user = create_user(email: "spending-report-partial-plan@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 310)
+
+    get "/api/v1/spending_report?start_on=2026-01-01&end_on=2026-01-15",
+      headers: auth_headers(user)
+
+    assert_response :success
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 150, report.fetch("totals").fetch("planned")
+    assert_equal 150, report.fetch("totals").fetch("remaining")
+    assert_equal 150, report.fetch("categories").sole.fetch("planned")
+  end
+
   test "spending report includes uncategorized pending drafts in totals and draft list" do
     user = create_user(email: "spending-report-uncategorized-pending@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1124,33 +1139,35 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "mia answers category over plan questions as spending reports" do
-    user = create_user(email: "mia-over-plan-categories@example.com")
-    household = HouseholdFinance::WorkspaceResolver.new(user).household
-    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
-    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 10)
-    period = manager.current_period_for(Date.current)
-    transaction = household.household_transactions.create!(
-      budget_period: period,
-      occurred_on: Date.current,
-      merchant: "Cafe",
-      total_amount_cents: 1_500,
-      source_type: "manual_ui",
-      status: "confirmed"
-    )
-    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_500)
+    travel_to Time.zone.local(2026, 7, 3, 12) do
+      user = create_user(email: "mia-over-plan-categories@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+      category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 10)
+      period = manager.current_period_for(Date.current)
+      transaction = household.household_transactions.create!(
+        budget_period: period,
+        occurred_on: Date.current,
+        merchant: "Cafe",
+        total_amount_cents: 1_500,
+        source_type: "manual_ui",
+        status: "confirmed"
+      )
+      transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_500)
 
-    post "/api/v1/mia/messages",
-      params: { message: "What categories are over plan right now?" },
-      headers: auth_headers(user),
-      as: :json
+      post "/api/v1/mia/messages",
+        params: { message: "What categories are over plan right now?" },
+        headers: auth_headers(user),
+        as: :json
 
-    assert_response :created
-    body = JSON.parse(response.body)
-    assert body.fetch("spending_report")
-    content = body.fetch("assistant_message").fetch("content")
-    assert_includes content, "based on confirmed transactions"
-    assert_includes content, "Dining Out over by $5"
-    assert_includes content, "not counting those as actuals until you confirm"
+      assert_response :created
+      body = JSON.parse(response.body)
+      assert body.fetch("spending_report")
+      content = body.fetch("assistant_message").fetch("content")
+      assert_includes content, "based on confirmed transactions"
+      assert_includes content, "Dining Out over by $14.03"
+      assert_includes content, "not counting those as actuals until you confirm"
+    end
   end
 
   test "mia treats usual car registration costs as unknown external data, not transaction lookup" do
@@ -1211,33 +1228,35 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "mia answers budget status questions directly" do
-    user = create_user(email: "mia-budget-status@example.com")
-    household = HouseholdFinance::WorkspaceResolver.new(user).household
-    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
-    category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
-    period = manager.current_period_for(Date.current)
-    transaction = household.household_transactions.create!(
-      budget_period: period,
-      occurred_on: Date.current,
-      merchant: "Cafe",
-      total_amount_cents: 4_500,
-      source_type: "manual_ui",
-      status: "confirmed"
-    )
-    transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_500)
+    travel_to Time.zone.local(2026, 7, 15, 12) do
+      user = create_user(email: "mia-budget-status@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+      category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+      period = manager.current_period_for(Date.current)
+      transaction = household.household_transactions.create!(
+        budget_period: period,
+        occurred_on: Date.current,
+        merchant: "Cafe",
+        total_amount_cents: 4_500,
+        source_type: "manual_ui",
+        status: "confirmed"
+      )
+      transaction.transaction_splits.create!(budget_category: category, amount_cents: 4_500)
 
-    post "/api/v1/mia/messages",
-      params: { message: "Am I staying within my budget?" },
-      headers: auth_headers(user),
-      as: :json
+      post "/api/v1/mia/messages",
+        params: { message: "Am I staying within my budget?" },
+        headers: auth_headers(user),
+        as: :json
 
-    assert_response :created
-    body = JSON.parse(response.body)
-    content = body.fetch("assistant_message").fetch("content")
-    assert_equal Date.current.beginning_of_month.iso8601, body.fetch("spending_report").fetch("start_on")
-    assert_includes content, "Yes —"
-    assert_includes content, "within budget"
-    assert_includes content, "$45 confirmed against $300 planned"
+      assert_response :created
+      body = JSON.parse(response.body)
+      content = body.fetch("assistant_message").fetch("content")
+      assert_equal Date.current.beginning_of_month.iso8601, body.fetch("spending_report").fetch("start_on")
+      assert_includes content, "Yes —"
+      assert_includes content, "within budget"
+      assert_includes content, "$45 confirmed against $145.16 planned"
+    end
   end
 
   test "annual plan recent transactions are scoped to the plan year" do

@@ -21,24 +21,7 @@ class RequirePositiveTransactionAmounts < ActiveRecord::Migration[8.1]
   end
 
   def down
-    replace_check_constraint(
-      :household_transactions,
-      old_name: "household_transactions_amount_positive",
-      new_name: "household_transactions_amount_non_negative",
-      expression: "total_amount_cents >= 0"
-    )
-    replace_check_constraint(
-      :transaction_splits,
-      old_name: "transaction_splits_amount_positive",
-      new_name: "transaction_splits_amount_non_negative",
-      expression: "amount_cents >= 0"
-    )
-    replace_check_constraint(
-      :transaction_drafts,
-      old_name: "transaction_drafts_amount_positive",
-      new_name: "transaction_drafts_amount_non_negative",
-      expression: "total_amount_cents >= 0"
-    )
+    raise ActiveRecord::IrreversibleMigration, "transaction amounts must remain strictly positive"
   end
 
   private
