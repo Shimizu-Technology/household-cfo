@@ -353,11 +353,20 @@ module HouseholdFinance
 
     def apply_monthly_amount!(budget_year, category, monthly_cents, source:)
       budget_year.budget_periods.find_each do |period|
-        BudgetAllocation.find_or_initialize_by(budget_period: period, budget_category: category).update!(
-          planned_amount_cents: monthly_cents,
-          source: source
-        )
+        upsert_budget_allocation!(period, category, monthly_cents, source)
       end
+    end
+
+    def upsert_budget_allocation!(period, category, monthly_cents, source)
+      BudgetAllocation.find_or_initialize_by(budget_period: period, budget_category: category).update!(
+        planned_amount_cents: monthly_cents,
+        source: source
+      )
+    rescue ActiveRecord::RecordNotUnique
+      BudgetAllocation.find_by!(budget_period: period, budget_category: category).update!(
+        planned_amount_cents: monthly_cents,
+        source: source
+      )
     end
 
     def sync_expense_item!(category, monthly_cents)

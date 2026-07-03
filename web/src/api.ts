@@ -694,7 +694,7 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 export type MiaMessageResponse = {
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
-  budget?: BudgetData
+  budget?: BudgetData | null
   spending_report?: SpendingReport | null
 }
 

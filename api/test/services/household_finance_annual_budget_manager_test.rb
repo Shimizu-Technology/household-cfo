@@ -27,6 +27,34 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal [ "Prior Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
   end
 
+  test "budget allocation upsert recovers from uniqueness races" do
+    household = create_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    budget_year = manager.ensure_plan!
+    period = budget_year.budget_periods.order(:starts_on).first
+    category = household.budget_categories.create!(name: "Race Category", stack_key: "discretionary", sort_order: 1)
+    allocation = BudgetAllocation.create!(budget_period: period, budget_category: category, planned_amount_cents: 100, source: "manual")
+    original_find_or_initialize_by = BudgetAllocation.method(:find_or_initialize_by)
+    calls = 0
+
+    BudgetAllocation.define_singleton_method(:find_or_initialize_by) do |*args, **kwargs|
+      calls += 1
+      raise ActiveRecord::RecordNotUnique, "simulated allocation race" if calls == 1
+
+      original_find_or_initialize_by.call(*args, **kwargs)
+    end
+
+    manager.send(:upsert_budget_allocation!, period, category, 12_345, "manual")
+
+    assert_equal 12_345, allocation.reload.planned_amount_cents
+  ensure
+    if defined?(original_find_or_initialize_by) && original_find_or_initialize_by
+      BudgetAllocation.define_singleton_method(:find_or_initialize_by) do |*args, **kwargs|
+        original_find_or_initialize_by.call(*args, **kwargs)
+      end
+    end
+  end
+
   test "plan data degrades gracefully when a memoized manager sees a missing allocation" do
     household = create_household
     household.expense_items.create!(label: "Dining out", stack_key: "discretionary", amount_cents: 25_000, cadence: "monthly")
