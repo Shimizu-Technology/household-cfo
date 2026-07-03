@@ -5,7 +5,7 @@ module HouseholdFinance
     SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
-      /\b(?:spent|paid|charged)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
+      /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
     ].freeze
 
     def initialize(household, message, annual_budget_manager: nil, plan_prepared: false)
@@ -115,11 +115,27 @@ module HouseholdFinance
 
     def merchant_category(categories)
       text = normalized_text([ merchant, message ].join(" "))
-      if text.match?(/\b(mcdonald|restaurant|bar|coffee|latte|takeout|dining)\b/)
-        categories.find { |category| normalized_text(category.name).match?(/dining|food|flexible|coffee/) }
-      elsif text.match?(/\b(payless|grocery|groceries|supermarket)\b/)
-        categories.find { |category| normalized_text(category.name).match?(/grocery|groceries|food|flexible/) }
+      if text.match?(/\b(rent|mortgage|power|gpa|utility|utilities|water|electric)\b/)
+        category_named(categories, /rent|mortgage|fixed|essential|utilities|power/)
+      elsif text.match?(/\b(shell|gas|fuel|transport|transportation)\b/)
+        category_named(categories, /gas|transport|fuel/)
+      elsif text.match?(/\b(mcdonald|restaurant|bar|coffee|latte|takeout|dining|jollibee|cafe|bakery)\b/)
+        category_named(categories, /dining|restaurant|coffee|takeout|food/) || discretionary_category(categories)
+      elsif text.match?(/\b(pay\s*less|payless|grocery|groceries|supermarket|cost\s*u\s*less|costuless)\b/)
+        category_named(categories, /grocery|groceries|food/) || category_named(categories, /fixed|essential/)
+      elsif text.match?(/\b(basketball|league|sports?|school supplies|uniforms?|kids?)\b/)
+        category_named(categories, /kids|school|activities|back/) || discretionary_category(categories)
+      elsif text.match?(/\b(clinic|medical|doctor|copay|medicine|pharmacy)\b/)
+        category_named(categories, /medical|health|copay|unexpected/)
       end
+    end
+
+    def category_named(categories, pattern)
+      categories.find { |category| normalized_text(category.name).match?(pattern) }
+    end
+
+    def discretionary_category(categories)
+      categories.find { |category| category.stack_key == "discretionary" }
     end
 
     def suggested_category_reason

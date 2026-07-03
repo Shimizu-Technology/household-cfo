@@ -33,7 +33,15 @@ module HouseholdFinance
     end
 
     def lookup_target
+      return nil if external_cost_question?
+
       exact_category_target || merchant_comparison_target || merchant_target || food_category_target
+    end
+
+    def external_cost_question?
+      message.match?(/\b(?:usually|typical|typically|average|current|rate|fee|fees)\b/i) &&
+        message.match?(/\b(?:cost|costs|rate|fee|fees|price)\b/i) &&
+        !message.match?(/\b(?:spend|spent|paid|confirmed|actual|transaction)\b/i)
     end
 
     def exact_category_target
@@ -213,7 +221,10 @@ module HouseholdFinance
     end
 
     def money(cents)
-      ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents), precision: 0)
+      ActiveSupport::NumberHelper.number_to_currency(
+        Money.dollars(cents),
+        precision: cents.to_i % 100 == 0 ? 0 : 2
+      )
     end
 
     def normalized_message

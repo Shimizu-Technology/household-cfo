@@ -1,7 +1,8 @@
 module HouseholdFinance
   class SpendingReportQuery
     REPORT_TERMS = /\b(spending|spent|actuals?|transactions?|budget report|month|quarter|year|ytd|year to date|looking|look|jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)\b/i
-    BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|on track|off track|am i okay|are we okay)\b/i
+    BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|over plan|under plan|on track|off track|am i okay|are we okay)\b/i
+    CATEGORY_STATUS_TERMS = /\b(?:what|which)\s+categories\b.*\b(?:over|under)\b.*\b(?:plan|budget)\b/i
     PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
 
     def initialize(message, today: Date.current)
@@ -20,7 +21,7 @@ module HouseholdFinance
     attr_reader :message, :today
 
     def report_like?
-      return true if message.match?(BUDGET_STATUS_TERMS)
+      return true if message.match?(BUDGET_STATUS_TERMS) || message.match?(CATEGORY_STATUS_TERMS)
       return false if message.match?(PLANNED_BUDGET_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|report)\b/i)
 
       message.match?(REPORT_TERMS) && message.match?(/\b(how|what|show|report|spend|spent|actual|transaction|look|looking|last|this|from|between|for|in)\b/i)

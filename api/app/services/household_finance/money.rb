@@ -3,7 +3,7 @@ module HouseholdFinance
     module_function
 
     def dollars(cents)
-      (cents.to_i / 100.0).round
+      cents.to_i / 100.0
     end
 
     def cents(value)

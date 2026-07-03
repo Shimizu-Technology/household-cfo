@@ -5,11 +5,12 @@ module Demo
   class MiaResponder
     DEFAULT_MODEL = "~anthropic/claude-sonnet-latest".freeze
 
-    LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey" ].freeze
+    LOW_SIGNAL_EXACT_MESSAGES = [ "test", "testing", "hi", "hello", "hey", "help" ].freeze
     TEST_MESSAGES = [ "test", "testing" ].freeze
     CRISIS_PATTERNS = [
       /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
-      /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life))?(?:[.!?,;:]|\z)/i
+      /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life))?(?:[.!?,;:]|\z)/i,
+      /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i
     ].freeze
     SCREENSHOT_PURCHASE_TERMS = %w[purse bag handbag].freeze
     DISCRETIONARY_PURCHASE_TERMS = %w[
@@ -125,17 +126,27 @@ module Demo
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false)
       sanitized = content.to_s
         .sub(/\AMia:\s*/i, "")
-        .sub(/\A(?:that['’]s|that is) a (?:good|smart) question[.!]?\s*/i, "")
+        .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")
+        .then { |value| remove_banned_branding(value) }
+        .sub(/\A[\s,;:.-]+/, "")
         .strip
       return sanitized unless transaction_report_message?(user_message)
 
       if transaction_report_amount_cents(user_message).zero? && sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?|draft(?:ed)?)\b/i)
-        return "I did not draft a transaction because the amount is $0. If money actually moved, send the real amount and I’ll prepare it for review before it changes actuals."
+        return "I did not draft a transaction because the amount is $0. If money actually moved, send me the real amount and I’ll prepare it for review before it changes actuals."
       end
       return sanitized unless sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?|draft(?:ed)?|confirm the draft)\b/i)
       return "I can talk through the spending, but this demo chat cannot create reviewable transaction drafts. Use a real workspace to draft and confirm actuals." unless draft_capable
 
       "I can draft that transaction for review. Confirm the draft only if the merchant, amount, and category are right. Month-to-date actuals will not change until you confirm."
+    end
+
+    def remove_banned_branding(content)
+      content
+        .gsub(/Mia, your household CFO\.?/i, "that phrase")
+        .gsub(/Plan, don[’']t gamble\.?/i, "that phrase")
+        .gsub(/Your money picture, without the spiral\.?/i, "that phrase")
+        .gsub(/Annual runway first\. Monthly moves second\.?/i, "that phrase")
     end
 
     def transaction_report_message?(message)

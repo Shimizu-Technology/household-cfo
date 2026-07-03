@@ -108,6 +108,14 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
+  test "can't go on with debt anymore is treated as safety language" do
+    response = Demo::MiaResponder.new(api_key: nil).call("I can't go on with this debt anymore")
+
+    assert_includes response, "988"
+    assert_includes response, "911"
+    assert_includes response, "getting support"
+  end
+
   test "fallback low signal greeting does not force a Chamorro phrase every time" do
     response = Demo::MiaResponder.new(api_key: nil).call("hi")
 
@@ -136,6 +144,17 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
     assert_equal "Check the annual plan first.", responder.send(:sanitize_assistant_content, "That’s a good question. Check the annual plan first.")
     assert_equal "Build runway first.", responder.send(:sanitize_assistant_content, "That's a smart question. Build runway first.")
+    assert_equal "Use the active plan.", responder.send(:sanitize_assistant_content, "That's a great question. Use the active plan.")
+    assert_equal "Use the active plan.", responder.send(:sanitize_assistant_content, "This is a great question. Use the active plan.")
+  end
+
+  test "model responses have rejected brand phrases stripped" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+
+    response = responder.send(:sanitize_assistant_content, "I cannot say \"Mia, your household CFO.\" You are the Household CFO.")
+
+    refute_includes response, "Mia, your household CFO"
+    assert_includes response, "You are the Household CFO"
   end
 
   test "model responses cannot claim a reported transaction was already applied" do

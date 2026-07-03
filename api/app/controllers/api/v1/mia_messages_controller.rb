@@ -22,15 +22,16 @@ module Api
           reference_month: budget_month_param
         ).call
         transaction_lookup_answer = coach_answer ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
-        spending_report = (transaction_lookup_answer || coach_answer) ? nil : spending_report_for(content)
+        pending_draft_answer = (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, content).call
+        spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(content)
         annual_plan = coach_answer ? annual_budget_manager.plan_data : nil
         budget_answer = nil
         transaction_draft = nil
-        unless coach_answer || transaction_lookup_answer || spending_report
+        unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report
           annual_plan = annual_budget_manager.plan_data
           budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(content, annual_plan: annual_plan).call
         end
-        unless coach_answer || transaction_lookup_answer || spending_report || budget_answer
+        unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
             current_household,
             content,
@@ -39,7 +40,7 @@ module Api
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end
-        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, coach_answer)
+        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content),
@@ -90,9 +91,10 @@ module Api
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: transaction_draft.occurred_on.year).plan_data
       end
 
-      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, coach_answer)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer)
         return coach_answer if coach_answer
         return transaction_lookup_answer if transaction_lookup_answer
+        return pending_draft_answer if pending_draft_answer
         return budget_answer if budget_answer
         return HouseholdFinance::SpendingReportNarrator.new(spending_report, prompt: content).call if spending_report
         return drafted_transaction_message(transaction_draft) if transaction_draft
@@ -103,7 +105,14 @@ module Api
 
       def drafted_transaction_message(draft)
         category = draft.budget_category&.name || "Uncategorized"
-        "I drafted this for review: #{draft.merchant} for #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 0)} in #{category}. Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
+        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
+      end
+
+      def money(cents)
+        ActionController::Base.helpers.number_to_currency(
+          HouseholdFinance::Money.dollars(cents),
+          precision: cents.to_i % 100 == 0 ? 0 : 2
+        )
       end
 
       def serialize_transaction_draft(draft)

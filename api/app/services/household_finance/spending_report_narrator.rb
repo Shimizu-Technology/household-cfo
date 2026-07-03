@@ -1,6 +1,7 @@
 module HouseholdFinance
   class SpendingReportNarrator
-    BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|on track|off track|am i okay|are we okay)\b/i
+    BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|over plan|under plan|on track|off track|am i okay|are we okay)\b/i
+    CATEGORY_STATUS_TERMS = /\b(?:what|which)\s+categories\b.*\b(?:over|under)\b.*\b(?:plan|budget)\b/i
 
     def initialize(report, prompt: nil)
       @report = report.deep_symbolize_keys
@@ -16,6 +17,7 @@ module HouseholdFinance
       end.to_sentence
       top_line = "No confirmed category spending yet" if top_line.blank?
 
+      return category_status_answer(categories, totals) if category_status_question?
       return budget_status_answer(totals, top_line) if budget_status_question?
 
       [
@@ -32,6 +34,33 @@ module HouseholdFinance
 
     def budget_status_question?
       prompt.match?(BUDGET_STATUS_TERMS)
+    end
+
+    def category_status_question?
+      prompt.match?(CATEGORY_STATUS_TERMS)
+    end
+
+    def category_status_answer(categories, totals)
+      over_categories = categories.select { |category| category.fetch(:actual).to_f > category.fetch(:planned).to_f }
+      pending_line = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
+      if over_categories.empty?
+        return [
+          "No active category is over plan for #{report.fetch(:period_label)}, based on confirmed transactions.",
+          "Confirmed actuals are #{money(totals.fetch(:actual))} against #{money(totals.fetch(:planned))} planned.",
+          pending_line,
+          "Next CFO move: review pending drafts before treating the remaining plan as safe-to-spend."
+        ].join("\n\n")
+      end
+
+      over_line = over_categories.map do |category|
+        over_by = category.fetch(:actual).to_f - category.fetch(:planned).to_f
+        "#{category.fetch(:name)} over by #{money(over_by)}"
+      end.to_sentence
+      [
+        "These categories are over plan for #{report.fetch(:period_label)}, based on confirmed transactions: #{over_line}.",
+        pending_line,
+        "Next CFO move: identify what was one-time versus repeat pattern before cutting essentials."
+      ].join("\n\n")
     end
 
     def budget_status_answer(totals, top_line)
@@ -64,7 +93,8 @@ module HouseholdFinance
     end
 
     def money(value)
-      ActiveSupport::NumberHelper.number_to_currency(value, precision: 0)
+      cents = (value.to_f * 100).round
+      ActiveSupport::NumberHelper.number_to_currency(value, precision: cents % 100 == 0 ? 0 : 2)
     end
   end
 end

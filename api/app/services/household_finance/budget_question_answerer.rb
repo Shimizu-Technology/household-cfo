@@ -147,7 +147,8 @@ module HouseholdFinance
     end
 
     def money(value)
-      ActiveSupport::NumberHelper.number_to_currency(value, precision: 0)
+      cents = (value.to_f * 100).round
+      ActiveSupport::NumberHelper.number_to_currency(value, precision: cents % 100 == 0 ? 0 : 2)
     end
   end
 end

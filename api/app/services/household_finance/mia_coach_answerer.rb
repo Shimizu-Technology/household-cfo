@@ -5,17 +5,32 @@ module HouseholdFinance
     PURCHASE_INTENT_PATTERNS = [
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\bis it (?:okay|ok|safe|smart|in the cards)\b.*\b(?:to )?(?:buy|spend|purchase|afford|get|book|order)\b/i,
-      /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i
+      /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
+      /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
     READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b/i.freeze
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
+    CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
     SCREENSHOT_PURCHASE_TERMS = /\b(?:purse|bag|handbag)\b/i.freeze
     PLANNED_PURCHASE_DETAIL_PATTERN = /(?:costs?|price|\$\s*\d|does that change|kid|school|work|league)/i.freeze
-    FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asked|borrow|lend|loan|help|support|give)\b|\b(?:asked|borrow|lend|loan|help|support|give)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b/i.freeze
+    FAMILY_SUPPORT_PATTERN = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend)\b.*\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b|\b(?:asks?|asked|asking|borrow|lend|loan|help|support|give|send)\b.*\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     DEBT_VS_SAVINGS_PATTERN = /\b(?:debt|credit card|loan)\b.*\b(?:saving|savings|emergency|runway|extra|payoff|pay off)\b|\b(?:saving|savings|emergency|runway)\b.*\b(?:debt|credit card|loan|payoff|pay off)\b/i.freeze
-    JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop)\b.*\b(?:job|work)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b/i.freeze
-    OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first)\b/i.freeze
+    JOB_TRANSITION_PATTERN = /\b(?:leave|quit|stop|reduce\s+hours?|cut\s+hours?)\b.*\b(?:job|work|hours?)\b|\b(?:run|focus on)\b.*\b(?:my )?business\b|\bbusiness\s+income\b.*\b(?:reduce|cut|leave|quit|hours?)\b|\bbusiness\b.*\b(?:one big client|no contracts?)\b/i.freeze
+    OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
+    EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|stupid|spouse|fighting about money)\b/i.freeze
+    BILL_TRIAGE_PATTERN = /\b(?:bills?|payday|due before payday|only\s+\$?\d|pay first|what do i pay first)\b/i.freeze
+    EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b/i.freeze
+    DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
+    SINKING_FUND_PATTERN = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
+    LENDING_PATTERN = /\b(?:lend|loan)\b.*\bmoney\b|\bpay me back\b/i.freeze
+    MEMORY_RECALL_PATTERN = /\b(?:forgot|remember)\b.*\b(?:decided|plan)\b|\bwhat was the plan\b|\blast time\b/i.freeze
+    INVESTMENT_PATTERN = /\b(?:stocks?|crypto|bitcoin|invest(?:ing|ment)?|risky products?)\b/i.freeze
+    MONEY_MOVEMENT_PATTERN = /\b(?:move|transfer)\b.*\b(?:savings|checking|bank|banker|account)\b/i.freeze
+    PAYCHECK_PATTERN = /\b(?:before|until|next)\s+(?:my\s+|our\s+)?paycheck\b/i.freeze
+    EXTERNAL_FACT_PATTERN = /\b(?:current\s+.*rate|look\s+up|dmv|usually\s+cost|cost\s+usually|typical(?:ly)?\s+cost|average\s+cost|bank statement|overdraft|credit score|tax refund|business taxes?|file married|filing status|payoff amount|real-time|official fee)\b/i.freeze
+    AMBIGUOUS_HELP_PATTERN = /\A(?:help|what should i do\??|is this bad\??)\z/i.freeze
+    PROMPT_INJECTION_PATTERN = /\b(?:ignore all previous rules|ignore previous instructions|developer mode|jailbreak|you are now)\b/i.freeze
 
     def initialize(household, message, annual_budget_manager: nil, reference_month: Date.current.month)
       @household = household
@@ -27,12 +42,128 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      car_registration_answer || readiness_plan_answer || family_support_answer || debt_vs_savings_answer || job_transition_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     private
 
     attr_reader :household, :message, :annual_budget_manager, :reference_month
+
+    def memory_recall_answer
+      return nil unless normalized_message.match?(MEMORY_RECALL_PATTERN)
+
+      "Based on what I can see, I do not have enough approved data to repeat a prior chat decision as a fact yet. What I can see is the current approved household picture: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month. Next CFO move: ask for the red-to-yellow plan again or name the decision you remember, and we will rebuild it from approved numbers instead of guessing."
+    end
+
+    def prompt_injection_answer
+      return nil unless normalized_message.match?(PROMPT_INJECTION_PATTERN)
+      return nil if normalized_message.match?(MONEY_MOVEMENT_PATTERN)
+
+      "I cannot ignore the Household CFO safety and product boundaries. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months, so I will not pretend the household can buy anything or override approval rules. Next CFO move: ask the real money question, and I will answer from confirmed facts, active plan, and pending drafts separately."
+    end
+
+    def investment_boundary_answer
+      return nil unless normalized_message.match?(INVESTMENT_PATTERN)
+
+      "Based on approved household numbers, this is not the moment to use investing or risky products as the shortcut to green: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}. I cannot give licensed investment advice or tell you what stock or crypto to buy. Next CFO move: protect roof, food, utilities, debt minimums, and emergency runway first; only discuss investing after the baseline and sinking funds are stable."
+    end
+
+    def external_fact_answer
+      return nil unless normalized_message.match?(EXTERNAL_FACT_PATTERN)
+
+      if normalized_message.match?(/tax|file married|filing status/i)
+        return "Based on what I can see, I do not have enough approved data to answer that as a fact yet. I also cannot give tax advice or tell you which filing status to choose. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so any tax bill or refund should be placed against the baseline before wants. Next CFO move: use a qualified tax professional or tax software for the tax calculation, then bring the amount and due date back here so we can place it in the annual plan."
+      end
+
+      if normalized_message.match?(/bank statement|overdraft|payoff amount|credit score/i)
+        return "Based on what I can see, I do not have enough approved data to answer that as a fact yet. I cannot see real-time bank balances, pending bank fees, credit scores, statement text, or exact payoff amounts unless they are imported and approved in Household CFO. Next CFO move: verify the number in the official account portal or statement, then send the amount and due date so we can update the plan without guessing."
+      end
+
+      "Based on what I can see, I do not have enough approved data to answer that as a fact yet. I cannot look up current external rates or fee schedules in v1, and I should not guess official costs. Next CFO move: check the official source or your latest bill, then bring back the amount and due date so we can place it in the active annual plan."
+    end
+
+    def ambiguous_help_answer
+      return nil unless normalized_message.match?(AMBIGUOUS_HELP_PATTERN)
+
+      "Based on what I can see, I do not have enough approved data to answer that as a fact yet. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, so the default move is to protect the baseline first. Next CFO move: tell me whether this is a bill, a purchase, a debt decision, or family support, and include the amount and due date if money might move."
+    end
+
+    def money_movement_boundary_answer
+      return nil unless normalized_message.match?(MONEY_MOVEMENT_PATTERN)
+
+      "I cannot move money or act like your banker. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)} and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, so any transfer needs a named purpose before money moves. Next CFO move: decide whether the transfer protects a due bill, runway, or an expected sinking fund, then make the transfer yourself in your bank only if it still protects the household baseline."
+    end
+
+    def paycheck_plan_answer
+      return nil unless normalized_message.match?(PAYCHECK_PATTERN)
+
+      "Before the next paycheck, protect the baseline and stop new leaks. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}. I do not have the exact due dates between now and payday, so I cannot rank them as facts yet. Next CFO move: list the bills due before payday with amount, due date, and consequence if late; then pause non-essential spending until those are covered."
+    end
+
+    def bill_triage_answer
+      return nil unless normalized_message.match?(BILL_TRIAGE_PATTERN)
+      return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
+
+      "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and debt minimums outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
+    end
+
+    def extra_money_answer
+      return nil unless normalized_message.match?(EXTRA_MONEY_PATTERN)
+
+      yellow_gap = runway_gap_cents(yellow_runway_target_cents)
+      "Treat the extra money like a stabilizer, not a permission slip. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the yellow runway gap is #{money(yellow_gap)}. Protect any due expected sinking-fund bill first, then send the rest toward runway before extra debt unless a minimum payment is at risk. Next CFO move: name the due date for car registration and the next debt minimum, then split the extra dollars only after those two facts are clear."
+    end
+
+    def debt_decision_answer
+      return nil unless normalized_message.match?(DEBT_DECISION_PATTERN)
+
+      if normalized_message.match?(/payday loan/i)
+        return "I would treat a payday loan as a last-resort emergency option, not a plan. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; high-cost debt can make red harder to escape. I cannot give licensed credit or legal advice, and I do not have the rent amount, due date, late fee, or other options yet. Next CFO move: call the landlord or lender before the due date, ask about a payment arrangement, and send me the exact gap before taking high-cost debt."
+      end
+
+      if normalized_message.match?(/skip|miss/i)
+        return "Do not make skipping a debt minimum the plan until you have checked every baseline option. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)} and baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, so debt minimums stay in the protected baseline with roof, food, and utilities. I still need the payment amount, due date, current cash, and late consequences before saying what to do as a fact. Next CFO move: list those four numbers and contact the issuer before the due date if the minimum is at risk."
+      end
+
+      "Based on what I can see, I do not have enough approved debt details to answer that as a fact yet. Your approved household numbers show #{money(snapshot.fetch(:total_debt_cents))} debt entered, readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months, but I still need balances, APRs, fees, minimums, and due dates before comparing debt strategies. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: add or send the APR, balance, minimum payment, and fee for each option, then we compare whether it improves cash flow without stealing from runway."
+    end
+
+    def car_repair_answer
+      return nil unless normalized_message.match?(CAR_REPAIR_PATTERN)
+
+      amount_cents = amount_from_message_cents
+      amount_line = amount_cents&.positive? ? " The amount you gave me is #{money(amount_cents)}, so it needs to be protected before wants." : " I still need the estimate and deadline before I can say yes as a fact."
+      "A car repair can be a real baseline need if it protects work, school, medical care, or household safety. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}.#{amount_line} Next CFO move: get the repair estimate and due date, then fund it from unexpected sinking fund or emergency runway before discretionary purchases."
+    end
+
+    def sinking_fund_answer
+      return nil unless normalized_message.match?(SINKING_FUND_PATTERN)
+      return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
+
+      target_month = target_month_index_from_message || reference_month - 1
+      plan = active_plan
+      expected_cents = sum_month(active_rows(plan).select { |row| row.fetch(:stack_key) == "sinking_expected" }, target_month, :planned)
+      unexpected_cents = sum_month(active_rows(plan).select { |row| row.fetch(:stack_key) == "sinking_unexpected" }, target_month, :planned)
+      month_name = month_label(plan, target_month)
+
+      if normalized_message.match?(/pause.*unexpected/i)
+        return "Only pause the unexpected sinking fund as a named one-month triage move, not as an invisible cut. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned while readiness is #{snapshot.fetch(:readiness_label)}. If that money is needed for roof, food, utilities, or debt minimums, the pause can make sense; if it funds wants, it keeps the household fragile. Next CFO move: write the exact bill this pause protects, then schedule the category to restart next month."
+      end
+
+      if normalized_message.match?(/gifts?/i)
+        return "Planned gifts belong in Sinking Fund — Expected; surprise gifts belong in Discretionary. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and discretionary money should not jump ahead of readiness #{snapshot.fetch(:readiness_label)}. Next CFO move: create or use one gift category for known birthdays/holidays, then put last-minute gifts through the normal discretionary approval rule."
+      end
+
+      if normalized_message.match?(/fridge|appliance|home repair/i)
+        return "A likely fridge or home repair belongs in Sinking Fund — Unexpected until you have a real quote. Based on your active annual plan for #{month_name}, unexpected sinking funds have #{money(unexpected_cents)} planned, and pending drafts are not counted as actuals. Next CFO move: get the repair/replacement estimate, then decide what discretionary category pauses while you build or protect that amount."
+      end
+
+      if normalized_message.match?(/insurance renewal|renewal/i)
+        return "Insurance renewal belongs in Sinking Fund — Expected because you know it is coming. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned, but I still need the renewal amount to calculate the monthly set-aside. Next CFO move: divide the real renewal amount by the months left, then add or update the expected sinking-fund category before approving wants."
+      end
+
+      "This belongs in Sinking Fund — Expected if the date is known, and Sinking Fund — Unexpected if the amount or timing is still uncertain. Based on your active annual plan for #{month_name}, expected sinking funds have #{money(expected_cents)} planned and unexpected sinking funds have #{money(unexpected_cents)} planned. Next CFO move: send me the amount and due date, then place it in the right stack before discretionary spending gets approved."
+    end
 
     def car_registration_answer
       return nil unless normalized_message.match?(CAR_REGISTRATION_PATTERN)
@@ -76,6 +207,7 @@ module HouseholdFinance
     def readiness_plan_answer
       return nil unless normalized_message.match?(READINESS_PLAN_PATTERN)
       return nil if purchase_question?
+      return nil if budget_report_question?
 
       if snapshot.fetch(:monthly_income_cents).zero? || snapshot.fetch(:total_outflow_cents).zero?
         return "Based on what I can see, I do not have enough approved income and outflow data to build a real red-to-yellow-to-green plan yet. Add monthly income, fixed bills, debt minimums, liquid cash, and the main sinking-fund bills first so I am coaching from the household picture instead of guessing. Next CFO move: finish those profile numbers, then ask me for the yellow and green plan again."
@@ -111,6 +243,12 @@ module HouseholdFinance
       "I would not give a clean yes yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, debt minimums, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
     end
 
+    def lending_answer
+      return nil unless normalized_message.match?(LENDING_PATTERN)
+
+      "I would treat that as family-support risk unless the household can afford it as a gift. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months, so a promise to pay you back cannot protect your roof, food, utilities, or debt minimums. Next CFO move: decide the amount you could survive never getting back; if that number is zero, the answer is no cash help this time."
+    end
+
     def debt_vs_savings_answer
       return nil unless normalized_message.match?(DEBT_VS_SAVINGS_PATTERN)
 
@@ -132,6 +270,16 @@ module HouseholdFinance
       "Not yet as a full leap; this is a runway decision, not a motivation decision. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, business income entered is #{money(business_cents)} per month, and the green runway gap is #{money(green_gap)}. Keep stable income in the picture until household runway and repeatable business income can carry the baseline without panic. Next CFO move: define the monthly business-income floor and runway number that must be true before you revisit leaving the job."
     end
 
+    def emotional_stress_answer
+      return nil unless normalized_message.match?(EMOTIONAL_STRESS_PATTERN)
+
+      if normalized_message.match?(/spouse|fighting/i)
+        return "Tonight is not for solving the whole budget; it is for getting both of you back on the same side of the table. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the shared target is protecting roof, food, utilities, debt minimums, and the next due bill before blame. Next CFO move: each person names one bill or purchase they are worried about, then you pick one baseline action for the next 24 hours."
+      end
+
+      "You are not stupid, and the numbers are not a verdict on your worth. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the kindest next move is smaller, not harsher: protect roof, food, utilities, debt minimums, and the next due bill. Next CFO move: list the next three due dates and amounts; we will make one clean decision at a time."
+    end
+
     def overwhelmed_answer
       return nil unless normalized_message.match?(OVERWHELMED_PATTERN)
 
@@ -143,6 +291,7 @@ module HouseholdFinance
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
       return nil if transaction_report?
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
+      return nil if normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(EXTRA_MONEY_PATTERN) || normalized_message.match?(MONEY_MOVEMENT_PATTERN)
 
       amount_cents = amount_from_message_cents
       need_language = normalized_message.match?(/\b(?:kid|school|work|health|medical|league|required|need)\b/i)
@@ -180,8 +329,14 @@ module HouseholdFinance
 
     def purchase_question?
       return false if normalized_message.match?(/\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b/i)
+      return false if normalized_message.match?(MONEY_MOVEMENT_PATTERN)
 
       PURCHASE_INTENT_PATTERNS.any? { |pattern| message.match?(pattern) }
+    end
+
+    def budget_report_question?
+      normalized_message.match?(/\b(?:categories?|spending|spent|actuals?|transactions?|pending|over\s+plan|under\s+plan|over\s+budget|under\s+budget|left|remaining)\b/i) &&
+        !normalized_message.match?(/\b(?:red|yellow|green|readiness|runway|stabiliz)\b/i)
     end
 
     def purchase_item
@@ -256,6 +411,13 @@ module HouseholdFinance
       "#{plan.fetch(:months).fetch(month_index).fetch(:label)} #{plan.fetch(:year)}"
     end
 
+    def target_month_index_from_message
+      _month_name, month_number = MonthTerms.detect(normalized_message)
+      return unless month_number
+
+      month_number - 1
+    end
+
     def normalized_message
       @normalized_message ||= message.downcase.gsub(/[^a-z0-9\s$.-]/, " ").squish
     end
@@ -265,7 +427,10 @@ module HouseholdFinance
     end
 
     def money(cents)
-      ActiveSupport::NumberHelper.number_to_currency(Money.dollars(cents), precision: 0)
+      ActiveSupport::NumberHelper.number_to_currency(
+        Money.dollars(cents),
+        precision: cents.to_i % 100 == 0 ? 0 : 2
+      )
     end
   end
 end

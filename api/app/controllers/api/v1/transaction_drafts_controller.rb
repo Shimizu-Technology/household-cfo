@@ -72,11 +72,18 @@ module Api
 
       def confirmed_message(draft)
         category = draft.budget_category&.name || "Uncategorized"
-        "Confirmed #{draft.merchant} for #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 0)} in #{category}. I updated month-to-date actuals."
+        "Confirmed #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. I updated month-to-date actuals."
       end
 
       def ignored_message(draft)
-        "Ignored #{draft.merchant} for #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 0)}. Month-to-date actuals did not change."
+        "Ignored #{draft.merchant} for #{money(draft.total_amount_cents)}. Month-to-date actuals did not change."
+      end
+
+      def money(cents)
+        ActionController::Base.helpers.number_to_currency(
+          HouseholdFinance::Money.dollars(cents),
+          precision: cents.to_i % 100 == 0 ? 0 : 2
+        )
       end
 
       def serialize_draft(draft)
