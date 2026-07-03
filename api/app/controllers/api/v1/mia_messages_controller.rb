@@ -31,7 +31,8 @@ module Api
         budget_answer = nil
         transaction_draft = nil
         unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report
-          annual_plan = annual_budget_manager.plan_data
+          budget_answer_manager = budget_answer_manager_for(routed_content, annual_budget_manager)
+          annual_plan = budget_answer_manager.plan_data
           budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(routed_content, annual_plan: annual_plan).call
         end
         unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer
@@ -97,6 +98,16 @@ module Api
         return annual_budget_manager.plan_data if annual_budget_manager.year == transaction_draft.occurred_on.year
 
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: transaction_draft.occurred_on.year).plan_data
+      end
+
+      def budget_answer_manager_for(content, fallback_manager)
+        return fallback_manager unless HouseholdFinance::BudgetQuestionAnswerer.budget_question?(content)
+
+        target_year = HouseholdFinance::BudgetQuestionAnswerer.relative_budget_year(content)
+        return fallback_manager unless target_year && HouseholdFinance::AnnualBudgetManager.supported_year?(target_year)
+        return fallback_manager if target_year == fallback_manager.year
+
+        HouseholdFinance::AnnualBudgetManager.new(current_household, year: target_year)
       end
 
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)

@@ -6,6 +6,30 @@ module HouseholdFinance
     FOOD_TERMS = /\b(food|grocer(?:y|ies)?|dining|restaurant|coffee|takeout|lunch|dinner|breakfast)\b/i
     FOOD_CATEGORY_TERMS = /\b(food|grocer(?:y|ies)?|dining|restaurant|coffee|takeout)\b/i
 
+    def self.budget_question?(message)
+      text = message.to_s.squish
+      return false unless text.match?(BUDGET_TERMS) && text.match?(SPENDING_TERMS)
+      return false if text.match?(ACTUAL_REPORT_TERMS) && !text.match?(/set aside|budget(?:ed)?|planned|available|left|remaining/i)
+
+      true
+    end
+
+    def self.relative_month_date(message, today: Date.current)
+      text = normalized(message)
+      return today if text.match?(/\b(this|current) month\b/)
+      return today.next_month if text.match?(/\bnext month\b/)
+
+      today.prev_month if text.match?(/\blast month\b/)
+    end
+
+    def self.relative_budget_year(message, today: Date.current)
+      relative_month_date(message, today: today)&.year
+    end
+
+    def self.normalized(value)
+      value.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
+    end
+
     def initialize(message, annual_plan:, today: Date.current)
       @message = message.to_s.squish
       @annual_plan = annual_plan.deep_symbolize_keys
@@ -34,10 +58,7 @@ module HouseholdFinance
     attr_reader :message, :annual_plan, :today
 
     def budget_question?
-      return false unless message.match?(BUDGET_TERMS) && message.match?(SPENDING_TERMS)
-      return false if message.match?(ACTUAL_REPORT_TERMS) && !message.match?(/set aside|budget(?:ed)?|planned|available|left|remaining/i)
-
-      true
+      self.class.budget_question?(message)
     end
 
     def summary_line(discretionary_rows, selected_rows, focused: false)
@@ -92,10 +113,7 @@ module HouseholdFinance
     end
 
     def relative_month_date
-      return today if normalized(message).match?(/\b(this|current) month\b/)
-      return today.next_month if normalized(message).match?(/\bnext month\b/)
-
-      today.prev_month if normalized(message).match?(/\blast month\b/)
+      self.class.relative_month_date(message, today: today)
     end
 
     def explicit_month_index
@@ -143,7 +161,7 @@ module HouseholdFinance
     end
 
     def normalized(value)
-      value.to_s.downcase.gsub(/[^a-z0-9\s]/, " ").squish
+      self.class.normalized(value)
     end
 
     def money(value)

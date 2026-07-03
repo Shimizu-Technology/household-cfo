@@ -1,6 +1,8 @@
 require "test_helper"
 
 class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
+  include ActiveSupport::Testing::TimeHelpers
+
   test "workspace setup seeds the annual budget from expense stack values" do
     user = create_user(email: "annual-seed@example.com")
 
@@ -690,6 +692,48 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "Archived categories stay out"
     refute_includes content, "Testing Only"
     refute_includes content, "$1,260"
+  end
+
+  test "mia answers next month budget questions from the next plan year at December boundary" do
+    travel_to Time.zone.local(2026, 12, 15, 12) do
+      user = create_user(email: "mia-next-year-budget@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 250)
+
+      post "/api/v1/mia/messages",
+        params: { message: "How much is set aside for next month food?" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      body = JSON.parse(response.body)
+      content = body.fetch("assistant_message").fetch("content")
+      assert_equal 2027, body.fetch("budget").fetch("annual_plan").fetch("year")
+      assert_includes content, "Jan 2027"
+      assert_includes content, "Dining Out $250 planned"
+      refute_includes content, "Dec 2026"
+    end
+  end
+
+  test "mia answers last month budget questions from the previous plan year at January boundary" do
+    travel_to Time.zone.local(2027, 1, 15, 12) do
+      user = create_user(email: "mia-prior-year-budget@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 175)
+
+      post "/api/v1/mia/messages",
+        params: { message: "How much was set aside for last month food?" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      body = JSON.parse(response.body)
+      content = body.fetch("assistant_message").fetch("content")
+      assert_equal 2026, body.fetch("budget").fetch("annual_plan").fetch("year")
+      assert_includes content, "Dec 2026"
+      assert_includes content, "Dining Out $175 planned"
+      refute_includes content, "Jan 2027"
+    end
   end
 
   test "mia can answer last month spending reports from stored actuals" do
