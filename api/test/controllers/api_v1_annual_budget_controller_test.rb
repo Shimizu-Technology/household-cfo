@@ -596,6 +596,33 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 150, report.fetch("categories").sole.fetch("planned")
   end
 
+  test "spending report includes archived category pending drafts consistently" do
+    user = create_user(email: "spending-report-archived-pending@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Archived Pending", stack_key: "discretionary", monthly_amount: 20)
+    category.update!(active: false)
+    household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Archived Draft Cafe",
+      total_amount_cents: 1_275,
+      budget_category: category,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $12.75 at Archived Draft Cafe"
+    )
+
+    get "/api/v1/spending_report?start_on=#{Date.current.beginning_of_month.iso8601}&end_on=#{Date.current.end_of_month.iso8601}",
+      headers: auth_headers(user)
+
+    assert_response :success
+    report = JSON.parse(response.body).fetch("spending_report")
+    assert_equal 12.75, report.fetch("totals").fetch("pending")
+    assert_equal "Archived Draft Cafe", report.fetch("pending_drafts").sole.fetch("merchant")
+    archived_row = report.fetch("categories").find { |row| row.fetch("name") == "Archived Pending" }
+    assert_equal false, archived_row.fetch("active")
+    assert_equal 12.75, archived_row.fetch("pending")
+  end
+
   test "spending report includes uncategorized pending drafts in totals and draft list" do
     user = create_user(email: "spending-report-uncategorized-pending@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

@@ -13,6 +13,7 @@
   --status-green: #5f7d61;
   --status-yellow: #a86b34;
   --status-red: #9d4b45;
+  --number-font: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-family: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--cream);
@@ -392,9 +393,13 @@ h3 {
 .metric-card strong {
   display: block;
   margin-top: 9px;
-  font-family: "Cormorant Garamond", Georgia, serif;
-  font-size: clamp(1.7rem, 3vw, 2.35rem);
-  line-height: 1;
+  font-family: var(--number-font);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-size: clamp(1.45rem, 2.35vw, 2rem);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 850;
+  letter-spacing: -0.055em;
+  line-height: 0.98;
 }
 
 .two-column,
@@ -1243,8 +1248,12 @@ h3 {
 .stack-card strong {
   display: block;
   margin: 10px 0;
-  font-family: "Cormorant Garamond", Georgia, serif;
-  font-size: 2rem;
+  font-family: var(--number-font);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-size: 1.7rem;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 850;
+  letter-spacing: -0.05em;
 }
 
 .milestone-list {
@@ -2001,9 +2010,13 @@ h3 {
 
 .document-applied-summary-grid strong {
   color: var(--emerald);
-  font-family: "Cormorant Garamond", Georgia, serif;
-  font-size: 2rem;
-  line-height: 0.95;
+  font-family: var(--number-font);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-size: 1.6rem;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
 }
 
 .document-applied-summary button {
@@ -2225,9 +2238,13 @@ h3 {
 
 .document-context-stats strong {
   color: var(--emerald);
-  font-family: "Cormorant Garamond", Georgia, serif;
-  font-size: 1.8rem;
-  line-height: 0.9;
+  font-family: var(--number-font);
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-size: 1.45rem;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 850;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
 }
 
 @media (max-width: 900px) {

@@ -118,8 +118,6 @@ module HouseholdFinance
 
     def pending_sums
       @pending_sums ||= household.transaction_drafts.pending
-        .left_outer_joins(:budget_category)
-        .where("transaction_drafts.budget_category_id IS NULL OR budget_categories.active = ?", true)
         .where(occurred_on: start_on..end_on)
         .group(:budget_category_id)
         .sum(:total_amount_cents)
@@ -152,8 +150,6 @@ module HouseholdFinance
 
     def pending_drafts_payload
       household.transaction_drafts.pending.includes(:budget_category)
-        .left_outer_joins(:budget_category)
-        .where("transaction_drafts.budget_category_id IS NULL OR budget_categories.active = ?", true)
         .where(occurred_on: start_on..end_on)
         .recent_first
         .limit(MAX_TRANSACTIONS)
