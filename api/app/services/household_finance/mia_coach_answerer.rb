@@ -239,12 +239,39 @@ module HouseholdFinance
       return nil unless normalized_message.match?(FAMILY_SUPPORT_PATTERN)
 
       amount_cents = amount_from_message_cents
+      return family_support_tradeoff_answer(amount_cents) if family_support_tradeoff?
+
       amount_label = amount_cents&.positive? ? "#{money(amount_cents)}" : "money"
       if amount_cents&.positive? && amount_cents <= snapshot.fetch(:safe_to_spend_cents) && snapshot.fetch(:readiness_tone) != "red"
         return "Yes, you may be able to help with #{amount_label}, but only as a planned family-support decision, not from bill money. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
 
       "I would not give a clean yes yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, debt minimums, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
+    end
+
+    def family_support_tradeoff?
+      normalized_message.match?(/\b(?:cut|pause|reduce|trim|use|cover|trade)\b/i) &&
+        normalized_message.match?(/\b(?:dining|restaurant|coffee|takeout|discretionary)\b/i)
+    end
+
+    def family_support_tradeoff_answer(amount_cents)
+      plan = active_plan
+      month_index = reference_month - 1
+      dining_rows = active_rows(plan).select { |row| row.fetch(:name).match?(/dining|restaurant|coffee|takeout/i) }
+      target_rows = dining_rows.presence || active_rows(plan).select { |row| row.fetch(:stack_key) == "discretionary" }
+      planned_cents = sum_month(target_rows, month_index, :planned)
+      remaining_cents = sum_month(target_rows, month_index, :remaining)
+      target_label = target_rows.map { |row| row.fetch(:name) }.first(3).to_sentence.presence || "discretionary spending"
+      amount_line = amount_cents&.positive? ? "The family-support amount on the table is #{money(amount_cents)}." : "I still need the exact family-support amount before I can compare the tradeoff as a fact."
+      coverage_line = if amount_cents&.positive? && remaining_cents >= amount_cents
+        "That category has enough remaining on paper to cover it, but the household still needs a one-time boundary because readiness is #{snapshot.fetch(:readiness_label)}."
+      elsif amount_cents&.positive?
+        "That does not fully cover it; it is #{money(amount_cents - remaining_cents)} more than the remaining #{target_label} plan."
+      else
+        "Use this as a tradeoff test before any cash leaves."
+      end
+
+      "Cutting #{target_label} is the right kind of tradeoff to test for family support, but it is not an automatic yes. Based on your active annual plan for #{month_label(plan, month_index)}, #{target_label} has #{money(planned_cents)} planned and #{money(remaining_cents)} remaining; pending drafts are not counted as actuals. #{amount_line} #{coverage_line} Next CFO move: choose the exact one-time amount and write down what #{target_label} pauses this month before promising help."
     end
 
     def lending_answer

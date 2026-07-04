@@ -43,6 +43,7 @@ import type {
   AppData,
   BudgetCategoryMonth,
   BudgetCategoryRow,
+  BudgetData,
   BudgetMonth,
   BudgetStackKey,
   CurrentUser,
@@ -67,7 +68,8 @@ import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload } fr
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 })
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
@@ -278,6 +280,34 @@ function App() {
     }
   }, [isRealWorkspace])
 
+  const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
+    if (!isRealWorkspace || !startsOn || !endsOn) {
+      if (!isRealWorkspace) setSpendingReport(null)
+      return
+    }
+
+    if (!quiet) {
+      setSpendingReportLoading(true)
+      setSpendingReportError(null)
+    }
+
+    try {
+      const report = await fetchSpendingReport(startsOn, endsOn)
+      setSpendingReport(report)
+    } catch (caught) {
+      setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+    } finally {
+      if (!quiet) setSpendingReportLoading(false)
+    }
+  }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
+
+  function refreshSpendingReportForBudget(budget: BudgetData | null | undefined, monthIndex = selectedBudgetMonthIndex) {
+    const month = budget?.annual_plan?.months[monthIndex]
+    if (!month) return
+
+    void refreshSpendingReport({ startsOn: month.starts_on, endsOn: month.ends_on })
+  }
+
   useEffect(() => {
     if (!canLoadWorkspace) return
 
@@ -423,9 +453,11 @@ function App() {
       })
       if (response.budget) {
         setData((current) => current ? { ...current, budget: response.budget! } : current)
+        const responseMonthIndex = response.transaction_draft ? monthIndexFromIsoDate(response.transaction_draft.occurred_on) : selectedBudgetMonthIndex
         if (response.transaction_draft && response.budget.annual_plan) {
-          setBudgetView({ year: response.budget.annual_plan.year, monthIndex: monthIndexFromIsoDate(response.transaction_draft.occurred_on) })
+          setBudgetView({ year: response.budget.annual_plan.year, monthIndex: responseMonthIndex })
         }
+        refreshSpendingReportForBudget(response.budget, responseMonthIndex)
       }
       if (response.spending_report) {
         setSpendingReport(response.spending_report)
@@ -507,6 +539,7 @@ function App() {
         monthly_amount: newBudgetCategory.monthly_amount || 0,
       }, selectedBudgetYear)
       setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
       setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
@@ -527,6 +560,7 @@ function App() {
     try {
       const budget = await fetchBudget(normalizedYear)
       setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget, normalizedMonthIndex)
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
     } finally {
@@ -553,6 +587,7 @@ function App() {
         setData((current) => current ? { ...current, budget: latestBudget } : current)
       }
       setData((current) => current ? { ...current, budget: latestBudget } : current)
+      refreshSpendingReportForBudget(latestBudget)
       captureAnalyticsEvent('budget_edits_saved', {
         allocation_change_count: changes.allocations.length,
         category_change_count: changes.categories.length,
@@ -580,6 +615,7 @@ function App() {
     try {
       const budget = await archiveBudgetCategory(row.id, selectedBudgetYear)
       setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
@@ -596,6 +632,7 @@ function App() {
     try {
       const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear)
       setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
@@ -611,8 +648,10 @@ function App() {
     setBudgetError(null)
     try {
       const workspace = await confirmTransactionDraft(draft.id)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
-      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: monthIndexFromIsoDate(draft.occurred_on) })
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_confirmed', {
@@ -632,8 +671,10 @@ function App() {
     setBudgetError(null)
     try {
       const workspace = await ignoreTransactionDraft(draft.id)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
-      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: monthIndexFromIsoDate(draft.occurred_on) })
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_ignored', {

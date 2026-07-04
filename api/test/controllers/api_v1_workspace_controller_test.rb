@@ -379,6 +379,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           headers: auth_headers(user),
           as: :json
 
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
     post "/api/v1/mia/messages",
          params: { message: "My cousin asked for $200. Should I help?" },
          headers: auth_headers(user),
@@ -397,7 +400,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "family support"
-    assert_includes content, "Based on approved household numbers"
+    assert_includes content, "tradeoff"
+    assert_includes content, "Dining Out"
+    assert_includes content, "$200"
     refute_includes content, "I do not see confirmed Dining Out spending"
     assert_equal "family_support", session.reload.active_topic.fetch("type")
   end
@@ -446,6 +451,16 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_nil session.rolling_summary
     assert_empty session.open_topics
     assert_empty session.active_topic
+
+    post "/api/v1/mia/messages",
+         params: { message: "Can you remind me what we were talking about?" },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    cleared_reminder = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes cleared_reminder, "I do not have an open chat topic to resume after the clear"
+    assert_includes cleared_reminder, "Conversation continuity is context only"
   end
 
   test "mia chat rejects messages above the storage limit" do

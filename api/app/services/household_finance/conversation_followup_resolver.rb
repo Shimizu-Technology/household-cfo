@@ -14,6 +14,7 @@ module HouseholdFinance
     def call
       return Result.new(message: message, direct_answer: nil, follow_up?: false) if message.blank?
       return recall_result if recall_request? && useful_context?
+      return empty_recall_result if recall_request?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if follow_up? && active_topic.present?
 
       Result.new(message: message, direct_answer: nil, follow_up?: false)
@@ -33,6 +34,12 @@ module HouseholdFinance
       answer = "Here is the conversation context I can pick up from: #{summary}. This is conversation memory, not financial truth; confirmed actuals, balances, and plan amounts still come from approved records. Next CFO move: tell me which topic you want to continue, or send the missing amount and due date for the active decision."
 
       Result.new(message: message, direct_answer: answer, follow_up?: true)
+    end
+
+    def empty_recall_result
+      answer = "I do not have an open chat topic to resume after the clear. Conversation continuity is context only, not financial truth; confirmed actuals, balances, and plan amounts still come from approved records. Next CFO move: tell me the decision, bill, purchase, or transaction you want to work through next."
+
+      Result.new(message: message, direct_answer: answer, follow_up?: false)
     end
 
     def enriched_message
