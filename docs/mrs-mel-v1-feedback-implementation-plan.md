@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-30
 **Product:** Household CFO Method powered by VERA
-**Status:** planning / implementation guide
+**Status:** implementation guide with PR #20 status update
 
 ## Source notes reviewed
 
@@ -16,8 +16,44 @@ This plan is based on Mrs. Mel's V1 feedback and the existing project context:
   - `docs/private-document-imports-and-mia-context.md`
   - `docs/real-mode-build-plan.md`
   - `docs/mia-persona-template.md`
+  - `docs/ai-architecture-decision.md`
 
 This document intentionally summarizes product/technical direction without copying private meeting transcript details or real user financial data.
+
+---
+
+## Current status after PR #20 work
+
+PR #20 now covers most of the planned **PR 2 — Annual budget + transaction loop foundation** scope and several earlier demo-confidence blockers.
+
+### Done or substantially done
+
+- Product framing: the user is the Household CFO; Mia is the coach/assistant.
+- Mia persona/response contract: Section 7 seed is loaded, safety boundaries stay above persona, and tests cover banned copy/contract behavior.
+- Real workspace foundation: Clerk/Postgres households, persisted Mia chat, admin/cohort management, invites, private S3 document import foundation, analytics/SEO/PWA readiness.
+- Annual budget foundation: `BudgetYear`, `BudgetPeriod`, `BudgetCategory`, `BudgetAllocation`, year/month UI, direct category/allocation editing, save/cancel guardrails.
+- Transaction loop foundation: `TransactionDraft`, `HouseholdTransaction`, `TransactionSplit`, Mia text-based transaction drafting, confirm/ignore, corrected status, row locks, cents preservation, and immediate actual/report refresh.
+- Category management: create, rename, reclassify, archive/restore, historical actuals preserved, pending drafts block archive.
+- Budget/report truth: planned vs confirmed actuals vs pending drafts are separate, pending drafts never count as actuals, ledger/report views exist.
+- Conversation continuity: same signed-in user gets compacted active/open topics across long chats and devices; clear chat also clears that context after confirmation.
+- Greptile hardening: fixed duplicate-confirm races, year scoping, stale budget view paths, schema drift, archived-category pending drafts, missing-period repair, and other review findings.
+
+### Still needed before calling Mrs. Mel's feedback fully satisfied
+
+- Final browser smoke on the PR branch, then production deploy smoke on `householdcfomethod.com`.
+- Chat attachment flow for receipts/photos/screenshots.
+- Receipt extraction into editable transaction drafts, including split-category receipts such as groceries plus cigarettes.
+- Statement/screenshot transaction extraction and month-by-month reconciliation.
+- Dedupe/match logic between manually logged transactions and later statement uploads.
+- Merchant/category rules learned from user-confirmed corrections.
+- Structured Mia memory UI: what Mia remembers, edit, forget, do not remember this.
+- Voice/audio input for mobile-friendly transaction capture.
+- Better model-narrated coaching for complex plans while Rails continues to compute financial truth.
+- White-label coach/admin customization: logo, colors, persona, content repository, and module configuration.
+
+### Architecture decision
+
+Keep Rails as the source-of-truth backend for the cohort MVP. Add Python/FastAPI only later if document/OCR/RAG/model-evaluation workloads clearly need it. See `docs/ai-architecture-decision.md`.
 
 ---
 

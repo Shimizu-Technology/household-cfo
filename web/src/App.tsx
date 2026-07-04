@@ -565,6 +565,7 @@ function App() {
   async function handleBudgetViewChange(year: number, monthIndex: number) {
     const normalizedYear = Math.max(2000, Math.min(2100, year))
     const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
+    const previousBudgetView = budgetView
     setBudgetView({ year: normalizedYear, monthIndex: normalizedMonthIndex })
     if (!isRealWorkspace || !data || data.budget.annual_plan?.year === normalizedYear) return
 
@@ -575,6 +576,11 @@ function App() {
       setData((current) => current ? { ...current, budget } : current)
       refreshSpendingReportForBudget(budget, normalizedMonthIndex)
     } catch (caught) {
+      setBudgetView((current) => (
+        current?.year === normalizedYear && current.monthIndex === normalizedMonthIndex
+          ? previousBudgetView
+          : current
+      ))
       setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
     } finally {
       setBudgetAction(null)

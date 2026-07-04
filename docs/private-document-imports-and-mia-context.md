@@ -14,6 +14,8 @@ At the same time, these files are highly sensitive. A proper implementation must
 
 ## Core product model
 
+Architecture note: keep document AI orchestration in Rails for v1; add Python/FastAPI only if receipt/statement/OCR/RAG workloads prove they need a separate worker/service. See `docs/ai-architecture-decision.md`.
+
 Use this mental model throughout the implementation:
 
 > **Documents are evidence.**  

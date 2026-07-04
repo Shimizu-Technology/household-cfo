@@ -61,5 +61,9 @@ assert.ok(app.includes('Send invite email now'), 'admin invite form should make 
 assert.ok(app.includes('filterAndSortAdminUsers'), 'admin users should have filter/sort controls')
 assert.ok(app.includes('serverCohortIdsForUser(user).filter'), 'admin quick actions should use server-confirmed cohort state, not unsaved drafts')
 assert.ok(!app.includes('setup_complete_count: memberships.filter'), 'admin cohort cards should not override server setup-complete counts client-side')
+assert.ok(
+  app.includes('const previousBudgetView = budgetView') && app.includes('setBudgetView((current) => (') && app.includes('? previousBudgetView'),
+  'budget year navigation must restore the previous view when loading a different year fails',
+)
 
 console.log('design regression checks passed')
