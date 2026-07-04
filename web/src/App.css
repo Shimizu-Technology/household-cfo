@@ -2732,6 +2732,82 @@ h3 {
   height: 17px;
 }
 
+.clear-chat-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+}
+
+.clear-chat-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  border: 0;
+  border-radius: 0;
+  background: rgba(24, 27, 24, 0.64);
+  backdrop-filter: blur(8px);
+}
+
+.clear-chat-dialog {
+  position: relative;
+  width: min(460px, 100%);
+  border: 1px solid rgba(226, 217, 203, 0.92);
+  border-radius: 26px;
+  padding: 24px;
+  background:
+    linear-gradient(135deg, rgba(123, 74, 88, 0.09), rgba(255, 253, 248, 0.98) 42%),
+    #fffdf8;
+  box-shadow: 0 28px 86px rgba(0, 0, 0, 0.32);
+}
+
+.clear-chat-dialog h3,
+.clear-chat-dialog p {
+  margin: 0;
+}
+
+.clear-chat-dialog h3 {
+  margin-top: 8px;
+  color: var(--ink);
+}
+
+.clear-chat-dialog #clear-chat-copy {
+  margin-top: 10px;
+  color: var(--muted);
+  line-height: 1.62;
+}
+
+.clear-chat-dialog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+
+.clear-chat-dialog-actions button {
+  min-height: 42px;
+  border-radius: 999px;
+  padding: 10px 15px;
+  font-size: 0.76rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.clear-chat-dialog-actions .secondary {
+  border: 1px solid rgba(123, 74, 88, 0.16);
+  background: white;
+  color: var(--emerald);
+}
+
+.clear-chat-dialog-actions .danger {
+  background: #7b4a58;
+  color: white;
+}
+
 .message-avatar {
   display: inline-grid;
   width: 34px;

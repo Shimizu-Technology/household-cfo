@@ -171,6 +171,7 @@ function App() {
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [miaClearing, setMiaClearing] = useState(false)
+  const [confirmClearChat, setConfirmClearChat] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
@@ -400,15 +401,20 @@ function App() {
   }, [isChatExpanded])
 
   useEffect(() => {
-    if (!isChatExpanded) return
+    if (!isChatExpanded && !confirmClearChat) return
 
     function handleEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') setIsChatExpanded(false)
+      if (event.key !== 'Escape') return
+      if (confirmClearChat) {
+        setConfirmClearChat(false)
+        return
+      }
+      setIsChatExpanded(false)
     }
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [isChatExpanded])
+  }, [confirmClearChat, isChatExpanded])
 
   useEffect(() => {
     if (activeSection !== 'Ask Mia') return
@@ -501,9 +507,16 @@ function App() {
     void handleAskMia()
   }
 
+  function handleClearMessagesRequest() {
+    if (miaClearing || currentMessages.length === 0) return
+
+    setConfirmClearChat(true)
+  }
+
   async function handleClearMessages() {
     if (miaClearing) return
 
+    setConfirmClearChat(false)
     setMiaClearing(true)
     setMiaError(null)
     try {
@@ -872,6 +885,11 @@ function App() {
       const payload = await saveWorkspaceSetup(setupDraft)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
+      setBudgetView((current) => {
+        const responseYear = payload.budget.annual_plan?.year
+        if (!responseYear) return current
+        return { year: responseYear, monthIndex: current?.monthIndex ?? selectedBudgetMonthIndex }
+      })
       setIsProfileEditing(false)
       setMessages(payload.mia.messages)
       setMessagesStorageKey(chatStorageKey)
@@ -1101,7 +1119,7 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={() => void handleClearMessages()} disabled={miaClearing}>
+                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
@@ -1448,6 +1466,14 @@ function App() {
         <AdminConsole currentUser={auth.currentUser} />
       )}
 
+      {confirmClearChat && (
+        <ClearChatConfirmDialog
+          isClearing={miaClearing}
+          onCancel={() => setConfirmClearChat(false)}
+          onConfirm={() => void handleClearMessages()}
+        />
+      )}
+
       {previewImport && (
         <DocumentSourcePreview
           key={previewImport.id}
@@ -1458,6 +1484,38 @@ function App() {
         />
       )}
     </main>
+  )
+}
+
+function ClearChatConfirmDialog({
+  isClearing,
+  onCancel,
+  onConfirm,
+}: {
+  isClearing: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="clear-chat-overlay" role="presentation">
+      <button type="button" className="clear-chat-backdrop" aria-label="Keep Mia chat" onClick={onCancel} />
+      <section className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy">
+        <p className="eyebrow">Ask Mia</p>
+        <h3 id="clear-chat-title">Clear this chat?</h3>
+        <p id="clear-chat-copy">
+          This removes the messages in this conversation and Mia will not be able to pick up this thread later.
+          Your saved budget, profile, and transactions stay unchanged.
+        </p>
+        <div className="clear-chat-dialog-actions">
+          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing} autoFocus>
+            Keep chat
+          </button>
+          <button type="button" className="danger" onClick={onConfirm} disabled={isClearing}>
+            {isClearing ? 'Clearing' : 'Clear chat'}
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 

@@ -38,11 +38,30 @@ module HouseholdFinance
     attr_reader :household, :start_on, :end_on
 
     def ensure_plans!
+      missing_years = (start_on.year..end_on.year).reject { |year| report_plan_ready?(year) }
+      return if missing_years.empty?
+
       household.with_lock do
-        (start_on.year..end_on.year).each do |year|
+        missing_years.each do |year|
           AnnualBudgetManager.new(household, year: year).ensure_plan_inside_household_lock!
         end
       end
+    end
+
+    def report_plan_ready?(year)
+      budget_year = household.budget_years.find_by(year: year)
+      return false unless budget_year
+
+      periods = budget_year.budget_periods.where(starts_on: Date.new(year, 1, 1)..Date.new(year, 12, 31))
+      return false unless periods.count == 12
+
+      active_category_ids = household.budget_categories.active.pluck(:id)
+      return true if active_category_ids.empty?
+
+      BudgetAllocation.joins(:budget_period)
+        .where(budget_category_id: active_category_ids, budget_periods: { budget_year_id: budget_year.id })
+        .distinct
+        .count(:id) >= active_category_ids.size * 12
     end
 
     def category_rows
