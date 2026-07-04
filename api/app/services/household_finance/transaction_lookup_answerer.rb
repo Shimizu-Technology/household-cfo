@@ -45,9 +45,9 @@ module HouseholdFinance
     end
 
     def exact_category_target
-      active_categories.each do |category|
+      lookup_categories.each do |category|
         normalized_name = normalize(category.name)
-        return { type: :category, label: category.name, category_ids: [ category.id ] } if normalized_name.present? && normalized_message.include?(normalized_name)
+        return { type: :category, label: category_label(category), category_ids: [ category.id ] } if normalized_name.present? && normalized_message.include?(normalized_name)
       end
 
       nil
@@ -56,7 +56,7 @@ module HouseholdFinance
     def food_category_target
       return unless message.match?(FOOD_TERMS)
 
-      food_categories = active_categories.select { |category| category.name.match?(FOOD_TERMS) }
+      food_categories = lookup_categories.select { |category| category.name.match?(FOOD_TERMS) }
       return if food_categories.empty?
 
       { type: :category, label: "food-like categories", category_ids: food_categories.map(&:id) }
@@ -132,7 +132,7 @@ module HouseholdFinance
 
       breakdown = Hash.new(0)
       transactions.each do |transaction|
-        active_splits(transaction).each { |split| breakdown[split.budget_category.name] += split.amount_cents }
+        lookup_splits(transaction).each { |split| breakdown[category_label(split.budget_category)] += split.amount_cents }
       end
       return if breakdown.empty?
 
@@ -158,7 +158,7 @@ module HouseholdFinance
     def amount_cents_for(transaction, target)
       return transaction.total_amount_cents if target.fetch(:type) == :merchant
 
-      active_splits(transaction)
+      lookup_splits(transaction)
         .select { |split| target.fetch(:category_ids).include?(split.budget_category_id) }
         .sum(&:amount_cents)
     end
@@ -167,12 +167,12 @@ module HouseholdFinance
       normalize(merchant).include?(normalize(target_label)) || normalize(target_label).include?(normalize(merchant))
     end
 
-    def active_splits(transaction)
-      transaction.transaction_splits.select { |split| split.budget_category&.active? }
+    def lookup_splits(transaction)
+      transaction.transaction_splits.select(&:budget_category)
     end
 
     def transaction_category_ids(transaction)
-      active_splits(transaction).map(&:budget_category_id)
+      lookup_splits(transaction).map(&:budget_category_id)
     end
 
     def known_merchants
@@ -183,15 +183,20 @@ module HouseholdFinance
       @base_transactions ||= household.household_transactions
         .includes(transaction_splits: :budget_category)
         .joins(transaction_splits: :budget_category)
-        .where(budget_categories: { active: true })
         .where(status: %w[confirmed reconciled], occurred_on: start_on..end_on)
         .distinct
         .order(occurred_on: :desc, created_at: :desc)
         .to_a
     end
 
-    def active_categories
-      @active_categories ||= household.budget_categories.active.ordered.to_a
+    def lookup_categories
+      @lookup_categories ||= household.budget_categories.ordered.to_a
+    end
+
+    def category_label(category)
+      return "Uncategorized" unless category
+
+      category.active? ? category.name : "#{category.name} (archived)"
     end
 
     def range

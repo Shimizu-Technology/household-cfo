@@ -1135,6 +1135,68 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes comparison_content, "Coffee Bean $9"
   end
 
+  test "mia transaction lookups include confirmed history after category archive" do
+    user = create_user(email: "mia-archived-transaction-lookup@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "non_discretionary", monthly_amount: 800)
+    period = manager.current_period_for(Date.current)
+    archived_only = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current,
+      merchant: "McDonald's",
+      total_amount_cents: 3_000,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    archived_only.transaction_splits.create!(budget_category: dining, amount_cents: 3_000)
+    split_transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.current,
+      merchant: "Payless",
+      total_amount_cents: 10_300,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    split_transaction.transaction_splits.create!(budget_category: groceries, amount_cents: 8_500)
+    split_transaction.transaction_splits.create!(budget_category: dining, amount_cents: 1_800)
+    manager.archive_category!(dining)
+
+    post "/api/v1/mia/messages",
+      params: { message: "How much did I spend at McDonalds this month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "1 confirmed McDonald's transaction"
+    assert_includes content, "totaling $30"
+    assert_includes content, "Dining Out (archived) $30"
+
+    post "/api/v1/mia/messages",
+      params: { message: "How much did I spend at Payless this month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    payless_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes payless_content, "1 confirmed Payless transaction"
+    assert_includes payless_content, "totaling $103"
+    assert_includes payless_content, "Groceries $85"
+    assert_includes payless_content, "Dining Out (archived) $18"
+
+    post "/api/v1/mia/messages",
+      params: { message: "How much did I spend on Dining Out this month?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    category_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes category_content, "Dining Out (archived)"
+    assert_includes category_content, "totaling $48"
+  end
+
   test "mia lists pending drafts without counting them as actuals" do
     user = create_user(email: "mia-pending-drafts-answer@example.com")
     patch "/api/v1/workspace/setup",
