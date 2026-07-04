@@ -1357,6 +1357,34 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 12, row.fetch("months").fetch(Date.current.month - 1).fetch("actual")
   end
 
+  test "confirming a draft heals a missing budget period instead of returning 500" do
+    user = create_user(email: "missing-period-confirm@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    occurred_on = Date.new(Date.current.year, 7, 10)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: occurred_on.year)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    manager.current_period_for(occurred_on).destroy!
+    draft = household.transaction_drafts.create!(
+      occurred_on: occurred_on,
+      merchant: "Gap Cafe",
+      total_amount_cents: 1_200,
+      budget_category: category,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $12 at Gap Cafe"
+    )
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    transaction = draft.reload.confirmed_transaction
+    assert_equal Date.new(occurred_on.year, 7, 1), transaction.budget_period.starts_on
+  end
+
   test "confirming a prior year draft returns the prior year annual plan" do
     user = create_user(email: "prior-year-confirm@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
