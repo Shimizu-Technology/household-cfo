@@ -54,6 +54,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Can I pause unexpected sinking fund this month?", [ "pause", "unexpected sinking fund" ] ],
       [ "Where do insurance renewal costs belong?", [ "Insurance renewal", "Expected" ] ],
       [ "Help me build the red to yellow plan", [ "readiness", "runway" ] ],
+      [ "Can you create a concrete plan?", [ "working plan", "pending drafts" ] ],
       [ "What is the first step this week to get out of red?", [ "This week", "yellow" ] ],
       [ "How do we get to green readiness?", [ "green", "runway" ] ],
       [ "Emergency fund or debt first?", [ "Savings comes first", "debt" ] ],
@@ -195,6 +196,31 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       assert_includes result.message, "$200", message
     end
 
+    readiness_context = {
+      active_topic: {
+        type: "readiness_plan",
+        title: "Readiness plan",
+        subject: "red/yellow/green plan",
+        latest_mia_summary: "Current basis: readiness is red.",
+        next_move: "Send the next three due bills."
+      }
+    }
+    readiness_result = HouseholdFinance::ConversationFollowupResolver.new("Can you create a concrete plan?", conversation_context: readiness_context).call
+    assert readiness_result.follow_up?
+    assert_includes readiness_result.message, "Follow-up to previous readiness_plan topic"
+
+    transaction_context = {
+      active_topic: {
+        type: "transaction_draft",
+        title: "Reported spending",
+        subject: "Penny Cafe",
+        amount_label: "$13.57"
+      }
+    }
+    transaction_result = HouseholdFinance::ConversationFollowupResolver.new("Also $4.25 for tip", conversation_context: transaction_context).call
+    assert transaction_result.follow_up?
+    assert_includes transaction_result.message, "Current follow-up: Also $4.25 for tip"
+
     recalls = [
       "Can you remind me what we were talking about?",
       "What was the plan?",
@@ -232,7 +258,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       assert_nil result.direct_answer, message
     end
 
-    followups.length + recalls.length + empty_recalls.length + new_topics.length
+    followups.length + recalls.length + empty_recalls.length + new_topics.length + 2
   end
 
   def run_transaction_draft_cases(household, manager)
@@ -262,10 +288,38 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
         assert_nil draft, message
       end
     end
-    cases.length
+
+    followup_context = {
+      active_topic: {
+        type: "transaction_draft",
+        title: "Reported spending",
+        subject: "Penny Cafe",
+        amount_label: "$13.57"
+      }
+    }
+    routed = HouseholdFinance::ConversationFollowupResolver.new("Also $4.25 for tip", conversation_context: followup_context).call.message
+    followup_draft = HouseholdFinance::TransactionDraftBuilder.new(household, routed, annual_budget_manager: manager, raw_input: "Also $4.25 for tip").call
+    assert followup_draft
+    assert_equal "Penny Cafe", followup_draft.merchant
+    assert_equal 425, followup_draft.total_amount_cents
+    assert_equal "Also $4.25 for tip", followup_draft.raw_input
+    followup_draft.destroy!
+
+    cases.length + 1
   end
 
   def run_long_controller_sequence(user)
+    post "/api/v1/mia/messages", params: { message: "How do we get out of red?" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    red_plan = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes red_plan, "Current basis"
+
+    post "/api/v1/mia/messages", params: { message: "Can you create a concrete plan?" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    concrete_plan = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes concrete_plan, "working plan"
+    assert_not_equal red_plan, concrete_plan
+
     messages = [
       "My cousin asked for $200. Should I help?",
       "What if I cut Dining Out to cover it?",
@@ -299,7 +353,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_includes JSON.parse(response.body).fetch("assistant_message").fetch("content"), "I do not have an open chat topic"
 
-    messages.length + 2
+    messages.length + 4
   end
 
   def assert_answer(answer, expected, message)

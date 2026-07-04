@@ -55,6 +55,19 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     end
   end
 
+  test "current period heals a missing period from a memoized manager" do
+    household = create_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+    budget_year = manager.ensure_plan!
+    july = budget_year.budget_periods.find_by!(starts_on: Date.new(2026, 7, 1))
+    july.destroy!
+
+    repaired = manager.current_period_for(Date.new(2026, 7, 15))
+
+    assert_equal Date.new(2026, 7, 1), repaired.starts_on
+    assert_equal Date.new(2026, 7, 31), repaired.ends_on
+  end
+
   test "plan data degrades gracefully when a memoized manager sees a missing allocation" do
     household = create_household
     household.expense_items.create!(label: "Dining out", stack_key: "discretionary", amount_cents: 25_000, cadence: "monthly")

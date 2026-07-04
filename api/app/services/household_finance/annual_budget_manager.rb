@@ -128,11 +128,8 @@ module HouseholdFinance
     def current_period_for(date)
       date = date.to_date
       raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(date.year)
-      return period_for_year(date.year, date.month) unless date.year == year
 
-      budget_year = ensure_plan!
-      starts_on = Date.new(date.year, date.month, 1)
-      budget_year.budget_periods.find_by(starts_on: starts_on) || period_for_year(date.year, date.month)
+      period_for_year(date.year, date.month)
     end
 
     private
@@ -408,13 +405,13 @@ module HouseholdFinance
       period_year = period_year.to_i
       raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(period_year)
 
-      manager = self.class.new(household, year: period_year)
-      budget_year = manager.ensure_plan!
+      budget_year = period_year == year ? ensure_plan! : self.class.new(household, year: period_year).ensure_plan!
       starts_on = Date.new(period_year, month.to_i, 1)
-      budget_year.budget_periods.find_or_create_by!(starts_on: starts_on) do |period|
-        period.ends_on = starts_on.end_of_month
-        period.status = "open"
-      end
+      period = budget_year.budget_periods.find_by(starts_on: starts_on)
+      return period if period
+
+      fresh_budget_year = self.class.new(household, year: period_year).ensure_plan!
+      fresh_budget_year.budget_periods.find_by!(starts_on: starts_on)
     end
 
     def ensure_category_can_archive!(category)

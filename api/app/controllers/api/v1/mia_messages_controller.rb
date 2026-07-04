@@ -39,9 +39,10 @@ module Api
         unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
             current_household,
-            content,
+            routed_content,
             annual_budget_manager: annual_budget_manager,
-            plan_prepared: annual_plan.present?
+            plan_prepared: annual_plan.present?,
+            raw_input: content
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end

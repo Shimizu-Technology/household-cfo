@@ -15,6 +15,6 @@ class BudgetCategory < ApplicationRecord
   scope :ordered, -> { order(:sort_order, :name) }
 
   def stack_label
-    HouseholdFinance::SnapshotBuilder::STACK_LABELS.fetch(stack_key)
+    HouseholdFinance::SnapshotBuilder::STACK_LABELS.fetch(stack_key, stack_key.to_s.humanize.presence || "Custom")
   end
 end

@@ -2,8 +2,9 @@ module HouseholdFinance
   class ConversationFollowupResolver
     Result = Struct.new(:message, :direct_answer, :follow_up?, keyword_init: true)
 
-    FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|same thing|from earlier)\b/i.freeze
+    FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|same thing|from earlier|another|also|same place|same merchant|there|tip|plus|add that)\b/i.freeze
     RECALL_PATTERN = /\b(?:remind me|what were we talking about|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
+    MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     MAX_ENRICHED_LENGTH = 1_200
 
     def initialize(message, conversation_context: nil)
@@ -15,6 +16,7 @@ module HouseholdFinance
       return Result.new(message: message, direct_answer: nil, follow_up?: false) if message.blank?
       return recall_result if recall_request? && useful_context?
       return empty_recall_result if recall_request?
+      return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if topic_continuation?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if follow_up? && active_topic.present?
 
       Result.new(message: message, direct_answer: nil, follow_up?: false)
@@ -65,6 +67,19 @@ module HouseholdFinance
 
     def follow_up?
       message.match?(FOLLOW_UP_PATTERN) && !strong_new_topic?
+    end
+
+    def topic_continuation?
+      return false if active_topic.blank? || strong_new_topic?
+
+      case active_topic["type"].to_s
+      when "readiness_plan"
+        message.match?(/\b(?:create|make|build)\s+(?:me\s+|us\s+)?(?:a\s+)?(?:concrete\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:what are the steps|what should we do next|how do we do it|next step|30 day|this week)\b/i)
+      when "transaction_draft"
+        message.match?(MONEY_PATTERN) && message.match?(/\b(?:another|also|same place|same merchant|there|tip|plus|add|extra|fee)\b/i)
+      else
+        false
+      end
     end
 
     def strong_new_topic?

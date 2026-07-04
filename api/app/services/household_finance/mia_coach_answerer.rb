@@ -8,7 +8,7 @@ module HouseholdFinance
       /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
-    READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b/i.freeze
+    READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b/i.freeze
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
@@ -107,6 +107,7 @@ module HouseholdFinance
     def bill_triage_answer
       return nil unless normalized_message.match?(BILL_TRIAGE_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
+      return nil if readiness_follow_up?
 
       "Start with the bill that protects the household baseline first. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))} per month, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}; that means roof, food, utilities, medical needs, and debt minimums outrank wants. I do not have the three bill names, amounts, and due dates yet, so I cannot choose the exact bill as a fact. Next CFO move: list each due date, amount, and consequence if late; then we pay the highest-consequence essential first and call the others before the due date."
     end
@@ -221,10 +222,58 @@ module HouseholdFinance
       yellow_gap = runway_gap_cents(yellow_runway_target_cents)
       green_gap = runway_gap_cents(green_runway_target_cents)
       transfer_cents = recommended_runway_transfer_cents(surplus_cents)
-      cash_flow_line = surplus_cents.positive? ? "You have #{money(surplus_cents)} baseline surplus; I would route about #{money(transfer_cents)} of that toward runway before wants until yellow is protected." : "You are short by #{money(surplus_cents.abs)} each month, so yellow starts with cutting or reclassifying outflow before extra wants."
+      return readiness_execution_plan(surplus_cents, transfer_cents, yellow_gap, green_gap) if readiness_follow_up?
       return weekly_readiness_plan(surplus_cents, transfer_cents, yellow_gap) if normalized_message.match?(/\b(this week|do first|first step|start)\b/i)
+      return green_readiness_plan(surplus_cents, transfer_cents, green_gap) if normalized_message.match?(/\bgreen\b/i) && !normalized_message.match?(/\b(?:red|yellow)\b/i)
 
-      "Yes — let’s make the plan from approved household numbers, not vibes. Right now readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, liquid assets are #{money(snapshot.fetch(:liquid_assets_cents))}, and baseline surplus is #{money(surplus_cents)} per month. Yellow means nonnegative monthly cash flow and about #{yellow_runway_months.round(1)} months of runway, so your current yellow gap is #{money(yellow_gap)}; green means #{target_runway_months.round(1)} months of runway with positive surplus, so the green gap is #{money(green_gap)}. #{cash_flow_line} Next CFO move: protect roof, food, utilities, debt minimums, and expected sinking funds first, then choose one discretionary hold for 30 days and send me any known upcoming bill amount so we can place it in the annual plan."
+      red_to_yellow_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+    end
+
+    def readiness_follow_up?
+      normalized_message.match?(/follow up to previous readiness plan topic/) ||
+        normalized_message.match?(/\b(?:concrete|step by step|actual|specific|detailed)\s+plan\b/i)
+    end
+
+    def red_to_yellow_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+      cash_flow_line = if surplus_cents.positive?
+        "Your monthly cash flow is positive by #{money(surplus_cents)}, so red is mainly a runway problem; protect about #{money(transfer_cents)} for runway before new wants."
+      else
+        "Your monthly cash flow is short by #{money(surplus_cents.abs)}, so the first target is getting the baseline back to $0 before chasing green."
+      end
+
+      "Yes — let’s make the plan from approved household numbers, not vibes. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, liquid assets are #{money(snapshot.fetch(:liquid_assets_cents))}, and baseline surplus is #{money(surplus_cents)} per month. Yellow means nonnegative monthly cash flow and about #{yellow_runway_months.round(1)} months of runway, so the yellow gap is #{money(yellow_gap)}; green means #{target_runway_months.round(1)} months of runway with positive surplus, so the green gap is #{money(green_gap)}. #{cash_flow_line} Next CFO move: ask me for the concrete plan, or send the next three due bills so we can turn this into this week’s moves."
+    end
+
+    def readiness_execution_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+      month_index = reference_month - 1
+      discretionary_line = top_month_row_line("discretionary", month_index) || "the largest discretionary line"
+      expected_line = top_month_row_line("sinking_expected", month_index) || "the next expected sinking-fund bill"
+      baseline_step = if surplus_cents.negative?
+        "Find #{money(surplus_cents.abs)} per month before adding wants. Start with #{discretionary_line}; if that does not close the gap, renegotiate one fixed bill or debt due date before the next paycheck."
+      else
+        "Keep the #{money(surplus_cents)} monthly surplus from leaking. Route about #{money(transfer_cents)} to runway after bills clear, then leave the rest as buffer until yellow is protected."
+      end
+      runway_step = if yellow_gap.positive? && transfer_cents.positive?
+        "At #{money(transfer_cents)} per month, yellow is roughly #{(yellow_gap.to_f / transfer_cents).ceil} month(s) away; green still needs #{money(green_gap)} of runway."
+      elsif yellow_gap.positive?
+        "Yellow still needs #{money(yellow_gap)}, but there is no safe surplus yet, so do not force a runway transfer until cash flow is nonnegative."
+      else
+        "Yellow runway is covered; keep building toward the green gap of #{money(green_gap)} without stealing from expected bills."
+      end
+
+      "Absolutely — here is the working plan, not another diagnosis. Current basis: readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and baseline surplus is #{money(surplus_cents)}. 1) Today: pause new wants, review pending drafts, and protect roof, food, utilities, debt minimums, and #{expected_line}. 2) This week: #{baseline_step} 3) This month: #{runway_step} 4) Review point: after the next paycheck, update confirmed transactions and check whether the baseline is still nonnegative. Next CFO move: send me the next three due dates and amounts; I’ll help rank what gets paid, paused, or moved."
+    end
+
+    def green_readiness_plan(surplus_cents, transfer_cents, green_gap)
+      runway_line = if transfer_cents.positive? && green_gap.positive?
+        "At about #{money(transfer_cents)} per month, green is roughly #{(green_gap.to_f / transfer_cents).ceil} month(s) of protected transfers away."
+      elsif green_gap.positive?
+        "Green needs #{money(green_gap)} more runway, but cash flow has to turn nonnegative before that transfer is safe."
+      else
+        "The green runway target is funded on paper; the job is consistency, not a dramatic cut."
+      end
+
+      "To get to green, keep the baseline boring and make runway automatic. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, baseline surplus is #{money(surplus_cents)}, and the green runway gap is #{money(green_gap)}. #{runway_line} Next CFO move: protect expected sinking funds first, then set a recurring runway transfer and do not increase discretionary spending until two clean months are confirmed."
     end
 
     def weekly_readiness_plan(surplus_cents, transfer_cents, yellow_gap)
@@ -385,6 +434,15 @@ module HouseholdFinance
       month_index = reference_month - 1
       rows = active_rows(active_plan).select { |row| row.fetch(:stack_key) == "discretionary" }
       sum_month(rows, month_index, :remaining)
+    end
+
+    def top_month_row_line(stack_key, month_index)
+      rows = active_rows(active_plan).select { |row| row.fetch(:stack_key) == stack_key }
+      row = rows.max_by { |candidate| dollars_to_cents(candidate.fetch(:months).fetch(month_index).fetch(:remaining)) }
+      return unless row
+
+      month = row.fetch(:months).fetch(month_index)
+      "#{row.fetch(:name)} (#{money(dollars_to_cents(month.fetch(:remaining)))} remaining of #{money(dollars_to_cents(month.fetch(:planned)))} planned)"
     end
 
     def active_rows(plan)

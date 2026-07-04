@@ -8,9 +8,11 @@ module HouseholdFinance
       /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
     ].freeze
 
-    def initialize(household, message, annual_budget_manager: nil, plan_prepared: false)
+    def initialize(household, message, annual_budget_manager: nil, plan_prepared: false, raw_input: nil)
       @household = household
       @message = message.to_s.squish
+      @raw_input = raw_input.to_s.squish.presence || @message
+      @draft_text = current_follow_up_text.presence || @raw_input
       prepared_manager = annual_budget_manager if annual_budget_manager&.year == occurred_on.year
       @annual_budget_manager = prepared_manager || AnnualBudgetManager.new(household, year: occurred_on.year)
       @plan_prepared = plan_prepared && prepared_manager.present?
@@ -29,10 +31,11 @@ module HouseholdFinance
         source_type: "manual_chat",
         status: "pending",
         confidence: 0.72,
-        raw_input: message,
+        raw_input: raw_input,
         draft_payload: {
           parser: "simple_spend_v1",
-          message: message,
+          message: raw_input,
+          parser_context: message == raw_input ? nil : message,
           amount_text: amount_match&.[](0),
           suggested_category_reason: suggested_category_reason
         }
@@ -44,7 +47,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message
+    attr_reader :household, :message, :raw_input, :draft_text
 
     def log_invalid_draft(record)
       Rails.logger.warn(
@@ -60,12 +63,36 @@ module HouseholdFinance
       @plan_prepared = true
     end
 
+    def current_follow_up_text
+      match = message.match(/\bCurrent follow-up:\s*(.+)\z/i)
+      match&.[](1)&.squish
+    end
+
+    def transaction_follow_up_context?
+      message.match?(/\AFollow-up to previous transaction_draft topic\./i) || message.match?(/\bTopic:\s*Reported spending\./i)
+    end
+
+    def context_subject
+      subject = message.match(/\bSubject:\s*([^.]*)\./)&.[](1)&.squish
+      return if subject.blank? || subject.match?(/reported spending/i)
+
+      subject.truncate(120, omission: "…")
+    end
+
+    def category_match_text
+      [ draft_text, message, merchant ].join(" ")
+    end
+
     def transaction_like?
-      (amount_match.present? && message.match?(SPEND_PATTERN)) || (message.match?(AMOUNT_PATTERN) && message.match?(/\bmy\s+tab\s+(?:is|was)\b/i))
+      explicit_spend = amount_match.present? && draft_text.match?(SPEND_PATTERN)
+      tab_total = draft_text.match?(AMOUNT_PATTERN) && draft_text.match?(/\bmy\s+tab\s+(?:is|was)\b/i)
+      contextual_spend = transaction_follow_up_context? && amount_match.present? && draft_text.match?(/\b(?:another|also|same place|same merchant|there|tip|plus|add|extra|fee)\b/i)
+
+      explicit_spend || tab_total || contextual_spend
     end
 
     def amount_match
-      @amount_match ||= message.match(AMOUNT_PATTERN) || message.match(BARE_SPEND_AMOUNT_PATTERN)
+      @amount_match ||= draft_text.match(AMOUNT_PATTERN) || draft_text.match(BARE_SPEND_AMOUNT_PATTERN) || message.match(BARE_SPEND_AMOUNT_PATTERN)
     end
 
     def amount_cents
@@ -73,7 +100,7 @@ module HouseholdFinance
     end
 
     def occurred_on
-      @occurred_on ||= if message.match?(/\byesterday\b/i)
+      @occurred_on ||= if draft_text.match?(/\byesterday\b/i)
         Date.yesterday
       else
         Date.current
@@ -83,12 +110,14 @@ module HouseholdFinance
     def merchant
       @merchant ||= begin
         MERCHANT_PATTERNS.each do |pattern|
-          match = message.match(pattern)
+          match = draft_text.match(pattern) || raw_input.match(pattern)
           next unless match
 
           candidate = clean_merchant(match[1])
           return candidate if candidate.present?
         end
+        return context_subject if transaction_follow_up_context? && context_subject.present?
+
         "Manual spend"
       end
     end
@@ -106,7 +135,7 @@ module HouseholdFinance
         categories = household.budget_categories.active.ordered.to_a
         return nil if categories.empty?
 
-        named_match = categories.find { |category| normalized_text(message).include?(normalized_text(category.name)) }
+        named_match = categories.find { |category| normalized_text(category_match_text).include?(normalized_text(category.name)) }
         return named_match if named_match
 
         merchant_category(categories) || categories.find { |category| category.stack_key == "discretionary" } || categories.first
@@ -114,7 +143,7 @@ module HouseholdFinance
     end
 
     def merchant_category(categories)
-      text = normalized_text([ merchant, message ].join(" "))
+      text = normalized_text([ merchant, draft_text, message ].join(" "))
       if text.match?(/\b(rent|mortgage|power|gpa|utility|utilities|water|electric)\b/)
         category_named(categories, /rent|mortgage|fixed|essential|utilities|power/)
       elsif text.match?(/\b(shell|gas|fuel|transport|transportation)\b/)
