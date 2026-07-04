@@ -17,6 +17,7 @@ This plan is based on Mrs. Mel's V1 feedback and the existing project context:
   - `docs/real-mode-build-plan.md`
   - `docs/mia-persona-template.md`
   - `docs/ai-architecture-decision.md`
+  - `docs/post-pr20-roadmap.md`
 
 This document intentionally summarizes product/technical direction without copying private meeting transcript details or real user financial data.
 
@@ -39,6 +40,8 @@ PR #20 now covers most of the planned **PR 2 — Annual budget + transaction loo
 - Greptile hardening: fixed duplicate-confirm races, year scoping, stale budget view paths, schema drift, archived-category pending drafts, missing-period repair, and other review findings.
 
 ### Still needed before calling Mrs. Mel's feedback fully satisfied
+
+The detailed post-merge checklist lives in `docs/post-pr20-roadmap.md`. In short, the remaining product work is:
 
 - Final browser smoke on the PR branch, then production deploy smoke on `householdcfomethod.com`.
 - Chat attachment flow for receipts/photos/screenshots.

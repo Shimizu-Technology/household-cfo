@@ -463,6 +463,31 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes cleared_reminder, "Conversation continuity is context only"
   end
 
+  test "mia chat still succeeds when conversation compaction fails" do
+    user = create_user(email: "mia-compaction-failure@example.com")
+    original_compactor_new = HouseholdFinance::ConversationCompactor.method(:new)
+
+    begin
+      HouseholdFinance::ConversationCompactor.define_singleton_method(:new) do |*|
+        raise ActiveRecord::StatementInvalid, "simulated compaction failure"
+      end
+
+      assert_difference("ChatMessage.count", 2) do
+        post "/api/v1/mia/messages",
+             params: { message: "Can I leave my job?" },
+             headers: auth_headers(user),
+             as: :json
+      end
+    ensure
+      HouseholdFinance::ConversationCompactor.define_singleton_method(:new, original_compactor_new)
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_equal "Can I leave my job?", body.fetch("user_message").fetch("content")
+    assert body.fetch("assistant_message").fetch("content").present?
+  end
+
   test "mia chat rejects messages above the storage limit" do
     user = create_user(email: "long-mia@example.com")
 

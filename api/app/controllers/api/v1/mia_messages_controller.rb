@@ -166,6 +166,9 @@ module Api
           assistant_message: assistant_message,
           follow_up: follow_up
         ).call
+      rescue StandardError => e
+        Rails.logger.warn("Conversation compaction could not be scheduled chat_session_id=#{session&.id}: #{e.class}: #{e.message}")
+        false
       end
 
       def current_chat_session

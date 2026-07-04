@@ -38,4 +38,6 @@ This PR adds the first persisted foundation for the Household CFO annual budget 
 
 ## Next layer
 
+The post-merge roadmap lives in `docs/post-pr20-roadmap.md`.
+
 The next PR can build on this with receipt/photo upload from chat, bank/card statement transaction extraction, merchant/category rules, duplicate detection, split editing, and end-of-month reconciliation.
