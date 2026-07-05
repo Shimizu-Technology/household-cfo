@@ -269,7 +269,7 @@ module HouseholdFinance
     end
 
     def missing_allocation_cell(period, category, actual_cents)
-      Rails.logger.warn("Missing budget allocation for category_id=#{category.id} period_id=#{period.id}")
+      Rails.logger.warn("Missing budget allocation for category_id=#{category.id} period_id=#{period.id}") if category.active?
       {
         period_id: period.id,
         allocation_id: nil,

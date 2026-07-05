@@ -88,6 +88,52 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal 0, repaired_month.fetch(:planned)
   end
 
+  test "archived actual history without allocations does not emit missing allocation warnings" do
+    household = create_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+    period = manager.current_period_for(Date.new(2026, 7, 15))
+    category = household.budget_categories.create!(name: "Archived History", stack_key: "discretionary", active: false, sort_order: 1)
+    transaction = household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 15),
+      merchant: "Legacy Cafe",
+      total_amount_cents: 1_200,
+      source_type: "manual_ui",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_200)
+    fake_logger = Class.new do
+      attr_reader :warnings
+
+      def initialize
+        @warnings = []
+      end
+
+      def warn(message)
+        @warnings << message
+      end
+
+      def method_missing(*)
+        nil
+      end
+
+      def respond_to_missing?(*alt)
+        true
+      end
+    end.new
+    original_logger = Rails.logger
+    Rails.logger = fake_logger
+
+    plan = manager.plan_data
+
+    assert_empty fake_logger.warnings
+    archived_row = plan.fetch(:rows).find { |row| row.fetch(:name) == "Archived History" }
+    assert_equal false, archived_row.fetch(:active)
+    assert_equal 12, archived_row.fetch(:actual_total)
+  ensure
+    Rails.logger = original_logger if defined?(original_logger) && original_logger
+  end
+
   private
 
   def create_household

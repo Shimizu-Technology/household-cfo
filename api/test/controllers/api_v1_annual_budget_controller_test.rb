@@ -445,6 +445,29 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes messages.last.fetch("content"), "Confirmed McDonald's for $25"
   end
 
+  test "confirm treats null transaction draft wrapper as no corrections" do
+    user = create_user(email: "confirm-null-body@example.com")
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { flexible_spend: 1_000 } },
+      headers: auth_headers(user),
+      as: :json
+
+    post "/api/v1/mia/messages",
+      params: { message: "I spent $25 at McDonald's today" },
+      headers: auth_headers(user),
+      as: :json
+    draft_id = JSON.parse(response.body).fetch("transaction_draft").fetch("id")
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft_id}/confirm",
+        params: { transaction_draft: nil },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+  end
+
   test "confirm still returns workspace if chat status message cannot be saved" do
     user = create_user(email: "confirm-status-best-effort@example.com")
     patch "/api/v1/workspace/setup",

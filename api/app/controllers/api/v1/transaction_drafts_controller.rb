@@ -47,7 +47,9 @@ module Api
       end
 
       def confirm_params
-        params.fetch(:transaction_draft, ActionController::Parameters.new).permit(:occurred_on, :merchant, :amount, :budget_category_id)
+        draft_params = params[:transaction_draft]
+        draft_params = ActionController::Parameters.new unless draft_params.is_a?(ActionController::Parameters)
+        draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id)
       end
 
       def append_chat_status_message(content)
