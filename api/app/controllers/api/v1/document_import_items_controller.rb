@@ -6,19 +6,25 @@ module Api
       before_action :set_item
 
       def update
+        attributes = item_update_attributes
         if @item.applied?
-          result = HouseholdFinance::AppliedDocumentImportItemUpdater.new(@item, user: current_user, attributes: item_update_attributes).call
+          result = HouseholdFinance::AppliedDocumentImportItemUpdater.new(@item, user: current_user, attributes: attributes).call
           return render json: { errors: result.errors }, status: :unprocessable_entity unless result.success?
 
-          HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
           return render json: { item: serialize_item(result.item) }
         end
 
-        @item.update!(item_update_attributes)
-        HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
+        ApplicationRecord.transaction do
+          @document_import.with_lock do
+            @item.update!(attributes)
+            HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
+          end
+        end
         render json: { item: serialize_item(@item.reload) }
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue ArgumentError => e
+        render json: { errors: [ e.message ] }, status: :unprocessable_entity
       end
 
       private

@@ -32,25 +32,22 @@ module Api
       end
 
       def ignore
-        ignored = false
-        @draft.with_lock do
-          if @draft.pending?
+        ApplicationRecord.transaction do
+          @draft.with_lock do
+            raise ArgumentError, "Transaction draft is not pending" unless @draft.pending?
+
             @draft.update!(status: "ignored")
-            ignored = true
           end
+          HouseholdFinance::DocumentImportStatusReconciler.new(@draft.financial_document_import).call if @draft.financial_document_import
         end
-
-        unless ignored
-          return render json: { errors: [ "Transaction draft is not pending" ] }, status: :unprocessable_entity
-        end
-
-        HouseholdFinance::DocumentImportStatusReconciler.new(@draft.financial_document_import).call if @draft.financial_document_import
         append_chat_status_message(ignored_message(@draft))
 
         render json: {
-          transaction_draft: serialize_draft(@draft),
+          transaction_draft: serialize_draft(@draft.reload),
           workspace: workspace_payload_for(@draft.occurred_on.year)
         }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render json: { errors: [ e.message ] }, status: :unprocessable_entity
       end
 
       def match

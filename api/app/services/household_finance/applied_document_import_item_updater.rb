@@ -25,6 +25,7 @@ module HouseholdFinance
           item.update!(attributes)
           sync_applied_record!
           item.update!(metadata: correction_metadata)
+          HouseholdFinance::DocumentImportStatusReconciler.new(document_import).call
         end
       end
 

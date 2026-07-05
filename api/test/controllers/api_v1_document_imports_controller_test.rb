@@ -381,6 +381,30 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 125_00, debt.payment_cents
   end
 
+  test "unapplied item update rolls back if import reconciliation fails" do
+    document_import = create_import!(status: "needs_review")
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+        params: { item: { label: "Dining corrected", amount: "425" } },
+        headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    item.reload
+    assert_equal "Dining", item.label
+    assert_equal 300_00, item.amount_cents
+  end
+
   test "item update can correct an applied saved household value" do
     document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
     expense = @household.expense_items.create!(
@@ -416,6 +440,42 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "sinking_expected", expense.stack_key
     assert_equal true, expense.active?
     assert item.metadata.key?("last_corrected_at")
+  end
+
+  test "applied item update rolls back saved value if import reconciliation fails" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    expense = @household.expense_items.create!(
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary"
+    )
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: expense
+    )
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+        params: { item: { amount: "400", stack_key: "sinking_expected" } },
+        headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    item.reload
+    expense.reload
+    assert_equal 420_00, item.amount_cents
+    assert_equal "discretionary", item.stack_key
+    assert_equal 420_00, expense.amount_cents
+    assert_equal "discretionary", expense.stack_key
   end
 
   test "item update preserves applied expense amount missing from extracted item" do
@@ -933,6 +993,32 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "confirmed", transaction.reload.status
   end
 
+  test "document transaction draft ignore rolls back if import reconciliation fails" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      post "/api/v1/transaction_drafts/#{draft.id}/ignore",
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "pending", draft.reload.status
+    assert_equal "needs_review", document_import.reload.status
+  end
+
   test "document transaction draft match rolls back if import reconciliation fails" do
     document_import = create_import!(status: "needs_review", document_kind: "statement")
     category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
@@ -958,13 +1044,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     )
     match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
 
-    failing_reconciler = ->(*) {
-      Object.new.tap do |object|
-        object.define_singleton_method(:call) { raise ArgumentError, "reconciler failed" }
-      end
-    }
-
-    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, failing_reconciler) do
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
       post "/api/v1/transaction_drafts/#{draft.id}/match",
         params: { match_id: match.id },
         headers: auth_headers(@user),
@@ -1108,6 +1188,14 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       byte_size: 100,
       s3_key: "household-cfo/test/statement.pdf"
     }.merge(attributes))
+  end
+
+  def reconciler_failure(message = "reconciler failed")
+    ->(*) {
+      Object.new.tap do |object|
+        object.define_singleton_method(:call) { raise ArgumentError, message }
+      end
+    }
   end
 
   def with_singleton_stub(target, method_name, replacement)
