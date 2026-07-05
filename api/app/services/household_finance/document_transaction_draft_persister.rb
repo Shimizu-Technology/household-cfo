@@ -54,26 +54,42 @@ module HouseholdFinance
         return
       end
 
-      draft = document_import.transaction_drafts.create!(
-        household: household,
+      match_count_for_draft = persist_draft_transaction!(
+        draft_payload: draft_payload,
         occurred_on: occurred_on,
         merchant: merchant,
         total_amount_cents: total_amount_cents,
-        budget_category: splits.first&.fetch(:budget_category),
         source_type: source_type,
-        status: "pending",
-        confidence: normalized_decimal(draft_payload[:confidence]),
-        raw_input: raw_input_for(draft_payload, merchant),
-        draft_payload: sanitized_draft_payload(draft_payload, index: index)
+        splits: splits,
+        index: index
       )
-      splits.each { |split| create_split!(draft, split) }
-      matcher_results = TransactionDraftMatcher.new(draft).call
       @created_count += 1
-      @match_count += matcher_results.length
+      @match_count += match_count_for_draft
     rescue ActiveRecord::RecordInvalid => e
       warnings << "Skipped transaction row #{index + 1}: #{e.record.errors.full_messages.to_sentence}."
     rescue StandardError => e
       warnings << "Skipped transaction row #{index + 1}: #{e.message}."
+    end
+
+    def persist_draft_transaction!(draft_payload:, occurred_on:, merchant:, total_amount_cents:, source_type:, splits:, index:)
+      matcher_results = []
+      ApplicationRecord.transaction(requires_new: true) do
+        draft = document_import.transaction_drafts.create!(
+          household: household,
+          occurred_on: occurred_on,
+          merchant: merchant,
+          total_amount_cents: total_amount_cents,
+          budget_category: splits.first&.fetch(:budget_category),
+          source_type: source_type,
+          status: "pending",
+          confidence: normalized_decimal(draft_payload[:confidence]),
+          raw_input: raw_input_for(draft_payload, merchant),
+          draft_payload: sanitized_draft_payload(draft_payload, index: index)
+        )
+        splits.each { |split| create_split!(draft, split) }
+        matcher_results = TransactionDraftMatcher.new(draft).call
+      end
+      matcher_results.length
     end
 
     def normalized_splits(draft_payload, merchant:, total_amount_cents:)
