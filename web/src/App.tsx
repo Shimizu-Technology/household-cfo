@@ -3753,11 +3753,13 @@ function TransactionDraftReviewCard({
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [editError, setEditError] = useState<string | null>(null)
   const activeCategories = categories.filter((category) => category.active)
-  const proposedMatches = (draft.matches ?? []).filter((match) => match.status === 'proposed')
+  const isPending = draft.status === 'pending'
+  const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
   const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0)
   const targetAmount = Number(amount || 0)
   const splitMismatch = Math.round(splitTotal * 100) !== Math.round(targetAmount * 100)
   const saving = action === `update-draft:${draft.id}`
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
 
   function updateSplit(index: number, values: Partial<EditableDraftSplit>) {
     setSplits((current) => current.map((split, candidateIndex) => (candidateIndex === index ? { ...split, ...values } : split)))
@@ -3807,7 +3809,10 @@ function TransactionDraftReviewCard({
   return (
     <div className="transaction-draft-card">
       <div className="transaction-draft-main">
-        <strong>{draft.merchant}</strong>
+        <div className="transaction-draft-title-row">
+          <strong>{draft.merchant}</strong>
+          <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
+        </div>
         <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Needs category'}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
@@ -3822,7 +3827,7 @@ function TransactionDraftReviewCard({
               <div key={match.id}>
                 <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {currency.format(match.transaction.amount)}</span>
                 {onMatch && (
-                  <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
+                  <button type="button" className="secondary-button" disabled={actionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
                     {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
                   </button>
                 )}
@@ -3832,7 +3837,7 @@ function TransactionDraftReviewCard({
         )}
       </div>
 
-      {editing && (
+      {editing && isPending && (
         <div className="transaction-draft-editor">
           <label>
             <span>Merchant</span>
@@ -3885,17 +3890,37 @@ function TransactionDraftReviewCard({
         </div>
       )}
 
-      <div className="transaction-draft-actions">
-        {onUpdate && <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || saving} onClick={() => setEditing((current) => !current)}>{editing ? 'Close edit' : 'Edit'}</button>}
-        <button type="button" disabled={!isRealWorkspace || draftActionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
-          {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
-        </button>
-        <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
-          {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
-        </button>
-      </div>
+      {isPending ? (
+        <div className="transaction-draft-actions">
+          {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={() => setEditing((current) => !current)}>{editing ? 'Close edit' : 'Edit'}</button>}
+          <button type="button" disabled={actionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+            {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
+          </button>
+          <button type="button" className="secondary-button" disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+            {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
+          </button>
+        </div>
+      ) : (
+        <div className="transaction-draft-actions terminal">
+          <span>{transactionDraftTerminalCopy(draft.status)}</span>
+        </div>
+      )}
     </div>
   )
+}
+
+function transactionDraftStatusTone(status: TransactionDraft['status']) {
+  if (status === 'pending') return 'gold'
+  if (status === 'ignored') return 'red'
+  return 'green'
+}
+
+function transactionDraftTerminalCopy(status: TransactionDraft['status']) {
+  if (status === 'matched') return 'Matched to an existing actual. No new spending was added.'
+  if (status === 'ignored') return 'Ignored. Actuals did not change.'
+  if (status === 'corrected') return 'Confirmed with edits. Actuals were updated.'
+  if (status === 'confirmed') return 'Confirmed. Actuals were updated.'
+  return 'Review complete.'
 }
 
 function transactionDraftRenderKey(draft: TransactionDraft) {

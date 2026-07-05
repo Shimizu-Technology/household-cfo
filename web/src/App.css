@@ -3369,6 +3369,10 @@ h3 {
   font-weight: 800;
 }
 
+.transaction-draft-edit-actions .transaction-draft-disabled-reason {
+  flex: 1 1 100%;
+}
+
 .transaction-draft-stack h4,
 .transaction-draft-card p {
   margin: 0;
@@ -3384,10 +3388,23 @@ h3 {
 }
 
 .transaction-draft-main {
-  min-width: 220px;
+  min-width: 0;
   flex: 1 1 280px;
   display: grid;
   gap: 6px;
+}
+
+.transaction-draft-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.transaction-draft-title-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .transaction-draft-splits,
@@ -3522,12 +3539,30 @@ h3 {
 .transaction-draft-actions button,
 .annual-category-form button,
 .annual-plan-edit-actions button {
+  min-height: 42px;
   padding: 10px 13px;
   border-radius: 999px;
   background: var(--emerald);
   color: white;
   font-size: 0.82rem;
   font-weight: 900;
+}
+
+.transaction-draft-actions.terminal {
+  justify-content: flex-start;
+}
+
+.transaction-draft-actions.terminal span {
+  display: inline-flex;
+  max-width: 100%;
+  padding: 9px 11px;
+  border: 1px solid rgba(123, 74, 88, 0.14);
+  border-radius: 14px;
+  background: rgba(123, 74, 88, 0.06);
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.35;
 }
 
 .annual-plan-edit-actions {
@@ -3974,20 +4009,49 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .transaction-draft-stack,
+  .document-transaction-drafts {
+    padding: 10px;
+    border-radius: 16px;
+  }
+
   .transaction-draft-card {
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
     padding: 14px;
+  }
+
+  .transaction-draft-main,
+  .transaction-draft-editor {
+    width: 100%;
+  }
+
+  .transaction-draft-splits {
+    grid-template-columns: 1fr;
   }
 
   .transaction-draft-actions,
   .transaction-draft-edit-actions,
   .transaction-match-suggestions > div {
-    justify-content: flex-start;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .transaction-draft-actions.terminal {
+    grid-template-columns: 1fr;
   }
 
   .transaction-draft-actions button,
-  .transaction-draft-edit-actions button {
-    flex: 1 1 auto;
-    min-width: min(150px, 100%);
+  .transaction-draft-edit-actions button,
+  .transaction-match-suggestions .secondary-button {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .transaction-draft-edit-actions .transaction-draft-disabled-reason {
+    grid-column: 1 / -1;
   }
 
   .transaction-ledger-controls input,

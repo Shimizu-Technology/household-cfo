@@ -19,11 +19,15 @@ module HouseholdFinance
 
           accepted_match = selected_match
           raise ArgumentError, "Transaction match not found" unless accepted_match
-          raise ArgumentError, "Matched transaction belongs to another household" unless accepted_match.household_transaction.household_id == draft.household_id
+
+          matched_transaction = accepted_match.household_transaction
+          matched_transaction.lock!
+          raise ArgumentError, "Matched transaction belongs to another household" unless matched_transaction.household_id == draft.household_id
+          raise ArgumentError, "Matched transaction is already linked to another draft" if matched_elsewhere?(matched_transaction)
 
           accepted_match.update!(status: "accepted")
           draft.transaction_draft_matches.where.not(id: accepted_match.id).update_all(status: "rejected", updated_at: Time.current)
-          draft.update!(status: "matched", matched_transaction: accepted_match.household_transaction)
+          draft.update!(status: "matched", matched_transaction: matched_transaction)
         end
       end
       HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call if draft.financial_document_import
@@ -39,6 +43,18 @@ module HouseholdFinance
     def selected_match
       scope = draft.transaction_draft_matches.proposed.best_first
       match_id.present? ? scope.find_by(id: match_id) : scope.first
+    end
+
+    def matched_elsewhere?(matched_transaction)
+      draft.household.transaction_drafts
+        .where(matched_transaction: matched_transaction, status: "matched")
+        .where.not(id: draft.id)
+        .exists? || TransactionDraftMatch.accepted
+          .joins(:transaction_draft)
+          .where(household_transaction: matched_transaction)
+          .where(transaction_drafts: { household_id: draft.household_id })
+          .where.not(transaction_draft_id: draft.id)
+          .exists?
     end
   end
 end
