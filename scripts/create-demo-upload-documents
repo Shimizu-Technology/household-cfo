@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+OUTPUT_DIR="${1:-${HOME}/Desktop/hcfo-demo-uploads}"
+mkdir -p "${OUTPUT_DIR}"
+
+cat > "${OUTPUT_DIR}/budget-values.csv" <<'CSV'
+type,label,amount,cadence,category,payment,notes
+income_source,Primary paycheck,6200,monthly,job,,Demo monthly take-home income
+expense_item,Rent,1800,monthly,non_discretionary,,Demo rent
+expense_item,Groceries,850,monthly,discretionary,,Demo grocery plan
+expense_item,Dining Out,250,monthly,discretionary,,Demo dining plan
+debt,Visa Card,3400,monthly,credit_card,175,Demo card balance and minimum payment
+account,Emergency Fund,5000,one_time,emergency_fund,,Demo emergency fund balance
+CSV
+
+cat > "${OUTPUT_DIR}/statement-july.csv" <<'CSV'
+date,description,amount,category,notes
+2026-07-05,Payless Supermarket,103.42,Groceries,Demo receipt total to split
+2026-07-05,Penny Cafe,13.57,Dining Out,Demo lunch row
+"May 12, 2026",Ross,45.25,Discretionary,Long-form date parser
+not-a-date,Bad Row,10,Dining Out,Invalid date should skip
+CSV
+
+cat > "${OUTPUT_DIR}/statement-july-duplicate.csv" <<'CSV'
+date,description,amount,category,notes
+2026-07-05,Penny Cafe,13.57,Dining Out,Duplicate statement row to match existing actual
+CSV
+
+cat > "${OUTPUT_DIR}/combined-budget-and-statement.csv" <<'CSV'
+type,date,description,amount,category,notes
+expense,2026-07-05,Penny Cafe,13.57,Dining Out,Transaction row should become a draft only
+expense_item,,Monthly dining budget,400,discretionary,Budget planning row should become setup item only
+CSV
+
+cat > "${OUTPUT_DIR}/demo-receipt-printable.html" <<'HTML'
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Household CFO Demo Receipt</title>
+  <style>
+    body {
+      margin: 0;
+      background: #f4f1e8;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+      color: #1d1d1d;
+    }
+    main {
+      width: min(380px, calc(100vw - 32px));
+      margin: 32px auto;
+      background: #fffdf5;
+      border: 1px solid #ded6bd;
+      box-shadow: 0 24px 60px rgba(20, 17, 9, 0.18);
+      padding: 28px 24px;
+    }
+    h1, p { margin: 0; }
+    h1 { text-align: center; font-size: 22px; letter-spacing: 0.08em; }
+    .center { text-align: center; }
+    .muted { color: #67604f; font-size: 12px; margin-top: 6px; }
+    .rule { border-top: 1px dashed #9f967f; margin: 18px 0; }
+    .row { display: flex; justify-content: space-between; gap: 20px; margin: 9px 0; font-size: 15px; }
+    .total { font-weight: 800; font-size: 18px; }
+    .fine { font-size: 11px; color: #67604f; line-height: 1.45; margin-top: 16px; }
+    @media print {
+      body { background: #fff; }
+      main { box-shadow: none; margin: 0 auto; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>PAYLESS DEMO</h1>
+    <p class="center muted">Household CFO fake receipt for OCR testing</p>
+    <p class="center muted">Guam · Register 04 · Cashier MIA</p>
+    <div class="rule"></div>
+    <div class="row"><span>Date</span><strong>July 5, 2026</strong></div>
+    <div class="row"><span>Receipt #</span><span>HCFO-070526</span></div>
+    <div class="rule"></div>
+    <div class="row"><span>Groceries</span><span>$85.42</span></div>
+    <div class="row"><span>Cigarettes</span><span>$18.00</span></div>
+    <div class="row"><span>Subtotal</span><span>$103.42</span></div>
+    <div class="row"><span>Tax</span><span>$0.00</span></div>
+    <div class="rule"></div>
+    <div class="row total"><span>Total</span><span>$103.42</span></div>
+    <div class="rule"></div>
+    <p class="fine">This is synthetic demo data. Photograph this screen from your phone to test OCR/receipt extraction. Do not upload real receipts or private financial documents during local demos.</p>
+  </main>
+</body>
+</html>
+HTML
+
+cat > "${OUTPUT_DIR}/README.txt" <<'TXT'
+Household CFO demo upload files
+
+Use these safe synthetic files for local smoke testing:
+
+1. budget-values.csv
+   Upload with: Budget file
+   Expected: setup/profile/budget draft items.
+
+2. statement-july.csv
+   Upload with: Bank or card statement
+   Expected: Payless, Penny Cafe, and Ross transaction drafts; bad date row skipped.
+
+3. statement-july-duplicate.csv
+   Upload with: Bank or card statement after confirming Penny Cafe once
+   Expected: proposed duplicate match to existing Penny Cafe actual.
+
+4. combined-budget-and-statement.csv
+   Upload with: Budget file or Bank/card statement
+   Expected: transaction-like row becomes a transaction draft, budget row becomes a setup item.
+
+5. demo-receipt-printable.html
+   Open in a browser on your Mac or phone, photograph it with your phone camera,
+   then upload the photo with: Receipt or quick evidence.
+   Expected: OCR/AI drafts one Payless transaction, ideally with Groceries + Cigarettes split.
+
+All files are fake demo data. Do not replace these with real financial documents in git.
+TXT
+
+printf '%s\n' "${OUTPUT_DIR}"
