@@ -88,6 +88,8 @@ The extractor returns one JSON object with:
 - Confirmed receipt/statement transactions keep `source_import_id` lineage.
 - Matching a statement row to an existing transaction changes only the draft status; actuals do not move.
 - Ignoring a draft leaves actuals unchanged.
+- Reopening a confirmed/corrected draft voids the created actual by marking the `HouseholdTransaction` ignored, then returns the draft to pending review.
+- Reopening a matched draft removes the accepted match and returns the draft to pending review without changing actuals.
 - Categories with pending drafts still cannot archive.
 - Archived categories are not valid for confirmation until restored.
 
@@ -98,7 +100,8 @@ Statement rows are staged as transaction drafts. The matcher proposes likely dup
 - confirm as a new actual,
 - edit/split/category-correct before confirming,
 - match to an existing confirmed transaction,
-- ignore.
+- ignore,
+- reopen a resolved draft for correction when a submitted review was wrong.
 
 ## Evidence library behavior
 

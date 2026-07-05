@@ -812,6 +812,11 @@ export async function matchTransactionDraft(id: number, matchId?: number): Promi
   return payload.workspace
 }
 
+export async function reopenTransactionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/reopen`, {})
+  return payload.workspace
+}
+
 export async function clearMiaMessages(realWorkspace = false): Promise<void> {
   if (!realWorkspace) return
 

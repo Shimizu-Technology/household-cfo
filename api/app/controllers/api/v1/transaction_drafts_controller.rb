@@ -2,7 +2,7 @@ module Api
   module V1
     class TransactionDraftsController < BaseController
       before_action :authenticate_user!
-      before_action :set_draft, only: %i[update confirm ignore match]
+      before_action :set_draft, only: %i[update confirm ignore match reopen]
 
       def update
         result = HouseholdFinance::TransactionDraftUpdater.new(@draft, update_params).call
@@ -67,6 +67,20 @@ module Api
         }
       end
 
+      def reopen
+        result = HouseholdFinance::TransactionDraftReopener.new(@draft).call
+        unless result.success?
+          return render json: { errors: result.errors }, status: :unprocessable_entity
+        end
+
+        append_chat_status_message(reopened_message(result.draft))
+
+        render json: {
+          transaction_draft: serialize_draft(result.draft),
+          workspace: workspace_payload_for(result.draft.occurred_on.year)
+        }
+      end
+
       private
 
       def set_draft
@@ -119,6 +133,10 @@ module Api
       def matched_message(draft, match)
         transaction = match.household_transaction
         "Matched #{draft.merchant} for #{money(draft.total_amount_cents)} to the existing #{transaction.merchant} transaction on #{transaction.occurred_on.to_fs(:long)}. Month-to-date actuals did not change."
+      end
+
+      def reopened_message(draft)
+        "Reopened #{draft.merchant} for #{money(draft.total_amount_cents)} for review. Actuals were adjusted if this draft had created a confirmed transaction."
       end
 
       def money(cents)

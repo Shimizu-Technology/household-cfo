@@ -800,6 +800,139 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "applied", document_import.reload.status
   end
 
+  test "confirmed document transaction draft can be reopened for correction" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt row"
+    )
+    draft.transaction_draft_splits.create!(budget_category: category, amount_cents: 10_342, category_name: category.name, stack_key: category.stack_key)
+
+    post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(@user), as: :json
+    assert_response :success
+    transaction = draft.reload.confirmed_transaction
+    rule = MerchantCategoryRule.find_by!(
+      household: @household,
+      budget_category: category,
+      merchant_pattern: MerchantCategoryRule.normalized_pattern(draft.merchant)
+    )
+    assert_equal "confirmed", transaction.status
+    assert rule.active?
+    assert_equal 1, rule.times_confirmed
+    assert_equal "applied", document_import.reload.status
+    assert document_import.applied_at
+
+    post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(@user), as: :json
+
+    assert_response :success
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.confirmed_transaction_id
+    assert_equal "ignored", transaction.reload.status
+    assert_equal draft.id, transaction.metadata.fetch("voided_by_transaction_draft_id")
+    assert_not rule.reload.active?
+    assert_equal 0, rule.times_confirmed
+    assert_equal "needs_review", document_import.reload.status
+    assert_nil document_import.applied_at
+    body = JSON.parse(response.body)
+    assert_equal "pending", body.dig("transaction_draft", "status")
+    assert_equal 1, body.dig("workspace", "budget", "annual_plan", "pending_transaction_drafts").length
+  end
+
+  test "matched document transaction draft can be reopened without changing actuals" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    post "/api/v1/transaction_drafts/#{draft.id}/match",
+      params: { match_id: match.id },
+      headers: auth_headers(@user),
+      as: :json
+    assert_response :success
+    assert_equal "matched", draft.reload.status
+    assert_equal "accepted", match.reload.status
+
+    post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(@user), as: :json
+
+    assert_response :success
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.matched_transaction_id
+    assert_equal "proposed", match.reload.status
+    assert_equal "confirmed", transaction.reload.status
+    assert_equal "needs_review", document_import.reload.status
+  end
+
+  test "confirmed draft reopen is blocked while another draft claims the actual" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      source_type: "receipt",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 10_342)
+    confirmed_draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: category,
+      source_type: "receipt",
+      status: "confirmed",
+      confirmed_transaction: transaction,
+      raw_input: "Receipt row"
+    )
+    statement_draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: category,
+      source_type: "statement",
+      status: "matched",
+      matched_transaction: transaction,
+      raw_input: "Statement row"
+    )
+    statement_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount", status: "accepted")
+
+    post "/api/v1/transaction_drafts/#{confirmed_draft.id}/reopen", headers: auth_headers(@user), as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/Undo matched statement rows/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "confirmed", confirmed_draft.reload.status
+    assert_equal "confirmed", transaction.reload.status
+  end
+
   test "document transaction draft match rolls back if import reconciliation fails" do
     document_import = create_import!(status: "needs_review", document_kind: "statement")
     category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)

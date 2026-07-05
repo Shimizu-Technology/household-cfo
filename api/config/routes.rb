@@ -28,6 +28,7 @@ Rails.application.routes.draw do
           post :confirm
           post :ignore
           post :match
+          post :reopen
         end
       end
       resources :document_imports, only: %i[index show create destroy] do

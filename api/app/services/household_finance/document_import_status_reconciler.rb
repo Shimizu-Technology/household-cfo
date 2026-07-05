@@ -14,8 +14,8 @@ module HouseholdFinance
           document_import
         else
           status = reconciled_status
-          timestamp = Time.current if status.in?(%w[applied partially_applied]) && document_import.applied_at.blank?
-          document_import.update!(status: status, applied_at: timestamp || document_import.applied_at)
+          applied_at = status.in?(%w[applied partially_applied]) ? (document_import.applied_at || Time.current) : nil
+          document_import.update!(status: status, applied_at: applied_at)
           document_import
         end
       end

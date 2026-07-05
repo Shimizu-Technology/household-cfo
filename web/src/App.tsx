@@ -22,6 +22,7 @@ import {
   ignoreTransactionDraft,
   matchTransactionDraft,
   reprocessDocumentImport,
+  reopenTransactionDraft,
   resendAdminUserInvitation,
   restoreBudgetCategory,
   saveWorkspaceSetup,
@@ -667,6 +668,7 @@ function App() {
 
     setBudgetAction(`update-draft:${draft.id}`)
     setBudgetError(null)
+    setDocumentsError(null)
     try {
       const response = await updateTransactionDraft(draft.id, values)
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
@@ -677,6 +679,7 @@ function App() {
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be updated.'
       setBudgetError(message)
+      setDocumentsError(message)
       throw new Error(message, { cause: caught })
     } finally {
       setBudgetAction(null)
@@ -688,6 +691,7 @@ function App() {
 
     setBudgetAction(`confirm-draft:${draft.id}`)
     setBudgetError(null)
+    setDocumentsError(null)
     try {
       const workspace = await confirmTransactionDraft(draft.id)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
@@ -701,7 +705,9 @@ function App() {
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.')
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.'
+      setBudgetError(message)
+      setDocumentsError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -712,6 +718,7 @@ function App() {
 
     setBudgetAction(`ignore-draft:${draft.id}`)
     setBudgetError(null)
+    setDocumentsError(null)
     try {
       const workspace = await ignoreTransactionDraft(draft.id)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
@@ -725,7 +732,9 @@ function App() {
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.')
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
+      setBudgetError(message)
+      setDocumentsError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -736,6 +745,7 @@ function App() {
 
     setBudgetAction(`match-draft:${draft.id}`)
     setBudgetError(null)
+    setDocumentsError(null)
     try {
       const workspace = await matchTransactionDraft(draft.id, matchId)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
@@ -749,7 +759,40 @@ function App() {
         source_type: draft.source_type ?? 'statement',
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be matched.')
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be matched.'
+      setBudgetError(message)
+      setDocumentsError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleReopenTransactionDraft(draft: TransactionDraft) {
+    if (!isRealWorkspace) return
+
+    const confirmed = window.confirm('Reopen this draft for correction? If it created an actual transaction, that actual will be removed from month-to-date totals and the draft will return to pending review.')
+    if (!confirmed) return
+
+    setBudgetAction(`reopen-draft:${draft.id}`)
+    setBudgetError(null)
+    setDocumentsError(null)
+    try {
+      const workspace = await reopenTransactionDraft(draft.id)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_reopened', {
+        previous_status: draft.status,
+        source_type: draft.source_type ?? 'manual_chat',
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be reopened.'
+      setBudgetError(message)
+      setDocumentsError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -1247,6 +1290,7 @@ function App() {
                   onMatch={handleMatchTransactionDraft}
                   onConfirm={handleConfirmTransactionDraft}
                   onIgnore={handleIgnoreTransactionDraft}
+                  onReopen={handleReopenTransactionDraft}
                 />
               )}
 
@@ -1345,6 +1389,7 @@ function App() {
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
+            draftAction={budgetAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
@@ -1355,6 +1400,7 @@ function App() {
             onMatchDraft={handleMatchTransactionDraft}
             onConfirmDraft={handleConfirmTransactionDraft}
             onIgnoreDraft={handleIgnoreTransactionDraft}
+            onReopenDraft={handleReopenTransactionDraft}
             onApply={handleApplyDocumentImport}
             onReprocess={handleReprocessDocumentImport}
             onDeleteSource={handleDeleteDocumentSource}
@@ -1429,6 +1475,7 @@ function App() {
               onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
+              onReopenDraft={handleReopenTransactionDraft}
             />
           ) : (
             <article className="panel coach-panel">
@@ -1720,6 +1767,7 @@ function DocumentImportWorkspace({
   uploadingKind,
   itemSavingIds,
   action,
+  draftAction,
   expandedAppliedImportId,
   onExpandedAppliedImportIdChange,
   demoUploads,
@@ -1730,6 +1778,7 @@ function DocumentImportWorkspace({
   onMatchDraft,
   onConfirmDraft,
   onIgnoreDraft,
+  onReopenDraft,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -1747,6 +1796,7 @@ function DocumentImportWorkspace({
   uploadingKind: DocumentImportKind | null
   itemSavingIds: Set<number>
   action: string | null
+  draftAction: string | null
   expandedAppliedImportId: number | null
   onExpandedAppliedImportIdChange: (id: number | null) => void
   demoUploads: Array<{ label: string; kind: string; status: string; accepts: string }>
@@ -1757,6 +1807,7 @@ function DocumentImportWorkspace({
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
+  onReopenDraft: (draft: TransactionDraft) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -1844,6 +1895,7 @@ function DocumentImportWorkspace({
           categories={categories}
           itemSavingIds={itemSavingIds}
           action={action}
+          draftAction={draftAction}
           appliedDetailsOpen={Boolean(selectedImport && selectedImport.status === 'applied' && selectedImport.id === expandedAppliedImportId)}
           onAppliedDetailsOpenChange={(open) => onExpandedAppliedImportIdChange(open && selectedImport ? selectedImport.id : null)}
           onUpdateItem={onUpdateItem}
@@ -1851,6 +1903,7 @@ function DocumentImportWorkspace({
           onMatchDraft={onMatchDraft}
           onConfirmDraft={onConfirmDraft}
           onIgnoreDraft={onIgnoreDraft}
+          onReopenDraft={onReopenDraft}
           onApply={onApply}
           onReprocess={onReprocess}
           onDeleteSource={onDeleteSource}
@@ -1951,6 +2004,7 @@ function DocumentReviewPanel({
   categories,
   itemSavingIds,
   action,
+  draftAction,
   appliedDetailsOpen,
   onAppliedDetailsOpenChange,
   onUpdateItem,
@@ -1958,6 +2012,7 @@ function DocumentReviewPanel({
   onMatchDraft,
   onConfirmDraft,
   onIgnoreDraft,
+  onReopenDraft,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -1970,6 +2025,7 @@ function DocumentReviewPanel({
   categories: BudgetCategoryRow[]
   itemSavingIds: Set<number>
   action: string | null
+  draftAction: string | null
   appliedDetailsOpen: boolean
   onAppliedDetailsOpenChange: (open: boolean) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
@@ -1977,6 +2033,7 @@ function DocumentReviewPanel({
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
+  onReopenDraft: (draft: TransactionDraft) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -2079,13 +2136,14 @@ function DocumentReviewPanel({
           <TransactionDraftReviewStack
             drafts={documentImport.transaction_drafts ?? []}
             isRealWorkspace
-            action={action}
+            action={draftAction}
             compact
             categories={categories}
             onUpdate={onUpdateDraft}
             onMatch={onMatchDraft}
             onConfirm={onConfirmDraft}
             onIgnore={onIgnoreDraft}
+            onReopen={onReopenDraft}
           />
         </section>
       )}
@@ -3677,6 +3735,7 @@ function TransactionDraftReviewStack({
   onMatch,
   onConfirm,
   onIgnore,
+  onReopen,
 }: {
   drafts: TransactionDraft[]
   isRealWorkspace: boolean
@@ -3689,6 +3748,7 @@ function TransactionDraftReviewStack({
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
+  onReopen: (draft: TransactionDraft) => void
 }) {
   return (
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
@@ -3710,6 +3770,7 @@ function TransactionDraftReviewStack({
           onMatch={onMatch}
           onConfirm={onConfirm}
           onIgnore={onIgnore}
+          onReopen={onReopen}
         />
       ))}
     </div>
@@ -3735,6 +3796,7 @@ function TransactionDraftReviewCard({
   onMatch,
   onConfirm,
   onIgnore,
+  onReopen,
 }: {
   draft: TransactionDraft
   isRealWorkspace: boolean
@@ -3745,6 +3807,7 @@ function TransactionDraftReviewCard({
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
+  onReopen: (draft: TransactionDraft) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [merchant, setMerchant] = useState(draft.merchant)
@@ -3759,7 +3822,9 @@ function TransactionDraftReviewCard({
   const targetAmount = Number(amount || 0)
   const splitMismatch = Math.round(splitTotal * 100) !== Math.round(targetAmount * 100)
   const saving = action === `update-draft:${draft.id}`
+  const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
 
   function updateSplit(index: number, values: Partial<EditableDraftSplit>) {
     setSplits((current) => current.map((split, candidateIndex) => (candidateIndex === index ? { ...split, ...values } : split)))
@@ -3903,6 +3968,9 @@ function TransactionDraftReviewCard({
       ) : (
         <div className="transaction-draft-actions terminal">
           <span>{transactionDraftTerminalCopy(draft.status)}</span>
+          <button type="button" className="secondary-button" disabled={reopenDisabled || reopening} onClick={() => onReopen(draft)}>
+            {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
+          </button>
         </div>
       )}
     </div>
@@ -3921,6 +3989,12 @@ function transactionDraftTerminalCopy(status: TransactionDraft['status']) {
   if (status === 'corrected') return 'Confirmed with edits. Actuals were updated.'
   if (status === 'confirmed') return 'Confirmed. Actuals were updated.'
   return 'Review complete.'
+}
+
+function transactionDraftReopenLabel(status: TransactionDraft['status']) {
+  if (status === 'matched') return 'Undo match'
+  if (status === 'ignored') return 'Restore draft'
+  return 'Undo to edit'
 }
 
 function transactionDraftRenderKey(draft: TransactionDraft) {
@@ -4235,6 +4309,7 @@ function AnnualBudgetPlanner({
   onMatchDraft,
   onConfirmDraft,
   onIgnoreDraft,
+  onReopenDraft,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -4255,6 +4330,7 @@ function AnnualBudgetPlanner({
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
+  onReopenDraft: (draft: TransactionDraft) => void
 }) {
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
@@ -4412,6 +4488,7 @@ function AnnualBudgetPlanner({
           onMatch={onMatchDraft}
           onConfirm={onConfirmDraft}
           onIgnore={onIgnoreDraft}
+          onReopen={onReopenDraft}
         />
       )}
 
