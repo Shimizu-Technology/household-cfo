@@ -29,8 +29,8 @@ module HouseholdFinance
           draft.transaction_draft_matches.where.not(id: accepted_match.id).update_all(status: "rejected", updated_at: Time.current)
           draft.update!(status: "matched", matched_transaction: matched_transaction)
         end
+        HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call if draft.financial_document_import
       end
-      HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call if draft.financial_document_import
       Result.new(success: true, draft: draft.reload, match: accepted_match.reload, errors: [])
     rescue ArgumentError, ActiveRecord::RecordInvalid => e
       Result.new(success: false, draft: draft.reload, match: nil, errors: [ e.message ])

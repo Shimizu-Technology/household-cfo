@@ -800,6 +800,52 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "applied", document_import.reload.status
   end
 
+  test "document transaction draft match rolls back if import reconciliation fails" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    failing_reconciler = ->(*) {
+      Object.new.tap do |object|
+        object.define_singleton_method(:call) { raise ArgumentError, "reconciler failed" }
+      end
+    }
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, failing_reconciler) do
+      post "/api/v1/transaction_drafts/#{draft.id}/match",
+        params: { match_id: match.id },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.matched_transaction_id
+    assert_equal "proposed", match.reload.status
+    assert_equal "needs_review", document_import.reload.status
+  end
+
   test "document transaction draft match cannot claim an already matched actual" do
     document_import = create_import!(status: "needs_review", document_kind: "statement")
     category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
