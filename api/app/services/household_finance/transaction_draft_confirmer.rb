@@ -1,6 +1,15 @@
 module HouseholdFinance
   class TransactionDraftConfirmer
     InvalidDraftCorrection = Class.new(StandardError)
+    MERCHANT_RULE_INITIAL_CONFIDENCE = BigDecimal("0.83")
+    MERCHANT_RULE_UPSERT_SQL = Arel.sql(<<~SQL.squish)
+      confidence = LEAST(0.95, merchant_category_rules.confidence + 0.03),
+      source = EXCLUDED.source,
+      times_confirmed = merchant_category_rules.times_confirmed + EXCLUDED.times_confirmed,
+      last_confirmed_at = EXCLUDED.last_confirmed_at,
+      active = EXCLUDED.active,
+      updated_at = EXCLUDED.updated_at
+    SQL
     Result = Struct.new(:success?, :draft, :transaction, :errors, keyword_init: true)
 
     def initialize(draft, attributes = {})
@@ -197,16 +206,34 @@ module HouseholdFinance
       pattern = MerchantCategoryRule.normalized_pattern(draft.merchant)
       return if pattern.blank?
 
-      splits.group_by { |split| split.fetch(:budget_category) }.each do |category, category_splits|
+      rows = merchant_category_rule_rows(pattern, splits)
+      return if rows.empty?
+
+      MerchantCategoryRule.upsert_all(
+        rows,
+        unique_by: :index_merchant_rules_on_household_pattern_category,
+        on_duplicate: MERCHANT_RULE_UPSERT_SQL
+      )
+    end
+
+    def merchant_category_rule_rows(pattern, splits)
+      now = Time.current
+      splits.group_by { |split| split.fetch(:budget_category) }.filter_map do |category, category_splits|
         next unless category&.active?
 
-        rule = draft.household.merchant_category_rules.find_or_initialize_by(merchant_pattern: pattern, budget_category: category)
-        rule.confidence = [ BigDecimal("0.95"), (rule.confidence || BigDecimal("0.80")).to_d + BigDecimal("0.03") ].min
-        rule.source = "user_confirmed"
-        rule.times_confirmed = rule.times_confirmed.to_i + category_splits.length
-        rule.last_confirmed_at = Time.current
-        rule.active = true
-        rule.save!
+        {
+          household_id: draft.household_id,
+          budget_category_id: category.id,
+          merchant_pattern: pattern,
+          confidence: MERCHANT_RULE_INITIAL_CONFIDENCE,
+          source: "user_confirmed",
+          times_confirmed: category_splits.length,
+          last_confirmed_at: now,
+          active: true,
+          metadata: {},
+          created_at: now,
+          updated_at: now
+        }
       end
     end
 

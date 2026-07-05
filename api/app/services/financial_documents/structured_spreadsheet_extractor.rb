@@ -83,8 +83,9 @@ module FinancialDocuments
         next [] unless header_row
 
         header_map = header_map_for(header_row[:values])
+        skip_transaction_like_rows = transaction_header?(header_row[:values])
         rows.drop_while { |row| row[:row] <= header_row[:row] }.filter_map do |row|
-          item_from_row(row[:values], header_map)
+          item_from_row(row[:values], header_map, skip_transaction_like: skip_transaction_like_rows)
         end
       end.first(Extractor::MAX_ITEMS)
     end
@@ -161,7 +162,9 @@ module FinancialDocuments
       }
     end
 
-    def item_from_row(values, header_map)
+    def item_from_row(values, header_map, skip_transaction_like: false)
+      return if skip_transaction_like && transaction_like_row?(values, header_map)
+
       type = target_type(cell(values, header_map, "type"))
       return unless type
 
@@ -227,6 +230,11 @@ module FinancialDocuments
       return nil if index.nil?
 
       values[index]
+    end
+
+    def transaction_like_row?(values, header_map)
+      cell(values, header_map, "date").present? &&
+        (cell(values, header_map, "merchant").present? || cell(values, header_map, "label").present?)
     end
 
     def target_type(value)

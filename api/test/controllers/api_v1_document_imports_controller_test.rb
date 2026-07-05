@@ -649,6 +649,41 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert @household.merchant_category_rules.where(merchant_pattern: "penny cafe", budget_category: tips).exists?
   end
 
+  test "document transaction draft confirmation upserts existing merchant category rule" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    rule = @household.merchant_category_rules.create!(
+      merchant_pattern: "penny cafe",
+      budget_category: dining,
+      confidence: BigDecimal("0.80"),
+      times_confirmed: 2,
+      source: "system_inferred",
+      active: false
+    )
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_800,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt upload"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+
+    assert_no_difference("MerchantCategoryRule.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :success
+    rule.reload
+    assert_equal BigDecimal("0.83"), rule.confidence
+    assert_equal 3, rule.times_confirmed
+    assert_equal "user_confirmed", rule.source
+    assert rule.active?
+    assert rule.last_confirmed_at.present?
+  end
+
   test "document transaction draft top-level category update collapses stale multi-split categories" do
     document_import = create_import!(status: "needs_review", document_kind: "receipt")
     dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
