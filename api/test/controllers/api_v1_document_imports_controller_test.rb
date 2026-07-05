@@ -714,6 +714,52 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 10_342, split.amount_cents
   end
 
+  test "confirming with split corrections clears stale proposed matches" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 2)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    existing = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    existing.transaction_splits.create!(budget_category: groceries, amount_cents: 10_342)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: groceries,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 10_342, category_name: "Groceries")
+    draft.transaction_draft_matches.create!(household_transaction: existing, confidence: 0.98, match_reason: "same amount")
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        params: {
+          transaction_draft: {
+            splits: [
+              { amount: "85.42", budget_category_id: groceries.id, notes: "Food" },
+              { amount: "18.00", budget_category_id: dining.id, notes: "Other" }
+            ]
+          }
+        },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "corrected", draft.reload.status
+    assert_empty draft.transaction_draft_matches.reload
+  end
+
   test "document transaction draft match accepts existing actual without changing actual totals" do
     document_import = create_import!(status: "needs_review", document_kind: "statement")
     category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)

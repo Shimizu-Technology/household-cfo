@@ -421,11 +421,28 @@ module Api
           confidence: draft.confidence,
           raw_input: draft.raw_input,
           summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(dollars_or_nil(draft.total_amount_cents), precision: 2)}",
-          splits: draft.transaction_draft_splits.ordered.map { |split| serialize_transaction_draft_split(split) },
-          matches: draft.transaction_draft_matches.best_first.map { |match| serialize_transaction_draft_match(match) },
+          splits: ordered_draft_splits_for(draft).map { |split| serialize_transaction_draft_split(split) },
+          matches: ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) },
           matched_transaction_id: draft.matched_transaction_id,
           draft_payload: safe_draft_payload(draft.draft_payload)
         }
+      end
+
+      def ordered_draft_splits_for(draft)
+        if draft.association(:transaction_draft_splits).loaded?
+          draft.transaction_draft_splits.sort_by(&:id)
+        else
+          draft.transaction_draft_splits.ordered.includes(:budget_category)
+        end
+      end
+
+      def ordered_draft_matches_for(draft)
+        matches = if draft.association(:transaction_draft_matches).loaded?
+          draft.transaction_draft_matches
+        else
+          draft.transaction_draft_matches.includes(household_transaction: { transaction_splits: :budget_category })
+        end
+        matches.sort_by { |match| [ -(match.confidence || 0).to_d, match.id || 0 ] }
       end
 
       def serialize_transaction_draft_split(split)

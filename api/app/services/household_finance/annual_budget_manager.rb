@@ -342,9 +342,26 @@ module HouseholdFinance
         category_name: draft.budget_category&.name,
         stack_label: draft.budget_category&.stack_label,
         summary: draft_summary(draft),
-        splits: draft.transaction_draft_splits.ordered.map { |split| draft_split_payload(split) },
-        matches: draft.transaction_draft_matches.best_first.map { |match| draft_match_payload(match) }
+        splits: ordered_draft_splits_for(draft).map { |split| draft_split_payload(split) },
+        matches: ordered_draft_matches_for(draft).map { |match| draft_match_payload(match) }
       }
+    end
+
+    def ordered_draft_splits_for(draft)
+      if draft.association(:transaction_draft_splits).loaded?
+        draft.transaction_draft_splits.sort_by(&:id)
+      else
+        draft.transaction_draft_splits.ordered.includes(:budget_category)
+      end
+    end
+
+    def ordered_draft_matches_for(draft)
+      matches = if draft.association(:transaction_draft_matches).loaded?
+        draft.transaction_draft_matches
+      else
+        draft.transaction_draft_matches.includes(household_transaction: { transaction_splits: :budget_category })
+      end
+      matches.sort_by { |match| [ -(match.confidence || 0).to_d, match.id || 0 ] }
     end
 
     def draft_split_payload(split)

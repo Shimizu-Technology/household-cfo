@@ -24,6 +24,7 @@ module HouseholdFinance
           if draft.pending?
             corrected = apply_corrections!
             transaction = create_transaction!
+            clear_unaccepted_match_suggestions!
             draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
             HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call if draft.financial_document_import
           end
@@ -200,6 +201,10 @@ module HouseholdFinance
       date
     rescue ArgumentError
       nil
+    end
+
+    def clear_unaccepted_match_suggestions!
+      draft.transaction_draft_matches.where.not(status: "accepted").destroy_all
     end
 
     def remember_merchant_category_rules!(splits)

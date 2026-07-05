@@ -675,7 +675,9 @@ function App() {
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be updated.')
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be updated.'
+      setBudgetError(message)
+      throw new Error(message, { cause: caught })
     } finally {
       setBudgetAction(null)
     }
@@ -1079,8 +1081,11 @@ function App() {
           />
 
           <div className="status-ribbon">
-            <span>Readiness</span>
-            <strong>{data.dashboard.summary.readiness_label}</strong>
+            <div>
+              <span>Readiness</span>
+              <strong>{data.dashboard.summary.readiness_label}</strong>
+            </div>
+            <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
           </div>
 
           <div className="metric-row">
@@ -1748,7 +1753,7 @@ function DocumentImportWorkspace({
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   onSelectImport: (id: number) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
-  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
@@ -1968,7 +1973,7 @@ function DocumentReviewPanel({
   appliedDetailsOpen: boolean
   onAppliedDetailsOpenChange: (open: boolean) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
-  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
@@ -3680,7 +3685,7 @@ function TransactionDraftReviewStack({
   draftActionsDisabled?: boolean
   disabledReason?: string
   categories?: BudgetCategoryRow[]
-  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
@@ -3736,7 +3741,7 @@ function TransactionDraftReviewCard({
   action: string | null
   draftActionsDisabled: boolean
   categories: BudgetCategoryRow[]
-  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
@@ -3746,6 +3751,7 @@ function TransactionDraftReviewCard({
   const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
   const [amount, setAmount] = useState(String(draft.amount))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
+  const [editError, setEditError] = useState<string | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const proposedMatches = (draft.matches ?? []).filter((match) => match.status === 'proposed')
   const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0)
@@ -3768,22 +3774,34 @@ function TransactionDraftReviewCard({
     setSplits((current) => current.length <= 1 ? current : current.filter((_, candidateIndex) => candidateIndex !== index))
   }
 
-  function saveDraftEdits() {
+  async function saveDraftEdits() {
     if (!onUpdate) return
 
-    onUpdate(draft, {
-      occurred_on: occurredOn,
-      merchant,
-      amount,
-      splits: splits.map((split) => ({
-        id: split.id,
-        amount: split.amount,
-        budget_category_id: split.budget_category_id ? Number(split.budget_category_id) : null,
-        category_name: split.category_name || null,
-        stack_key: split.stack_key || null,
-        notes: split.notes || null,
-      })),
-    })
+    const cleanedSplits = splits.filter((split) => split.id || split.amount || split.budget_category_id || split.category_name || split.stack_key || split.notes)
+    if (cleanedSplits.length === 0) {
+      setEditError('Add at least one split before saving this draft.')
+      return
+    }
+
+    setEditError(null)
+    try {
+      await onUpdate(draft, {
+        occurred_on: occurredOn,
+        merchant,
+        amount,
+        splits: cleanedSplits.map((split) => ({
+          id: split.id,
+          amount: split.amount,
+          budget_category_id: split.budget_category_id ? Number(split.budget_category_id) : null,
+          category_name: split.category_name || null,
+          stack_key: split.stack_key || null,
+          notes: split.notes || null,
+        })),
+      })
+      setEditing(false)
+    } catch (caught) {
+      setEditError(caught instanceof Error ? caught.message : 'Transaction draft could not be updated.')
+    }
   }
 
   return (
@@ -3860,8 +3878,9 @@ function TransactionDraftReviewCard({
           <div className="transaction-draft-edit-actions">
             <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
             {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {currency.format(splitTotal)} but draft total is {currency.format(targetAmount)}.</span>}
-            <button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancel</button>
-            <button type="button" disabled={saving || splitMismatch} onClick={saveDraftEdits}>{saving ? 'Saving' : 'Save draft'}</button>
+            {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
+            <button type="button" className="secondary-button" onClick={() => { setEditError(null); setEditing(false) }}>Cancel</button>
+            <button type="button" disabled={saving || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
           </div>
         </div>
       )}
@@ -4207,7 +4226,7 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
-  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
