@@ -574,7 +574,6 @@ function App() {
     try {
       const budget = await fetchBudget(normalizedYear)
       setData((current) => current ? { ...current, budget } : current)
-      refreshSpendingReportForBudget(budget, normalizedMonthIndex)
     } catch (caught) {
       setBudgetView((current) => (
         current?.year === normalizedYear && current.monthIndex === normalizedMonthIndex

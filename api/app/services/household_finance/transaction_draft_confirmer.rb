@@ -77,14 +77,22 @@ module HouseholdFinance
     def selected_category
       return nil unless attributes[:budget_category_id].present?
 
-      draft.household.budget_categories.active.find_by(id: attributes[:budget_category_id]) || raise(InvalidDraftCorrection, "Budget category not found")
+      category = draft.household.budget_categories.find_by(id: attributes[:budget_category_id])
+      raise InvalidDraftCorrection, "Budget category not found" unless category
+      raise InvalidDraftCorrection, archived_category_message unless category.active?
+
+      category
     end
 
     def transaction_category
       return draft.budget_category if draft.budget_category&.active?
       return fallback_category if draft.budget_category.nil?
 
-      raise InvalidDraftCorrection, "Budget category not found"
+      raise InvalidDraftCorrection, archived_category_message
+    end
+
+    def archived_category_message
+      "Budget category is archived. Restore it or choose an active category before confirming."
     end
 
     def fallback_category

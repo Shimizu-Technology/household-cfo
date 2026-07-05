@@ -27,7 +27,7 @@ module HouseholdFinance
           pending: Money.dollars(rows.sum { |row| row.fetch(:pending_cents) } + uncategorized_pending_cents),
           remaining: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) - row.fetch(:actual_cents) })
         },
-        categories: rows.map { |row| category_payload(row) },
+        categories: rows.map { |row| category_payload(row) } + uncategorized_pending_payload,
         transactions: transactions_payload,
         pending_drafts: pending_drafts_payload
       }
@@ -144,6 +144,22 @@ module HouseholdFinance
 
     def uncategorized_pending_cents
       pending_sums[nil].to_i
+    end
+
+    def uncategorized_pending_payload
+      return [] unless uncategorized_pending_cents.positive?
+
+      [ {
+        id: 0,
+        name: "Uncategorized",
+        stack_key: "discretionary",
+        stack_label: "Needs category",
+        planned: 0.0,
+        actual: 0.0,
+        pending: Money.dollars(uncategorized_pending_cents),
+        remaining: 0.0,
+        active: true
+      } ]
     end
 
     def transactions_payload

@@ -645,6 +645,10 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Uncategorized Cafe", draft.fetch("merchant")
     assert_nil draft.fetch("category_id")
     assert_nil draft.fetch("category_name")
+    uncategorized_row = report.fetch("categories").find { |row| row.fetch("name") == "Uncategorized" }
+    assert_equal 0, uncategorized_row.fetch("id")
+    assert_equal "Needs category", uncategorized_row.fetch("stack_label")
+    assert_equal 12, uncategorized_row.fetch("pending")
   end
 
   test "legacy archived category actuals remain visible in historical reports" do
@@ -1520,7 +1524,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category not found"
+    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category is archived. Restore it or choose an active category before confirming."
   end
 
   test "confirming with an archived correction category returns validation errors" do
@@ -1547,7 +1551,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category not found"
+    assert_includes JSON.parse(response.body).fetch("errors"), "Budget category is archived. Restore it or choose an active category before confirming."
   end
 
   test "confirming with user corrections preserves corrected audit status" do
