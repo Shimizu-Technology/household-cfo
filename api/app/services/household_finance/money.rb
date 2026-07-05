@@ -3,7 +3,7 @@ module HouseholdFinance
     module_function
 
     def dollars(cents)
-      (cents.to_i / 100.0).round
+      cents.to_i / 100.0
     end
 
     def cents(value)
@@ -11,6 +11,14 @@ module HouseholdFinance
       (decimal * 100).round.to_i
     rescue ArgumentError
       0
+    end
+
+    def cents!(value, message: "Amount must be a number")
+      text = value.to_s.strip
+      raise ArgumentError, message if text.blank?
+      raise ArgumentError, message unless text.match?(/\A\d{1,9}(?:\.\d{1,2})?\z/)
+
+      cents(value)
     end
 
     def monthly_cents(amount_cents, cadence)

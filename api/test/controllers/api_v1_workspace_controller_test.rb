@@ -363,6 +363,131 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
+  test "mia chat compacts conversation continuity for follow-up questions" do
+    user = create_user(email: "mia-continuity@example.com")
+    patch "/api/v1/workspace/setup",
+          params: {
+            workspace: {
+              primary_income: 8_000,
+              fixed_expenses: 4_000,
+              flexible_spend: 1_000,
+              emergency_fund: 8_000,
+              credit_card_debt: 2_000,
+              debt_payment: 150
+            }
+          },
+          headers: auth_headers(user),
+          as: :json
+
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
+    post "/api/v1/mia/messages",
+         params: { message: "My cousin asked for $200. Should I help?" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+
+    session = user.households.first.chat_sessions.find_by!(user: user)
+    assert_includes session.reload.rolling_summary, "Family support"
+    assert_equal "family_support", session.active_topic.fetch("type")
+
+    post "/api/v1/mia/messages",
+         params: { message: "What if I cut dining out to cover it?" },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "family support"
+    assert_includes content, "tradeoff"
+    assert_includes content, "Dining Out"
+    assert_includes content, "$200"
+    refute_includes content, "I do not see confirmed Dining Out spending"
+    assert_equal "family_support", session.reload.active_topic.fetch("type")
+  end
+
+  test "mia chat can resume compacted context across requests and clear it" do
+    user = create_user(email: "mia-resume-context@example.com")
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
+          headers: auth_headers(user),
+          as: :json
+
+    post "/api/v1/mia/messages",
+         params: { message: "Should I use emergency fund for a car repair?" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+
+    post "/api/v1/mia/messages",
+         params: { message: "It is $640 and I need it for work. What now?" },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "car repair"
+    assert_includes content, "$640"
+
+    post "/api/v1/mia/messages",
+         params: { message: "Can you remind me what we were talking about?" },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    reminder = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes reminder, "conversation context"
+    assert_includes reminder, "Car repair"
+    assert_includes reminder, "not financial truth"
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+    assert_response :success
+    assert_equal 6, JSON.parse(response.body).fetch("mia").fetch("messages").length
+
+    delete "/api/v1/mia/messages", headers: auth_headers(user)
+    assert_response :no_content
+    session = user.households.first.chat_sessions.find_by!(user: user)
+    assert_nil session.rolling_summary
+    assert_empty session.open_topics
+    assert_empty session.active_topic
+
+    post "/api/v1/mia/messages",
+         params: { message: "Can you remind me what we were talking about?" },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    cleared_reminder = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes cleared_reminder, "I do not have an open chat topic to resume after the clear"
+    assert_includes cleared_reminder, "Conversation continuity is context only"
+  end
+
+  test "mia chat still succeeds when conversation compaction fails" do
+    user = create_user(email: "mia-compaction-failure@example.com")
+    original_compactor_new = HouseholdFinance::ConversationCompactor.method(:new)
+
+    begin
+      HouseholdFinance::ConversationCompactor.define_singleton_method(:new) do |*|
+        raise ActiveRecord::StatementInvalid, "simulated compaction failure"
+      end
+
+      assert_difference("ChatMessage.count", 2) do
+        post "/api/v1/mia/messages",
+             params: { message: "Can I leave my job?" },
+             headers: auth_headers(user),
+             as: :json
+      end
+    ensure
+      HouseholdFinance::ConversationCompactor.define_singleton_method(:new, original_compactor_new)
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_equal "Can I leave my job?", body.fetch("user_message").fetch("content")
+    assert body.fetch("assistant_message").fetch("content").present?
+  end
+
   test "mia chat rejects messages above the storage limit" do
     user = create_user(email: "long-mia@example.com")
 

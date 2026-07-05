@@ -3,22 +3,31 @@ import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type
 import './App.css'
 import {
   applyDocumentImport,
+  archiveBudgetCategory,
   clearMiaMessages,
+  confirmTransactionDraft,
   createAdminCohort,
   createAdminUser,
+  createBudgetCategory,
   deleteDocumentImport,
   deleteDocumentImportSource,
   fetchAdminCohorts,
   fetchAdminUsers,
   fetchAppData,
+  fetchBudget,
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
   fetchDocumentImports,
+  fetchSpendingReport,
+  ignoreTransactionDraft,
   reprocessDocumentImport,
   resendAdminUserInvitation,
+  restoreBudgetCategory,
   saveWorkspaceSetup,
   sendMiaMessage,
+  updateBudgetAllocation,
   updateAdminCohort,
+  updateBudgetCategory,
   updateAdminUser,
   updateDocumentImportItem,
   uploadDocumentImport,
@@ -30,7 +39,13 @@ import type {
   AdminUser,
   AdminUserInput,
   AdminUserMutationResponse,
+  AnnualBudgetPlan,
   AppData,
+  BudgetCategoryMonth,
+  BudgetCategoryRow,
+  BudgetData,
+  BudgetMonth,
+  BudgetStackKey,
   CurrentUser,
   DocumentImportItem,
   DocumentImportItemInput,
@@ -40,6 +55,9 @@ import type {
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
+  RecentTransaction,
+  SpendingReport,
+  TransactionDraft,
   UserRole,
   WorkspaceSetupValues,
 } from './api'
@@ -50,7 +68,8 @@ import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload } fr
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
   currency: 'USD',
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 })
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
@@ -61,6 +80,24 @@ const MIA_MESSAGE_MAX_LENGTH = 2_000
 const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp'
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
+
+type BudgetAllocationChange = {
+  allocation_id: number
+  planned_amount: string
+  category_id: number
+  stack_key: BudgetStackKey
+}
+
+type BudgetCategoryChange = {
+  id: number
+  name: string
+  stack_key: BudgetStackKey
+}
+
+type BudgetEditChanges = {
+  allocations: BudgetAllocationChange[]
+  categories: BudgetCategoryChange[]
+}
 
 const documentUploadCards: Array<{
   kind: DocumentImportKind
@@ -123,6 +160,7 @@ function App() {
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupValues | null>(null)
+  const [isProfileEditing, setIsProfileEditing] = useState(false)
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [active, setActive] = useState(() => {
@@ -133,7 +171,19 @@ function App() {
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [miaClearing, setMiaClearing] = useState(false)
+  const [confirmClearChat, setConfirmClearChat] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
+  const [budgetAction, setBudgetAction] = useState<string | null>(null)
+  const [budgetError, setBudgetError] = useState<string | null>(null)
+  const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
+  const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
+  const [spendingReportLoading, setSpendingReportLoading] = useState(false)
+  const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
+  const [newBudgetCategory, setNewBudgetCategory] = useState<{ name: string; stack_key: BudgetStackKey; monthly_amount: string }>({
+    name: '',
+    stack_key: 'discretionary',
+    monthly_amount: '',
+  })
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
@@ -175,6 +225,13 @@ function App() {
     () => documentImports.filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status)).length,
     [documentImports],
   )
+  const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const activeBudgetPlan = data?.budget.annual_plan
+  const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
+  const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
+  const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
+  const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
+  const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
   const documentStatusSignature = useMemo(
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
@@ -224,6 +281,34 @@ function App() {
     }
   }, [isRealWorkspace])
 
+  const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
+    if (!isRealWorkspace || !startsOn || !endsOn) {
+      if (!isRealWorkspace) setSpendingReport(null)
+      return
+    }
+
+    if (!quiet) {
+      setSpendingReportLoading(true)
+      setSpendingReportError(null)
+    }
+
+    try {
+      const report = await fetchSpendingReport(startsOn, endsOn)
+      setSpendingReport(report)
+    } catch (caught) {
+      setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+    } finally {
+      if (!quiet) setSpendingReportLoading(false)
+    }
+  }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
+
+  function refreshSpendingReportForBudget(budget: BudgetData | null | undefined, monthIndex = selectedBudgetMonthIndex) {
+    const month = budget?.annual_plan?.months[monthIndex]
+    if (!month) return
+
+    void refreshSpendingReport({ startsOn: month.starts_on, endsOn: month.ends_on })
+  }
+
   useEffect(() => {
     if (!canLoadWorkspace) return
 
@@ -272,6 +357,31 @@ function App() {
     return () => window.clearInterval(intervalId)
   }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
+  useEffect(() => {
+    if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
+
+    const startsOn = selectedBudgetMonthStartsOn
+    const endsOn = selectedBudgetMonthEndsOn
+    let cancelled = false
+    async function loadSpendingReport() {
+      setSpendingReportLoading(true)
+      setSpendingReportError(null)
+      try {
+        const report = await fetchSpendingReport(startsOn, endsOn)
+        if (!cancelled) setSpendingReport(report)
+      } catch (caught) {
+        if (!cancelled) setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      } finally {
+        if (!cancelled) setSpendingReportLoading(false)
+      }
+    }
+
+    void loadSpendingReport()
+    return () => {
+      cancelled = true
+    }
+  }, [isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn])
+
   const surplus = useMemo(() => {
     if (!data) return 0
     return data.budget.monthly_income - data.budget.total_monthly_outflow
@@ -291,15 +401,20 @@ function App() {
   }, [isChatExpanded])
 
   useEffect(() => {
-    if (!isChatExpanded) return
+    if (!isChatExpanded && !confirmClearChat) return
 
     function handleEscape(event: globalThis.KeyboardEvent) {
-      if (event.key === 'Escape') setIsChatExpanded(false)
+      if (event.key !== 'Escape') return
+      if (confirmClearChat) {
+        setConfirmClearChat(false)
+        return
+      }
+      setIsChatExpanded(false)
     }
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [isChatExpanded])
+  }, [confirmClearChat, isChatExpanded])
 
   useEffect(() => {
     if (activeSection !== 'Ask Mia') return
@@ -336,13 +451,29 @@ function App() {
     setMessages((current) => [...current, userMessage])
 
     try {
-      const assistantMessage = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace)
+      const response = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace, selectedBudgetYear, selectedBudgetMonthIndex + 1)
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
         prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
       })
-      setMessages((current) => [...current, assistantMessage])
+      if (response.budget) {
+        setData((current) => current ? { ...current, budget: response.budget! } : current)
+        const responseMonthIndex = response.transaction_draft ? monthIndexFromIsoDate(response.transaction_draft.occurred_on) : selectedBudgetMonthIndex
+        if (response.transaction_draft && response.budget.annual_plan) {
+          setBudgetView({ year: response.budget.annual_plan.year, monthIndex: responseMonthIndex })
+        }
+        refreshSpendingReportForBudget(response.budget, responseMonthIndex)
+      }
+      if (response.spending_report) {
+        setSpendingReport(response.spending_report)
+      }
+      setMessages((current) => [...current, response.assistant_message])
+      if (response.transaction_draft) {
+        captureAnalyticsEvent('transaction_draft_presented_in_chat', {
+          source_type: response.transaction_draft.source_type ?? 'manual_chat',
+        })
+      }
     } catch {
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
@@ -376,9 +507,16 @@ function App() {
     void handleAskMia()
   }
 
+  function handleClearMessagesRequest() {
+    if (miaClearing || currentMessages.length === 0) return
+
+    setConfirmClearChat(true)
+  }
+
   async function handleClearMessages() {
     if (miaClearing) return
 
+    setConfirmClearChat(false)
     setMiaClearing(true)
     setMiaError(null)
     try {
@@ -391,6 +529,179 @@ function App() {
       setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be cleared. Please try again.')
     } finally {
       setMiaClearing(false)
+    }
+  }
+
+  async function handleCreateBudgetCategory(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!isRealWorkspace || !data) {
+      setBudgetError('Sign in to a real workspace before editing the annual budget.')
+      return
+    }
+    if (!newBudgetCategory.name.trim()) {
+      setBudgetError('Add a category name first.')
+      return
+    }
+
+    setBudgetAction('create-category')
+    setBudgetError(null)
+    try {
+      const budget = await createBudgetCategory({
+        name: newBudgetCategory.name,
+        stack_key: newBudgetCategory.stack_key,
+        monthly_amount: newBudgetCategory.monthly_amount || 0,
+      }, selectedBudgetYear)
+      setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
+      setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
+      captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleBudgetViewChange(year: number, monthIndex: number) {
+    const normalizedYear = Math.max(2000, Math.min(2100, year))
+    const normalizedMonthIndex = Math.max(0, Math.min(11, monthIndex))
+    const previousBudgetView = budgetView
+    setBudgetView({ year: normalizedYear, monthIndex: normalizedMonthIndex })
+    if (!isRealWorkspace || !data || data.budget.annual_plan?.year === normalizedYear) return
+
+    setBudgetAction('load-budget-year')
+    setBudgetError(null)
+    try {
+      const budget = await fetchBudget(normalizedYear)
+      setData((current) => current ? { ...current, budget } : current)
+    } catch (caught) {
+      setBudgetView((current) => (
+        current?.year === normalizedYear && current.monthIndex === normalizedMonthIndex
+          ? previousBudgetView
+          : current
+      ))
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget year could not be loaded.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleBudgetEditSave(changes: BudgetEditChanges) {
+    if (!isRealWorkspace || !data || (changes.allocations.length === 0 && changes.categories.length === 0)) return
+
+    setBudgetAction('save-budget-edits')
+    setBudgetError(null)
+    let latestBudget = data.budget
+    let appliedChanges = 0
+    try {
+      for (const change of changes.categories) {
+        latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key }, selectedBudgetYear)
+        appliedChanges += 1
+        setData((current) => current ? { ...current, budget: latestBudget } : current)
+      }
+      for (const change of changes.allocations) {
+        latestBudget = await updateBudgetAllocation(change.allocation_id, change.planned_amount || 0)
+        appliedChanges += 1
+        setData((current) => current ? { ...current, budget: latestBudget } : current)
+      }
+      setData((current) => current ? { ...current, budget: latestBudget } : current)
+      refreshSpendingReportForBudget(latestBudget)
+      captureAnalyticsEvent('budget_edits_saved', {
+        allocation_change_count: changes.allocations.length,
+        category_change_count: changes.categories.length,
+        category_count: new Set([
+          ...changes.allocations.map((change) => change.category_id),
+          ...changes.categories.map((change) => change.id),
+        ]).size,
+      })
+    } catch (caught) {
+      if (appliedChanges > 0) setData((current) => current ? { ...current, budget: latestBudget } : current)
+      setBudgetError(caught instanceof Error ? `${caught.message} Some earlier changes may have saved; refresh before retrying.` : 'Budget edits could not be saved. Some earlier changes may have saved; refresh before retrying.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleArchiveBudgetCategory(row: BudgetCategoryRow) {
+    if (!isRealWorkspace || !data) return
+
+    const confirmed = window.confirm(`Archive ${row.name}? It will leave active planning, but confirmed transaction history will not be deleted.`)
+    if (!confirmed) return
+
+    setBudgetAction(`archive-category:${row.id}`)
+    setBudgetError(null)
+    try {
+      const budget = await archiveBudgetCategory(row.id, selectedBudgetYear)
+      setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
+      captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be archived.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleRestoreBudgetCategory(categoryId: number) {
+    if (!isRealWorkspace || !data) return
+
+    setBudgetAction(`restore-category:${categoryId}`)
+    setBudgetError(null)
+    try {
+      const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear)
+      setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
+      captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleConfirmTransactionDraft(draft: TransactionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`confirm-draft:${draft.id}`)
+    setBudgetError(null)
+    try {
+      const workspace = await confirmTransactionDraft(draft.id)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_confirmed', {
+        source_type: draft.source_type ?? 'manual_chat',
+      })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleIgnoreTransactionDraft(draft: TransactionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`ignore-draft:${draft.id}`)
+    setBudgetError(null)
+    try {
+      const workspace = await ignoreTransactionDraft(draft.id)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_ignored', {
+        source_type: draft.source_type ?? 'manual_chat',
+      })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.')
+    } finally {
+      setBudgetAction(null)
     }
   }
 
@@ -579,6 +890,12 @@ function App() {
       const payload = await saveWorkspaceSetup(setupDraft)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
+      setBudgetView((current) => {
+        const responseYear = payload.budget.annual_plan?.year
+        if (!responseYear) return current
+        return { year: responseYear, monthIndex: current?.monthIndex ?? selectedBudgetMonthIndex }
+      })
+      setIsProfileEditing(false)
       setMessages(payload.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('workspace_setup_saved', {
@@ -594,6 +911,8 @@ function App() {
   }
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
+    if (!isProfileEditing) return
+
     setSetupError(null)
     setSetupDraft((current) => {
       if (!current) return current
@@ -601,6 +920,12 @@ function App() {
 
       return { ...current, [key]: Number(value) || 0 }
     })
+  }
+
+  function cancelProfileEditing() {
+    setSetupError(null)
+    setSetupDraft(data?.workspace?.setup_values ?? setupDraft)
+    setIsProfileEditing(false)
   }
 
   function handleProfileSectionEdit(sectionLabel: string) {
@@ -616,6 +941,7 @@ function App() {
     }
 
     const fieldName = setupFocusFieldForSection(sectionLabel)
+    setIsProfileEditing(true)
     setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     requestAnimationFrame(() => {
       const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
@@ -798,7 +1124,7 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={() => void handleClearMessages()} disabled={miaClearing}>
+                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
@@ -856,6 +1182,17 @@ function App() {
                   </div>
                 )}
               </article>
+
+              {pendingTransactionDrafts.length > 0 && (
+                <TransactionDraftReviewStack
+                  drafts={pendingTransactionDrafts}
+                  isRealWorkspace={Boolean(isRealWorkspace)}
+                  action={budgetAction}
+                  compact
+                  onConfirm={handleConfirmTransactionDraft}
+                  onIgnore={handleIgnoreTransactionDraft}
+                />
+              )}
 
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
 
@@ -930,8 +1267,11 @@ function App() {
             <WorkspaceSetupForm
               formRef={setupFormRef}
               values={setupDraft}
+              editing={isProfileEditing}
               saving={setupSaving}
               error={setupError}
+              onBeginEdit={() => setIsProfileEditing(true)}
+              onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
             />
@@ -985,7 +1325,7 @@ function App() {
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
-            title="The Expense Stack keeps life from surprising you every month."
+            title="Build the annual plan, then keep the monthly truth current."
             copy={data.budget.intro}
           />
 
@@ -1006,6 +1346,33 @@ function App() {
               </article>
             ))}
           </div>
+
+          {data.budget.annual_plan ? (
+            <AnnualBudgetPlanner
+              plan={data.budget.annual_plan}
+              isRealWorkspace={Boolean(isRealWorkspace)}
+              action={budgetAction}
+              error={budgetError}
+              selectedMonthIndex={selectedBudgetMonthIndex}
+              spendingReport={spendingReport}
+              spendingReportLoading={spendingReportLoading}
+              spendingReportError={spendingReportError}
+              newCategory={newBudgetCategory}
+              onNewCategoryChange={setNewBudgetCategory}
+              onCreateCategory={handleCreateBudgetCategory}
+              onBudgetViewChange={handleBudgetViewChange}
+              onSaveBudgetEdits={handleBudgetEditSave}
+              onArchiveCategory={handleArchiveBudgetCategory}
+              onRestoreCategory={handleRestoreBudgetCategory}
+              onConfirmDraft={handleConfirmTransactionDraft}
+              onIgnoreDraft={handleIgnoreTransactionDraft}
+            />
+          ) : (
+            <article className="panel coach-panel">
+              <h3>Annual budget foundation</h3>
+              <p>Sign in to a real workspace to plan each month, create custom categories, and confirm transactions from Mia chat.</p>
+            </article>
+          )}
 
           <article className="panel coach-panel">
             <h3>Custom categories matter</h3>
@@ -1104,6 +1471,14 @@ function App() {
         <AdminConsole currentUser={auth.currentUser} />
       )}
 
+      {confirmClearChat && (
+        <ClearChatConfirmDialog
+          isClearing={miaClearing}
+          onCancel={() => setConfirmClearChat(false)}
+          onConfirm={() => void handleClearMessages()}
+        />
+      )}
+
       {previewImport && (
         <DocumentSourcePreview
           key={previewImport.id}
@@ -1114,6 +1489,38 @@ function App() {
         />
       )}
     </main>
+  )
+}
+
+function ClearChatConfirmDialog({
+  isClearing,
+  onCancel,
+  onConfirm,
+}: {
+  isClearing: boolean
+  onCancel: () => void
+  onConfirm: () => void
+}) {
+  return (
+    <div className="clear-chat-overlay" role="presentation">
+      <button type="button" className="clear-chat-backdrop" aria-label="Keep Mia chat" onClick={onCancel} />
+      <section className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy">
+        <p className="eyebrow">Ask Mia</p>
+        <h3 id="clear-chat-title">Clear this chat?</h3>
+        <p id="clear-chat-copy">
+          This removes the messages in this conversation and Mia will not be able to pick up this thread later.
+          Your saved budget, profile, and transactions stay unchanged.
+        </p>
+        <div className="clear-chat-dialog-actions">
+          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing} autoFocus>
+            Keep chat
+          </button>
+          <button type="button" className="danger" onClick={onConfirm} disabled={isClearing}>
+            {isClearing ? 'Clearing' : 'Clear chat'}
+          </button>
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -2996,6 +3403,11 @@ function formatShortDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
 }
 
+function monthIndexFromIsoDate(value: string) {
+  const date = new Date(`${value}T00:00:00Z`)
+  return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
+}
+
 function messageLengthBucket(length: number) {
   if (length < 80) return 'under_80'
   if (length < 250) return '80_249'
@@ -3006,15 +3418,21 @@ function messageLengthBucket(length: number) {
 function WorkspaceSetupForm({
   formRef,
   values,
+  editing,
   saving,
   error,
+  onBeginEdit,
+  onCancel,
   onChange,
   onSubmit,
 }: {
   formRef?: Ref<HTMLFormElement>
   values: WorkspaceSetupValues
+  editing: boolean
   saving: boolean
   error: string | null
+  onBeginEdit: () => void
+  onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
@@ -3023,33 +3441,42 @@ function WorkspaceSetupForm({
       <div className="row-between setup-form-heading">
         <div>
           <p className="eyebrow">Real workspace</p>
-          <h3>Plug in your household numbers</h3>
-          <p>Mia will recalculate the screens and use these numbers as context.</p>
+          <h3>{editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
+          <p>{editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
         </div>
-        <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
+        <div className="setup-form-actions">
+          {editing ? (
+            <>
+              <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
+              <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
+            </>
+          ) : (
+            <button type="button" onClick={onBeginEdit}>Edit profile</button>
+          )}
+        </div>
       </div>
 
       <div className="setup-field-grid">
         <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
           <span>Household name</span>
-          <input name="household_name" value={values.household_name} onChange={(event) => onChange('household_name', event.target.value)} />
+          <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
           <small>The name Mia should use for this household.</small>
         </label>
         <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
           <span>Primary goal</span>
-          <textarea name="primary_goal" rows={3} value={values.primary_goal} onChange={(event) => onChange('primary_goal', event.target.value)} />
+          <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
           <small>Write the goal, worry, or decision Mia should coach around. This box grows for longer notes.</small>
         </label>
-        <MoneyInput name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
-        <MoneyInput name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
-        <MoneyInput name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-        <MoneyInput name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
-        <MoneyInput name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
-        <MoneyInput name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
-        <MoneyInput name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
-        <MoneyInput name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-        <MoneyInput name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
-        <MoneyInput name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+        <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+        <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+        <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+        <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+        <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
+        <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+        <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
+        <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
+        <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
+        <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
         <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
           <span>Target runway months</span>
           <input
@@ -3058,6 +3485,7 @@ function WorkspaceSetupForm({
             step="0.5"
             name="target_runway_months"
             value={values.target_runway_months}
+            disabled={!editing}
             onChange={(event) => onChange('target_runway_months', event.target.value)}
           />
           <small>How many months of expenses you want protected before bigger moves.</small>
@@ -3069,13 +3497,724 @@ function WorkspaceSetupForm({
   )
 }
 
-function MoneyInput({ name, label, value, help, onChange }: { name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
-      <input name={name} type="number" min="0" step="1" value={value} onChange={(event) => onChange(event.target.value)} />
+      <input name={name} type="number" min="0" step="1" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       <small>{help}</small>
     </label>
+  )
+}
+
+function allocationDraftKey(month: BudgetCategoryMonth) {
+  return String(month.allocation_id ?? `missing:${month.period_id}`)
+}
+
+function categoryDraftKey(row: BudgetCategoryRow) {
+  return String(row.id)
+}
+
+function allocationDraftValue(month: BudgetCategoryMonth, allocationDrafts: Record<string, string>) {
+  return allocationDrafts[allocationDraftKey(month)] ?? String(month.planned)
+}
+
+function categoryDraftValue(row: BudgetCategoryRow, categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }>) {
+  return categoryDrafts[categoryDraftKey(row)] ?? { name: row.name, stack_key: row.stack_key }
+}
+
+function annualBudgetPlanSignature(plan: AnnualBudgetPlan) {
+  return plan.rows.map((row) => (
+    `${row.id}:${row.name}:${row.stack_key}:${row.months.map((month) => `${month.allocation_id ?? 'missing'}-${month.period_id}-${month.planned}`).join(',')}`
+  )).join('|')
+}
+
+function budgetAllocationChanges(rows: BudgetCategoryRow[], allocationDrafts: Record<string, string>): BudgetAllocationChange[] {
+  return rows.flatMap((row) => row.months.flatMap((month) => {
+    if (!month.allocation_id || month.allocation_missing) return []
+
+    const draftedValue = allocationDrafts[allocationDraftKey(month)]
+    if (draftedValue === undefined || Number(draftedValue || 0) === month.planned) return []
+
+    return [{
+      allocation_id: month.allocation_id,
+      planned_amount: draftedValue || '0',
+      category_id: row.id,
+      stack_key: row.stack_key,
+    }]
+  }))
+}
+
+function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }>): BudgetCategoryChange[] {
+  return rows.flatMap((row) => {
+    const draftedValue = categoryDrafts[categoryDraftKey(row)]
+    if (!draftedValue) return []
+
+    const name = draftedValue.name.trim()
+    if (!name || (name === row.name && draftedValue.stack_key === row.stack_key)) return []
+
+    return [{ id: row.id, name, stack_key: draftedValue.stack_key }]
+  })
+}
+
+function TransactionDraftReviewStack({
+  drafts,
+  isRealWorkspace,
+  action,
+  compact = false,
+  draftActionsDisabled = false,
+  disabledReason,
+  onConfirm,
+  onIgnore,
+}: {
+  drafts: TransactionDraft[]
+  isRealWorkspace: boolean
+  action: string | null
+  compact?: boolean
+  draftActionsDisabled?: boolean
+  disabledReason?: string
+  onConfirm: (draft: TransactionDraft) => void
+  onIgnore: (draft: TransactionDraft) => void
+}) {
+  return (
+    <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
+      <div>
+        <p className="eyebrow">Review before applying</p>
+        <h4>Mia drafted these transactions from chat</h4>
+        {compact && <p>Confirm only if the merchant, amount, and category are right. Actuals do not change until you approve.</p>}
+        {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+      </div>
+      {drafts.map((draft) => (
+        <div className="transaction-draft-card" key={draft.id}>
+          <div>
+            <strong>{draft.merchant}</strong>
+            <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
+          </div>
+          <div className="transaction-draft-actions">
+            <button type="button" disabled={!isRealWorkspace || draftActionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+              {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
+            </button>
+            <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+              {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
+            </button>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function CurrentMonthActivityPanel({
+  plan,
+  currentMonthIndex,
+  spendingReport,
+  loading,
+  error,
+}: {
+  plan: AnnualBudgetPlan
+  currentMonthIndex: number
+  spendingReport: SpendingReport | null
+  loading: boolean
+  error: string | null
+}) {
+  const month = plan.months[currentMonthIndex]
+  const pendingByCategory = useMemo(() => {
+    const totals: Record<string, number> = {}
+    plan.pending_transaction_drafts.forEach((draft) => {
+      if (!month || !draft.category_id || !draftOccursInMonth(draft, month)) return
+
+      totals[String(draft.category_id)] = (totals[String(draft.category_id)] ?? 0) + draft.amount
+    })
+    return totals
+  }, [month, plan.pending_transaction_drafts])
+  const rows = spendingReport?.categories.map((category) => ({
+    id: category.id,
+    name: category.name,
+    stackLabel: category.stack_label,
+    planned: category.planned,
+    actual: category.actual,
+    remaining: category.remaining,
+    pending: category.pending,
+    active: category.active ?? true,
+  })) ?? plan.rows.map((row) => {
+    const cell = row.months[currentMonthIndex]
+    return {
+      id: row.id,
+      name: row.name,
+      stackLabel: row.stack_label,
+      planned: cell?.planned ?? 0,
+      actual: cell?.actual ?? 0,
+      remaining: cell?.remaining ?? 0,
+      pending: pendingByCategory[String(row.id)] ?? 0,
+      active: row.active,
+    }
+  })
+  const totalPending = spendingReport?.totals.pending ?? rows.reduce((sum, row) => sum + row.pending, 0)
+
+  return (
+    <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
+      <div className="current-month-activity-heading">
+        <div>
+          <p className="eyebrow">{month?.label ?? 'Current month'} operating view</p>
+          <h4>Planned, actual, and pending review</h4>
+        </div>
+        {loading ? <span>Loading report</span> : totalPending > 0 && <span>{currency.format(totalPending)} waiting for review</span>}
+      </div>
+      {error && <p className="setup-error" role="alert">{error}</p>}
+      <div className="month-activity-list">
+        {rows.map((row) => (
+          <div className="month-activity-row" key={row.id}>
+            <div>
+              <strong>{row.name}</strong>
+              <span>{row.stackLabel}{row.active ? '' : ' · Archived'}</span>
+            </div>
+            <div className="month-activity-amounts">
+              <span><b>{currency.format(row.planned)}</b> planned</span>
+              <span><b>{currency.format(row.actual)}</b> actual</span>
+              <span><b>{currency.format(row.remaining)}</b> remaining</span>
+              {row.pending > 0 && <span className="pending"><b>{currency.format(row.pending)}</b> pending</span>}
+            </div>
+          </div>
+        ))}
+      </div>
+      {spendingReport && <SpendingReportLedger report={spendingReport} />}
+    </section>
+  )
+}
+
+function SpendingReportLedger({ report }: { report: SpendingReport }) {
+  return (
+    <div className="spending-report-ledger">
+      <div className="spending-report-summary">
+        <span>{report.period_label}</span>
+        <strong>{currency.format(report.totals.actual)} actual</strong>
+        <span>{currency.format(report.totals.planned)} planned</span>
+        <span>{currency.format(report.totals.pending)} pending</span>
+      </div>
+      <TransactionLedger
+        title="Confirmed transaction ledger"
+        transactions={report.transactions}
+        emptyMessage="No confirmed transactions for this period yet."
+        pageSize={8}
+      />
+    </div>
+  )
+}
+
+function TransactionLedger({
+  title,
+  transactions,
+  emptyMessage,
+  pageSize = 8,
+}: {
+  title: string
+  transactions: RecentTransaction[]
+  emptyMessage: string
+  pageSize?: number
+}) {
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('all')
+  const [sortOrder, setSortOrder] = useState<'newest' | 'oldest' | 'amount_desc' | 'amount_asc' | 'merchant'>('newest')
+  const [page, setPage] = useState(1)
+  const categoryOptions = useMemo(() => {
+    const names = new Set<string>()
+    transactions.forEach((transaction) => transaction.categories.forEach((category) => names.add(category)))
+    return Array.from(names).sort((a, b) => a.localeCompare(b))
+  }, [transactions])
+  const filteredTransactions = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return [...transactions]
+      .filter((transaction) => categoryFilter === 'all' || transaction.categories.includes(categoryFilter))
+      .filter((transaction) => {
+        if (!query) return true
+
+        const haystack = [
+          transaction.merchant,
+          transaction.categories.join(' '),
+          transaction.occurred_on,
+          formatShortDate(transaction.occurred_on),
+          String(transaction.amount),
+        ].join(' ').toLowerCase()
+        return haystack.includes(query)
+      })
+      .sort((left, right) => sortTransactions(left, right, sortOrder))
+  }, [categoryFilter, search, sortOrder, transactions])
+  const totalPages = Math.max(1, Math.ceil(filteredTransactions.length / pageSize))
+  const safePage = Math.min(page, totalPages)
+  const pageStart = (safePage - 1) * pageSize
+  const visibleTransactions = filteredTransactions.slice(pageStart, pageStart + pageSize)
+  const filteredTotal = filteredTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
+
+  return (
+    <div className="recent-transaction-list transaction-ledger-list">
+      <div className="transaction-ledger-heading">
+        <div>
+          <p className="eyebrow">{title}</p>
+          {transactions.length > 0 && (
+            <span>
+              Showing {visibleTransactions.length === 0 ? 0 : pageStart + 1}–{pageStart + visibleTransactions.length} of {filteredTransactions.length} · {currency.format(filteredTotal)} selected
+            </span>
+          )}
+        </div>
+        {transactions.length > 0 && (
+          <div className="transaction-ledger-controls" aria-label={`${title} filters`}>
+            <label>
+              <span className="sr-only">Search transactions</span>
+              <input value={search} placeholder="Search merchant" onChange={(event) => { setSearch(event.currentTarget.value); setPage(1) }} />
+            </label>
+            <label>
+              <span className="sr-only">Filter by category</span>
+              <select value={categoryFilter} onChange={(event) => { setCategoryFilter(event.currentTarget.value); setPage(1) }}>
+                <option value="all">All categories</option>
+                {categoryOptions.map((category) => <option value={category} key={category}>{category}</option>)}
+              </select>
+            </label>
+            <label>
+              <span className="sr-only">Sort transactions</span>
+              <select value={sortOrder} onChange={(event) => { setSortOrder(event.currentTarget.value as typeof sortOrder); setPage(1) }}>
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="amount_desc">Amount high to low</option>
+                <option value="amount_asc">Amount low to high</option>
+                <option value="merchant">Merchant A to Z</option>
+              </select>
+            </label>
+          </div>
+        )}
+      </div>
+      {transactions.length === 0 ? (
+        <p className="empty-ledger-copy">{emptyMessage}</p>
+      ) : visibleTransactions.length === 0 ? (
+        <p className="empty-ledger-copy">No confirmed transactions match those filters.</p>
+      ) : visibleTransactions.map((transaction) => (
+        <div className="recent-transaction-row" key={transaction.id}>
+          <span>{formatShortDate(transaction.occurred_on)}</span>
+          <strong>{transaction.merchant}</strong>
+          <span>{transaction.categories.join(', ') || 'Uncategorized'}</span>
+          <b>{currency.format(transaction.amount)}</b>
+        </div>
+      ))}
+      {filteredTransactions.length > pageSize && (
+        <div className="transaction-ledger-pagination" aria-label={`${title} pagination`}>
+          <button type="button" className="secondary-button" disabled={safePage === 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <span>Page {safePage} of {totalPages}</span>
+          <button type="button" className="secondary-button" disabled={safePage === totalPages} onClick={() => setPage((current) => Math.min(totalPages, current + 1))}>Next</button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function sortTransactions(left: RecentTransaction, right: RecentTransaction, sortOrder: 'newest' | 'oldest' | 'amount_desc' | 'amount_asc' | 'merchant') {
+  switch (sortOrder) {
+    case 'oldest':
+      return left.occurred_on.localeCompare(right.occurred_on) || left.id - right.id
+    case 'amount_desc':
+      return right.amount - left.amount || right.occurred_on.localeCompare(left.occurred_on)
+    case 'amount_asc':
+      return left.amount - right.amount || right.occurred_on.localeCompare(left.occurred_on)
+    case 'merchant':
+      return left.merchant.localeCompare(right.merchant) || right.occurred_on.localeCompare(left.occurred_on)
+    case 'newest':
+    default:
+      return right.occurred_on.localeCompare(left.occurred_on) || right.id - left.id
+  }
+}
+
+function draftOccursInMonth(draft: TransactionDraft, month: BudgetMonth) {
+  return draft.occurred_on >= month.starts_on && draft.occurred_on <= month.ends_on
+}
+
+function CategoryEditCell({
+  row,
+  draft,
+  hasPendingDrafts,
+  action,
+  onChange,
+  onArchive,
+}: {
+  row: BudgetCategoryRow
+  draft: { name: string; stack_key: BudgetStackKey }
+  hasPendingDrafts: boolean
+  action: string | null
+  onChange: (value: { name?: string; stack_key?: BudgetStackKey }) => void
+  onArchive: () => void
+}) {
+  return (
+    <div className="annual-category-cell-editor">
+      <label>
+        <span className="sr-only">Category name</span>
+        <input value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
+      </label>
+      <label>
+        <span className="sr-only">Expense stack</span>
+        <select value={draft.stack_key} onChange={(event) => onChange({ stack_key: event.currentTarget.value as BudgetStackKey })}>
+          <option value="non_discretionary">Non-discretionary</option>
+          <option value="discretionary">Discretionary</option>
+          <option value="sinking_expected">Sinking Fund — Expected</option>
+          <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+        </select>
+      </label>
+      <button
+        type="button"
+        className="archive-category-button"
+        disabled={hasPendingDrafts || action === `archive-category:${row.id}`}
+        title={hasPendingDrafts ? 'This category has pending drafts. Confirm, correct, or ignore those drafts before archiving.' : 'Archive this category'}
+        onClick={onArchive}
+      >
+        {action === `archive-category:${row.id}` ? 'Archiving' : 'Archive'}
+      </button>
+      {hasPendingDrafts && <small>Pending drafts must be resolved before archiving.</small>}
+    </div>
+  )
+}
+
+function AnnualBudgetPlanner({
+  plan,
+  isRealWorkspace,
+  action,
+  error,
+  selectedMonthIndex,
+  spendingReport,
+  spendingReportLoading,
+  spendingReportError,
+  newCategory,
+  onNewCategoryChange,
+  onCreateCategory,
+  onBudgetViewChange,
+  onSaveBudgetEdits,
+  onArchiveCategory,
+  onRestoreCategory,
+  onConfirmDraft,
+  onIgnoreDraft,
+}: {
+  plan: AnnualBudgetPlan
+  isRealWorkspace: boolean
+  action: string | null
+  error: string | null
+  selectedMonthIndex: number
+  spendingReport: SpendingReport | null
+  spendingReportLoading: boolean
+  spendingReportError: string | null
+  newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
+  onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
+  onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
+  onBudgetViewChange: (year: number, monthIndex: number) => void
+  onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
+  onArchiveCategory: (row: BudgetCategoryRow) => void
+  onRestoreCategory: (categoryId: number) => void
+  onConfirmDraft: (draft: TransactionDraft) => void
+  onIgnoreDraft: (draft: TransactionDraft) => void
+}) {
+  const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
+  const currentMonth = plan.months[currentMonthIndex]
+  const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
+  const annualPlanned = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
+  const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
+  const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
+  const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
+  const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
+  const [budgetEditState, setBudgetEditState] = useState<{
+    signature: string
+    isEditing: boolean
+    allocationDrafts: Record<string, string>
+    categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }>
+  }>({
+    signature: planSignature,
+    isEditing: false,
+    allocationDrafts: {},
+    categoryDrafts: {},
+  })
+  const allocationDrafts = useMemo(
+    () => budgetEditState.signature === planSignature ? budgetEditState.allocationDrafts : {},
+    [budgetEditState.allocationDrafts, budgetEditState.signature, planSignature],
+  )
+  const categoryDrafts = useMemo(
+    () => budgetEditState.signature === planSignature ? budgetEditState.categoryDrafts : {},
+    [budgetEditState.categoryDrafts, budgetEditState.signature, planSignature],
+  )
+  const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
+  const isSavingBudgetEdits = action === 'save-budget-edits'
+  const editableBudget = isRealWorkspace && isEditingBudget && !isSavingBudgetEdits
+  const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
+  const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
+  const totalBudgetChanges = allocationChanges.length + categoryChanges.length
+  const archivedCategories = plan.archived_categories ?? []
+  const today = new Date()
+  const currentCalendarYear = today.getFullYear()
+  const currentCalendarMonthIndex = today.getMonth()
+  const isViewingCurrentYear = plan.year === currentCalendarYear
+  const isViewingCurrentMonth = isViewingCurrentYear && currentMonthIndex === currentCalendarMonthIndex
+
+  function beginBudgetEdit() {
+    setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
+  }
+
+  function cancelBudgetEdit() {
+    setBudgetEditState({ signature: planSignature, isEditing: false, allocationDrafts: {}, categoryDrafts: {} })
+  }
+
+  async function saveBudgetEdits() {
+    if (totalBudgetChanges === 0) {
+      cancelBudgetEdit()
+      return
+    }
+
+    await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
+  }
+
+  function updateAllocationDraft(month: BudgetCategoryMonth, value: string) {
+    setBudgetEditState((current) => ({
+      signature: planSignature,
+      isEditing: true,
+      allocationDrafts: {
+        ...(current.signature === planSignature ? current.allocationDrafts : {}),
+        [allocationDraftKey(month)]: value,
+      },
+      categoryDrafts: current.signature === planSignature ? current.categoryDrafts : {},
+    }))
+  }
+
+  function updateCategoryDraft(row: BudgetCategoryRow, value: { name?: string; stack_key?: BudgetStackKey }) {
+    setBudgetEditState((current) => {
+      const currentCategoryDrafts = current.signature === planSignature ? current.categoryDrafts : {}
+      const existingDraft = categoryDraftValue(row, currentCategoryDrafts)
+
+      return {
+        signature: planSignature,
+        isEditing: true,
+        allocationDrafts: current.signature === planSignature ? current.allocationDrafts : {},
+        categoryDrafts: {
+          ...currentCategoryDrafts,
+          [categoryDraftKey(row)]: { ...existingDraft, ...value },
+        },
+      }
+    })
+  }
+
+  function renderBudgetEditActions() {
+    if (!isRealWorkspace) return null
+
+    return (
+      <div className="annual-plan-edit-actions">
+        {isEditingBudget ? (
+          <>
+            <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelBudgetEdit}>Cancel</button>
+            <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+              {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
+            </button>
+          </>
+        ) : (
+          <button type="button" onClick={beginBudgetEdit}>Edit annual budget</button>
+        )}
+      </div>
+    )
+  }
+
+  return (
+    <article className="panel annual-budget-panel">
+      <div className="annual-budget-heading">
+        <div>
+          <p className="eyebrow">Annual budget · {plan.year}</p>
+          <h3>Year view with month-to-date truth</h3>
+          <p>Plan the whole year, then let manual entries, receipts, and statements fill the actuals for each month.</p>
+          <div className="budget-view-controls" aria-label="Budget report period controls">
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
+            {!isViewingCurrentYear && (
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
+            )}
+            <label>
+              <span className="sr-only">Report month</span>
+              <select value={currentMonthIndex} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
+                {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
+              </select>
+            </label>
+            {isViewingCurrentYear && !isViewingCurrentMonth && (
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
+            )}
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
+          </div>
+        </div>
+        <div className="annual-budget-actions">
+          <span>{plan.rows.length} categories</span>
+          <span>{plan.pending_transaction_drafts.length} pending drafts</span>
+          {renderBudgetEditActions()}
+        </div>
+      </div>
+
+      <div className="annual-budget-metrics">
+        <Metric label={`${currentMonth?.label ?? 'Month'} income`} value={currency.format(currentMonthIncome)} />
+        <Metric label={`${currentMonth?.label ?? 'Month'} planned`} value={currency.format(currentPlanned)} />
+        <Metric label={`${currentMonth?.label ?? 'Month'} actual`} value={currency.format(currentActual)} />
+        <Metric label="Annual planned" value={currency.format(annualPlanned)} />
+        <Metric label="Annual actual" value={currency.format(annualActual)} />
+      </div>
+
+      {plan.pending_transaction_drafts.length > 0 && (
+        <TransactionDraftReviewStack
+          drafts={plan.pending_transaction_drafts}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          draftActionsDisabled={isEditingBudget}
+          disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
+          onConfirm={onConfirmDraft}
+          onIgnore={onIgnoreDraft}
+        />
+      )}
+
+      <CurrentMonthActivityPanel
+        plan={plan}
+        currentMonthIndex={currentMonthIndex}
+        spendingReport={spendingReport}
+        loading={spendingReportLoading}
+        error={spendingReportError}
+      />
+
+      <div className="annual-budget-editor-toolbar">
+        <div>
+          <p className="eyebrow">Annual plan editor</p>
+          <strong>{isEditingBudget ? 'Editing is on' : 'Budget is read-only'}</strong>
+          <span>{isEditingBudget ? 'Change monthly cells, rename categories, or add a new row below.' : 'Turn on editing when you want to change the annual plan.'}</span>
+        </div>
+        {renderBudgetEditActions()}
+      </div>
+
+      {isEditingBudget ? (
+        <form className="annual-category-form" onSubmit={onCreateCategory}>
+          <label>
+            <span>New category</span>
+            <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!editableBudget} />
+          </label>
+          <label>
+            <span>Stack</span>
+            <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!editableBudget}>
+              <option value="non_discretionary">Non-discretionary</option>
+              <option value="discretionary">Discretionary</option>
+              <option value="sinking_expected">Sinking Fund — Expected</option>
+              <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+            </select>
+          </label>
+          <label>
+            <span>Monthly plan</span>
+            <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!editableBudget} />
+          </label>
+          <button type="submit" disabled={!editableBudget || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+        </form>
+      ) : (
+        <p className="annual-edit-hint">Click Edit annual budget to add categories or change monthly planned amounts.</p>
+      )}
+
+      {error && <p className="setup-error" role="alert">{error}</p>}
+
+      <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
+        <table className="annual-budget-table">
+          <thead>
+            <tr>
+              <th scope="col">Category</th>
+              {plan.months.map((month, index) => (
+                <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
+              ))}
+              <th scope="col">Year</th>
+            </tr>
+          </thead>
+          <tbody>
+            {plan.rows.length === 0 ? (
+              <tr>
+                <td colSpan={14}>Add a category to start building the annual plan.</td>
+              </tr>
+            ) : plan.rows.map((row) => (
+              <tr key={row.id}>
+                <th scope="row">
+                  {editableBudget && row.active ? (
+                    <CategoryEditCell
+                      row={row}
+                      draft={categoryDraftValue(row, categoryDrafts)}
+                      hasPendingDrafts={plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
+                      action={action}
+                      onChange={(value) => updateCategoryDraft(row, value)}
+                      onArchive={() => onArchiveCategory(row)}
+                    />
+                  ) : (
+                    <>
+                      <strong>{row.name}</strong>
+                      <span>{row.stack_label}{row.active ? '' : ' · Archived'}</span>
+                    </>
+                  )}
+                </th>
+                {row.months.map((month, index) => {
+                  const allocationMissing = !month.allocation_id || month.allocation_missing
+                  const draftValue = allocationDraftValue(month, allocationDrafts)
+                  const draftedAmount = Number(draftValue || 0)
+                  const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
+
+                  return (
+                    <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
+                      {editableBudget && row.active && !allocationMissing ? (
+                        <input
+                          key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
+                          aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
+                          type="number"
+                          min="0"
+                          step="1"
+                          value={draftValue}
+                          data-dirty={hasDraftChange ? 'true' : undefined}
+                          onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
+                        />
+                      ) : (
+                        <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
+                      )}
+                      <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
+                    </td>
+                  )
+                })}
+                <td>
+                  <strong>{currency.format(row.planned_total)}</strong>
+                  <small>{currency.format(row.actual_total)} actual</small>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {archivedCategories.length > 0 && (
+        <details className="archived-categories-panel">
+          <summary>
+            <span>Archived categories</span>
+            <strong>{archivedCategories.length}</strong>
+          </summary>
+          <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
+          <div className="archived-category-list">
+            {archivedCategories.map((category) => (
+              <div className="archived-category-row" key={category.id}>
+                <div>
+                  <strong>{category.name}</strong>
+                  <span>{category.stack_label}</span>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={!editableBudget || action === `restore-category:${category.id}`}
+                  onClick={() => onRestoreCategory(category.id)}
+                >
+                  {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
+                </button>
+              </div>
+            ))}
+          </div>
+          {!editableBudget && <small>Click Edit annual budget to restore archived categories.</small>}
+        </details>
+      )}
+
+      {plan.recent_transactions.length > 0 && (
+        <TransactionLedger
+          title="Recent confirmed transactions"
+          transactions={plan.recent_transactions}
+          emptyMessage="No confirmed transactions for this budget year yet."
+          pageSize={8}
+        />
+      )}
+    </article>
   )
 }
 

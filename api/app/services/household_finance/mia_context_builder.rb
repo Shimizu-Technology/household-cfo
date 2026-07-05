@@ -3,8 +3,11 @@ module HouseholdFinance
     MAX_HOUSEHOLD_NAME_LENGTH = 80
     MAX_PRIMARY_GOAL_LENGTH = 240
 
-    def initialize(household)
+    def initialize(household, annual_plan: nil, reference_month: Date.current.month, conversation_context: nil)
       @household = household
+      @annual_plan = annual_plan
+      @reference_month = reference_month.to_i.clamp(1, 12)
+      @conversation_context = conversation_context
       @snapshot = SnapshotBuilder.new(household).call
     end
 
@@ -14,7 +17,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :snapshot
+    attr_reader :household, :snapshot, :conversation_context
 
     def context_payload
       {
@@ -35,13 +38,68 @@ module HouseholdFinance
           liquid_assets: money(snapshot.fetch(:liquid_assets_cents))
         },
         expense_stack_totals: expense_stack_totals,
-        documents: document_context
+        annual_budget: annual_budget_context,
+        documents: document_context,
+        conversation_continuity: conversation_context
       }
     end
 
     def expense_stack_totals
       snapshot.fetch(:stack_totals_cents).transform_keys { |stack_key| SnapshotBuilder::STACK_LABELS.fetch(stack_key) }
         .transform_values { |cents| money(cents) }
+    end
+
+    def annual_budget_context
+      plan = annual_plan
+      reference_month = reference_month_for(plan)
+      {
+        year: plan.fetch(:year),
+        reference_month: {
+          label: reference_month.fetch(:label),
+          starts_on: reference_month.fetch(:starts_on),
+          ends_on: reference_month.fetch(:ends_on),
+          scope: reference_month_scope(plan)
+        },
+        pending_transaction_drafts_count: plan.fetch(:pending_transaction_drafts).length,
+        recent_transactions: plan.fetch(:recent_transactions).first(3).map do |transaction|
+          {
+            merchant: sanitized_text(transaction.fetch(:merchant), max_length: 120),
+            occurred_on: transaction.fetch(:occurred_on),
+            amount: ActiveSupport::NumberHelper.number_to_currency(transaction.fetch(:amount), precision: 0),
+            categories: transaction.fetch(:categories).first(3)
+          }
+        end,
+        selected_month_budget_rows: selected_month_budget_rows(plan, reference_month)
+      }
+    end
+
+    def annual_plan
+      @annual_plan ||= AnnualBudgetManager.new(household).plan_data
+    end
+
+    def reference_month_for(plan)
+      plan.fetch(:months).fetch(@reference_month - 1)
+    end
+
+    def reference_month_scope(plan)
+      plan_year = plan.fetch(:year).to_i
+      return "current_calendar_month" if plan_year == Date.current.year && @reference_month == Date.current.month
+
+      "selected_budget_month"
+    end
+
+    def selected_month_budget_rows(plan, reference_month)
+      month_index = plan.fetch(:months).index { |month| month.fetch(:id) == reference_month.fetch(:id) } || (@reference_month - 1)
+      plan.fetch(:rows).first(8).map do |row|
+        month = row.fetch(:months).fetch(month_index)
+        {
+          category: sanitized_text(row.fetch(:name), max_length: 80),
+          stack: row.fetch(:stack_label),
+          planned: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:planned), precision: 0),
+          actual: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:actual), precision: 0),
+          remaining: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:remaining), precision: 0)
+        }
+      end
     end
 
     def document_context
