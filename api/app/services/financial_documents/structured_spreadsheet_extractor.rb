@@ -4,6 +4,7 @@ module FinancialDocuments
   class StructuredSpreadsheetExtractor
     REQUIRED_HEADERS = %w[type label amount].freeze
     TRANSACTION_REQUIRED_HEADERS = %w[date amount].freeze
+    STRUCTURED_TRANSACTION_CONFIDENCE = BigDecimal("0.90")
     HEADER_ALIASES = {
       "name" => "label",
       "description" => "label",
@@ -143,7 +144,7 @@ module FinancialDocuments
         source_type: document_kind == "statement" ? "statement" : "import",
         category_name: category,
         stack_key: expense_stack_key(normalized_token(category), category.presence || merchant),
-        confidence: "high",
+        confidence: STRUCTURED_TRANSACTION_CONFIDENCE,
         evidence: notes.presence || "Spreadsheet row #{row_number}",
         raw_description: [ merchant, notes ].compact_blank.join(" — "),
         external_id: "row-#{row_number}",
@@ -155,7 +156,7 @@ module FinancialDocuments
             amount: HouseholdFinance::Money.dollars(amount_cents),
             amount_cents: amount_cents,
             notes: notes,
-            confidence: "high",
+            confidence: STRUCTURED_TRANSACTION_CONFIDENCE,
             row_number: row_number
           }
         ]

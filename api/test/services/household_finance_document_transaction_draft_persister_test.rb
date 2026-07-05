@@ -22,6 +22,28 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     )
   end
 
+  test "maps confidence labels to draft and split decimals" do
+    payload = {
+      occurred_on: "2026-07-05",
+      merchant: "Penny Cafe",
+      total_amount: "13.57",
+      source_type: "statement",
+      confidence: "high",
+      evidence: "Statement row",
+      splits: [
+        { amount: "13.57", category_name: "Dining Out", stack_key: "discretionary", notes: "Lunch", confidence: "low" }
+      ]
+    }
+
+    result = HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ payload ]).call
+
+    assert_equal 1, result.fetch(:created_count)
+    assert_empty result.fetch(:warnings)
+    draft = @document_import.transaction_drafts.find_by!(merchant: "Penny Cafe")
+    assert_equal BigDecimal("0.90"), draft.confidence
+    assert_equal BigDecimal("0.35"), draft.transaction_draft_splits.first.confidence
+  end
+
   test "rolls back partially-created draft when matcher raises during persistence" do
     payload = {
       occurred_on: "2026-07-05",

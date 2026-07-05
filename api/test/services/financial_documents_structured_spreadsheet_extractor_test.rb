@@ -80,9 +80,11 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
     assert_equal "Ross", drafts.first.fetch(:merchant)
     assert_equal Date.new(2026, 5, 12), drafts.first.fetch(:occurred_on)
+    assert_equal BigDecimal("0.90"), drafts.first.fetch(:confidence)
     assert_equal "Penny Cafe", drafts.second.fetch(:merchant)
     assert_equal 1_357, drafts.second.fetch(:total_amount_cents)
     assert_equal "Dining Out", drafts.second.fetch(:splits).first.fetch(:category_name)
+    assert_equal BigDecimal("0.90"), drafts.second.fetch(:splits).first.fetch(:confidence)
     assert_equal 10_342, drafts.third.fetch(:total_amount_cents)
   ensure
     file&.close!

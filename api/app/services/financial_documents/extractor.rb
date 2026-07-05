@@ -14,6 +14,11 @@ module FinancialDocuments
     DEFAULT_MODEL = "google/gemini-2.5-flash"
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
+    TRANSACTION_CONFIDENCE_DECIMALS = {
+      "high" => BigDecimal("0.90"),
+      "medium" => BigDecimal("0.65"),
+      "low" => BigDecimal("0.35")
+    }.freeze
     BASE64_READ_CHUNK_BYTES = 49_152
     MAX_DATA_URL_SOURCE_BYTES = 12 * 1024 * 1024
 
@@ -309,7 +314,7 @@ module FinancialDocuments
         source_type: normalized_transaction_source_type(draft["source_type"], document_import),
         category_name: sanitized_text(draft["category_name"], max_length: 120),
         stack_key: normalized_value(draft["stack_key"], ExpenseItem::STACK_KEYS, fallback: nil),
-        confidence: normalized_confidence(draft["confidence"]),
+        confidence: normalized_transaction_confidence(draft["confidence"]),
         evidence: sanitized_text(draft["evidence"], max_length: 500),
         raw_description: sanitized_text(draft["raw_description"], max_length: 500),
         external_id: sanitized_text(draft["external_id"], max_length: 120),
@@ -333,7 +338,7 @@ module FinancialDocuments
           amount: HouseholdFinance::Money.dollars(amount_cents),
           amount_cents: amount_cents,
           notes: sanitized_text(split["notes"], max_length: 500),
-          confidence: normalized_confidence(split["confidence"]),
+          confidence: normalized_transaction_confidence(split["confidence"]),
           line_label: sanitized_text(split["line_label"], max_length: 120),
           row_number: split["row_number"]
         }.compact_blank
@@ -384,6 +389,18 @@ module FinancialDocuments
     def normalized_confidence(value)
       level = value.to_s
       level.in?(FinancialDocumentImportItem::CONFIDENCE_LEVELS) ? level : "medium"
+    end
+
+    def normalized_transaction_confidence(value)
+      level = value.to_s.downcase
+      return TRANSACTION_CONFIDENCE_DECIMALS.fetch(level) if TRANSACTION_CONFIDENCE_DECIMALS.key?(level)
+
+      number = BigDecimal(value.to_s)
+      return if number.negative?
+
+      [ number, 1 ].min
+    rescue ArgumentError
+      TRANSACTION_CONFIDENCE_DECIMALS.fetch("medium")
     end
 
     def normalized_value(value, allowed, fallback:)

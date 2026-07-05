@@ -2,6 +2,11 @@ module HouseholdFinance
   class DocumentTransactionDraftPersister
     MAX_DRAFTS = 120
     MAX_SPLITS = 12
+    CONFIDENCE_LEVEL_DECIMALS = {
+      "high" => BigDecimal("0.90"),
+      "medium" => BigDecimal("0.65"),
+      "low" => BigDecimal("0.35")
+    }.freeze
 
     def initialize(document_import, transaction_drafts)
       @document_import = document_import
@@ -176,6 +181,9 @@ module HouseholdFinance
 
     def normalized_decimal(value)
       return if value.blank?
+
+      confidence_level = value.to_s.downcase
+      return CONFIDENCE_LEVEL_DECIMALS.fetch(confidence_level) if CONFIDENCE_LEVEL_DECIMALS.key?(confidence_level)
 
       number = BigDecimal(value.to_s)
       return if number.negative?

@@ -142,8 +142,10 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal 2, @document_import.transaction_drafts.count
     payless = @document_import.transaction_drafts.find_by!(merchant: "Payless")
     assert_equal 10_342, payless.total_amount_cents
+    assert_equal BigDecimal("0.65"), payless.confidence
     assert_equal [ groceries.id, cigarettes.id ], payless.transaction_draft_splits.order(:id).pluck(:budget_category_id)
     assert_equal [ 8_542, 1_800 ], payless.transaction_draft_splits.order(:id).pluck(:amount_cents)
+    assert_equal [ BigDecimal("0.65"), BigDecimal("0.65") ], payless.transaction_draft_splits.order(:id).pluck(:confidence)
     penny = @document_import.transaction_drafts.find_by!(merchant: "Penny Cafe")
     assert_equal 1, penny.transaction_draft_matches.count
     assert_equal existing.id, penny.transaction_draft_matches.first.household_transaction_id
