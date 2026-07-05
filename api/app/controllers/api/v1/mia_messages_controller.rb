@@ -150,11 +150,28 @@ module Api
           occurred_on: draft.occurred_on.iso8601,
           merchant: draft.merchant,
           amount: HouseholdFinance::Money.dollars(draft.total_amount_cents),
+          amount_cents: draft.total_amount_cents,
           status: draft.status,
           source_type: draft.source_type,
+          financial_document_import_id: draft.financial_document_import_id,
           category_id: draft.budget_category_id,
           category_name: draft.budget_category&.name,
           stack_label: draft.budget_category&.stack_label,
+          splits: draft.transaction_draft_splits.ordered.map do |split|
+            {
+              id: split.id,
+              budget_category_id: split.budget_category_id,
+              category_name: split.budget_category&.name || split.category_name,
+              stack_key: split.budget_category&.stack_key || split.stack_key,
+              stack_label: split.budget_category&.stack_label || split.stack_key.to_s.humanize,
+              amount: HouseholdFinance::Money.dollars(split.amount_cents),
+              amount_cents: split.amount_cents,
+              notes: split.notes,
+              confidence: split.confidence
+            }
+          end,
+          matches: [],
+          matched_transaction_id: draft.matched_transaction_id,
           summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(HouseholdFinance::Money.dollars(draft.total_amount_cents), precision: 2)}"
         }
       end

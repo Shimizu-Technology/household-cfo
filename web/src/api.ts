@@ -38,6 +38,7 @@ export type DocumentImportKind = 'spreadsheet' | 'statement' | 'pay_stub' | 'rec
 export type DocumentImportStatus = 'uploaded' | 'processing' | 'needs_review' | 'applied' | 'partially_applied' | 'failed' | 'source_deleted'
 export type DocumentImportTargetType = 'income_source' | 'expense_item' | 'account' | 'debt' | 'goal' | 'profile_note'
 export type DocumentImportConfidence = 'high' | 'medium' | 'low'
+export type TransactionDraftMatchStatus = 'proposed' | 'accepted' | 'rejected'
 
 export type DocumentImportUserReference = {
   id: number
@@ -83,6 +84,34 @@ export type DocumentImportAttempt = {
   metadata: Record<string, unknown>
 }
 
+export type TransactionDraftSplit = {
+  id: number
+  budget_category_id: number | null
+  category_name: string | null
+  stack_key: BudgetStackKey | null
+  stack_label: string | null
+  amount: number
+  amount_cents: number
+  notes: string | null
+  confidence: number | string | null
+  metadata?: Record<string, unknown>
+}
+
+export type TransactionDraftMatch = {
+  id: number
+  status: TransactionDraftMatchStatus
+  confidence: number | string | null
+  match_reason: string | null
+  transaction: {
+    id: number
+    occurred_on: string
+    merchant: string
+    amount: number
+    source_type: string
+    categories: string[]
+  }
+}
+
 export type FinancialDocumentImport = {
   id: number
   household_id: number
@@ -112,8 +141,11 @@ export type FinancialDocumentImport = {
     last_extracted_at?: string
     last_applied_count?: number
     last_applied_at?: string
+    transaction_draft_count?: number
+    transaction_match_count?: number
   }
   items: DocumentImportItem[]
+  transaction_drafts: TransactionDraft[]
   attempts: DocumentImportAttempt[]
 }
 
@@ -230,12 +262,18 @@ export type TransactionDraft = {
   occurred_on: string
   merchant: string
   amount: number
+  amount_cents?: number
   status: string
   source_type?: string
+  financial_document_import_id?: number | null
   category_id: number | null
   category_name: string | null
   stack_label?: string | null
   summary?: string
+  splits?: TransactionDraftSplit[]
+  matches?: TransactionDraftMatch[]
+  matched_transaction_id?: number | null
+  draft_payload?: Record<string, unknown>
 }
 
 export type RecentTransaction = {
@@ -747,13 +785,30 @@ export async function updateBudgetAllocation(id: number, plannedAmount: number |
   return payload.budget
 }
 
-export async function confirmTransactionDraft(id: number, values: Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> = {}): Promise<AppData> {
+export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
+  splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null; confidence: number | string | null }>>
+}
+
+export async function updateTransactionDraft(id: number, values: TransactionDraftUpdateInput): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
+  return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>(`/api/v1/transaction_drafts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transaction_draft: values }),
+  })
+}
+
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput = {}): Promise<AppData> {
   const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, { transaction_draft: values })
   return payload.workspace
 }
 
 export async function ignoreTransactionDraft(id: number): Promise<AppData> {
   const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/ignore`, {})
+  return payload.workspace
+}
+
+export async function matchTransactionDraft(id: number, matchId?: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/match`, matchId ? { match_id: matchId } : {})
   return payload.workspace
 }
 

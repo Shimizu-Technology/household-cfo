@@ -33,6 +33,7 @@ module HouseholdFinance
             update_import_status!
           end
 
+          DocumentImportStatusReconciler.new(document_import).call
           Result.new(success: true, import: document_import.reload, applied_count: applied_count, errors: [])
         end
       end

@@ -291,7 +291,7 @@ module HouseholdFinance
     end
 
     def pending_drafts_payload(budget_year)
-      household.transaction_drafts.pending.includes(:budget_category)
+      household.transaction_drafts.pending.includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
         .recent_first
         .limit(20)
@@ -334,12 +334,48 @@ module HouseholdFinance
         occurred_on: draft.occurred_on.iso8601,
         merchant: draft.merchant,
         amount: Money.dollars(draft.total_amount_cents),
+        amount_cents: draft.total_amount_cents,
         status: draft.status,
         source_type: draft.source_type,
+        financial_document_import_id: draft.financial_document_import_id,
         category_id: draft.budget_category_id,
         category_name: draft.budget_category&.name,
         stack_label: draft.budget_category&.stack_label,
-        summary: draft_summary(draft)
+        summary: draft_summary(draft),
+        splits: draft.transaction_draft_splits.ordered.map { |split| draft_split_payload(split) },
+        matches: draft.transaction_draft_matches.best_first.map { |match| draft_match_payload(match) }
+      }
+    end
+
+    def draft_split_payload(split)
+      {
+        id: split.id,
+        budget_category_id: split.budget_category_id,
+        category_name: split.budget_category&.name || split.category_name,
+        stack_key: split.budget_category&.stack_key || split.stack_key,
+        stack_label: split.budget_category&.stack_label || split.stack_key.to_s.humanize,
+        amount: Money.dollars(split.amount_cents),
+        amount_cents: split.amount_cents,
+        notes: split.notes,
+        confidence: split.confidence
+      }
+    end
+
+    def draft_match_payload(match)
+      transaction = match.household_transaction
+      {
+        id: match.id,
+        status: match.status,
+        confidence: match.confidence,
+        match_reason: match.match_reason,
+        transaction: {
+          id: transaction.id,
+          occurred_on: transaction.occurred_on.iso8601,
+          merchant: transaction.merchant,
+          amount: Money.dollars(transaction.total_amount_cents),
+          source_type: transaction.source_type,
+          categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }
+        }
       }
     end
 

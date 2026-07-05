@@ -11,6 +11,7 @@ class Household < ApplicationRecord
   has_many :goals, dependent: :destroy
   has_many :chat_sessions, dependent: :destroy
   has_many :transaction_drafts, dependent: :destroy
+  has_many :merchant_category_rules, dependent: :destroy
   has_many :household_transactions, dependent: :destroy
   has_many :budget_years, dependent: :destroy
   has_many :budget_categories, dependent: :destroy

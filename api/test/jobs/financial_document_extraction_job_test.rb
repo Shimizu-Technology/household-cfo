@@ -75,6 +75,82 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal({ "total_tokens" => 123 }, @document_import.attempts.last.metadata.fetch("usage"))
   end
 
+  test "successful extraction stages transaction drafts with splits and match proposals" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    period = manager.current_period_for(Date.new(2026, 7, 5))
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    cigarettes = @household.budget_categories.create!(name: "Cigarettes", stack_key: "discretionary", sort_order: 2)
+    existing = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    existing.transaction_splits.create!(budget_category: groceries, amount_cents: 1_357)
+    @document_import.update!(document_kind: "receipt", filename: "payless.jpg", content_type: "image/jpeg")
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "receipt",
+          document_date: Date.new(2026, 7, 5),
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Receipt and statement rows found.",
+          confidence: "high",
+          warnings: [],
+          items: [],
+          transaction_drafts: [
+            {
+              occurred_on: "2026-07-05",
+              merchant: "Payless",
+              total_amount: 103.42,
+              source_type: "receipt",
+              confidence: "medium",
+              evidence: "Receipt total.",
+              splits: [
+                { category_name: "Groceries", stack_key: "discretionary", amount: 85.42, notes: "Food lines", confidence: "medium" },
+                { category_name: "Cigarettes", stack_key: "discretionary", amount: 18.00, notes: "Tobacco line", confidence: "medium" }
+              ]
+            },
+            {
+              occurred_on: "2026-07-05",
+              merchant: "Penny Cafe",
+              total_amount: 13.57,
+              source_type: "statement",
+              confidence: "high",
+              evidence: "Statement row.",
+              splits: [ { category_name: "Groceries", stack_key: "discretionary", amount: 13.57, confidence: "high" } ]
+            }
+          ]
+        },
+        error: nil,
+        metadata: {}
+      )
+    )
+
+    assert_no_difference("HouseholdTransaction.count") do
+      with_extractor_stub(extractor) do
+        FinancialDocumentExtractionJob.perform_now(@document_import.id)
+      end
+    end
+
+    @document_import.reload
+    assert_equal "needs_review", @document_import.status
+    assert_equal 2, @document_import.transaction_drafts.count
+    payless = @document_import.transaction_drafts.find_by!(merchant: "Payless")
+    assert_equal 10_342, payless.total_amount_cents
+    assert_equal [ groceries.id, cigarettes.id ], payless.transaction_draft_splits.order(:id).pluck(:budget_category_id)
+    assert_equal [ 8_542, 1_800 ], payless.transaction_draft_splits.order(:id).pluck(:amount_cents)
+    penny = @document_import.transaction_drafts.find_by!(merchant: "Penny Cafe")
+    assert_equal 1, penny.transaction_draft_matches.count
+    assert_equal existing.id, penny.transaction_draft_matches.first.household_transaction_id
+    assert_equal 2, @document_import.metadata.fetch("transaction_draft_count")
+    assert_equal 1, @document_import.metadata.fetch("transaction_match_count")
+  end
+
   test "attempt metadata is allowlisted and bounded" do
     extractor = fake_extractor(
       FinancialDocuments::Extractor::Result.new(

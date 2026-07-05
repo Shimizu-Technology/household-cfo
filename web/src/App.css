@@ -3341,10 +3341,112 @@ h3 {
 }
 
 .transaction-draft-card {
+  flex-wrap: wrap;
+  align-items: flex-start;
   padding: 12px;
   border: 1px solid rgba(31, 36, 33, 0.08);
   border-radius: 16px;
   background: white;
+}
+
+.transaction-draft-main {
+  min-width: 220px;
+  flex: 1 1 280px;
+  display: grid;
+  gap: 6px;
+}
+
+.transaction-draft-splits,
+.transaction-match-suggestions,
+.document-transaction-drafts,
+.transaction-draft-editor,
+.transaction-split-editor-list {
+  display: grid;
+  gap: 8px;
+}
+
+.transaction-draft-splits {
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+}
+
+.transaction-draft-splits span,
+.transaction-match-suggestions > div {
+  padding: 8px 10px;
+  border: 1px solid rgba(143, 74, 95, 0.14);
+  border-radius: 12px;
+  background: #fbf7f3;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.transaction-match-suggestions > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.transaction-draft-editor {
+  flex: 1 1 100%;
+  margin-top: 8px;
+  padding: 12px;
+  border: 1px dashed rgba(143, 74, 95, 0.22);
+  border-radius: 16px;
+  background: #fffaf7;
+}
+
+.transaction-draft-editor > label,
+.transaction-split-editor label {
+  display: grid;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.transaction-draft-editor input,
+.transaction-draft-editor select,
+.transaction-split-editor input,
+.transaction-split-editor select {
+  min-height: 38px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0 10px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+}
+
+.transaction-split-editor {
+  display: grid;
+  grid-template-columns: minmax(100px, 0.7fr) minmax(150px, 1fr) minmax(140px, 1fr) auto;
+  gap: 8px;
+  align-items: end;
+  padding: 10px;
+  border: 1px solid rgba(31, 36, 33, 0.08);
+  border-radius: 14px;
+  background: white;
+}
+
+.transaction-draft-edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.document-transaction-drafts {
+  padding: 12px;
+  border: 1px solid rgba(185, 115, 82, 0.2);
+  border-radius: 18px;
+  background: #fffaf2;
+}
+
+.document-transaction-drafts .transaction-draft-stack.compact {
+  margin: 0;
 }
 
 .transaction-draft-actions button,
@@ -3797,8 +3899,14 @@ h3 {
     position: static;
   }
 
-  .annual-category-form {
+  .annual-category-form,
+  .transaction-split-editor {
     grid-template-columns: 1fr;
+  }
+
+  .transaction-draft-edit-actions,
+  .transaction-match-suggestions > div {
+    justify-content: flex-start;
   }
 
   .transaction-ledger-controls input,

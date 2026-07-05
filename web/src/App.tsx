@@ -20,6 +20,7 @@ import {
   fetchDocumentImports,
   fetchSpendingReport,
   ignoreTransactionDraft,
+  matchTransactionDraft,
   reprocessDocumentImport,
   resendAdminUserInvitation,
   restoreBudgetCategory,
@@ -30,6 +31,7 @@ import {
   updateBudgetCategory,
   updateAdminUser,
   updateDocumentImportItem,
+  updateTransactionDraft,
   uploadDocumentImport,
 } from './api'
 import type {
@@ -58,6 +60,7 @@ import type {
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
+  TransactionDraftUpdateInput,
   UserRole,
   WorkspaceSetupValues,
 } from './api'
@@ -118,7 +121,7 @@ const documentUploadCards: Array<{
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
     accepts: '.pdf,.xlsx,.xls,.csv',
-    helper: 'Upload a PDF or spreadsheet statement to draft balances, payments, and spending categories.',
+    helper: 'Upload a PDF, CSV, or spreadsheet statement to stage transaction rows, propose matches, and reconcile actuals by month.',
   },
   {
     kind: 'pay_stub',
@@ -132,7 +135,7 @@ const documentUploadCards: Array<{
     label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
     accepts: '.pdf,.jpg,.jpeg,.png,.webp',
-    helper: 'Upload a receipt, PDF, or photo when one-off evidence should become a profile note or expense item.',
+    helper: 'Upload a receipt, PDF, or photo so Mia can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
   },
 ]
 
@@ -659,6 +662,25 @@ function App() {
     }
   }
 
+  async function handleUpdateTransactionDraft(draft: TransactionDraft, values: TransactionDraftUpdateInput) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`update-draft:${draft.id}`)
+    setBudgetError(null)
+    try {
+      const response = await updateTransactionDraft(draft.id, values)
+      const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
+      setData(response.workspace)
+      if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be updated.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
   async function handleConfirmTransactionDraft(draft: TransactionDraft) {
     if (!isRealWorkspace) return
 
@@ -670,6 +692,7 @@ function App() {
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_confirmed', {
@@ -693,6 +716,7 @@ function App() {
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_ignored', {
@@ -700,6 +724,30 @@ function App() {
       })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleMatchTransactionDraft(draft: TransactionDraft, matchId?: number) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`match-draft:${draft.id}`)
+    setBudgetError(null)
+    try {
+      const workspace = await matchTransactionDraft(draft.id, matchId)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_matched', {
+        source_type: draft.source_type ?? 'statement',
+      })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be matched.')
     } finally {
       setBudgetAction(null)
     }
@@ -733,7 +781,7 @@ function App() {
           {
             role: 'assistant',
             author: 'Mia',
-            content: `I received ${file.name}. I will treat it as evidence only. Once extraction finishes, review and apply the values before I use them as official household numbers.`,
+            content: `I received ${file.name}. I will treat it as evidence only. Once extraction finishes, review the draft values or transaction rows before anything becomes official.`,
           },
         ])
       }
@@ -1189,6 +1237,9 @@ function App() {
                   isRealWorkspace={Boolean(isRealWorkspace)}
                   action={budgetAction}
                   compact
+                  categories={activeBudgetPlan?.rows ?? []}
+                  onUpdate={handleUpdateTransactionDraft}
+                  onMatch={handleMatchTransactionDraft}
                   onConfirm={handleConfirmTransactionDraft}
                   onIgnore={handleIgnoreTransactionDraft}
                 />
@@ -1281,6 +1332,7 @@ function App() {
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
+            categories={activeBudgetPlan?.rows ?? []}
             selectedImport={selectedImport}
             loading={documentsLoading}
             error={documentsError}
@@ -1294,6 +1346,10 @@ function App() {
             onUpload={handleDocumentUpload}
             onSelectImport={setSelectedImportId}
             onUpdateItem={handleDocumentItemUpdate}
+            onUpdateDraft={handleUpdateTransactionDraft}
+            onMatchDraft={handleMatchTransactionDraft}
+            onConfirmDraft={handleConfirmTransactionDraft}
+            onIgnoreDraft={handleIgnoreTransactionDraft}
             onApply={handleApplyDocumentImport}
             onReprocess={handleReprocessDocumentImport}
             onDeleteSource={handleDeleteDocumentSource}
@@ -1364,6 +1420,8 @@ function App() {
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
+              onUpdateDraft={handleUpdateTransactionDraft}
+              onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
             />
@@ -1649,6 +1707,7 @@ function DocumentImportWorkspace({
   sectionRef,
   isRealWorkspace,
   imports,
+  categories,
   selectedImport,
   loading,
   error,
@@ -1662,6 +1721,10 @@ function DocumentImportWorkspace({
   onUpload,
   onSelectImport,
   onUpdateItem,
+  onUpdateDraft,
+  onMatchDraft,
+  onConfirmDraft,
+  onIgnoreDraft,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -1671,6 +1734,7 @@ function DocumentImportWorkspace({
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
   imports: FinancialDocumentImport[]
+  categories: BudgetCategoryRow[]
   selectedImport: FinancialDocumentImport | null
   loading: boolean
   error: string | null
@@ -1684,6 +1748,10 @@ function DocumentImportWorkspace({
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   onSelectImport: (id: number) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
+  onConfirmDraft: (draft: TransactionDraft) => void
+  onIgnoreDraft: (draft: TransactionDraft) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -1768,11 +1836,16 @@ function DocumentImportWorkspace({
         />
         <DocumentReviewPanel
           documentImport={selectedImport}
+          categories={categories}
           itemSavingIds={itemSavingIds}
           action={action}
           appliedDetailsOpen={Boolean(selectedImport && selectedImport.status === 'applied' && selectedImport.id === expandedAppliedImportId)}
           onAppliedDetailsOpenChange={(open) => onExpandedAppliedImportIdChange(open && selectedImport ? selectedImport.id : null)}
           onUpdateItem={onUpdateItem}
+          onUpdateDraft={onUpdateDraft}
+          onMatchDraft={onMatchDraft}
+          onConfirmDraft={onConfirmDraft}
+          onIgnoreDraft={onIgnoreDraft}
           onApply={onApply}
           onReprocess={onReprocess}
           onDeleteSource={onDeleteSource}
@@ -1870,11 +1943,16 @@ function DocumentImportHistory({
 
 function DocumentReviewPanel({
   documentImport,
+  categories,
   itemSavingIds,
   action,
   appliedDetailsOpen,
   onAppliedDetailsOpenChange,
   onUpdateItem,
+  onUpdateDraft,
+  onMatchDraft,
+  onConfirmDraft,
+  onIgnoreDraft,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -1884,11 +1962,16 @@ function DocumentReviewPanel({
   uploading,
 }: {
   documentImport: FinancialDocumentImport | null
+  categories: BudgetCategoryRow[]
   itemSavingIds: Set<number>
   action: string | null
   appliedDetailsOpen: boolean
   onAppliedDetailsOpenChange: (open: boolean) => void
   onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
+  onConfirmDraft: (draft: TransactionDraft) => void
+  onIgnoreDraft: (draft: TransactionDraft) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -1978,11 +2061,31 @@ function DocumentReviewPanel({
       {processing && (
         <div className="document-processing-state" role="status">
           <span />
-          <p>Mia is extracting draft values. This panel refreshes automatically.</p>
+          <p>Mia is extracting draft values and transaction rows. This panel refreshes automatically.</p>
         </div>
       )}
 
-      {fullyApplied && !appliedDetailsOpen && (
+      {(documentImport.transaction_drafts ?? []).length > 0 && (
+        <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
+          <div className="document-item-group-heading">
+            <h5>Transaction drafts</h5>
+            <span>{(documentImport.transaction_drafts ?? []).length} proposed row{(documentImport.transaction_drafts ?? []).length === 1 ? '' : 's'}</span>
+          </div>
+          <TransactionDraftReviewStack
+            drafts={documentImport.transaction_drafts ?? []}
+            isRealWorkspace
+            action={action}
+            compact
+            categories={categories}
+            onUpdate={onUpdateDraft}
+            onMatch={onMatchDraft}
+            onConfirm={onConfirmDraft}
+            onIgnore={onIgnoreDraft}
+          />
+        </section>
+      )}
+
+      {fullyApplied && !appliedDetailsOpen && documentImport.items.some((item) => item.applied_at) && (
         <AppliedImportSummary documentImport={documentImport} onEdit={() => onAppliedDetailsOpenChange(true)} />
       )}
 
@@ -3564,6 +3667,9 @@ function TransactionDraftReviewStack({
   compact = false,
   draftActionsDisabled = false,
   disabledReason,
+  categories = [],
+  onUpdate,
+  onMatch,
   onConfirm,
   onIgnore,
 }: {
@@ -3573,6 +3679,9 @@ function TransactionDraftReviewStack({
   compact?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
+  categories?: BudgetCategoryRow[]
+  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
 }) {
@@ -3580,28 +3689,221 @@ function TransactionDraftReviewStack({
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
       <div>
         <p className="eyebrow">Review before applying</p>
-        <h4>Mia drafted these transactions from chat</h4>
-        {compact && <p>Confirm only if the merchant, amount, and category are right. Actuals do not change until you approve.</p>}
+        <h4>Mia drafted transactions for your approval</h4>
+        {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
         {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
       </div>
       {drafts.map((draft) => (
-        <div className="transaction-draft-card" key={draft.id}>
-          <div>
-            <strong>{draft.merchant}</strong>
-            <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
-          </div>
-          <div className="transaction-draft-actions">
-            <button type="button" disabled={!isRealWorkspace || draftActionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
-              {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
-            </button>
-            <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
-              {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
-            </button>
-          </div>
-        </div>
+        <TransactionDraftReviewCard
+          key={transactionDraftRenderKey(draft)}
+          draft={draft}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          draftActionsDisabled={draftActionsDisabled}
+          categories={categories}
+          onUpdate={onUpdate}
+          onMatch={onMatch}
+          onConfirm={onConfirm}
+          onIgnore={onIgnore}
+        />
       ))}
     </div>
   )
+}
+
+type EditableDraftSplit = {
+  id?: number
+  amount: string
+  budget_category_id: string
+  category_name: string
+  stack_key: BudgetStackKey | ''
+  notes: string
+}
+
+function TransactionDraftReviewCard({
+  draft,
+  isRealWorkspace,
+  action,
+  draftActionsDisabled,
+  categories,
+  onUpdate,
+  onMatch,
+  onConfirm,
+  onIgnore,
+}: {
+  draft: TransactionDraft
+  isRealWorkspace: boolean
+  action: string | null
+  draftActionsDisabled: boolean
+  categories: BudgetCategoryRow[]
+  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onMatch?: (draft: TransactionDraft, matchId?: number) => void
+  onConfirm: (draft: TransactionDraft) => void
+  onIgnore: (draft: TransactionDraft) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [merchant, setMerchant] = useState(draft.merchant)
+  const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
+  const [amount, setAmount] = useState(String(draft.amount))
+  const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
+  const activeCategories = categories.filter((category) => category.active)
+  const proposedMatches = (draft.matches ?? []).filter((match) => match.status === 'proposed')
+  const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0)
+  const targetAmount = Number(amount || 0)
+  const splitMismatch = Math.round(splitTotal * 100) !== Math.round(targetAmount * 100)
+  const saving = action === `update-draft:${draft.id}`
+
+  function updateSplit(index: number, values: Partial<EditableDraftSplit>) {
+    setSplits((current) => current.map((split, candidateIndex) => (candidateIndex === index ? { ...split, ...values } : split)))
+  }
+
+  function addSplit() {
+    setSplits((current) => ([
+      ...current,
+      { amount: '', budget_category_id: '', category_name: '', stack_key: '', notes: '' },
+    ]))
+  }
+
+  function removeSplit(index: number) {
+    setSplits((current) => current.length <= 1 ? current : current.filter((_, candidateIndex) => candidateIndex !== index))
+  }
+
+  function saveDraftEdits() {
+    if (!onUpdate) return
+
+    onUpdate(draft, {
+      occurred_on: occurredOn,
+      merchant,
+      amount,
+      splits: splits.map((split) => ({
+        id: split.id,
+        amount: split.amount,
+        budget_category_id: split.budget_category_id ? Number(split.budget_category_id) : null,
+        category_name: split.category_name || null,
+        stack_key: split.stack_key || null,
+        notes: split.notes || null,
+      })),
+    })
+  }
+
+  return (
+    <div className="transaction-draft-card">
+      <div className="transaction-draft-main">
+        <strong>{draft.merchant}</strong>
+        <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Needs category'}</p>
+        {(draft.splits ?? []).length > 0 && (
+          <div className="transaction-draft-splits">
+            {(draft.splits ?? []).map((split) => (
+              <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(split.amount)}</span>
+            ))}
+          </div>
+        )}
+        {proposedMatches.length > 0 && (
+          <div className="transaction-match-suggestions">
+            {proposedMatches.slice(0, 2).map((match) => (
+              <div key={match.id}>
+                <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {currency.format(match.transaction.amount)}</span>
+                {onMatch && (
+                  <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
+                    {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editing && (
+        <div className="transaction-draft-editor">
+          <label>
+            <span>Merchant</span>
+            <input value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} />
+          </label>
+          <label>
+            <span>Date</span>
+            <input type="date" value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} />
+          </label>
+          <label>
+            <span>Total</span>
+            <input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} />
+          </label>
+          <div className="transaction-split-editor-list">
+            {splits.map((split, index) => (
+              <div className="transaction-split-editor" key={split.id ?? `new-${index}`}>
+                <label>
+                  <span>Split amount</span>
+                  <input type="number" min="0.01" step="0.01" value={split.amount} onChange={(event) => updateSplit(index, { amount: event.currentTarget.value })} />
+                </label>
+                <label>
+                  <span>Category</span>
+                  <select value={split.budget_category_id} onChange={(event) => {
+                    const category = activeCategories.find((candidate) => String(candidate.id) === event.currentTarget.value)
+                    updateSplit(index, {
+                      budget_category_id: event.currentTarget.value,
+                      category_name: category?.name ?? split.category_name,
+                      stack_key: category?.stack_key ?? split.stack_key,
+                    })
+                  }}>
+                    <option value="">Needs category</option>
+                    {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Notes</span>
+                  <input value={split.notes} onChange={(event) => updateSplit(index, { notes: event.currentTarget.value })} />
+                </label>
+                <button type="button" className="secondary-button" disabled={splits.length <= 1} onClick={() => removeSplit(index)}>Remove</button>
+              </div>
+            ))}
+          </div>
+          <div className="transaction-draft-edit-actions">
+            <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
+            {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {currency.format(splitTotal)} but draft total is {currency.format(targetAmount)}.</span>}
+            <button type="button" className="secondary-button" onClick={() => setEditing(false)}>Cancel</button>
+            <button type="button" disabled={saving || splitMismatch} onClick={saveDraftEdits}>{saving ? 'Saving' : 'Save draft'}</button>
+          </div>
+        </div>
+      )}
+
+      <div className="transaction-draft-actions">
+        {onUpdate && <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || saving} onClick={() => setEditing((current) => !current)}>{editing ? 'Close edit' : 'Edit'}</button>}
+        <button type="button" disabled={!isRealWorkspace || draftActionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
+        </button>
+        <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+          {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function transactionDraftRenderKey(draft: TransactionDraft) {
+  return [
+    draft.id,
+    draft.status,
+    draft.occurred_on,
+    draft.merchant,
+    draft.amount,
+    (draft.splits ?? []).map((split) => `${split.id}:${split.amount}:${split.budget_category_id}`).join(','),
+    (draft.matches ?? []).map((match) => `${match.id}:${match.status}`).join(','),
+  ].join('|')
+}
+
+function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
+  const splits = draft.splits && draft.splits.length > 0
+    ? draft.splits
+    : [{ id: undefined, amount: draft.amount, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null }]
+
+  return splits.map((split) => ({
+    id: split.id,
+    amount: String(split.amount),
+    budget_category_id: split.budget_category_id ? String(split.budget_category_id) : '',
+    category_name: split.category_name ?? '',
+    stack_key: split.stack_key ?? '',
+    notes: split.notes ?? '',
+  }))
 }
 
 function CurrentMonthActivityPanel({
@@ -3885,6 +4187,8 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits,
   onArchiveCategory,
   onRestoreCategory,
+  onUpdateDraft,
+  onMatchDraft,
   onConfirmDraft,
   onIgnoreDraft,
 }: {
@@ -3903,6 +4207,8 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => void
+  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
 }) {
@@ -4057,6 +4363,9 @@ function AnnualBudgetPlanner({
           action={action}
           draftActionsDisabled={isEditingBudget}
           disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
+          categories={plan.rows}
+          onUpdate={onUpdateDraft}
+          onMatch={onMatchDraft}
           onConfirm={onConfirmDraft}
           onIgnore={onIgnoreDraft}
         />

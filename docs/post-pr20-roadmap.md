@@ -1,12 +1,12 @@
 # Post-PR #20 roadmap
 
-Updated: 2026-07-04
+Updated: 2026-07-05
 
 This is the working checklist for what remains after PR #20 merges. It is based on Mrs. Mel's V1 feedback, the meeting notes, Greptile hardening, and the current annual budget/transaction-loop implementation.
 
 ## First: merge/deploy confidence
 
-- [ ] Let GitHub checks and Greptile finish clean on PR #20.
+- [x] Let GitHub checks and Greptile finish clean on PR #20.
 - [ ] Final browser smoke on the PR preview/local real workspace:
   - [ ] cents display everywhere
   - [ ] draft confirm updates annual table, operating view, ledger, recent transactions, and report immediately
@@ -17,38 +17,32 @@ This is the working checklist for what remains after PR #20 merges. It is based 
   - [ ] category with confirmed history can archive/restore
   - [ ] category with pending drafts blocks archive
   - [ ] Mia follow-ups for family support, red/yellow plan, and transaction draft context work
-- [ ] Merge PR #20.
+- [x] Merge PR #20.
 - [ ] Deploy API/web.
 - [ ] Production smoke on `https://householdcfomethod.com` with the real smoke account.
 
-## PR #21 recommendation: chat attachments + receipt drafts
+## PR #21 recommendation: Document Intelligence Platform v1
 
-Goal: make Ask Mia support the mobile receipt/photo workflow Mrs. Mel described.
+Goal: build the full receipt/photo/statement intake and reconciliation loop as one coherent platform layer, not separate half-features.
 
-- [ ] Add first-class attachment upload from Ask Mia.
-- [ ] Support mobile camera/photo/file upload where browser/device allows.
-- [ ] Store every source file in private S3 through Rails.
-- [ ] Extract receipt/image facts server-side into `TransactionDraft` records.
-- [ ] Show review cards in chat and/or Budget review panel.
-- [ ] Support correcting merchant, date, amount, category, and notes before confirm.
+- [ ] First-class Ask Mia attachment upload and profile/evidence upload paths.
+- [ ] Private S3 source storage through Rails only.
+- [ ] Server-side extraction with attempt history, warnings, confidence, and safe errors.
+- [ ] Extract receipt/image facts into editable `TransactionDraft` records.
 - [ ] Support split receipts, e.g. Payless groceries plus cigarettes.
-- [ ] Create category from the review path when needed.
-- [ ] Confirm only after participant approval; actuals never change from extraction alone.
-- [ ] Add tests with S3/OpenRouter stubbed.
-
-## PR #22 recommendation: statement/screenshot reconciliation
-
-Goal: reconcile old behavior without overwriting the live transaction loop.
-
 - [ ] Extract rows from bank/card statements and transaction screenshots.
-- [ ] Map each extracted row to the correct month by transaction date.
+- [ ] Map each extracted row to the correct budget month by transaction date.
 - [ ] Stage extracted rows as drafts/reconciliation items.
 - [ ] Dedupe/match against already confirmed manual/receipt transactions.
-- [ ] Let user confirm, correct, ignore, or mark matched.
-- [ ] Update month actuals only after confirmation.
-- [ ] Add reconciliation report/status for each statement upload.
+- [ ] Let user edit, split, confirm, ignore, or mark matched.
+- [ ] Confirm only after participant approval; pending extraction never changes actuals.
+- [ ] Keep source lineage from import → draft → confirmed/matched transaction.
+- [ ] Add evidence library status for extracted values, transaction drafts, and matches.
+- [ ] Add tests with S3/OpenRouter stubbed.
 
-## PR #23 recommendation: Mia memory + merchant/category learning
+See `docs/document-intelligence-platform-v1.md` for the implementation spec.
+
+## PR #22 recommendation: Mia memory + merchant/category learning controls
 
 Goal: make Mia feel continuous without treating chat as financial truth.
 

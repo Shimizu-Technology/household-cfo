@@ -13,6 +13,7 @@ class FinancialDocumentImport < ApplicationRecord
 
   has_many :items, class_name: "FinancialDocumentImportItem", dependent: :destroy, inverse_of: :financial_document_import
   has_many :attempts, class_name: "FinancialDocumentImportAttempt", dependent: :destroy, inverse_of: :financial_document_import
+  has_many :transaction_drafts, dependent: :destroy
 
   validates :document_kind, inclusion: { in: DOCUMENT_KINDS }
   validates :status, inclusion: { in: STATUSES }

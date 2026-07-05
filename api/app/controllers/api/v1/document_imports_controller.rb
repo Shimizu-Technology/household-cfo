@@ -22,10 +22,12 @@ module Api
         ".png" => %w[image/png],
         ".webp" => %w[image/webp]
       }.freeze
-      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at].freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count].freeze
 
       def index
-        imports = current_household.financial_document_imports.includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user).recent_first.limit(50)
+        imports = current_household.financial_document_imports
+          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: [ :budget_category, :matched_transaction, { transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } } } ])
+          .recent_first.limit(50)
         render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import) } }
       end
 
@@ -67,8 +69,8 @@ module Api
       end
 
       def destroy
-        if @document_import.items.where.not(applied_at: nil).exists?
-          return render json: { errors: [ "Delete the source file instead; this import already applied household values" ] }, status: :unprocessable_entity
+        if @document_import.items.where.not(applied_at: nil).exists? || @document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+          return render json: { errors: [ "Delete the source file instead; this import already applied or matched household values" ] }, status: :unprocessable_entity
         end
 
         source_key = @document_import.s3_key
@@ -94,12 +96,13 @@ module Api
             next
           end
 
-          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists?
+          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists? || @document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
             reprocess_error = "Applied document imports cannot be reprocessed; upload a new copy to extract updated values."
             next
           end
 
           @document_import.items.where(applied_at: nil).delete_all
+          @document_import.transaction_drafts.pending.destroy_all
           @document_import.update!(
             status: "uploaded",
             extraction_error: nil,
@@ -353,6 +356,7 @@ module Api
           source_deleted_by: serialize_user_reference(document_import.source_deleted_by_user),
           metadata: safe_import_metadata(document_import.metadata),
           items: ordered_items_for(document_import).map { |item| serialize_item(item) },
+          transaction_drafts: ordered_transaction_drafts_for(document_import).map { |draft| serialize_transaction_draft(draft) },
           attempts: include_attempts ? document_import.attempts.recent_first.limit(5).map { |attempt| serialize_attempt(attempt) } : []
         }
       end
@@ -363,6 +367,15 @@ module Api
         else
           document_import.items.order(:id)
         end
+      end
+
+      def ordered_transaction_drafts_for(document_import)
+        scope = if document_import.association(:transaction_drafts).loaded?
+          document_import.transaction_drafts
+        else
+          document_import.transaction_drafts.includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
+        end
+        scope.sort_by { |draft| [ draft.occurred_on || Date.current, draft.id || 0 ] }.reverse
       end
 
       def serialize_item(item)
@@ -392,6 +405,62 @@ module Api
         }
       end
 
+      def serialize_transaction_draft(draft)
+        {
+          id: draft.id,
+          occurred_on: draft.occurred_on.iso8601,
+          merchant: draft.merchant,
+          amount: dollars_or_nil(draft.total_amount_cents),
+          amount_cents: draft.total_amount_cents,
+          status: draft.status,
+          source_type: draft.source_type,
+          financial_document_import_id: draft.financial_document_import_id,
+          category_id: draft.budget_category_id,
+          category_name: draft.budget_category&.name,
+          stack_label: draft.budget_category&.stack_label,
+          confidence: draft.confidence,
+          raw_input: draft.raw_input,
+          summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(dollars_or_nil(draft.total_amount_cents), precision: 2)}",
+          splits: draft.transaction_draft_splits.ordered.map { |split| serialize_transaction_draft_split(split) },
+          matches: draft.transaction_draft_matches.best_first.map { |match| serialize_transaction_draft_match(match) },
+          matched_transaction_id: draft.matched_transaction_id,
+          draft_payload: safe_draft_payload(draft.draft_payload)
+        }
+      end
+
+      def serialize_transaction_draft_split(split)
+        {
+          id: split.id,
+          budget_category_id: split.budget_category_id,
+          category_name: split.budget_category&.name || split.category_name,
+          stack_key: split.budget_category&.stack_key || split.stack_key,
+          stack_label: split.budget_category&.stack_label || split.stack_key.to_s.humanize,
+          amount: dollars_or_nil(split.amount_cents),
+          amount_cents: split.amount_cents,
+          notes: split.notes,
+          confidence: split.confidence,
+          metadata: split.metadata || {}
+        }
+      end
+
+      def serialize_transaction_draft_match(match)
+        transaction = match.household_transaction
+        {
+          id: match.id,
+          status: match.status,
+          confidence: match.confidence,
+          match_reason: match.match_reason,
+          transaction: {
+            id: transaction.id,
+            occurred_on: transaction.occurred_on.iso8601,
+            merchant: transaction.merchant,
+            amount: dollars_or_nil(transaction.total_amount_cents),
+            source_type: transaction.source_type,
+            categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }
+          }
+        }
+      end
+
       def serialize_attempt(attempt)
         {
           id: attempt.id,
@@ -418,7 +487,11 @@ module Api
       end
 
       def safe_import_metadata(metadata)
-        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "last_extracted_at", "last_applied_count", "last_applied_at")
+        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count")
+      end
+
+      def safe_draft_payload(payload)
+        (payload || {}).slice("parser", "document_import_id", "row_index", "evidence", "external_id", "raw_description", "warnings")
       end
 
       def reset_extraction_metadata(metadata)

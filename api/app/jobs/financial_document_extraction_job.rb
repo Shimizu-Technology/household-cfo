@@ -5,7 +5,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   ATTEMPT_METADATA_STRING_LENGTH = 120
   ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
-  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at].freeze
+  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at transaction_draft_count transaction_match_count].freeze
 
   def perform(financial_document_import_id)
     document_import = FinancialDocumentImport.find_by(id: financial_document_import_id)
@@ -54,12 +54,16 @@ class FinancialDocumentExtractionJob < ApplicationJob
       Array(data[:items]).each do |item_attributes|
         document_import.items.create!(item_attributes)
       end
+      draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, data[:transaction_drafts]).call
+      warnings = Array(data[:warnings]) + Array(draft_result.fetch(:warnings))
 
       metadata = (document_import.metadata || {}).merge(
         "confidence" => data[:confidence],
-        "warnings" => data[:warnings],
+        "warnings" => warnings.first(FinancialDocuments::Extractor::MAX_WARNINGS),
         "extraction_model" => attempt.model,
-        "last_extracted_at" => Time.current.iso8601
+        "last_extracted_at" => Time.current.iso8601,
+        "transaction_draft_count" => draft_result.fetch(:created_count),
+        "transaction_match_count" => draft_result.fetch(:match_count)
       ).compact
 
       document_import.update!(
@@ -73,6 +77,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         processed_at: Time.current,
         metadata: metadata
       )
+      HouseholdFinance::DocumentImportStatusReconciler.new(document_import).call
 
       attempt.update!(
         status: "succeeded",

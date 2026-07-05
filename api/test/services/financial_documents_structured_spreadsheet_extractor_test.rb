@@ -59,6 +59,31 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "extracts statement transaction rows from structured spreadsheets without AI" do
+    file = Tempfile.new([ "statement", ".csv" ])
+    file.write(<<~CSV)
+      date,description,amount,category,notes
+      2026-07-05,Penny Cafe,13.57,Dining Out,Lunch
+      07/06/2026,Payless,"($103.42)",Groceries,Receipt total
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    drafts = result.data.fetch(:transaction_drafts)
+    assert_equal 2, drafts.length
+    assert_equal "statement", result.data.fetch(:document_kind)
+    assert_equal Date.new(2026, 7, 5), result.data.fetch(:period_start_on)
+    assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
+    assert_equal "Penny Cafe", drafts.first.fetch(:merchant)
+    assert_equal 1_357, drafts.first.fetch(:total_amount_cents)
+    assert_equal "Dining Out", drafts.first.fetch(:splits).first.fetch(:category_name)
+    assert_equal 10_342, drafts.second.fetch(:total_amount_cents)
+  ensure
+    file&.close!
+  end
+
   test "extractor uses structured spreadsheet path without OpenRouter key" do
     user = User.create!(clerk_id: "clerk_structured_extractor_user", email: "structured-extractor@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Structured Extractor Household")

@@ -601,6 +601,94 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "applied", document_import.reload.status
   end
 
+  test "document transaction draft update and confirm creates split actuals with source lineage" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_800,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt upload"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: {
+        transaction_draft: {
+          amount: "18.00",
+          splits: [
+            { amount: "13.75", budget_category_id: dining.id, notes: "Meal" },
+            { amount: "4.25", category_name: "Tips", stack_key: "discretionary", notes: "Tip" }
+          ]
+        }
+      },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :success
+    draft.reload
+    assert_equal [ 1_375, 425 ], draft.transaction_draft_splits.order(:id).pluck(:amount_cents)
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :success
+    transaction = HouseholdTransaction.last
+    assert_equal document_import.id, transaction.source_import_id
+    assert_equal "receipt", transaction.source_type
+    assert_equal 1_800, transaction.total_amount_cents
+    tips = @household.budget_categories.find_by!(name: "Tips")
+    assert_equal [ [ dining.id, 1_375 ], [ tips.id, 425 ] ], transaction.transaction_splits.order(:id).pluck(:budget_category_id, :amount_cents)
+    assert_equal "confirmed", draft.reload.status
+    assert_equal "applied", document_import.reload.status
+    assert @household.merchant_category_rules.where(merchant_pattern: "penny cafe", budget_category: dining).exists?
+    assert @household.merchant_category_rules.where(merchant_pattern: "penny cafe", budget_category: tips).exists?
+  end
+
+  test "document transaction draft match accepts existing actual without changing actual totals" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount, same date, similar merchant")
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/match",
+        params: { match_id: match.id },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+    draft.reload
+    assert_equal "matched", draft.status
+    assert_equal transaction.id, draft.matched_transaction_id
+    assert_equal "accepted", match.reload.status
+    assert_equal "applied", document_import.reload.status
+  end
+
   test "imports are scoped to the authenticated household" do
     other_user = User.create!(clerk_id: "clerk_other_doc_user", email: "other-doc@example.com", role: "participant", invitation_status: "accepted")
     other_household = Household.create!(created_by_user: other_user, name: "Other Household")

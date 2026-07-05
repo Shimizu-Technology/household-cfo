@@ -10,10 +10,12 @@ module Api
           result = HouseholdFinance::AppliedDocumentImportItemUpdater.new(@item, user: current_user, attributes: item_update_attributes).call
           return render json: { errors: result.errors }, status: :unprocessable_entity unless result.success?
 
+          HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
           return render json: { item: serialize_item(result.item) }
         end
 
         @item.update!(item_update_attributes)
+        HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
         render json: { item: serialize_item(@item.reload) }
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
