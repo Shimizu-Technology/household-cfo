@@ -60,17 +60,13 @@ module HouseholdFinance
 
     def normalize_single_category!
       category = selected_category(attributes[:budget_category_id])
-      split = draft.transaction_draft_splits.order(:id).first
-      if split
-        split.update!(budget_category: category, category_name: category.name, stack_key: category.stack_key)
-      else
-        draft.transaction_draft_splits.create!(
-          budget_category: category,
-          amount_cents: draft.total_amount_cents,
-          category_name: category.name,
-          stack_key: category.stack_key
-        )
-      end
+      draft.transaction_draft_splits.destroy_all
+      draft.transaction_draft_splits.create!(
+        budget_category: category,
+        amount_cents: draft.total_amount_cents,
+        category_name: category.name,
+        stack_key: category.stack_key
+      )
       draft.update!(budget_category: category)
     end
 

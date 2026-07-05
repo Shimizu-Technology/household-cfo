@@ -63,6 +63,8 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file = Tempfile.new([ "statement", ".csv" ])
     file.write(<<~CSV)
       date,description,amount,category,notes
+      not-a-date,Bad Row,10,Dining Out,Invalid date should skip only this row
+      "May 12, 2026",Ross,45.25,Discretionary,Long-form date should parse
       2026-07-05,Penny Cafe,13.57,Dining Out,Lunch
       07/06/2026,Payless,"($103.42)",Groceries,Receipt total
     CSV
@@ -72,14 +74,16 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
 
     assert result.success?, result.error
     drafts = result.data.fetch(:transaction_drafts)
-    assert_equal 2, drafts.length
+    assert_equal 3, drafts.length
     assert_equal "statement", result.data.fetch(:document_kind)
-    assert_equal Date.new(2026, 7, 5), result.data.fetch(:period_start_on)
+    assert_equal Date.new(2026, 5, 12), result.data.fetch(:period_start_on)
     assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
-    assert_equal "Penny Cafe", drafts.first.fetch(:merchant)
-    assert_equal 1_357, drafts.first.fetch(:total_amount_cents)
-    assert_equal "Dining Out", drafts.first.fetch(:splits).first.fetch(:category_name)
-    assert_equal 10_342, drafts.second.fetch(:total_amount_cents)
+    assert_equal "Ross", drafts.first.fetch(:merchant)
+    assert_equal Date.new(2026, 5, 12), drafts.first.fetch(:occurred_on)
+    assert_equal "Penny Cafe", drafts.second.fetch(:merchant)
+    assert_equal 1_357, drafts.second.fetch(:total_amount_cents)
+    assert_equal "Dining Out", drafts.second.fetch(:splits).first.fetch(:category_name)
+    assert_equal 10_342, drafts.third.fetch(:total_amount_cents)
   ensure
     file&.close!
   end

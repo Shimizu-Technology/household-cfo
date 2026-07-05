@@ -88,11 +88,14 @@ module HouseholdFinance
     end
 
     def category_score(transaction)
-      draft_category_ids = draft.transaction_draft_splits.map(&:budget_category_id).compact
       return 0.5 if draft_category_ids.empty?
 
       transaction_category_ids = transaction.transaction_splits.map(&:budget_category_id).compact
       transaction_category_ids.intersect?(draft_category_ids) ? 1.0 : 0.25
+    end
+
+    def draft_category_ids
+      @draft_category_ids ||= draft.transaction_draft_splits.map(&:budget_category_id).compact
     end
 
     def token_overlap(left, right)

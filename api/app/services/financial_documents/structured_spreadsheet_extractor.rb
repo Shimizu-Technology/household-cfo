@@ -337,11 +337,25 @@ module FinancialDocuments
     end
 
     def parsed_date(value)
+      return value.to_date if value.respond_to?(:to_date) && !value.is_a?(String)
       return if value.blank?
 
-      Date.iso8601(value.to_s)
+      text = value.to_s.squish
+      parse_date_with_formats(text)
+    end
+
+    def parse_date_with_formats(text)
+      Date.iso8601(text)
     rescue ArgumentError
-      Date.strptime(value.to_s, "%m/%d/%Y")
+      %w[%m/%d/%Y %m-%d-%Y %Y/%m/%d %B\ %d,\ %Y %b\ %d,\ %Y].each do |format|
+        parsed = parse_date_with_format(text, format)
+        return parsed if parsed
+      end
+      nil
+    end
+
+    def parse_date_with_format(text, format)
+      Date.strptime(text, format)
     rescue ArgumentError
       nil
     end

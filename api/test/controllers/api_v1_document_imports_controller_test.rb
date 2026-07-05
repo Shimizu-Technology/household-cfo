@@ -649,6 +649,36 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert @household.merchant_category_rules.where(merchant_pattern: "penny cafe", budget_category: tips).exists?
   end
 
+  test "document transaction draft top-level category update collapses stale multi-split categories" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 2)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless",
+      total_amount_cents: 10_342,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt upload"
+    )
+    draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 8_542, category_name: "Groceries")
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: { transaction_draft: { budget_category_id: dining.id } },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :success
+    draft.reload
+    assert_equal dining.id, draft.budget_category_id
+    assert_equal 1, draft.transaction_draft_splits.count
+    split = draft.transaction_draft_splits.first
+    assert_equal dining.id, split.budget_category_id
+    assert_equal 10_342, split.amount_cents
+  end
+
   test "document transaction draft match accepts existing actual without changing actual totals" do
     document_import = create_import!(status: "needs_review", document_kind: "statement")
     category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
