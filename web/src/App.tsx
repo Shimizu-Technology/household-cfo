@@ -434,6 +434,19 @@ function App() {
   }, [confirmClearChat, isChatExpanded])
 
   useEffect(() => {
+    if (!previewImport && !previewAttachment) return
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setPreviewImport(null)
+      setPreviewAttachment(null)
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [previewAttachment, previewImport])
+
+  useEffect(() => {
     if (activeSection !== 'Ask Mia') return
 
     const chatCard = chatCardRef.current
@@ -465,7 +478,7 @@ function App() {
       return
     }
 
-    const messageContent = cleanPrompt || 'Please review the attached evidence.'
+    const messageContent = cleanPrompt || 'Please review this upload.'
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
@@ -1427,7 +1440,7 @@ function App() {
                   onKeyDown={handleAskMiaKeyDown}
                   onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder="Ask Mia for the CFO read, or paste a receipt screenshot..."
+                  placeholder="Ask Mia or attach evidence..."
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
@@ -1718,14 +1731,14 @@ function PendingAttachmentTray({
   onRemove: (id: string) => void
 }) {
   return (
-    <div className="composer-attachment-tray" aria-label="Attached evidence waiting to send">
+    <div className="composer-attachment-tray" aria-label="Attachments waiting to send">
       {attachments.map((attachment) => (
         <div className="composer-attachment-card" key={attachment.id}>
           <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
-            {attachment.content_type.startsWith('image/') ? <img src={attachment.previewUrl} alt={attachment.filename} /> : <AttachmentIcon />}
-            <span>{attachment.filename}</span>
+            {attachment.content_type.startsWith('image/') ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            <span>{attachmentDisplayName(attachment)}</span>
           </button>
-          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachment.filename}`} onClick={() => onRemove(attachment.id)}>
+          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
             <CloseIcon />
           </button>
         </div>
@@ -1761,8 +1774,8 @@ function MessageAttachmentList({
               else if (documentImport) onOpenImport(documentImport)
             }}
           >
-            {attachment.preview_url && attachment.content_type.startsWith('image/') ? <img src={attachment.preview_url} alt={attachment.filename} /> : <AttachmentIcon />}
-            <span>{attachment.filename}</span>
+            {attachment.preview_url && attachment.content_type.startsWith('image/') ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            <span>{messageAttachmentDisplayName(attachment)}</span>
           </button>
         )
       })}
@@ -1776,16 +1789,16 @@ function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMi
   return (
     <div className="document-preview-overlay" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={onClose} />
-      <section className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachment.filename}>
+      <section className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)}>
         <div className="document-preview-header">
           <div>
-            <span>Attached evidence</span>
-            <strong>{attachment.filename}</strong>
+            <span className="document-status blue">Attachment preview</span>
+            <strong>{attachmentDisplayName(attachment)}</strong>
           </div>
-          <button type="button" onClick={onClose}>Close</button>
+          <button type="button" className="document-preview-close-button" onClick={onClose}>Close</button>
         </div>
         <div className="document-preview-body">
-          {isImage ? <img src={attachment.previewUrl} alt={attachment.filename} /> : <div className="document-preview-state"><AttachmentIcon /><p>Preview will be available after upload.</p></div>}
+          {isImage ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <div className="document-preview-state"><AttachmentIcon /><p>Preview will be available after upload.</p></div>}
         </div>
       </section>
     </div>
@@ -2145,6 +2158,10 @@ function DocumentUploadCard({
   )
 }
 
+type DocumentHistoryStatusFilter = 'all' | FinancialDocumentImport['status']
+type DocumentHistoryKindFilter = 'all' | DocumentImportKind
+type DocumentHistorySort = 'newest' | 'oldest' | 'needs_review'
+
 function DocumentImportHistory({
   imports,
   selectedImportId,
@@ -2156,34 +2173,126 @@ function DocumentImportHistory({
   loading: boolean
   onSelectImport: (id: number) => void
 }) {
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<DocumentHistoryStatusFilter>('all')
+  const [kindFilter, setKindFilter] = useState<DocumentHistoryKindFilter>('all')
+  const [sort, setSort] = useState<DocumentHistorySort>('newest')
+  const [page, setPage] = useState(0)
+  const pageSize = 6
+  const filteredImports = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return imports
+      .filter((documentImport) => statusFilter === 'all' || documentImport.status === statusFilter)
+      .filter((documentImport) => kindFilter === 'all' || documentImport.document_kind === kindFilter)
+      .filter((documentImport) => {
+        if (!query) return true
+        return [
+          documentImportDisplayName(documentImport),
+          documentImport.filename,
+          documentImport.extracted_summary ?? '',
+          documentImport.items.map((item) => `${item.label} ${item.evidence ?? ''} ${item.amount ?? ''} ${item.balance ?? ''} ${item.payment ?? ''}`).join(' '),
+          documentImport.transaction_drafts.map((draft) => `${draft.merchant} ${draft.summary ?? ''}`).join(' '),
+          documentKindLabel(documentImport.document_kind),
+          importStatusLabel(documentImport.status),
+          importPeriodLabel(documentImport),
+        ].join(' ').toLowerCase().includes(query)
+      })
+      .sort((left, right) => {
+        if (sort === 'oldest') return importTimestamp(left) - importTimestamp(right) || left.id - right.id
+        if (sort === 'needs_review') {
+          const leftRank = left.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(left.status) ? 1 : 2
+          const rightRank = right.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(right.status) ? 1 : 2
+          return leftRank - rightRank || importTimestamp(right) - importTimestamp(left) || right.id - left.id
+        }
+        return importTimestamp(right) - importTimestamp(left) || right.id - left.id
+      })
+  }, [imports, kindFilter, search, sort, statusFilter])
+  const totalPages = Math.max(1, Math.ceil(filteredImports.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const visibleImports = filteredImports.slice(safePage * pageSize, safePage * pageSize + pageSize)
+
   return (
     <aside className="document-history" aria-label="Document import history">
       <div className="document-history-heading">
         <h4>Import history</h4>
         <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
       </div>
+      {imports.length > 0 && (
+        <div className="document-history-controls" aria-label="Import history filters">
+          <label className="document-history-search">
+            <span className="sr-only">Search imports</span>
+            <input value={search} placeholder="Search imports" onChange={(event) => { setSearch(event.currentTarget.value); setPage(0) }} />
+          </label>
+          <label>
+            <span className="sr-only">Filter by status</span>
+            <select value={statusFilter} onChange={(event) => { setStatusFilter(event.currentTarget.value as DocumentHistoryStatusFilter); setPage(0) }}>
+              <option value="all">All statuses</option>
+              <option value="needs_review">Needs review</option>
+              <option value="processing">Processing</option>
+              <option value="uploaded">Uploaded</option>
+              <option value="applied">Applied</option>
+              <option value="partially_applied">Partially applied</option>
+              <option value="failed">Failed</option>
+              <option value="source_deleted">Source deleted</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Filter by type</span>
+            <select value={kindFilter} onChange={(event) => { setKindFilter(event.currentTarget.value as DocumentHistoryKindFilter); setPage(0) }}>
+              <option value="all">All types</option>
+              <option value="receipt">Receipts</option>
+              <option value="statement">Statements</option>
+              <option value="spreadsheet">Spreadsheets</option>
+              <option value="pay_stub">Pay stubs</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Sort imports</span>
+            <select value={sort} onChange={(event) => { setSort(event.currentTarget.value as DocumentHistorySort); setPage(0) }}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="needs_review">Review first</option>
+            </select>
+          </label>
+        </div>
+      )}
       {imports.length === 0 ? (
         <div className="document-empty-state">
           <StatementIcon />
           <h4>No documents yet</h4>
           <p>Upload a sample-safe document to test extraction. Avoid real client statements in local demos.</p>
         </div>
-      ) : (
-        <div className="document-history-list">
-          {imports.map((documentImport) => (
-            <button
-              type="button"
-              key={documentImport.id}
-              className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
-              onClick={() => onSelectImport(documentImport.id)}
-            >
-              <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
-              <strong>{documentImport.filename}</strong>
-              <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
-              <small>{importPeriodLabel(documentImport)}</small>
-            </button>
-          ))}
+      ) : visibleImports.length === 0 ? (
+        <div className="document-empty-state compact">
+          <h4>No imports match</h4>
+          <p>Clear the search or change filters to see more uploads.</p>
         </div>
+      ) : (
+        <>
+          <div className="document-history-list">
+            {visibleImports.map((documentImport) => (
+              <button
+                type="button"
+                key={documentImport.id}
+                className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
+                onClick={() => onSelectImport(documentImport.id)}
+              >
+                <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
+                <strong>{documentImportDisplayName(documentImport)}</strong>
+                <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
+                <small>{importPeriodLabel(documentImport)}</small>
+              </button>
+            ))}
+          </div>
+          <div className="document-history-pagination" aria-label="Import history pagination">
+            <span>{filteredImports.length === 0 ? '0 shown' : `${safePage * pageSize + 1}-${Math.min((safePage + 1) * pageSize, filteredImports.length)} of ${filteredImports.length}`}</span>
+            <div>
+              <button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
+              <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
+            </div>
+          </div>
+        </>
       )}
     </aside>
   )
@@ -2266,11 +2375,11 @@ function DocumentReviewPanel({
   const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
 
   return (
-    <article className="document-review-panel" aria-label={`Review ${documentImport.filename}`}>
+    <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
       <div className="document-review-header">
         <div>
           <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
-          <h4>{documentImport.filename}</h4>
+          <h4>{documentImportDisplayName(documentImport)}</h4>
           <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
         <div className="document-review-actions">
@@ -2486,6 +2595,7 @@ function DocumentSourcePreview({
   }, [onClose])
 
   const filename = source?.filename ?? documentImport.filename
+  const previewTitle = documentImportDisplayName(documentImport)
   const contentType = source?.content_type ?? documentImport.content_type
   const isImage = source?.inline_supported === true && contentType.startsWith('image/')
   const isPdf = source?.inline_supported === true && contentType === 'application/pdf'
@@ -2494,11 +2604,11 @@ function DocumentSourcePreview({
   return (
     <div className="document-preview-overlay" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={onClose} />
-      <section className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`}>
+      <section className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewTitle}`}>
         <header className="document-preview-header">
           <div>
             <span className="document-status blue">Private preview</span>
-            <h3>{filename}</h3>
+            <h3>{previewTitle}</h3>
             <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Link expires in {source?.expires_in ?? 300}s</p>
           </div>
           <div className="document-preview-actions">
@@ -2788,6 +2898,38 @@ const stackKeyOptions = [
   { value: 'sinking_unexpected', label: 'Sinking Fund — Unexpected' },
 ]
 
+function attachmentDisplayName(attachment: PendingMiaAttachment) {
+  if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
+  if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
+  if (attachment.content_type.startsWith('image/')) return 'Screenshot'
+
+  return documentKindLabel(attachment.document_kind)
+}
+
+function messageAttachmentDisplayName(attachment: MiaMessageAttachment) {
+  if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
+  if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
+  if (attachment.content_type.startsWith('image/')) return 'Screenshot'
+
+  return documentKindLabel(attachment.document_kind)
+}
+
+function documentImportDisplayName(documentImport: FinancialDocumentImport) {
+  if (documentImport.document_kind === 'receipt' && documentImport.content_type.startsWith('image/') && generatedEvidenceFilename(documentImport.filename)) {
+    return 'Receipt screenshot'
+  }
+  if (documentImport.document_kind === 'statement' && documentImport.content_type.startsWith('image/') && generatedEvidenceFilename(documentImport.filename)) {
+    return 'Statement screenshot'
+  }
+  if (documentImport.content_type.startsWith('image/') && generatedEvidenceFilename(documentImport.filename)) return 'Screenshot upload'
+
+  return documentImport.filename
+}
+
+function generatedEvidenceFilename(filename: string) {
+  return /^(?:pasted[-_]evidence|receipt[-_]screenshot|screenshot[-_]upload|mia[-_]attachment)/i.test(filename)
+}
+
 function documentKindLabel(kind: DocumentImportKind) {
   const labels: Record<DocumentImportKind, string> = {
     spreadsheet: 'Spreadsheet',
@@ -2849,10 +2991,14 @@ function normalizedClipboardFile(file: File, index: number) {
   if (file.name && file.name !== 'image.png') return file
 
   const extension = extensionForContentType(file.type) ?? 'png'
-  return new File([file], `pasted-evidence-${Date.now()}-${index + 1}.${extension}`, {
+  return new File([file], `receipt-screenshot-${timestampForFilename()}-${index + 1}.${extension}`, {
     type: file.type || `image/${extension}`,
     lastModified: file.lastModified,
   })
+}
+
+function timestampForFilename() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '')
 }
 
 function extensionForContentType(contentType: string) {

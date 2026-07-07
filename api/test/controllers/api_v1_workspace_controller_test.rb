@@ -384,7 +384,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     body = JSON.parse(response.body)
     assert_nil body.fetch("transaction_draft")
-    assert_includes body.fetch("assistant_message").fetch("content"), "I’m reading the attached evidence now"
+    assert_includes body.fetch("assistant_message").fetch("content"), "I’m reviewing the receipt screenshot you sent"
     attachment = body.fetch("user_message").fetch("attachments").first
     assert_equal document_import.id, attachment.fetch("document_import_id")
     assert_equal "receipt.png", attachment.fetch("filename")

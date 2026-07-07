@@ -10,7 +10,7 @@ module Api
       def create
         content = params[:message].to_s.strip
         attached_imports = attached_document_imports
-        content = "Attached evidence for Mia to review." if content.blank? && attached_imports.any?
+        content = "Please review this upload." if content.blank? && attached_imports.any?
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
@@ -132,12 +132,23 @@ module Api
       end
 
       def attached_document_message(content, attached_imports)
-        count = attached_imports.length
-        note = content == "Attached evidence for Mia to review." ? nil : content
-        [
-          "I’m reading #{count == 1 ? 'the attached evidence' : "the #{count} attached evidence files"} now. I’ll stage any draft values or transaction rows for your review before anything becomes official.",
-          note.present? ? "I’ll use your note as context: #{note}" : nil
-        ].compact.join("\n\n")
+        labels = attached_imports.map { |document_import| evidence_label(document_import) }
+        note = content == "Please review this upload." ? nil : content
+        opening = if labels.one?
+          "Got it — I’m reviewing the #{labels.first} you sent."
+        else
+          "Got it — I’m reviewing the #{labels.to_sentence} you sent."
+        end
+        next_step = "If I can read money details from #{labels.one? ? 'it' : 'them'}, I’ll turn them into review cards below so you can confirm, edit, match, or ignore before anything affects actuals."
+        [ opening, note.present? ? "Your note: #{note}" : nil, next_step ].compact.join("\n\n")
+      end
+
+      def evidence_label(document_import)
+        return "receipt screenshot" if document_import.document_kind == "receipt" && document_import.content_type.to_s.start_with?("image/")
+        return "statement screenshot" if document_import.document_kind == "statement" && document_import.content_type.to_s.start_with?("image/")
+        return "pay stub image" if document_import.document_kind == "pay_stub" && document_import.content_type.to_s.start_with?("image/")
+
+        document_import.document_kind.to_s.humanize.downcase
       end
 
       def spending_report_for(content)

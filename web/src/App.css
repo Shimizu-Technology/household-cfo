@@ -1868,12 +1868,62 @@ h3 {
 }
 
 .document-history-list,
+.document-history-controls,
 .document-items-shell,
 .document-item-list,
 .document-review-panel,
 .document-empty-state {
   display: grid;
   gap: 10px;
+}
+
+.document-history-controls {
+  grid-template-columns: 1fr;
+}
+
+.document-history-controls input,
+.document-history-controls select {
+  width: 100%;
+  min-height: 40px;
+  border: 1px solid rgba(226, 217, 203, 0.95);
+  border-radius: 13px;
+  padding: 8px 10px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
+.document-history-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-top: 2px;
+}
+
+.document-history-pagination span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 900;
+}
+
+.document-history-pagination div {
+  display: flex;
+  gap: 6px;
+}
+
+.document-history-pagination button {
+  min-height: 34px;
+  padding: 7px 10px;
+  border: 1px solid rgba(226, 217, 203, 0.95);
+  border-radius: 999px;
+  background: white;
+  color: var(--mauve);
+  font-size: 0.76rem;
+  font-weight: 900;
 }
 
 .document-history-card {
@@ -2422,9 +2472,23 @@ h3 {
 
 .document-preview-header h3,
 .document-preview-header p,
+.document-preview-header strong,
 .document-preview-state h4,
 .document-preview-state p {
   margin: 0;
+}
+
+.document-preview-header > div:first-child {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.document-preview-header strong {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+  font-size: 1.05rem;
+  line-height: 1.2;
 }
 
 .document-preview-header h3 {
@@ -2458,10 +2522,19 @@ h3 {
   text-decoration: none;
 }
 
-.document-preview-actions button {
+.document-preview-actions button,
+.document-preview-close-button {
   border: 1px solid rgba(123, 74, 88, 0.16);
   background: white;
   color: var(--emerald);
+}
+
+.document-preview-close-button {
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 10px 13px;
+  font-size: 0.78rem;
+  font-weight: 900;
 }
 
 .document-preview-body {

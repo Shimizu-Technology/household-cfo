@@ -243,6 +243,34 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ false ], record_existed_when_s3_deleted
   end
 
+  test "destroy blocks imports with resolved transaction drafts" do
+    document_import = create_import!(status: "partially_applied", s3_key: "household-cfo/test/source.pdf")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless",
+      total_amount_cents: 100_00,
+      budget_category: category,
+      source_type: "statement",
+      status: "matched",
+      raw_input: "Matched row"
+    )
+    deleted_keys = []
+
+    with_s3_stubs(
+      configured?: true,
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      delete "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/Delete the source file instead/i, JSON.parse(response.body).fetch("errors").join)
+    assert FinancialDocumentImport.exists?(document_import.id)
+    assert_empty deleted_keys
+  end
+
   test "destroy does not delete private source when database destroy fails" do
     callback = lambda { |item| throw(:abort) if item.label == "Block destroy" }
     FinancialDocumentImportItem.set_callback(:destroy, :before, callback)

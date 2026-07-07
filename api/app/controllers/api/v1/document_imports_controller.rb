@@ -69,15 +69,32 @@ module Api
       end
 
       def destroy
-        if @document_import.items.where.not(applied_at: nil).exists? || @document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
-          return render json: { errors: [ "Delete the source file instead; this import already applied or matched household values" ] }, status: :unprocessable_entity
+        source_key = nil
+        document_import_id = nil
+        destroy_error = nil
+        s3_missing = false
+
+        ApplicationRecord.transaction do
+          @document_import.with_lock do
+            if import_has_resolved_values?(@document_import)
+              destroy_error = "Delete the source file instead; this import already applied or matched household values"
+              raise ActiveRecord::Rollback
+            end
+
+            source_key = @document_import.s3_key
+            if source_key.present? && !S3Service.configured?
+              s3_missing = true
+              raise ActiveRecord::Rollback
+            end
+
+            document_import_id = @document_import.id
+            @document_import.destroy!
+          end
         end
 
-        source_key = @document_import.s3_key
-        return render_s3_not_configured if source_key.present? && !S3Service.configured?
+        return render_s3_not_configured if s3_missing
+        return render json: { errors: [ destroy_error ] }, status: :unprocessable_entity if destroy_error
 
-        document_import_id = @document_import.id
-        @document_import.destroy!
         delete_source_after_destroy(source_key, document_import_id: document_import_id)
         head :no_content
       rescue S3Service::MissingConfigurationError
@@ -206,6 +223,11 @@ module Api
 
       def set_document_import
         @document_import = current_household.financial_document_imports.find(params[:id])
+      end
+
+      def import_has_resolved_values?(document_import)
+        document_import.items.where.not(applied_at: nil).exists? ||
+          document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
       end
 
       def valid_upload_param?(file)
