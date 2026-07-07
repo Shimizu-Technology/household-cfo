@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import {
   applyDocumentImport,
@@ -82,6 +82,7 @@ const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
 const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp'
+const MAX_CHAT_ATTACHMENTS = 5
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 
@@ -849,9 +850,37 @@ function App() {
     }
   }
 
-  function handleMiaAttachmentChange(file: File | null) {
-    if (!file) return
-    void handleDocumentUpload(inferDocumentKind(file), file, 'mia')
+  function handleMiaAttachmentChange(files: FileList | File[] | null) {
+    const attachments = Array.from(files ?? [])
+    if (attachments.length === 0) return
+
+    void uploadMiaAttachments(attachments)
+  }
+
+  async function uploadMiaAttachments(files: File[]) {
+    if (!isRealWorkspace) {
+      setMiaError('Sign in to a real workspace before attaching documents.')
+      return
+    }
+
+    const attachments = files.slice(0, MAX_CHAT_ATTACHMENTS)
+    if (files.length > MAX_CHAT_ATTACHMENTS) {
+      setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. I will upload the first ${MAX_CHAT_ATTACHMENTS}.`)
+    } else {
+      setMiaError(null)
+    }
+
+    for (const file of attachments) {
+      await handleDocumentUpload(inferDocumentKind(file), file, 'mia')
+    }
+  }
+
+  function handleMiaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pastedFiles = filesFromClipboard(event.clipboardData)
+    if (pastedFiles.length === 0) return
+
+    event.preventDefault()
+    void uploadMiaAttachments(pastedFiles)
   }
 
   async function handleDocumentItemUpdate(documentImportId: number, itemId: number, values: DocumentImportItemInput) {
@@ -1301,9 +1330,10 @@ function App() {
                   type="file"
                   className="sr-only"
                   accept={SUPPORTED_DOCUMENT_ACCEPTS}
+                  multiple
                   ref={miaAttachmentInputRef}
                   onChange={(event) => {
-                    handleMiaAttachmentChange(event.target.files?.[0] ?? null)
+                    handleMiaAttachmentChange(event.target.files)
                     event.currentTarget.value = ''
                   }}
                 />
@@ -1324,8 +1354,9 @@ function App() {
                     setQuestion(event.target.value)
                   }}
                   onKeyDown={handleAskMiaKeyDown}
+                  onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder="Ask Mia for the CFO read..."
+                  placeholder="Ask Mia for the CFO read, or paste a receipt screenshot..."
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
@@ -1802,7 +1833,7 @@ function DocumentImportWorkspace({
   demoUploads: Array<{ label: string; kind: string; status: string; accepts: string }>
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   onSelectImport: (id: number) => void
-  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
@@ -2028,7 +2059,7 @@ function DocumentReviewPanel({
   draftAction: string | null
   appliedDetailsOpen: boolean
   onAppliedDetailsOpenChange: (open: boolean) => void
-  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
@@ -2163,7 +2194,7 @@ function DocumentReviewPanel({
               <div className="document-item-list">
                 {items.map((item) => (
                   <DocumentImportItemEditor
-                    key={item.id}
+                    key={documentItemSignature(item)}
                     documentImport={documentImport}
                     item={item}
                     saving={itemSavingIds.has(item.id)}
@@ -2405,6 +2436,20 @@ function usesServerPreview(filename: string, contentType: string) {
   ].includes(contentType)
 }
 
+type EditableDocumentItemDraft = {
+  target_type: DocumentImportItem['target_type']
+  label: string
+  amount: string
+  balance: string
+  payment: string
+  cadence: string
+  source_type: string
+  stack_key: string
+  account_type: string
+  debt_type: string
+  evidence: string
+}
+
 function DocumentImportItemEditor({
   documentImport,
   item,
@@ -2414,23 +2459,46 @@ function DocumentImportItemEditor({
   documentImport: FinancialDocumentImport
   item: DocumentImportItem
   saving: boolean
-  onUpdate: (values: DocumentImportItemInput) => void
+  onUpdate: (values: DocumentImportItemInput) => Promise<void> | void
 }) {
   const applied = Boolean(item.applied_at)
   const canEditDraft = !applied && REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const canCorrectApplied = applied && documentImport.status !== 'source_deleted'
-  const fieldsDisabled = saving || (!canEditDraft && !canCorrectApplied)
+  const editable = canEditDraft || canCorrectApplied
   const selectionDisabled = saving || applied || !canEditDraft
-  const targetDisabled = saving || applied || !canEditDraft
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<EditableDocumentItemDraft>(() => editableDocumentItemDraft(item))
+  const moneyFields = documentItemMoneyFields(draft.target_type)
+  const fieldsDisabled = saving || !editing
+  const targetDisabled = saving || !editing || applied || !canEditDraft
+
+  function updateDraft(values: Partial<EditableDocumentItemDraft>) {
+    setDraft((current) => ({ ...current, ...values }))
+  }
+
+  function beginEditing() {
+    setDraft(editableDocumentItemDraft(item))
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    setDraft(editableDocumentItemDraft(item))
+    setEditing(false)
+  }
+
+  async function saveEdits() {
+    await onUpdate(documentItemUpdatePayload(draft))
+    setEditing(false)
+  }
 
   return (
-    <article className={`document-item-card ${item.ignored ? 'ignored' : ''} ${item.applied_at ? 'applied' : ''}`}>
+    <article className={`document-item-card ${item.ignored ? 'ignored' : ''} ${item.applied_at ? 'applied' : ''} ${editing ? 'editing' : ''}`}>
       <div className="document-item-topline">
         <label className="document-check">
           <input
             type="checkbox"
             checked={item.selected && !item.ignored}
-            disabled={selectionDisabled}
+            disabled={selectionDisabled || editing}
             onChange={(event) => onUpdate({ selected: event.target.checked, ignored: false })}
           />
           <span>{item.applied_at ? 'Applied' : 'Apply'}</span>
@@ -2438,82 +2506,92 @@ function DocumentImportItemEditor({
         <button
           type="button"
           className="document-ignore-button"
-          disabled={selectionDisabled}
+          disabled={selectionDisabled || editing}
           onClick={() => onUpdate({ ignored: !item.ignored, selected: item.ignored })}
         >
           {item.ignored ? 'Restore' : 'Ignore'}
         </button>
         {saving && <span className="document-saving">Saving</span>}
-        {applied && canCorrectApplied && <span className="document-saving applied-editable">Edits update saved numbers</span>}
+        {applied && canCorrectApplied && !editing && <span className="document-saving applied-editable">Saved number</span>}
         {item.confidence && <span className={`confidence-pill ${item.confidence}`}>{item.confidence} confidence</span>}
+        {editable && (
+          <div className="document-item-edit-actions">
+            {editing ? (
+              <>
+                <button type="button" className="secondary-button" disabled={saving} onClick={cancelEditing}>Cancel</button>
+                <button type="button" disabled={saving || draft.label.trim().length === 0} onClick={() => void saveEdits()}>{saving ? 'Saving' : 'Save'}</button>
+              </>
+            ) : (
+              <button type="button" className="secondary-button" disabled={saving} onClick={beginEditing}>{applied ? 'Correct value' : 'Edit value'}</button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="document-item-fields">
         <label className="document-field wide">
           <span>Label</span>
           <input
-            key={`label-${item.id}-${item.label}`}
-            defaultValue={item.label}
+            value={draft.label}
             disabled={fieldsDisabled}
-            onBlur={(event) => updateIfChanged(item.label, event.target.value, (value) => onUpdate({ label: value }))}
+            onChange={(event) => updateDraft({ label: event.currentTarget.value })}
           />
         </label>
         <label className="document-field">
           <span>Target</span>
-          <select value={item.target_type} disabled={targetDisabled} onChange={(event) => onUpdate({ target_type: event.target.value as DocumentImportItem['target_type'] })}>
+          <select value={draft.target_type} disabled={targetDisabled} onChange={(event) => updateDraft({ target_type: event.currentTarget.value as DocumentImportItem['target_type'] })}>
             {targetTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
-        {itemMoneyFields(item).map((field) => (
+        {moneyFields.map((field) => (
           <label className="document-field" key={field.key}>
             <span>{field.label}</span>
             <input
-              key={`money-${item.id}-${field.key}-${field.value ?? ''}`}
               type="number"
               min="0"
               step="0.01"
-              defaultValue={field.value ?? ''}
+              value={draft[field.key]}
               disabled={fieldsDisabled}
-              onBlur={(event) => updateMoneyIfChanged(field.value, event.target.value, (value) => onUpdate({ [field.key]: value }))}
+              onChange={(event) => updateDraft({ [field.key]: event.currentTarget.value })}
             />
           </label>
         ))}
-        {(item.target_type === 'income_source' || item.target_type === 'expense_item') && (
+        {(draft.target_type === 'income_source' || draft.target_type === 'expense_item') && (
           <label className="document-field">
             <span>Cadence</span>
-            <select value={item.cadence ?? 'monthly'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ cadence: event.target.value })}>
+            <select value={draft.cadence} disabled={fieldsDisabled} onChange={(event) => updateDraft({ cadence: event.currentTarget.value })}>
               {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'income_source' && (
+        {draft.target_type === 'income_source' && (
           <label className="document-field">
             <span>Income type</span>
-            <select value={item.source_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ source_type: event.target.value })}>
+            <select value={draft.source_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ source_type: event.currentTarget.value })}>
               {sourceTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'expense_item' && (
+        {draft.target_type === 'expense_item' && (
           <label className="document-field">
             <span>Stack</span>
-            <select value={item.stack_key ?? 'discretionary'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ stack_key: event.target.value })}>
+            <select value={draft.stack_key} disabled={fieldsDisabled} onChange={(event) => updateDraft({ stack_key: event.currentTarget.value })}>
               {stackKeyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'account' && (
+        {draft.target_type === 'account' && (
           <label className="document-field">
             <span>Account type</span>
-            <select value={item.account_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ account_type: event.target.value })}>
+            <select value={draft.account_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ account_type: event.currentTarget.value })}>
               {accountTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'debt' && (
+        {draft.target_type === 'debt' && (
           <label className="document-field">
             <span>Debt type</span>
-            <select value={item.debt_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ debt_type: event.target.value })}>
+            <select value={draft.debt_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ debt_type: event.currentTarget.value })}>
               {debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -2521,7 +2599,12 @@ function DocumentImportItemEditor({
       </div>
 
       {item.evidence && <p className="document-evidence">{item.evidence}</p>}
-      {applied && canCorrectApplied && <p className="document-evidence applied-note">Correcting this applied card updates the saved household record Mia uses. Set an amount to 0 if that saved value should no longer count.</p>}
+      {applied && canCorrectApplied && (
+        <p className="document-evidence applied-note">
+          Click Correct value before changing saved household numbers. Nothing updates until you press Save.
+        </p>
+      )}
+      {!applied && canEditDraft && <p className="document-evidence applied-note">Draft fields are locked until you click Edit value, then Save.</p>}
     </article>
   )
 }
@@ -2556,6 +2639,37 @@ function documentKindLabel(kind: DocumentImportKind) {
   }
 
   return labels[kind]
+}
+
+function filesFromClipboard(data: DataTransfer) {
+  const files = Array.from(data.files ?? [])
+  if (files.length > 0) return files.map(normalizedClipboardFile)
+
+  return Array.from(data.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+    .map(normalizedClipboardFile)
+}
+
+function normalizedClipboardFile(file: File, index: number) {
+  if (file.name && file.name !== 'image.png') return file
+
+  const extension = extensionForContentType(file.type) ?? 'png'
+  return new File([file], `pasted-evidence-${Date.now()}-${index + 1}.${extension}`, {
+    type: file.type || `image/${extension}`,
+    lastModified: file.lastModified,
+  })
+}
+
+function extensionForContentType(contentType: string) {
+  if (contentType === 'image/jpeg') return 'jpg'
+  if (contentType === 'image/png') return 'png'
+  if (contentType === 'image/webp') return 'webp'
+  if (contentType === 'application/pdf') return 'pdf'
+  if (contentType === 'text/csv') return 'csv'
+
+  return null
 }
 
 function inferDocumentKind(file: File): DocumentImportKind {
@@ -2636,31 +2750,83 @@ function targetTypeLabel(targetType: DocumentImportItem['target_type']) {
   return targetTypeOptions.find((option) => option.value === targetType)?.label ?? titleize(targetType)
 }
 
-function itemMoneyFields(item: DocumentImportItem): Array<{ key: 'amount' | 'balance' | 'payment'; label: string; value: number | null }> {
-  if (item.target_type === 'profile_note') return []
-  if (item.target_type === 'account') return [{ key: 'balance', label: 'Balance', value: item.balance }]
-  if (item.target_type === 'debt') {
+function documentItemMoneyFields(targetType: DocumentImportItem['target_type']): Array<{ key: 'amount' | 'balance' | 'payment'; label: string }> {
+  if (targetType === 'profile_note') return []
+  if (targetType === 'account') return [{ key: 'balance', label: 'Balance' }]
+  if (targetType === 'debt') {
     return [
-      { key: 'balance', label: 'Balance', value: item.balance },
-      { key: 'payment', label: 'Payment', value: item.payment },
+      { key: 'balance', label: 'Balance' },
+      { key: 'payment', label: 'Payment' },
     ]
   }
 
-  return [{ key: 'amount', label: item.target_type === 'goal' ? 'Target amount' : 'Monthly amount', value: item.amount }]
+  return [{ key: 'amount', label: targetType === 'goal' ? 'Target amount' : 'Monthly amount' }]
 }
 
-function updateIfChanged(currentValue: string | null, nextValue: string, onChanged: (value: string) => void) {
-  const cleaned = nextValue.trim()
-  if (!cleaned || cleaned === (currentValue ?? '')) return
-  onChanged(cleaned)
+function editableDocumentItemDraft(item: DocumentImportItem): EditableDocumentItemDraft {
+  return {
+    target_type: item.target_type,
+    label: item.label,
+    amount: moneyDraftValue(item.amount),
+    balance: moneyDraftValue(item.balance),
+    payment: moneyDraftValue(item.payment),
+    cadence: item.cadence ?? 'monthly',
+    source_type: item.source_type ?? 'other',
+    stack_key: item.stack_key ?? 'discretionary',
+    account_type: item.account_type ?? 'other',
+    debt_type: item.debt_type ?? 'other',
+    evidence: item.evidence ?? '',
+  }
 }
 
-function updateMoneyIfChanged(currentValue: number | null, nextValue: string, onChanged: (value: string) => void) {
-  const cleaned = nextValue.trim()
-  if (!cleaned) return
-  const current = currentValue === null ? '' : String(currentValue)
-  if (cleaned === current) return
-  onChanged(cleaned)
+function moneyDraftValue(value: number | null) {
+  return value === null ? '' : String(value)
+}
+
+function documentItemUpdatePayload(draft: EditableDocumentItemDraft): DocumentImportItemInput {
+  const payload: DocumentImportItemInput = {
+    target_type: draft.target_type,
+    label: draft.label.trim(),
+    evidence: draft.evidence,
+  }
+
+  if (draft.target_type === 'income_source') {
+    return { ...payload, amount: draft.amount, cadence: draft.cadence, source_type: draft.source_type }
+  }
+  if (draft.target_type === 'expense_item') {
+    return { ...payload, amount: draft.amount, cadence: draft.cadence, stack_key: draft.stack_key }
+  }
+  if (draft.target_type === 'account') {
+    return { ...payload, balance: draft.balance, account_type: draft.account_type }
+  }
+  if (draft.target_type === 'debt') {
+    return { ...payload, balance: draft.balance, payment: draft.payment, debt_type: draft.debt_type }
+  }
+  if (draft.target_type === 'goal') {
+    return { ...payload, amount: draft.amount }
+  }
+
+  return payload
+}
+
+function documentItemSignature(item: DocumentImportItem) {
+  return [
+    item.id,
+    item.target_type,
+    item.label,
+    item.amount,
+    item.balance,
+    item.payment,
+    item.cadence,
+    item.source_type,
+    item.stack_key,
+    item.account_type,
+    item.debt_type,
+    item.evidence,
+    item.selected,
+    item.ignored,
+    item.applied_at,
+  ].join('|')
 }
 
 function selectedApplyItemIds(documentImport: FinancialDocumentImport) {

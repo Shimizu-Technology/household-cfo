@@ -46,15 +46,26 @@ module HouseholdFinance
     end
 
     def matched_elsewhere?(matched_transaction)
+      matched_drafts_for_same_import(matched_transaction).exists? ||
+        accepted_matches_for_same_import(matched_transaction).exists?
+    end
+
+    def matched_drafts_for_same_import(matched_transaction)
       draft.household.transaction_drafts
         .where(matched_transaction: matched_transaction, status: "matched")
+        .where(financial_document_import_id: draft.financial_document_import_id)
         .where.not(id: draft.id)
-        .exists? || TransactionDraftMatch.accepted
-          .joins(:transaction_draft)
-          .where(household_transaction: matched_transaction)
-          .where(transaction_drafts: { household_id: draft.household_id })
-          .where.not(transaction_draft_id: draft.id)
-          .exists?
+    end
+
+    def accepted_matches_for_same_import(matched_transaction)
+      TransactionDraftMatch.accepted
+        .joins(:transaction_draft)
+        .where(household_transaction: matched_transaction)
+        .where(transaction_drafts: {
+          household_id: draft.household_id,
+          financial_document_import_id: draft.financial_document_import_id
+        })
+        .where.not(transaction_draft_id: draft.id)
     end
   end
 end

@@ -1113,6 +1113,56 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "proposed", second_match.reload.status
   end
 
+  test "duplicate import transaction draft can match an actual already linked by another import" do
+    first_import = create_import!(status: "needs_review", document_kind: "statement")
+    second_import = create_import!(status: "needs_review", document_kind: "statement", filename: "statement-duplicate.csv")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    first_draft = first_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "matched",
+      matched_transaction: transaction,
+      raw_input: "First statement row"
+    )
+    first_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount", status: "accepted")
+    second_draft = second_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Duplicate statement row"
+    )
+    second_match = second_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    post "/api/v1/transaction_drafts/#{second_draft.id}/match",
+      params: { match_id: second_match.id },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :success
+    assert_equal "matched", first_draft.reload.status
+    assert_equal "matched", second_draft.reload.status
+    assert_equal transaction.id, second_draft.matched_transaction_id
+    assert_equal "accepted", second_match.reload.status
+  end
+
   test "imports are scoped to the authenticated household" do
     other_user = User.create!(clerk_id: "clerk_other_doc_user", email: "other-doc@example.com", role: "participant", invitation_status: "accepted")
     other_household = Household.create!(created_by_user: other_user, name: "Other Household")

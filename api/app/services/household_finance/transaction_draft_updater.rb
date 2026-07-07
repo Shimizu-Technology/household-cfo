@@ -7,10 +7,11 @@ module HouseholdFinance
       end
     end
 
-    def initialize(draft, attributes = {})
+    def initialize(draft, attributes = {}, refresh_matches: true)
       @draft = draft
       @attributes = attributes.to_h.deep_symbolize_keys
       @household = draft.household
+      @refresh_matches = refresh_matches
     end
 
     def call
@@ -22,7 +23,7 @@ module HouseholdFinance
         replace_splits! if attributes.key?(:splits)
         normalize_single_category! if attributes[:budget_category_id].present? && !attributes.key?(:splits)
         validate_split_total!
-        refresh_match_candidates!
+        refresh_match_candidates! if refresh_matches
       end
       Result.new(success: true, draft: draft.reload, errors: [])
     rescue InvalidDraftUpdate, ArgumentError => e
@@ -33,7 +34,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :draft, :attributes, :household
+    attr_reader :draft, :attributes, :household, :refresh_matches
 
     def draft_attributes
       {}.tap do |payload|

@@ -108,7 +108,7 @@ module HouseholdFinance
 
     def apply_split_corrections!
       if attributes[:splits].present?
-        TransactionDraftUpdater.new(draft, splits: attributes[:splits]).call.tap do |result|
+        TransactionDraftUpdater.new(draft, { splits: attributes[:splits] }, refresh_matches: false).call.tap do |result|
           raise InvalidDraftCorrection, result.errors.to_sentence unless result.success?
         end
       elsif selected_category

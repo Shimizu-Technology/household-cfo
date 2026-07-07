@@ -2136,9 +2136,22 @@ h3 {
   background: rgba(95, 125, 97, 0.05);
 }
 
+.document-item-card.editing {
+  border-color: rgba(123, 74, 88, 0.28);
+  background: #fffaf4;
+}
+
 .document-item-topline {
   flex-wrap: wrap;
   justify-content: flex-start;
+}
+
+.document-item-edit-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 7px;
+  margin-left: auto;
 }
 
 .document-check,
@@ -2178,6 +2191,22 @@ h3 {
   font-weight: 900;
 }
 
+.document-item-edit-actions button {
+  min-height: 36px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.document-item-edit-actions .secondary-button {
+  border: 1px solid rgba(226, 217, 203, 0.95);
+  background: white;
+  color: var(--mauve);
+}
+
 .document-item-fields {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -2202,6 +2231,13 @@ h3 {
   padding: 9px 10px;
   background: white;
   color: var(--ink);
+}
+
+.document-field input:disabled,
+.document-field select:disabled {
+  background: rgba(255, 253, 248, 0.68);
+  color: var(--muted);
+  cursor: not-allowed;
 }
 
 .document-evidence {
@@ -2318,7 +2354,9 @@ h3 {
 
   .document-review-actions,
   .document-review-actions button,
-  .document-apply-bar button {
+  .document-apply-bar button,
+  .document-item-edit-actions,
+  .document-item-edit-actions button {
     width: 100%;
   }
 
