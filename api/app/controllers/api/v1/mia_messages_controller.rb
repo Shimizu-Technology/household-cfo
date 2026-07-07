@@ -8,12 +8,16 @@ module Api
       end
 
       def create
-        content = params.require(:message).to_s.strip
+        content = params[:message].to_s.strip
+        attached_imports = attached_document_imports
+        content = "Attached evidence for Mia to review." if content.blank? && attached_imports.any?
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
         session = current_chat_session
         history = session.chat_messages.order(:created_at).last(12).map { |message| { role: message.role, content: message.content } }
+        return render_attached_document_response(session, content, attached_imports) if attached_imports.any?
+
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(session).call
         followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
         routed_content = followup.message
@@ -52,7 +56,7 @@ module Api
         assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
         user_message, assistant_message = ApplicationRecord.transaction do
           [
-            session.chat_messages.create!(role: "user", content: content),
+            session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
             session.chat_messages.create!(role: "assistant", content: assistant_content)
           ]
         end
@@ -88,6 +92,52 @@ module Api
         return Date.current.month if params[:month].blank?
 
         params[:month].to_i.clamp(1, 12)
+      end
+
+      def render_attached_document_response(session, content, attached_imports)
+        assistant_content = attached_document_message(content, attached_imports)
+        user_message, assistant_message = ApplicationRecord.transaction do
+          [
+            session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
+            session.chat_messages.create!(role: "assistant", content: assistant_content)
+          ]
+        end
+        compact_conversation(session, user_message, assistant_message)
+
+        render json: {
+          user_message: user_message.as_api_json(author: "You"),
+          assistant_message: assistant_message.as_api_json(author: "Mia"),
+          transaction_draft: nil,
+          budget: nil,
+          spending_report: nil
+        }, status: :created
+      end
+
+      def attached_document_imports
+        ids = Array(params[:document_import_ids]).filter_map { |id| id.to_i if id.to_i.positive? }.uniq.first(5)
+        return [] if ids.empty?
+
+        current_household.financial_document_imports.where(id: ids).order(:id).to_a
+      end
+
+      def serialize_attachment(document_import)
+        {
+          document_import_id: document_import.id,
+          filename: document_import.filename,
+          content_type: document_import.content_type,
+          document_kind: document_import.document_kind,
+          status: document_import.status,
+          source_available: document_import.source_available?
+        }
+      end
+
+      def attached_document_message(content, attached_imports)
+        count = attached_imports.length
+        note = content == "Attached evidence for Mia to review." ? nil : content
+        [
+          "I’m reading #{count == 1 ? 'the attached evidence' : "the #{count} attached evidence files"} now. I’ll stage any draft values or transaction rows for your review before anything becomes official.",
+          note.present? ? "I’ll use your note as context: #{note}" : nil
+        ].compact.join("\n\n")
       end
 
       def spending_report_for(content)

@@ -58,6 +58,7 @@ import type {
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
+  MiaMessageAttachment,
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
@@ -85,6 +86,15 @@ const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.
 const MAX_CHAT_ATTACHMENTS = 5
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
+
+type PendingMiaAttachment = {
+  id: string
+  file: File
+  filename: string
+  content_type: string
+  document_kind: DocumentImportKind
+  previewUrl: string
+}
 
 type BudgetAllocationChange = {
   allocation_id: number
@@ -195,6 +205,8 @@ function App() {
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
   const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
+  const [pendingMiaAttachments, setPendingMiaAttachments] = useState<PendingMiaAttachment[]>([])
+  const [previewAttachment, setPreviewAttachment] = useState<PendingMiaAttachment | null>(null)
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [itemSavingIds, setItemSavingIds] = useState<Set<number>>(() => new Set())
   const [documentAction, setDocumentAction] = useState<string | null>(null)
@@ -442,25 +454,46 @@ function App() {
 
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
-    if (!cleanPrompt || miaLoading) return
+    const attachmentsToSend = pendingMiaAttachments
+    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`Mia messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
     }
+    if (attachmentsToSend.length > 0 && !isRealWorkspace) {
+      setMiaError('Sign in to a real workspace before attaching documents.')
+      return
+    }
 
+    const messageContent = cleanPrompt || 'Please review the attached evidence.'
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
+    setPendingMiaAttachments([])
     const priorMessages = currentMessages
-    const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
-    setMessages((current) => [...current, userMessage])
+    const optimisticMessage: MiaMessage = {
+      role: 'user',
+      author: 'You',
+      content: messageContent,
+      attachments: attachmentsToSend.map(localAttachmentForMessage),
+    }
+    setMessages((current) => [...current, optimisticMessage])
 
     try {
-      const response = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace, selectedBudgetYear, selectedBudgetMonthIndex + 1)
+      const uploadedImports = await uploadPendingMiaAttachments(attachmentsToSend)
+      const response = await sendMiaMessage(
+        messageContent,
+        priorMessages,
+        isRealWorkspace,
+        selectedBudgetYear,
+        selectedBudgetMonthIndex + 1,
+        uploadedImports.map((documentImport) => documentImport.id),
+      )
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
-        prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
+        prompt_length_bucket: messageLengthBucket(messageContent.length),
+        attachment_count: attachmentsToSend.length,
       })
       if (response.budget) {
         setData((current) => current ? { ...current, budget: response.budget! } : current)
@@ -473,7 +506,8 @@ function App() {
       if (response.spending_report) {
         setSpendingReport(response.spending_report)
       }
-      setMessages((current) => [...current, response.assistant_message])
+      const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, attachmentsToSend)
+      setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
@@ -483,7 +517,8 @@ function App() {
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
-        prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
+        prompt_length_bucket: messageLengthBucket(messageContent.length),
+        attachment_count: attachmentsToSend.length,
       })
       setMessages((current) => [
         ...current,
@@ -494,6 +529,7 @@ function App() {
             'I can still coach the framework. Your next move is to protect fixed bills, keep the Expense Stack honest, then decide what creates real optionality.',
         },
       ])
+      setPendingMiaAttachments((current) => [...attachmentsToSend, ...current])
     } finally {
       setMiaLoading(false)
       requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
@@ -821,58 +857,68 @@ function App() {
         status: documentImport.status,
       })
 
-      if (origin === 'mia') {
-        setMessages((current) => [
-          ...current,
-          {
-            role: 'assistant',
-            author: 'Mia',
-            content: `I received ${file.name}. I will treat it as evidence only. Once extraction finishes, review the draft values or transaction rows before anything becomes official.`,
-          },
-        ])
-      }
     } catch (caught) {
       trackDocumentUpload(kind, 'failed', file)
       const uploadError = caught instanceof Error ? caught.message : 'Document could not be uploaded.'
       setDocumentsError(uploadError)
-      if (origin === 'mia') {
-        setMessages((current) => [
-          ...current,
-          {
-            role: 'assistant',
-            author: 'Mia',
-            content: `I could not upload ${file.name}. ${uploadError}`,
-          },
-        ])
-      }
+      if (origin === 'mia') setMiaError(uploadError)
     } finally {
       setUploadingKind(null)
     }
   }
 
   function handleMiaAttachmentChange(files: FileList | File[] | null) {
-    const attachments = Array.from(files ?? [])
-    if (attachments.length === 0) return
-
-    void uploadMiaAttachments(attachments)
+    addPendingMiaAttachments(Array.from(files ?? []))
   }
 
-  async function uploadMiaAttachments(files: File[]) {
+  function addPendingMiaAttachments(files: File[]) {
+    if (files.length === 0) return
     if (!isRealWorkspace) {
       setMiaError('Sign in to a real workspace before attaching documents.')
       return
     }
 
-    const attachments = files.slice(0, MAX_CHAT_ATTACHMENTS)
-    if (files.length > MAX_CHAT_ATTACHMENTS) {
-      setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time. I will upload the first ${MAX_CHAT_ATTACHMENTS}.`)
-    } else {
-      setMiaError(null)
+    const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
+    const accepted = files.slice(0, room).map(pendingMiaAttachment)
+    if (files.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
+    else setMiaError(null)
+
+    setPendingMiaAttachments((current) => [...current, ...accepted])
+  }
+
+  function removePendingMiaAttachment(id: string) {
+    setPendingMiaAttachments((current) => {
+      const attachment = current.find((candidate) => candidate.id === id)
+      if (attachment) URL.revokeObjectURL(attachment.previewUrl)
+      return current.filter((candidate) => candidate.id !== id)
+    })
+  }
+
+  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[]) {
+    const uploadedImports: FinancialDocumentImport[] = []
+    for (const attachment of attachments) {
+      setUploadingKind(attachment.document_kind)
+      trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
+      try {
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind)
+        uploadedImports.push(documentImport)
+        setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
+        setSelectedImportId(documentImport.id)
+        trackDocumentUpload(attachment.document_kind, 'succeeded', attachment.file)
+        captureAnalyticsEvent('document_import_created', {
+          document_kind: attachment.document_kind,
+          origin: 'mia',
+          status: documentImport.status,
+        })
+      } catch (caught) {
+        trackDocumentUpload(attachment.document_kind, 'failed', attachment.file)
+        throw caught
+      } finally {
+        setUploadingKind(null)
+      }
     }
 
-    for (const file of attachments) {
-      await handleDocumentUpload(inferDocumentKind(file), file, 'mia')
-    }
+    return uploadedImports
   }
 
   function handleMiaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -880,7 +926,7 @@ function App() {
     if (pastedFiles.length === 0) return
 
     event.preventDefault()
-    void uploadMiaAttachments(pastedFiles)
+    addPendingMiaAttachments(pastedFiles)
   }
 
   async function handleDocumentItemUpdate(documentImportId: number, itemId: number, values: DocumentImportItemInput) {
@@ -1290,6 +1336,24 @@ function App() {
                       {messageParagraphs(message).map((paragraph, paragraphIndex) => (
                         <p key={`${message.author}-${index}-${paragraphIndex}`}>{paragraph}</p>
                       ))}
+                      {(message.attachments ?? []).length > 0 && (
+                        <MessageAttachmentList
+                          attachments={message.attachments ?? []}
+                          imports={documentImports}
+                          onOpenLocal={(attachment) => {
+                            if (!attachment.preview_url) return
+                            setPreviewAttachment({
+                              id: `message-${attachment.filename}`,
+                              file: new File([], attachment.filename, { type: attachment.content_type }),
+                              filename: attachment.filename,
+                              content_type: attachment.content_type,
+                              document_kind: attachment.document_kind,
+                              previewUrl: attachment.preview_url,
+                            })
+                          }}
+                          onOpenImport={handleOpenDocumentSource}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1337,6 +1401,13 @@ function App() {
                     event.currentTarget.value = ''
                   }}
                 />
+                {pendingMiaAttachments.length > 0 && (
+                  <PendingAttachmentTray
+                    attachments={pendingMiaAttachments}
+                    onPreview={setPreviewAttachment}
+                    onRemove={removePendingMiaAttachment}
+                  />
+                )}
                 <button
                   className="composer-attach"
                   type="button"
@@ -1364,7 +1435,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || !question.trim()}
+                  disabled={miaLoading || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? 'Mia is thinking' : 'Send message to Mia'}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -1629,7 +1700,95 @@ function App() {
           onFetchSourcePreview={fetchDocumentImportSourcePreview}
         />
       )}
+
+      {previewAttachment && (
+        <LocalAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      )}
     </main>
+  )
+}
+
+function PendingAttachmentTray({
+  attachments,
+  onPreview,
+  onRemove,
+}: {
+  attachments: PendingMiaAttachment[]
+  onPreview: (attachment: PendingMiaAttachment) => void
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="composer-attachment-tray" aria-label="Attached evidence waiting to send">
+      {attachments.map((attachment) => (
+        <div className="composer-attachment-card" key={attachment.id}>
+          <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
+            {attachment.content_type.startsWith('image/') ? <img src={attachment.previewUrl} alt={attachment.filename} /> : <AttachmentIcon />}
+            <span>{attachment.filename}</span>
+          </button>
+          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachment.filename}`} onClick={() => onRemove(attachment.id)}>
+            <CloseIcon />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MessageAttachmentList({
+  attachments,
+  imports,
+  onOpenLocal,
+  onOpenImport,
+}: {
+  attachments: MiaMessageAttachment[]
+  imports: FinancialDocumentImport[]
+  onOpenLocal: (attachment: MiaMessageAttachment) => void
+  onOpenImport: (documentImport: FinancialDocumentImport) => void
+}) {
+  return (
+    <div className="message-attachment-list" aria-label="Message attachments">
+      {attachments.map((attachment) => {
+        const documentImport = attachment.document_import_id ? imports.find((candidate) => candidate.id === attachment.document_import_id) : null
+        const canOpen = Boolean(attachment.preview_url || documentImport?.source_available)
+        return (
+          <button
+            type="button"
+            className="message-attachment-card"
+            key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}
+            disabled={!canOpen}
+            onClick={() => {
+              if (attachment.preview_url) onOpenLocal(attachment)
+              else if (documentImport) onOpenImport(documentImport)
+            }}
+          >
+            {attachment.preview_url && attachment.content_type.startsWith('image/') ? <img src={attachment.preview_url} alt={attachment.filename} /> : <AttachmentIcon />}
+            <span>{attachment.filename}</span>
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
+  const isImage = attachment.content_type.startsWith('image/')
+
+  return (
+    <div className="document-preview-overlay" role="presentation">
+      <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={onClose} />
+      <section className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachment.filename}>
+        <div className="document-preview-header">
+          <div>
+            <span>Attached evidence</span>
+            <strong>{attachment.filename}</strong>
+          </div>
+          <button type="button" onClick={onClose}>Close</button>
+        </div>
+        <div className="document-preview-body">
+          {isImage ? <img src={attachment.previewUrl} alt={attachment.filename} /> : <div className="document-preview-state"><AttachmentIcon /><p>Preview will be available after upload.</p></div>}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -2639,6 +2798,40 @@ function documentKindLabel(kind: DocumentImportKind) {
   }
 
   return labels[kind]
+}
+
+function pendingMiaAttachment(file: File): PendingMiaAttachment {
+  return {
+    id: crypto.randomUUID(),
+    file,
+    filename: file.name || 'attached-evidence',
+    content_type: file.type || 'application/octet-stream',
+    document_kind: inferDocumentKind(file),
+    previewUrl: URL.createObjectURL(file),
+  }
+}
+
+function localAttachmentForMessage(attachment: PendingMiaAttachment): MiaMessageAttachment {
+  return {
+    filename: attachment.filename,
+    content_type: attachment.content_type,
+    document_kind: attachment.document_kind,
+    status: 'uploaded',
+    source_available: false,
+    preview_url: attachment.previewUrl,
+  }
+}
+
+function attachLocalPreviewsToMessage(message: MiaMessage, attachments: PendingMiaAttachment[]): MiaMessage {
+  if (!message.attachments || attachments.length === 0) return message
+
+  return {
+    ...message,
+    attachments: message.attachments.map((attachment, index) => ({
+      ...attachment,
+      preview_url: attachments[index]?.previewUrl,
+    })),
+  }
 }
 
 function filesFromClipboard(data: DataTransfer) {
@@ -4920,6 +5113,14 @@ function CollapseIcon() {
       <path d="M4 10 10 4" className="icon-stroke" />
       <path d="M14 20v-6h6" className="icon-stroke" />
       <path d="m20 14-6 6" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" className="icon-stroke" />
     </svg>
   )
 }

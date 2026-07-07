@@ -363,6 +363,39 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
+  test "mia chat persists attached document imports with a single contextual reply" do
+    user = create_user(email: "mia-attachments@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "uploaded",
+      filename: "receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/receipt.png"
+    )
+
+    post "/api/v1/mia/messages",
+         params: { message: "Please read this receipt", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("transaction_draft")
+    assert_includes body.fetch("assistant_message").fetch("content"), "I’m reading the attached evidence now"
+    attachment = body.fetch("user_message").fetch("attachments").first
+    assert_equal document_import.id, attachment.fetch("document_import_id")
+    assert_equal "receipt.png", attachment.fetch("filename")
+
+    get "/api/v1/mia/messages", headers: auth_headers(user)
+
+    assert_response :success
+    user_message = JSON.parse(response.body).fetch("messages").find { |message| message.fetch("role") == "user" }
+    assert_equal document_import.id, user_message.fetch("attachments").first.fetch("document_import_id")
+  end
+
   test "mia chat compacts conversation continuity for follow-up questions" do
     user = create_user(email: "mia-continuity@example.com")
     patch "/api/v1/workspace/setup",

@@ -401,10 +401,21 @@ export type CfoFilterData = {
   priority_stack: string[]
 }
 
+export type MiaMessageAttachment = {
+  document_import_id?: number
+  filename: string
+  content_type: string
+  document_kind: DocumentImportKind
+  status: DocumentImportStatus
+  source_available: boolean
+  preview_url?: string
+}
+
 export type MiaMessage = {
   role: 'assistant' | 'user'
   author: string
   content: string
+  attachments?: MiaMessageAttachment[]
 }
 
 export type MiaMessagesData = {
@@ -730,17 +741,19 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 }
 
 export type MiaMessageResponse = {
+  user_message: MiaMessage
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
 }
 
-export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number): Promise<MiaMessageResponse> {
+export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = []): Promise<MiaMessageResponse> {
   return postJson<MiaMessageResponse>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
     message,
     ...(realWorkspace && year ? { year } : {}),
     ...(realWorkspace && month ? { month } : {}),
+    ...(realWorkspace && documentImportIds.length > 0 ? { document_import_ids: documentImportIds } : {}),
     messages: history.slice(-12).map((entry) => ({
       role: entry.role,
       content: entry.content,

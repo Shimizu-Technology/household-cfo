@@ -11,7 +11,7 @@ module HouseholdFinance
     end
 
     def call(merchant:, category_name: nil, stack_key: nil, text: nil)
-      categories = household.budget_categories.active.ordered.to_a
+      categories = active_categories
       return nil if categories.empty?
 
       exact_category(categories, category_name) ||
@@ -39,12 +39,20 @@ module HouseholdFinance
       return if merchant_text.blank?
 
       category_ids = categories.map(&:id)
-      household.merchant_category_rules.active.includes(:budget_category).best_first.find do |rule|
+      merchant_category_rules.find do |rule|
         next false unless category_ids.include?(rule.budget_category_id)
 
         pattern = normalized(rule.merchant_pattern)
         pattern.present? && (merchant_text.include?(pattern) || pattern.include?(merchant_text))
       end&.budget_category
+    end
+
+    def active_categories
+      @active_categories ||= household.budget_categories.active.ordered.to_a
+    end
+
+    def merchant_category_rules
+      @merchant_category_rules ||= household.merchant_category_rules.active.includes(:budget_category).best_first.to_a
     end
 
     def heuristic_category(categories, text, stack_key)
