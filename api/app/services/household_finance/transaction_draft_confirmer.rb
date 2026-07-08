@@ -146,15 +146,34 @@ module HouseholdFinance
       name = bounded_text(split.category_name, 80)
       return if name.blank? || name.match?(/\A(?:uncategorized|needs category)\z/i)
 
-      existing = draft.household.budget_categories.where("LOWER(name) = ?", name.downcase).first
-      return existing if existing&.active?
-      return annual_budget_manager.restore_category!(existing) if existing
+      if (existing = budget_category_named(name))
+        return active_or_restored_category(existing)
+      end
 
+      create_category_from_split_name!(name, split.stack_key)
+    end
+
+    def create_category_from_split_name!(name, stack_key)
       annual_budget_manager.create_category!(
         name: name,
-        stack_key: split.stack_key.presence_in(BudgetCategory::STACK_KEYS) || "discretionary",
+        stack_key: stack_key.presence_in(BudgetCategory::STACK_KEYS) || "discretionary",
         monthly_amount: 0
       )
+    rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+      existing = budget_category_named(name)
+      raise unless existing
+
+      active_or_restored_category(existing)
+    end
+
+    def budget_category_named(name)
+      draft.household.budget_categories.where("LOWER(name) = ?", name.downcase).first
+    end
+
+    def active_or_restored_category(category)
+      return category if category.active?
+
+      annual_budget_manager.restore_category!(category)
     end
 
     def transaction_category

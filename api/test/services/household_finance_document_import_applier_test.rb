@@ -65,6 +65,9 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
 
     assert_equal 5_000_00, @household.income_sources.find_by!(label: "Primary income").amount_cents
     assert_equal 825_00, @household.expense_items.find_by!(label: "Groceries").amount_cents
+    budget_plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: Date.current.year).plan_data
+    groceries_row = budget_plan.fetch(:rows).find { |row| row.fetch(:name) == "Groceries" }
+    assert_equal 825.0, groceries_row.dig(:months, 0, :planned)
     assert_equal 2_250_00, @household.accounts.find_by!(label: "Checking").balance_cents
     assert_equal 4_820_00, @household.debts.find_by!(label: "Visa").balance_cents
 

@@ -1021,6 +1021,15 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, rule.times_confirmed
     assert_equal "applied", document_import.reload.status
     assert document_import.applied_at
+    existing_transaction = @household.household_transactions.create!(
+      budget_period: transaction.budget_period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    existing_transaction.transaction_splits.create!(budget_category: category, amount_cents: 10_342)
 
     post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(@user), as: :json
 
@@ -1033,8 +1042,11 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, rule.times_confirmed
     assert_equal "needs_review", document_import.reload.status
     assert_nil document_import.applied_at
+    proposed_match = draft.transaction_draft_matches.proposed.find_by!(household_transaction: existing_transaction)
+    assert_operator proposed_match.confidence, :>=, 0.74
     body = JSON.parse(response.body)
     assert_equal "pending", body.dig("transaction_draft", "status")
+    assert_equal existing_transaction.id, body.dig("transaction_draft", "matches", 0, "transaction", "id")
     assert_equal 1, body.dig("workspace", "budget", "annual_plan", "pending_transaction_drafts").length
   end
 

@@ -179,11 +179,8 @@ module Api
         }
       end
 
-      def attached_document_message(content, attached_imports)
-        note = content == "Please review this upload." ? nil : content
-        results = attached_imports.map { |document_import| attached_document_result_message(document_import) }
-        note_line = note.present? ? "I used your note as context: #{note}" : nil
-        [ note_line, *results ].compact.join("\n\n")
+      def attached_document_message(_content, attached_imports)
+        attached_imports.map { |document_import| attached_document_result_message(document_import) }.join("\n\n")
       end
 
       def attached_document_result_message(document_import)
@@ -199,7 +196,7 @@ module Api
         items = document_import.items.where(ignored: false).order(:id).to_a
         if items.any?
           labels = items.first(3).map(&:label).to_sentence
-          return "I read the #{evidence_label(document_import)} and found #{items.length} reviewable household value#{'s' unless items.length == 1}: #{labels}. Review the cards below before anything becomes official."
+          return "Good — I found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review: #{labels}. You stay the CFO here: open Review imports to approve or adjust them before anything updates the household plan."
         end
 
         if document_import.status.in?(%w[uploaded processing])
@@ -215,9 +212,9 @@ module Api
         date = first_draft.occurred_on.strftime("%b %-d, %Y")
         merchant = first_draft.merchant.presence || evidence_label(document_import).titleize
         category = first_draft.budget_category&.name || first_draft.transaction_draft_splits.first&.category_name || "Uncategorized"
-        intro = "I read the #{evidence_label(document_import)} and drafted #{merchant} for #{amount} on #{date} in #{category}."
+        intro = "Good — I found #{merchant} for #{amount} on #{date} and drafted it in #{category}."
         extra = drafts.length > 1 ? " I also found #{drafts.length - 1} more transaction row#{'s' unless drafts.length == 2}." : ""
-        "#{intro}#{extra} Review the card#{'s' if drafts.length > 1} below before anything affects actuals."
+        "#{intro}#{extra} You stay the CFO here: review the card#{'s' if drafts.length > 1} below before anything touches actuals."
       end
 
       def evidence_label(document_import)
@@ -295,7 +292,7 @@ module Api
           category_id: draft.budget_category_id,
           category_name: draft.budget_category&.name,
           stack_label: draft.budget_category&.stack_label,
-          splits: draft.transaction_draft_splits.ordered.map do |split|
+          splits: draft.transaction_draft_splits.ordered.includes(:budget_category).map do |split|
             {
               id: split.id,
               budget_category_id: split.budget_category_id,

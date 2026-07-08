@@ -25,6 +25,7 @@ module HouseholdFinance
           else
             raise ArgumentError, "Transaction draft cannot be reopened"
           end
+          refresh_match_suggestions! if draft.pending?
         end
         HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call if draft.financial_document_import
       end
@@ -61,6 +62,10 @@ module HouseholdFinance
     def reopen_matched_draft!
       draft.transaction_draft_matches.update_all(status: "proposed", updated_at: Time.current)
       draft.update!(status: "pending", matched_transaction: nil)
+    end
+
+    def refresh_match_suggestions!
+      TransactionDraftMatcher.new(draft.reload).call
     end
 
     def forget_merchant_category_rules!(transaction)

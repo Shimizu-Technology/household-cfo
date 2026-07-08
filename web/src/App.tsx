@@ -559,7 +559,7 @@ function App() {
 
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
-    const attachmentsToSend = pendingMiaAttachments
+    const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
     if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`Mia messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
@@ -3142,6 +3142,22 @@ function attachmentWithDocumentImport(attachment: PendingMiaAttachment, document
   }
 }
 
+function attachmentWithMessageContext(attachment: PendingMiaAttachment, message: string): PendingMiaAttachment {
+  const documentKind = documentKindForMessageContext(attachment.file, attachment.document_kind, message)
+  return documentKind === attachment.document_kind ? attachment : { ...attachment, document_kind: documentKind }
+}
+
+function documentKindForMessageContext(file: File, currentKind: DocumentImportKind, message: string): DocumentImportKind {
+  if (!budgetSetupSignal(`${file.name} ${message}`)) return currentKind
+  if (currentKind === 'spreadsheet' || currentKind === 'pay_stub') return currentKind
+  return 'other'
+}
+
+function budgetSetupSignal(text: string) {
+  const normalized = text.toLowerCase().replace(/[^a-z0-9&]+/g, ' ')
+  return /\b(my|our|household|monthly|annual|family)\s+budget\b|\bbudget\s+(file|spreadsheet|sheet|screenshot|plan|setup|template|worksheet)\b|\b(set\s*up|update|build)\s+(my|our|the)?\s*budget\b|\bexpense\s+stack\b|\bincome\s+(and|&)\s+expenses\b/i.test(normalized)
+}
+
 function pendingMiaAttachment(file: File): PendingMiaAttachment {
   const contentType = normalizedContentType(file)
   return {
@@ -3309,10 +3325,11 @@ function inferDocumentKind(file: File): DocumentImportKind {
   const isPdf = name.endsWith('.pdf') || contentType === 'application/pdf'
 
   if (isSpreadsheet) return 'spreadsheet'
-  if (isImage) return hasPayStubSignal(name) ? 'pay_stub' : 'receipt'
-  if (isPdf) return hasPayStubSignal(name) ? 'pay_stub' : 'statement'
-  if (isWord) return hasPayStubSignal(name) ? 'pay_stub' : 'other'
   if (hasPayStubSignal(name)) return 'pay_stub'
+  if (budgetSetupSignal(name)) return 'other'
+  if (isImage) return 'receipt'
+  if (isPdf) return 'statement'
+  if (isWord) return 'other'
 
   return 'other'
 }
