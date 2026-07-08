@@ -124,19 +124,9 @@ module Api
 
       def process_attached_imports(document_imports)
         document_imports.each do |document_import|
-          next unless document_import.status == "uploaded"
-
-          if synchronous_attachment_extraction?(document_import, document_imports)
-            FinancialDocumentExtractionJob.perform_now(document_import.id)
-          else
-            FinancialDocumentExtractionJob.perform_later(document_import.id)
-          end
+          FinancialDocumentExtractionJob.perform_later(document_import.id) if document_import.status == "uploaded"
         end
         document_imports.map(&:reload)
-      end
-
-      def synchronous_attachment_extraction?(document_import, document_imports)
-        document_imports.one? && document_import.image? && document_import.byte_size <= 6.megabytes
       end
 
       def serialize_chat_message(message, author: nil)

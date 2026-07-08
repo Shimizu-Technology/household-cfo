@@ -363,55 +363,34 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
-  test "mia chat processes a small uploaded receipt before replying" do
+  test "mia chat summarizes processed receipt drafts before replying" do
     user = create_user(email: "mia-receipt-sync@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     document_import = household.financial_document_imports.create!(
       uploaded_by_user: user,
       document_kind: "receipt",
-      status: "uploaded",
+      status: "needs_review",
       filename: "resend-receipt.png",
       content_type: "image/png",
       byte_size: 128,
       s3_key: "household-cfo/test/resend-receipt.png"
     )
-    extractor = fake_extractor(
-      FinancialDocuments::Extractor::Result.new(
-        success: true,
-        data: {
-          document_kind: "receipt",
-          document_date: Date.new(2026, 7, 3),
-          period_start_on: nil,
-          period_end_on: nil,
-          summary: "Resend receipt for Transactional Pro.",
-          confidence: "high",
-          warnings: [],
-          items: [],
-          transaction_drafts: [
-            {
-              occurred_on: "2026-07-03",
-              merchant: "Resend",
-              total_amount: 20.00,
-              source_type: "receipt",
-              category_name: "Software",
-              stack_key: "discretionary",
-              confidence: "high",
-              evidence: "Receipt total $20.00 paid July 3, 2026.",
-              splits: [ { category_name: "Software", stack_key: "discretionary", amount: 20.00, confidence: "high" } ]
-            }
-          ]
-        },
-        error: nil,
-        metadata: {}
-      )
+    category = household.budget_categories.create!(name: "Software", stack_key: "discretionary", sort_order: 1)
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 3),
+      merchant: "Resend",
+      total_amount_cents: 20_00,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Resend receipt"
     )
 
-    with_extractor_stub(extractor) do
-      post "/api/v1/mia/messages",
-           params: { message: "Check this receipt", document_import_ids: [ document_import.id ] },
-           headers: auth_headers(user),
-           as: :json
-    end
+    post "/api/v1/mia/messages",
+         params: { message: "Check this receipt", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
 
     assert_response :created
     body = JSON.parse(response.body)
@@ -671,23 +650,6 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       role: role,
       invitation_status: "accepted"
     )
-  end
-
-  def fake_extractor(result)
-    Object.new.tap do |object|
-      object.define_singleton_method(:model) { "test/model" }
-      object.define_singleton_method(:call) { |_document_import| result }
-    end
-  end
-
-  def with_extractor_stub(extractor)
-    singleton = class << FinancialDocuments::Extractor; self; end
-    original_new = singleton.instance_method(:new)
-    singleton.define_method(:new) { |*| extractor }
-    yield
-  ensure
-    singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
-    singleton.define_method(:new, original_new)
   end
 
   def auth_headers(user)

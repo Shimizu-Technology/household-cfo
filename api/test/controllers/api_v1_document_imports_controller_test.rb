@@ -64,13 +64,13 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not body.key?("s3_key")
   end
 
-  test "create defers Mia chat attachment extraction until message send" do
+  test "create enqueues Mia chat attachment extraction immediately" do
     with_s3_stubs(
       configured?: true,
       upload: ->(key, _io, content_type:) { content_type && key }
     ) do
       assert_difference("FinancialDocumentImport.count", 1) do
-        assert_no_enqueued_jobs only: FinancialDocumentExtractionJob do
+        assert_enqueued_with(job: FinancialDocumentExtractionJob) do
           post "/api/v1/document_imports",
             params: { file: uploaded_csv, document_kind: "spreadsheet", upload_origin: "mia" },
             headers: auth_headers(@user)

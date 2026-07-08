@@ -230,6 +230,7 @@ function App() {
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const lastTrackedSectionRef = useRef<string | null>(null)
+  const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const shouldUseRealWorkspace = auth.isClerkEnabled
   const isRealWorkspace = data?.workspace?.mode === 'real'
@@ -263,6 +264,13 @@ function App() {
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
       .map((documentImport) => `${documentImport.id}:${documentImport.status}`)
+      .join('|'),
+    [documentImports],
+  )
+  const importDraftSignature = useMemo(
+    () => documentImports
+      .flatMap((documentImport) => documentImport.transaction_drafts.map((draft) => `${documentImport.id}:${draft.id}:${draft.status}:${draft.amount_cents ?? draft.amount}`))
+      .sort()
       .join('|'),
     [documentImports],
   )
@@ -435,6 +443,30 @@ function App() {
   }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
 
   useEffect(() => {
+    if (!isRealWorkspace || !importDraftSignature || miaLoading) return
+    if (lastWorkspaceDraftSignatureRef.current === importDraftSignature) return
+
+    const signature = importDraftSignature
+    let cancelled = false
+    fetchAppData(true)
+      .then((payload) => {
+        if (cancelled) return
+        lastWorkspaceDraftSignatureRef.current = signature
+        setData(payload)
+        setSetupDraft((current) => payload.workspace?.setup_values ?? current)
+        setMessagesStorageKey(chatStorageKey)
+        setMessages(payload.mia.messages)
+      })
+      .catch(() => {
+        // Polling will retry; document review cards remain available from import summaries.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading])
+
+  useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
 
     const startsOn = selectedBudgetMonthStartsOn
@@ -560,13 +592,15 @@ function App() {
     try {
       const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend)
       preparedAttachmentsForRetry = uploadResult.attachments
+      const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
+      preparedAttachmentsForRetry = readyAttachments
       const response = await sendMiaMessage(
         messageContent,
         priorMessages,
         isRealWorkspace,
         selectedBudgetYear,
         selectedBudgetMonthIndex + 1,
-        uploadResult.documentImportIds,
+        readyAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
       )
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
@@ -586,7 +620,7 @@ function App() {
         setSpendingReport(response.spending_report)
       }
       if (attachmentsToSend.length > 0) void refreshDocumentImports({ quiet: true })
-      const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, uploadResult.attachments)
+      const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
@@ -602,7 +636,7 @@ function App() {
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
-      const retryAttachments = caught instanceof MiaAttachmentUploadError ? caught.attachments : preparedAttachmentsForRetry
+      const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
       setMiaLoading(false)
@@ -975,7 +1009,6 @@ function App() {
 
   async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[]) {
     const preparedAttachments = [...attachments]
-    const uploadedImports: FinancialDocumentImport[] = []
 
     for (const [index, attachment] of attachments.entries()) {
       if (attachment.document_import_id) continue
@@ -984,7 +1017,6 @@ function App() {
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
         const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia')
-        uploadedImports.push(documentImport)
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
@@ -1003,11 +1035,38 @@ function App() {
       }
     }
 
-    return {
-      attachments: preparedAttachments,
-      uploadedImports,
-      documentImportIds: preparedAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
+    return { attachments: preparedAttachments }
+  }
+
+  async function waitForMiaAttachmentImports(attachments: PendingMiaAttachment[]) {
+    let currentAttachments = [...attachments]
+    let pendingIds = currentAttachments
+      .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
+      .map((attachment) => attachment.document_import_id!)
+    if (pendingIds.length === 0) return currentAttachments
+
+    const deadline = Date.now() + 75_000
+    while (pendingIds.length > 0 && Date.now() < deadline) {
+      await sleep(1_800)
+      const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
+      setDocumentImports((current) => refreshedImports.reduce((imports, documentImport) => replaceImport(imports, documentImport), current))
+      currentAttachments = currentAttachments.map((attachment) => {
+        const documentImport = refreshedImports.find((candidate) => candidate.id === attachment.document_import_id)
+        return documentImport ? attachmentWithDocumentImport(attachment, documentImport) : attachment
+      })
+      pendingIds = currentAttachments
+        .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
+        .map((attachment) => attachment.document_import_id!)
     }
+
+    if (pendingIds.length > 0) {
+      throw new MiaAttachmentProcessingTimeoutError(
+        'Mia is still reading the upload. Please try sending again in a moment; the saved upload will not be duplicated.',
+        currentAttachments,
+      )
+    }
+
+    return currentAttachments
   }
 
   function handleMiaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -3051,13 +3110,26 @@ function documentKindLabel(kind: DocumentImportKind) {
   return labels[kind]
 }
 
-class MiaAttachmentUploadError extends Error {
+class MiaAttachmentError extends Error {
   attachments: PendingMiaAttachment[]
 
   constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
     super(message, options)
-    this.name = 'MiaAttachmentUploadError'
     this.attachments = attachments
+  }
+}
+
+class MiaAttachmentUploadError extends MiaAttachmentError {
+  constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
+    super(message, attachments, options)
+    this.name = 'MiaAttachmentUploadError'
+  }
+}
+
+class MiaAttachmentProcessingTimeoutError extends MiaAttachmentError {
+  constructor(message: string, attachments: PendingMiaAttachment[]) {
+    super(message, attachments)
+    this.name = 'MiaAttachmentProcessingTimeoutError'
   }
 }
 
@@ -3155,6 +3227,10 @@ function extensionForFile(file: File) {
 
 function browserPreviewableImage(contentType: string) {
   return ['image/jpeg', 'image/png', 'image/webp'].includes(contentType.toLowerCase())
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
 }
 
 function clientSideId(prefix: string) {
@@ -4554,12 +4630,13 @@ function TransactionDraftReviewCard({
   const [editing, setEditing] = useState(false)
   const [merchant, setMerchant] = useState(draft.merchant)
   const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
-  const [amount, setAmount] = useState(String(draft.amount))
+  const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [editError, setEditError] = useState<string | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const isPending = draft.status === 'pending'
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
+  const displayAmount = exactMoneyNumber(draft.amount, draft.amount_cents)
   const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0)
   const targetAmount = Number(amount || 0)
   const splitMismatch = Math.round(splitTotal * 100) !== Math.round(targetAmount * 100)
@@ -4567,6 +4644,24 @@ function TransactionDraftReviewCard({
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
+
+  function resetEditorFromDraft() {
+    setMerchant(draft.merchant)
+    setOccurredOn(draft.occurred_on)
+    setAmount(editableAmountForDraft(draft))
+    setSplits(editableSplitsForDraft(draft))
+    setEditError(null)
+  }
+
+  function beginEditing() {
+    resetEditorFromDraft()
+    setEditing(true)
+  }
+
+  function closeEditing() {
+    resetEditorFromDraft()
+    setEditing(false)
+  }
 
   function updateSplit(index: number, values: Partial<EditableDraftSplit>) {
     setSplits((current) => current.map((split, candidateIndex) => (candidateIndex === index ? { ...split, ...values } : split)))
@@ -4620,11 +4715,11 @@ function TransactionDraftReviewCard({
           <strong>{draft.merchant}</strong>
           <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
         </div>
-        <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Needs category'}</p>
+        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {draft.category_name ?? 'Needs category'}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
-              <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(split.amount)}</span>
+              <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</span>
             ))}
           </div>
         )}
@@ -4691,7 +4786,7 @@ function TransactionDraftReviewCard({
             <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
             {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {currency.format(splitTotal)} but draft total is {currency.format(targetAmount)}.</span>}
             {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
-            <button type="button" className="secondary-button" onClick={() => { setEditError(null); setEditing(false) }}>Cancel</button>
+            <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
             <button type="button" disabled={saving || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
           </div>
         </div>
@@ -4699,7 +4794,7 @@ function TransactionDraftReviewCard({
 
       {isPending ? (
         <div className="transaction-draft-actions">
-          {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={() => setEditing((current) => !current)}>{editing ? 'Close edit' : 'Edit'}</button>}
+          {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
           <button type="button" disabled={actionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
@@ -4745,20 +4840,33 @@ function transactionDraftRenderKey(draft: TransactionDraft) {
     draft.status,
     draft.occurred_on,
     draft.merchant,
-    draft.amount,
-    (draft.splits ?? []).map((split) => `${split.id}:${split.amount}:${split.budget_category_id}`).join(','),
+    draft.amount_cents ?? draft.amount,
+    (draft.splits ?? []).map((split) => `${split.id}:${split.amount_cents}:${split.budget_category_id}`).join(','),
     (draft.matches ?? []).map((match) => `${match.id}:${match.status}`).join(','),
   ].join('|')
+}
+
+function editableAmountForDraft(draft: TransactionDraft) {
+  return exactMoneyString(draft.amount, draft.amount_cents)
+}
+
+function exactMoneyString(value: number, cents?: number | null) {
+  return exactMoneyNumber(value, cents).toFixed(2)
+}
+
+function exactMoneyNumber(value: number, cents?: number | null) {
+  if (typeof cents === 'number') return cents / 100
+  return Number.isFinite(value) ? value : 0
 }
 
 function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
   const splits = draft.splits && draft.splits.length > 0
     ? draft.splits
-    : [{ id: undefined, amount: draft.amount, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null }]
+    : [{ id: undefined, amount: draft.amount, amount_cents: draft.amount_cents ?? null, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null }]
 
   return splits.map((split) => ({
     id: split.id,
-    amount: String(split.amount),
+    amount: exactMoneyString(split.amount, split.amount_cents),
     budget_category_id: split.budget_category_id ? String(split.budget_category_id) : '',
     category_name: split.category_name ?? '',
     stack_key: split.stack_key ?? '',
