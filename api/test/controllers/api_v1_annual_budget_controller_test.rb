@@ -1389,6 +1389,24 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       assert_includes content, "$25"
       refute_includes content, "June"
       refute_includes content, "$13.40"
+
+      post "/api/v1/mia/messages",
+        params: { year: 2026, month: 7, message: "How about June? How did I do in June?" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      june_body = JSON.parse(response.body)
+      june_report = june_body.fetch("spending_report")
+      assert_equal "2026-06-01", june_report.fetch("start_on")
+      assert_equal "2026-06-30", june_report.fetch("end_on")
+      assert_equal 13.4, june_report.fetch("totals").fetch("actual")
+      june_content = june_body.fetch("assistant_message").fetch("content")
+      assert_includes june_content, "June 2026"
+      assert_includes june_content, "$13.40"
+      assert_includes june_content, "Netlify"
+      refute_includes june_content, "July 2026 so far"
+      refute_includes june_content, "Rent spending"
     end
   end
 

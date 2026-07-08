@@ -59,13 +59,36 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         user_message: "Show my grocery transactions",
         answer_packet: {
           kind: "transaction_lookup",
-          fallback_response: "Based on confirmed transactions, I found three grocery purchases this month.",
+          fallback_response: "Based on confirmed transactions, I found three grocery purchases this month, including a recorded $85 Payless charge.",
           write_state: "no_write"
         },
         api_key: "test-key"
       ).call
 
       assert_equal "I found a recorded $85 Payless charge and two logged grocery purchases this month, based on confirmed transactions already on record. Use those confirmed rows to decide whether the grocery category needs a reset before the next shop.", answer
+    end
+  end
+
+  test "falls back when narration invents a dollar amount not present in the packet" do
+    response = ok_response(
+      choices: [
+        { message: { content: "The $25 concert tickets fit within your remaining discretionary plan, but readiness is Red." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Can I buy concert tickets?",
+        answer_packet: {
+          kind: "coaching",
+          fallback_response: "Based on approved numbers, pause this want until the basics are stable.",
+          write_state: "no_write",
+          annual_plan_summary: { pending_draft_count: 0 }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "Based on approved numbers, pause this want until the basics are stable.", answer
     end
   end
 
@@ -110,6 +133,29 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       ).call
 
       assert_equal "I drafted this for review: McDonald's for $25. Month-to-date actuals will not change until you approve it.", answer
+    end
+  end
+
+  test "falls back when budget narration invents a pending draft that the packet says is absent" do
+    response = ok_response(
+      choices: [
+        { message: { content: "You still have a pending McDonald's draft waiting for your review before actuals change." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Can I buy concert tickets?",
+        answer_packet: {
+          kind: "budget_question",
+          fallback_response: "No pending drafts are waiting right now. Keep this as a pre-spend decision.",
+          write_state: "no_write",
+          annual_plan_summary: { pending_draft_count: 0 }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "No pending drafts are waiting right now. Keep this as a pre-spend decision.", answer
     end
   end
 

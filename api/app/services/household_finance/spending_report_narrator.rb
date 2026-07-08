@@ -16,6 +16,7 @@ module HouseholdFinance
         "#{category.fetch(:name)} #{money(category.fetch(:actual))}"
       end.to_sentence
       top_line = "No confirmed category spending yet" if top_line.blank?
+      transaction_line = recent_transaction_line
 
       return category_status_answer(categories, totals) if category_status_question?
       return budget_status_answer(totals, top_line) if budget_status_question?
@@ -24,8 +25,9 @@ module HouseholdFinance
         "For #{report.fetch(:period_label)}, based on confirmed transactions, confirmed spending is #{money(totals.fetch(:actual))} against #{money(totals.fetch(:planned))} planned.",
         "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them.",
         "Top actual categories: #{top_line}.",
+        transaction_line,
         closing_line(totals)
-      ].join("\n\n")
+      ].compact.join("\n\n")
     end
 
     private
@@ -82,6 +84,20 @@ module HouseholdFinance
       next_move = remaining.negative? ? "Your next CFO move is to name what was one-time versus a repeat pattern before cutting essentials." : "Keep logging before the small purchases turn into a mystery, then make the next approval on purpose."
 
       [ status_line, remaining_line, pending_line, next_move ].join("\n\n")
+    end
+
+    def recent_transaction_line
+      transactions = Array(report[:transactions]).first(3)
+      return if transactions.empty?
+
+      details = transactions.map do |transaction|
+        merchant = transaction[:merchant].presence || "Transaction"
+        date = transaction[:occurred_on].present? ? Date.iso8601(transaction[:occurred_on]).strftime("%b %-d") : nil
+        [ merchant, money(transaction[:amount]), date ].compact.join(" ")
+      rescue ArgumentError
+        [ transaction[:merchant].presence || "Transaction", money(transaction[:amount]) ].compact.join(" ")
+      end.to_sentence
+      "Recent confirmed transactions: #{details}."
     end
 
     def closing_line(totals)

@@ -12,7 +12,7 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
         "end_on" => "2026-07-31",
         "totals" => { "planned" => 300.0, "actual" => 85.0, "pending" => 20.0, "remaining" => 215.0 },
         "categories" => [ { "name" => "Groceries", "planned" => 300.0, "actual" => 85.0, "pending" => 20.0, "remaining" => 215.0 } ],
-        "transactions" => [ { "id" => 1 } ],
+        "transactions" => [ { "id" => 1, "occurred_on" => "2026-07-05", "merchant" => "Payless", "amount" => 85.0, "categories" => [ "Groceries" ] } ],
         "pending_drafts" => []
       },
       conversation_context: { active_topic: { title: "Old receipt" }, rolling_summary: "McDonald's is pending" }
@@ -26,6 +26,7 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
     assert_equal 0, summary.fetch(:pending_draft_count)
     assert_equal 1, summary.fetch(:confirmed_transaction_count)
     assert_equal [ { name: "Groceries", planned: 300.0, actual: 85.0, pending: 20.0, remaining: 215.0 } ], summary.fetch(:top_categories)
+    assert_equal [ { occurred_on: "2026-07-05", merchant: "Payless", amount: 85.0, categories: [ "Groceries" ] } ], summary.fetch(:top_transactions)
     refute packet.key?(:conversation_context)
   end
 

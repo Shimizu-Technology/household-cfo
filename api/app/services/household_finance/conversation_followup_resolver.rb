@@ -6,6 +6,14 @@ module HouseholdFinance
     RECALL_PATTERN = /\b(?:remind me|what were we talking about|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
     ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    SPENDING_REPORT_PATTERNS = [
+      /\bhow much\b.*\b(?:spend|spent|spending|actuals?|transactions?)\b/i,
+      /\b(?:how did|how'd)\s+(?:i|we)\s+do\b.*\b(?:this month|last month|month|quarter|year|#{MonthTerms.pattern})\b/i,
+      /\b(?:how about|what about)\s+(?:this month|last month|#{MonthTerms.pattern})\b/i,
+      /\b(?:show|report)\b.*\b(?:spending|spent|actuals?|transactions?)\b/i,
+      /\bwhat\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,
+      /\b(?:spending|spent|actuals?|transactions?)\b.*\b(?:this month|last month|#{MonthTerms.pattern})\b/i
+    ].freeze
     MAX_ENRICHED_LENGTH = 1_200
 
     def initialize(message, conversation_context: nil)
@@ -98,7 +106,11 @@ module HouseholdFinance
       normalized = message.downcase
       normalized.match?(/\b(?:new question|different question|switch topics|unrelated)\b/) ||
         normalized.match?(/\b(?:my cousin|car registration|car repair|payday loan|balance transfer|leave my job|business income|pending drafts?|i spent|we spent)\b/) ||
-        normalized.match?(/\b(?:how much|what|show|report)\b.*\b(?:spend|spent|spending|actuals?|transactions?)\b/)
+        spending_report_question?
+    end
+
+    def spending_report_question?
+      SPENDING_REPORT_PATTERNS.any? { |pattern| message.match?(pattern) }
     end
 
     def active_topic

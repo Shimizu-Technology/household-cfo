@@ -80,7 +80,8 @@ module HouseholdFinance
         totals: report[:totals],
         pending_draft_count: Array(report[:pending_drafts]).length,
         confirmed_transaction_count: Array(report[:transactions]).length,
-        top_categories: Array(report[:categories]).first(5).map { |category| category.slice(:name, :planned, :actual, :remaining, :pending) }
+        top_categories: Array(report[:categories]).first(5).map { |category| category.slice(:name, :planned, :actual, :remaining, :pending) },
+        top_transactions: Array(report[:transactions]).first(5).map { |transaction| transaction.slice(:occurred_on, :merchant, :amount, :categories) }
       }.compact
     end
 

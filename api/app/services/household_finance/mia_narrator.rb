@@ -13,6 +13,7 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
+    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     DANGEROUS_WRITE_CLAIMS = [
       /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i,
       /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:now\s+)?(?:show|include|reflect)\b/i,
@@ -44,6 +45,7 @@ module HouseholdFinance
       return fallback_response if sanitized.blank?
       return fallback_response if false_write_claim?(sanitized)
       return fallback_response if contradicts_no_pending_drafts?(sanitized)
+      return fallback_response if invented_currency_amount?(sanitized)
 
       sanitized
     rescue StandardError => e
@@ -165,11 +167,52 @@ module HouseholdFinance
     end
 
     def contradicts_no_pending_drafts?(content)
-      summary = answer_packet[:spending_report_summary]
-      return false unless summary
-      return false unless summary[:pending_draft_count].to_i.zero?
+      return false unless known_pending_draft_count_zero?
 
       NO_PENDING_CONTRADICTIONS.any? { |pattern| content.match?(pattern) }
+    end
+
+    def known_pending_draft_count_zero?
+      summaries = [ answer_packet[:spending_report_summary], answer_packet[:annual_plan_summary] ].compact
+      summaries.any? { |summary| summary.key?(:pending_draft_count) && summary[:pending_draft_count].to_i.zero? }
+    end
+
+    def invented_currency_amount?(content)
+      narrated_amounts = currency_cents_from_text(content)
+      return false if narrated_amounts.empty?
+
+      (narrated_amounts - allowed_currency_cents).any?
+    end
+
+    def allowed_currency_cents
+      @allowed_currency_cents ||= collect_currency_cents(answer_packet).uniq
+    end
+
+    def collect_currency_cents(value, key: nil)
+      case value
+      when Hash
+        value.flat_map { |nested_key, nested_value| collect_currency_cents(nested_value, key: nested_key) }
+      when Array
+        value.flat_map { |nested_value| collect_currency_cents(nested_value, key: key) }
+      when String
+        currency_cents_from_text(value)
+      when Numeric
+        currency_cents_from_numeric(value, key: key)
+      else
+        []
+      end
+    end
+
+    def currency_cents_from_text(text)
+      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.map { |amount| HouseholdFinance::Money.cents(amount.delete(",")) }.uniq
+    end
+
+    def currency_cents_from_numeric(value, key: nil)
+      key_name = key.to_s
+      return [ value.to_i ] if key_name.end_with?("_cents")
+      return [ HouseholdFinance::Money.cents(value) ] if key_name.match?(/\b(?:amount|planned|actual|pending|remaining|total|balance|safe_to_spend|surplus|runway_gap)\b/)
+
+      []
     end
   end
 end

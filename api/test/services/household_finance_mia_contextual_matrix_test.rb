@@ -251,7 +251,8 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       "New question: can I leave my job?",
       "Different question, how much is car registration?",
       "I spent $12 at Cafe today",
-      "How much did I spend this month?"
+      "How much did I spend this month?",
+      "How about June? How did I do in June?"
     ]
     new_topics.each do |message|
       result = HouseholdFinance::ConversationFollowupResolver.new(message, conversation_context: context).call
