@@ -17,6 +17,7 @@ Rails.application.routes.draw do
           get "messages", to: "mia_messages#index"
           post "messages", to: "mia_messages#create"
           delete "messages", to: "mia_messages#destroy"
+          post "transcriptions", to: "mia_transcriptions#create"
         end
       end
       resources :budget_categories, only: %i[create update destroy] do

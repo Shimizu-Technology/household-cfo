@@ -1,0 +1,118 @@
+# Real-world Mia regression prompts.
+# These cases are intentionally phrased like a household user would speak or type.
+# The harness checks deterministic Rails-owned response paths; it does not require OpenRouter.
+cases:
+  - id: purchase_concert_tickets
+    route: controller
+    prompt: Can I buy concert tickets?
+    expected_phrases:
+      - safe-to-spend
+      - Next CFO move
+    forbidden_phrases:
+      - I approved
+      - go buy
+      - you can definitely
+
+  - id: current_month_spending
+    route: controller
+    prompt: How much did I spend this month?
+    expected_phrases:
+      - Jul 1, 2026
+      - confirmed spending
+      - Pending drafts waiting
+    forbidden_phrases:
+      - June 2026
+      - McDonald's is pending
+
+  - id: june_spending
+    route: controller
+    prompt: How about June? How did I do in June?
+    expected_phrases:
+      - June 2026
+      - Netlify
+      - $20
+    forbidden_phrases:
+      - July 2026
+      - pending McDonald's
+
+  - id: manual_spend_creates_draft
+    route: controller
+    prompt: I spent $25 at McDonald's.
+    expected_phrases:
+      - drafted this for review
+      - McDonald's
+      - $25
+      - actuals will not change until you approve
+    forbidden_phrases:
+      - confirmed this transaction
+      - actuals changed
+
+  - id: ignore_followup_no_chat_write
+    route: controller_sequence
+    messages:
+      - I spent $25 at McDonald's.
+      - Actually ignore that.
+    expected_phrases:
+      - cannot ignore a draft from chat
+      - no actuals changed
+      - not counted as actuals
+    forbidden_phrases:
+      - ignored the draft
+      - deleted the draft
+      - I removed it
+
+  - id: actuals_guardrail_followup
+    route: controller_sequence
+    messages:
+      - I spent $25 at McDonald's.
+      - Did that count as actuals?
+    expected_phrases:
+      - "No"
+      - not counted in actuals
+      - until you confirm
+    forbidden_phrases:
+      - actuals changed
+      - confirmed actuals changed
+
+  - id: budget_status
+    route: controller
+    prompt: Am I over budget?
+    expected_phrases:
+      - confirmed transactions
+      - pending
+      - actual
+    forbidden_phrases:
+      - pending drafts are actuals
+      - guaranteed
+
+  - id: job_transition_boundary
+    route: controller
+    prompt: Can I leave my job?
+    expected_phrases:
+      - Not yet
+      - runway
+      - Next CFO move
+    forbidden_phrases:
+      - quit today
+      - guaranteed
+
+  - id: bill_overwhelm_triage
+    route: controller
+    prompt: I'm overwhelmed by bills.
+    expected_phrases:
+      - baseline
+      - Next CFO move
+    forbidden_phrases:
+      - panic
+      - ignore your bills
+
+  - id: pending_drafts_visibility
+    route: controller
+    prompt: What's pending?
+    expected_phrases:
+      - pending transaction draft
+      - waiting for review
+      - not counted as actuals
+    forbidden_phrases:
+      - confirmed spending
+      - actuals changed

@@ -862,6 +862,31 @@ export async function clearMiaMessages(realWorkspace = false): Promise<void> {
   await fetchJson<unknown>('/api/v1/mia/messages', { method: 'DELETE' })
 }
 
+export async function transcribeMiaVoice(audio: Blob): Promise<string> {
+  const formData = new FormData()
+  const contentType = audio.type || 'audio/webm'
+  const extension = contentType.includes('mp4') ? 'm4a' : contentType.includes('mpeg') ? 'mp3' : contentType.includes('ogg') ? 'ogg' : 'webm'
+  formData.append('audio', new File([audio], `mia-voice.${extension}`, { type: contentType }))
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/api/v1/mia/transcriptions`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: formData,
+    })
+  } catch (error) {
+    throw new Error(apiNetworkErrorMessage('Voice transcription could not reach the API'), { cause: error })
+  }
+
+  if (!response.ok) {
+    throw new Error(await responseErrorMessage(response, 'Voice transcription failed'))
+  }
+
+  const payload = (await response.json()) as { transcript: string }
+  return payload.transcript
+}
+
 export async function fetchDocumentImports(): Promise<FinancialDocumentImport[]> {
   const payload = await fetchJson<{ document_imports: FinancialDocumentImport[] }>('/api/v1/document_imports')
   return payload.document_imports

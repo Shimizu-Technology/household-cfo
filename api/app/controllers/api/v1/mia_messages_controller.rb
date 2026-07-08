@@ -22,15 +22,16 @@ module Api
         followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
         routed_content = followup.message
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
+        pending_draft_answer = pending_guardrail_answer(routed_content)
         coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
           current_household,
           routed_content,
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param
         )
-        coach_answer = followup.direct_answer || coach_answerer.call
+        coach_answer = pending_draft_answer ? nil : followup.direct_answer || coach_answerer.call
         transaction_lookup_answer = coach_answer ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
-        pending_draft_answer = (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
+        pending_draft_answer ||= (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
         spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(routed_content)
         annual_plan = coach_answer ? coach_answerer.prepared_annual_plan : nil
         budget_answer = nil
@@ -223,6 +224,12 @@ module Api
         return "pay stub image" if document_import.document_kind == "pay_stub" && document_import.content_type.to_s.start_with?("image/")
 
         document_import.document_kind.to_s.humanize.downcase
+      end
+
+      def pending_guardrail_answer(content)
+        return unless HouseholdFinance::PendingDraftAnswerer.guardrail_question?(content)
+
+        HouseholdFinance::PendingDraftAnswerer.new(current_household, content).call
       end
 
       def spending_report_for(content)
