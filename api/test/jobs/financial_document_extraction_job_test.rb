@@ -188,6 +188,76 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not metadata.key?("raw_response")
   end
 
+  test "job skips imports that are already processing recently" do
+    @document_import.update!(status: "processing")
+    @document_import.attempts.create!(
+      provider: "openrouter",
+      model: "test/model",
+      status: "processing",
+      prompt_version: FinancialDocuments::Extractor::PROMPT_VERSION,
+      schema_version: FinancialDocuments::Extractor::SCHEMA_VERSION,
+      started_at: Time.current
+    )
+    extractor_called = false
+    extractor = Object.new.tap do |object|
+      object.define_singleton_method(:model) { "test/model" }
+      object.define_singleton_method(:call) do |_document_import|
+        extractor_called = true
+        FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "should not run", metadata: {})
+      end
+    end
+
+    with_extractor_stub(extractor) do
+      assert_no_difference("FinancialDocumentImportAttempt.count") do
+        FinancialDocumentExtractionJob.perform_now(@document_import.id)
+      end
+    end
+
+    assert_equal false, extractor_called
+    assert_equal "processing", @document_import.reload.status
+  end
+
+  test "job restarts stale processing imports so queue retries can recover" do
+    @document_import.update!(status: "processing")
+    stale_attempt = @document_import.attempts.create!(
+      provider: "openrouter",
+      model: "test/model",
+      status: "processing",
+      prompt_version: FinancialDocuments::Extractor::PROMPT_VERSION,
+      schema_version: FinancialDocuments::Extractor::SCHEMA_VERSION,
+      started_at: (FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER + 1.minute).ago
+    )
+    @document_import.update_columns(updated_at: (FinancialDocumentExtractionJob::STALE_PROCESSING_AFTER + 1.minute).ago)
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Recovered retry finished.",
+          confidence: "medium",
+          warnings: [],
+          items: []
+        },
+        error: nil,
+        metadata: {}
+      )
+    )
+
+    with_extractor_stub(extractor) do
+      assert_difference("FinancialDocumentImportAttempt.count", 1) do
+        FinancialDocumentExtractionJob.perform_now(@document_import.id)
+      end
+    end
+
+    assert_equal "needs_review", @document_import.reload.status
+    assert_equal "failed", stale_attempt.reload.status
+    assert_equal true, stale_attempt.metadata.fetch("stalled")
+    assert_equal "succeeded", @document_import.attempts.order(:id).last.status
+  end
+
   test "job skips imports that were already processed synchronously" do
     @document_import.update!(status: "needs_review", extracted_summary: "Already read")
     extractor_called = false
