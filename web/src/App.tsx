@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import {
   applyDocumentImport,
@@ -15,12 +15,16 @@ import {
   fetchAdminUsers,
   fetchAppData,
   fetchBudget,
+  fetchDocumentImport,
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
   fetchDocumentImports,
+  fetchMiaMessages,
   fetchSpendingReport,
   ignoreTransactionDraft,
+  matchTransactionDraft,
   reprocessDocumentImport,
+  reopenTransactionDraft,
   resendAdminUserInvitation,
   restoreBudgetCategory,
   saveWorkspaceSetup,
@@ -30,6 +34,7 @@ import {
   updateBudgetCategory,
   updateAdminUser,
   updateDocumentImportItem,
+  updateTransactionDraft,
   uploadDocumentImport,
 } from './api'
 import type {
@@ -55,9 +60,11 @@ import type {
   FinancialDocumentImport,
   InvitationStatus,
   MiaMessage,
+  MiaMessageAttachment,
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
+  TransactionDraftUpdateInput,
   UserRole,
   WorkspaceSetupValues,
 } from './api'
@@ -77,9 +84,22 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
-const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp'
+const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
+const MAX_CHAT_ATTACHMENTS = 5
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
+
+type PendingMiaAttachment = {
+  id: string
+  file: File
+  filename: string
+  content_type: string
+  document_kind: DocumentImportKind
+  previewUrl: string
+  document_import_id?: number
+  status?: FinancialDocumentImport['status']
+  source_available?: boolean
+}
 
 type BudgetAllocationChange = {
   allocation_id: number
@@ -117,22 +137,22 @@ const documentUploadCards: Array<{
     kind: 'statement',
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
-    accepts: '.pdf,.xlsx,.xls,.csv',
-    helper: 'Upload a PDF or spreadsheet statement to draft balances, payments, and spending categories.',
+    accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    helper: 'Upload a PDF, CSV, spreadsheet, or statement screenshot to stage transaction rows, propose matches, and reconcile actuals by month.',
   },
   {
     kind: 'pay_stub',
     label: 'Pay stub',
     eyebrow: 'Income proof',
-    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp',
+    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
   },
   {
     kind: 'receipt',
     label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
-    accepts: '.pdf,.jpg,.jpeg,.png,.webp',
-    helper: 'Upload a receipt, PDF, or photo when one-off evidence should become a profile note or expense item.',
+    accepts: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    helper: 'Upload a receipt, PDF, or photo so Mia can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
   },
 ]
 
@@ -190,6 +210,9 @@ function App() {
   const [documentsError, setDocumentsError] = useState<string | null>(null)
   const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
   const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
+  const [pendingMiaAttachments, setPendingMiaAttachments] = useState<PendingMiaAttachment[]>([])
+  const pendingMiaAttachmentsRef = useRef<PendingMiaAttachment[]>([])
+  const [previewAttachment, setPreviewAttachment] = useState<PendingMiaAttachment | null>(null)
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [itemSavingIds, setItemSavingIds] = useState<Set<number>>(() => new Set())
   const [documentAction, setDocumentAction] = useState<string | null>(null)
@@ -207,6 +230,7 @@ function App() {
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const lastTrackedSectionRef = useRef<string | null>(null)
+  const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const shouldUseRealWorkspace = auth.isClerkEnabled
   const isRealWorkspace = data?.workspace?.mode === 'real'
@@ -232,10 +256,21 @@ function App() {
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
+  useEffect(() => {
+    pendingMiaAttachmentsRef.current = pendingMiaAttachments
+  }, [pendingMiaAttachments])
+
   const documentStatusSignature = useMemo(
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
       .map((documentImport) => `${documentImport.id}:${documentImport.status}`)
+      .join('|'),
+    [documentImports],
+  )
+  const importDraftSignature = useMemo(
+    () => documentImports
+      .flatMap((documentImport) => documentImport.transaction_drafts.map((draft) => `${documentImport.id}:${draft.id}:${draft.status}:${draft.amount_cents ?? draft.amount}`))
+      .sort()
       .join('|'),
     [documentImports],
   )
@@ -271,7 +306,7 @@ function App() {
 
     try {
       const imports = await fetchDocumentImports()
-      setDocumentImports(imports)
+      setDocumentImports((current) => mergeImportSummariesWithDetails(imports, current))
     } catch (caught) {
       if (!quiet) {
         setDocumentsError(caught instanceof Error ? caught.message : 'Document imports could not be loaded.')
@@ -280,6 +315,18 @@ function App() {
       if (!quiet) setDocumentsLoading(false)
     }
   }, [isRealWorkspace])
+
+  const refreshMiaMessages = useCallback(async ({ quiet = true }: { quiet?: boolean } = {}) => {
+    if (!isRealWorkspace || miaLoading) return
+
+    try {
+      const mia = await fetchMiaMessages(true)
+      setMessagesStorageKey(chatStorageKey)
+      setMessages(mia.messages)
+    } catch (caught) {
+      if (!quiet) setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be refreshed.')
+    }
+  }, [chatStorageKey, isRealWorkspace, miaLoading])
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
@@ -348,6 +395,44 @@ function App() {
   }, [refreshDocumentImports, workspaceLoadKey])
 
   useEffect(() => {
+    if (!isRealWorkspace || !selectedImport || selectedImport.details_included) return
+
+    let cancelled = false
+    const importId = selectedImport.id
+    fetchDocumentImport(importId)
+      .then((documentImport) => {
+        if (cancelled) return
+        setDocumentImports((current) => replaceImport(current, documentImport))
+      })
+      .catch((caught) => {
+        if (!cancelled) setDocumentsError(caught instanceof Error ? caught.message : 'Document review details could not be loaded.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isRealWorkspace, selectedImport])
+
+  useEffect(() => {
+    if (!isRealWorkspace) return
+
+    function refreshIfVisible() {
+      if (document.visibilityState === 'hidden') return
+      void refreshMiaMessages()
+    }
+
+    const intervalId = window.setInterval(refreshIfVisible, activeSection === 'Ask Mia' ? 5000 : 15000)
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
+  }, [activeSection, isRealWorkspace, refreshMiaMessages])
+
+  useEffect(() => {
     if (!isRealWorkspace || !documentStatusSignature) return
 
     const intervalId = window.setInterval(() => {
@@ -356,6 +441,30 @@ function App() {
 
     return () => window.clearInterval(intervalId)
   }, [documentStatusSignature, isRealWorkspace, refreshDocumentImports])
+
+  useEffect(() => {
+    if (!isRealWorkspace || !importDraftSignature || miaLoading) return
+    if (lastWorkspaceDraftSignatureRef.current === importDraftSignature) return
+
+    const signature = importDraftSignature
+    let cancelled = false
+    fetchAppData(true)
+      .then((payload) => {
+        if (cancelled) return
+        lastWorkspaceDraftSignatureRef.current = signature
+        setData(payload)
+        setSetupDraft((current) => payload.workspace?.setup_values ?? current)
+        setMessagesStorageKey(chatStorageKey)
+        setMessages(payload.mia.messages)
+      })
+      .catch(() => {
+        // Polling will retry; document review cards remain available from import summaries.
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading])
 
   useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
@@ -417,6 +526,19 @@ function App() {
   }, [confirmClearChat, isChatExpanded])
 
   useEffect(() => {
+    if (!previewImport && !previewAttachment) return
+
+    function handleEscape(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Escape') return
+      setPreviewImport(null)
+      setPreviewAttachment(null)
+    }
+
+    window.addEventListener('keydown', handleEscape)
+    return () => window.removeEventListener('keydown', handleEscape)
+  }, [previewAttachment, previewImport])
+
+  useEffect(() => {
     if (activeSection !== 'Ask Mia') return
 
     const chatCard = chatCardRef.current
@@ -437,25 +559,54 @@ function App() {
 
   async function handleAskMia(prompt = question) {
     const cleanPrompt = prompt.trim()
-    if (!cleanPrompt || miaLoading) return
+    const attachmentsToSend = pendingMiaAttachments.map((attachment) => attachmentWithMessageContext(attachment, cleanPrompt))
+    if ((!cleanPrompt && attachmentsToSend.length === 0) || miaLoading) return
     if (cleanPrompt.length > MIA_MESSAGE_MAX_LENGTH) {
       setMiaError(`Mia messages must stay under ${MIA_MESSAGE_MAX_LENGTH.toLocaleString()} characters.`)
       return
     }
+    if (attachmentsToSend.length > 0 && !isRealWorkspace) {
+      setMiaError('Sign in to a real workspace before attaching documents.')
+      return
+    }
 
+    const messageContent = cleanPrompt || 'Please review this upload.'
+    const optimisticMessageId = clientSideId('mia-message')
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
+    setPendingMiaAttachments([])
+    pendingMiaAttachmentsRef.current = []
     const priorMessages = currentMessages
-    const userMessage: MiaMessage = { role: 'user', author: 'You', content: cleanPrompt }
-    setMessages((current) => [...current, userMessage])
+    const optimisticMessage: MiaMessage = {
+      client_id: optimisticMessageId,
+      role: 'user',
+      author: 'You',
+      content: messageContent,
+      attachments: attachmentsToSend.map(localAttachmentForMessage),
+    }
+    setMessages((current) => [...current, optimisticMessage])
+
+    let preparedAttachmentsForRetry = attachmentsToSend
 
     try {
-      const response = await sendMiaMessage(cleanPrompt, priorMessages, isRealWorkspace, selectedBudgetYear, selectedBudgetMonthIndex + 1)
+      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend)
+      preparedAttachmentsForRetry = uploadResult.attachments
+      const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
+      preparedAttachmentsForRetry = readyAttachments
+      const response = await sendMiaMessage(
+        messageContent,
+        priorMessages,
+        isRealWorkspace,
+        selectedBudgetYear,
+        selectedBudgetMonthIndex + 1,
+        readyAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
+      )
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
-        prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
+        prompt_length_bucket: messageLengthBucket(messageContent.length),
+        attachment_count: attachmentsToSend.length,
       })
       if (response.budget) {
         setData((current) => current ? { ...current, budget: response.budget! } : current)
@@ -468,27 +619,25 @@ function App() {
       if (response.spending_report) {
         setSpendingReport(response.spending_report)
       }
-      setMessages((current) => [...current, response.assistant_message])
+      if (attachmentsToSend.length > 0) void refreshDocumentImports({ quiet: true })
+      const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
+      setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
         })
       }
-    } catch {
+    } catch (caught) {
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
-        prompt_length_bucket: messageLengthBucket(cleanPrompt.length),
+        prompt_length_bucket: messageLengthBucket(messageContent.length),
+        attachment_count: attachmentsToSend.length,
       })
-      setMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          author: 'Mia',
-          content:
-            'I can still coach the framework. Your next move is to protect fixed bills, keep the Expense Stack honest, then decide what creates real optionality.',
-        },
-      ])
+      setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
+      setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
+      const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
+      setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
       setMiaLoading(false)
       requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
@@ -659,24 +808,51 @@ function App() {
     }
   }
 
+  async function handleUpdateTransactionDraft(draft: TransactionDraft, values: TransactionDraftUpdateInput) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`update-draft:${draft.id}`)
+    setBudgetError(null)
+    setDocumentsError(null)
+    try {
+      const response = await updateTransactionDraft(draft.id, values)
+      const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
+      setData(response.workspace)
+      if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be updated.'
+      setBudgetError(message)
+      setDocumentsError(message)
+      throw new Error(message, { cause: caught })
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
   async function handleConfirmTransactionDraft(draft: TransactionDraft) {
     if (!isRealWorkspace) return
 
     setBudgetAction(`confirm-draft:${draft.id}`)
     setBudgetError(null)
+    setDocumentsError(null)
     try {
       const workspace = await confirmTransactionDraft(draft.id)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.')
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.'
+      setBudgetError(message)
+      setDocumentsError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -687,19 +863,81 @@ function App() {
 
     setBudgetAction(`ignore-draft:${draft.id}`)
     setBudgetError(null)
+    setDocumentsError(null)
     try {
       const workspace = await ignoreTransactionDraft(draft.id)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
       setMessages(workspace.mia.messages)
       setMessagesStorageKey(chatStorageKey)
       captureAnalyticsEvent('transaction_draft_ignored', {
         source_type: draft.source_type ?? 'manual_chat',
       })
     } catch (caught) {
-      setBudgetError(caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.')
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
+      setBudgetError(message)
+      setDocumentsError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleMatchTransactionDraft(draft: TransactionDraft, matchId?: number) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`match-draft:${draft.id}`)
+    setBudgetError(null)
+    setDocumentsError(null)
+    try {
+      const workspace = await matchTransactionDraft(draft.id, matchId)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_matched', {
+        source_type: draft.source_type ?? 'statement',
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be matched.'
+      setBudgetError(message)
+      setDocumentsError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleReopenTransactionDraft(draft: TransactionDraft) {
+    if (!isRealWorkspace) return
+
+    const confirmed = window.confirm('Reopen this draft for correction? If it created an actual transaction, that actual will be removed from month-to-date totals and the draft will return to pending review.')
+    if (!confirmed) return
+
+    setBudgetAction(`reopen-draft:${draft.id}`)
+    setBudgetError(null)
+    setDocumentsError(null)
+    try {
+      const workspace = await reopenTransactionDraft(draft.id)
+      const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('transaction_draft_reopened', {
+        previous_status: draft.status,
+        source_type: draft.source_type ?? 'manual_chat',
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Transaction draft could not be reopened.'
+      setBudgetError(message)
+      setDocumentsError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -711,54 +949,132 @@ function App() {
       return
     }
 
+    const uploadFile = normalizedEvidenceFile(file, 0)
     setUploadingKind(kind)
     setDocumentsError(null)
     setDocumentsNotice(null)
-    trackDocumentUpload(kind, 'started', file)
+    trackDocumentUpload(kind, 'started', uploadFile)
     try {
-      const documentImport = await uploadDocumentImport(file, kind)
+      const documentImport = await uploadDocumentImport(uploadFile, kind, origin)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
       setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. Mia is extracting draft values for review.`)
-      trackDocumentUpload(kind, 'succeeded', file)
+      trackDocumentUpload(kind, 'succeeded', uploadFile)
       captureAnalyticsEvent('document_import_created', {
         document_kind: kind,
         origin,
         status: documentImport.status,
       })
 
-      if (origin === 'mia') {
-        setMessages((current) => [
-          ...current,
-          {
-            role: 'assistant',
-            author: 'Mia',
-            content: `I received ${file.name}. I will treat it as evidence only. Once extraction finishes, review and apply the values before I use them as official household numbers.`,
-          },
-        ])
-      }
     } catch (caught) {
-      trackDocumentUpload(kind, 'failed', file)
+      trackDocumentUpload(kind, 'failed', uploadFile)
       const uploadError = caught instanceof Error ? caught.message : 'Document could not be uploaded.'
       setDocumentsError(uploadError)
-      if (origin === 'mia') {
-        setMessages((current) => [
-          ...current,
-          {
-            role: 'assistant',
-            author: 'Mia',
-            content: `I could not upload ${file.name}. ${uploadError}`,
-          },
-        ])
-      }
+      if (origin === 'mia') setMiaError(uploadError)
     } finally {
       setUploadingKind(null)
     }
   }
 
-  function handleMiaAttachmentChange(file: File | null) {
-    if (!file) return
-    void handleDocumentUpload(inferDocumentKind(file), file, 'mia')
+  function handleMiaAttachmentChange(files: FileList | File[] | null) {
+    addPendingMiaAttachments(Array.from(files ?? []))
+  }
+
+  function addPendingMiaAttachments(files: File[]) {
+    if (files.length === 0) return
+    if (!isRealWorkspace) {
+      setMiaError('Sign in to a real workspace before attaching documents.')
+      return
+    }
+
+    const normalizedFiles = files.map(normalizedEvidenceFile)
+    const acceptedFiles = normalizedFiles.filter(isSupportedEvidenceFile)
+    const rejectedCount = normalizedFiles.length - acceptedFiles.length
+    const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
+    const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
+    if (rejectedCount > 0) setMiaError('That file type is not supported yet. Use PDF, CSV, Excel, Word, JPG, PNG, WEBP, HEIC, or HEIF.')
+    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
+    else setMiaError(null)
+
+    if (accepted.length > 0) setPendingMiaAttachments((current) => [...current, ...accepted])
+  }
+
+  function removePendingMiaAttachment(id: string) {
+    setPendingMiaAttachments((current) => {
+      const attachment = current.find((candidate) => candidate.id === id)
+      if (attachment) URL.revokeObjectURL(attachment.previewUrl)
+      return current.filter((candidate) => candidate.id !== id)
+    })
+  }
+
+  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[]) {
+    const preparedAttachments = [...attachments]
+
+    for (const [index, attachment] of attachments.entries()) {
+      if (attachment.document_import_id) continue
+
+      setUploadingKind(attachment.document_kind)
+      trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
+      try {
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia')
+        preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
+        setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
+        setSelectedImportId(documentImport.id)
+        trackDocumentUpload(attachment.document_kind, 'succeeded', attachment.file)
+        captureAnalyticsEvent('document_import_created', {
+          document_kind: attachment.document_kind,
+          origin: 'mia',
+          status: documentImport.status,
+        })
+      } catch (caught) {
+        trackDocumentUpload(attachment.document_kind, 'failed', attachment.file)
+        const message = caught instanceof Error ? caught.message : 'Document upload failed'
+        throw new MiaAttachmentUploadError(message, preparedAttachments, { cause: caught })
+      } finally {
+        setUploadingKind(null)
+      }
+    }
+
+    return { attachments: preparedAttachments }
+  }
+
+  async function waitForMiaAttachmentImports(attachments: PendingMiaAttachment[]) {
+    let currentAttachments = [...attachments]
+    let pendingIds = currentAttachments
+      .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
+      .map((attachment) => attachment.document_import_id!)
+    if (pendingIds.length === 0) return currentAttachments
+
+    const deadline = Date.now() + 75_000
+    while (pendingIds.length > 0 && Date.now() < deadline) {
+      await sleep(1_800)
+      const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
+      setDocumentImports((current) => refreshedImports.reduce((imports, documentImport) => replaceImport(imports, documentImport), current))
+      currentAttachments = currentAttachments.map((attachment) => {
+        const documentImport = refreshedImports.find((candidate) => candidate.id === attachment.document_import_id)
+        return documentImport ? attachmentWithDocumentImport(attachment, documentImport) : attachment
+      })
+      pendingIds = currentAttachments
+        .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
+        .map((attachment) => attachment.document_import_id!)
+    }
+
+    if (pendingIds.length > 0) {
+      throw new MiaAttachmentProcessingTimeoutError(
+        'Mia is still reading the upload. Please try sending again in a moment; the saved upload will not be duplicated.',
+        currentAttachments,
+      )
+    }
+
+    return currentAttachments
+  }
+
+  function handleMiaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
+    const pastedFiles = filesFromClipboard(event.clipboardData)
+    if (pastedFiles.length === 0) return
+
+    event.preventDefault()
+    addPendingMiaAttachments(pastedFiles)
   }
 
   async function handleDocumentItemUpdate(documentImportId: number, itemId: number, values: DocumentImportItemInput) {
@@ -878,6 +1194,23 @@ function App() {
   function handleOpenDocumentSource(documentImport: FinancialDocumentImport) {
     setDocumentsError(null)
     setPreviewImport(documentImport)
+  }
+
+  async function handleOpenDocumentSourceById(documentImportId: number) {
+    const existingImport = documentImports.find((documentImport) => documentImport.id === documentImportId)
+    if (existingImport) {
+      handleOpenDocumentSource(existingImport)
+      return
+    }
+
+    setDocumentsError(null)
+    try {
+      const documentImport = await fetchDocumentImport(documentImportId)
+      setDocumentImports((current) => replaceImport(current, documentImport))
+      setPreviewImport(documentImport)
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be opened.')
+    }
   }
 
   async function handleSetupSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1031,8 +1364,11 @@ function App() {
           />
 
           <div className="status-ribbon">
-            <span>Readiness</span>
-            <strong>{data.dashboard.summary.readiness_label}</strong>
+            <div>
+              <span>Readiness</span>
+              <strong>{data.dashboard.summary.readiness_label}</strong>
+            </div>
+            <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
           </div>
 
           <div className="metric-row">
@@ -1158,13 +1494,32 @@ function App() {
                   </div>
                 )}
                 {currentMessages.map((message, index) => (
-                  <div className={`message-row ${message.role}`} key={`${message.author}-${index}`}>
+                  <div className={`message-row ${message.role}`} key={messageKey(message, index)}>
                     {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
                     <div className={`message ${message.role}`}>
                       <strong>{message.author}</strong>
                       {messageParagraphs(message).map((paragraph, paragraphIndex) => (
                         <p key={`${message.author}-${index}-${paragraphIndex}`}>{paragraph}</p>
                       ))}
+                      {(message.attachments ?? []).length > 0 && (
+                        <MessageAttachmentList
+                          attachments={message.attachments ?? []}
+                          imports={documentImports}
+                          onOpenLocal={(attachment) => {
+                            if (!attachment.preview_url) return
+                            setPreviewAttachment({
+                              id: `message-${attachment.filename}`,
+                              file: new File([], attachment.filename, { type: attachment.content_type }),
+                              filename: attachment.filename,
+                              content_type: attachment.content_type,
+                              document_kind: attachment.document_kind,
+                              previewUrl: attachment.preview_url,
+                            })
+                          }}
+                          onOpenImport={handleOpenDocumentSource}
+                          onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
+                        />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -1189,8 +1544,12 @@ function App() {
                   isRealWorkspace={Boolean(isRealWorkspace)}
                   action={budgetAction}
                   compact
+                  categories={activeBudgetPlan?.rows ?? []}
+                  onUpdate={handleUpdateTransactionDraft}
+                  onMatch={handleMatchTransactionDraft}
                   onConfirm={handleConfirmTransactionDraft}
                   onIgnore={handleIgnoreTransactionDraft}
+                  onReopen={handleReopenTransactionDraft}
                 />
               )}
 
@@ -1201,16 +1560,24 @@ function App() {
                   type="file"
                   className="sr-only"
                   accept={SUPPORTED_DOCUMENT_ACCEPTS}
+                  multiple
                   ref={miaAttachmentInputRef}
                   onChange={(event) => {
-                    handleMiaAttachmentChange(event.target.files?.[0] ?? null)
+                    handleMiaAttachmentChange(event.target.files)
                     event.currentTarget.value = ''
                   }}
                 />
+                {pendingMiaAttachments.length > 0 && (
+                  <PendingAttachmentTray
+                    attachments={pendingMiaAttachments}
+                    onPreview={setPreviewAttachment}
+                    onRemove={removePendingMiaAttachment}
+                  />
+                )}
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled={!isRealWorkspace || Boolean(uploadingKind)}
+                  disabled={!isRealWorkspace || Boolean(uploadingKind) || miaLoading}
                   title={isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
                   aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
@@ -1224,8 +1591,9 @@ function App() {
                     setQuestion(event.target.value)
                   }}
                   onKeyDown={handleAskMiaKeyDown}
+                  onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder="Ask Mia for the CFO read..."
+                  placeholder="Ask Mia or attach evidence..."
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
@@ -1233,7 +1601,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || !question.trim()}
+                  disabled={miaLoading || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? 'Mia is thinking' : 'Send message to Mia'}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -1281,6 +1649,7 @@ function App() {
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
+            categories={activeBudgetPlan?.rows ?? []}
             selectedImport={selectedImport}
             loading={documentsLoading}
             error={documentsError}
@@ -1288,12 +1657,18 @@ function App() {
             uploadingKind={uploadingKind}
             itemSavingIds={itemSavingIds}
             action={documentAction}
+            draftAction={budgetAction}
             expandedAppliedImportId={expandedAppliedImportId}
             onExpandedAppliedImportIdChange={setExpandedAppliedImportId}
             demoUploads={data.profile.uploads}
             onUpload={handleDocumentUpload}
             onSelectImport={setSelectedImportId}
             onUpdateItem={handleDocumentItemUpdate}
+            onUpdateDraft={handleUpdateTransactionDraft}
+            onMatchDraft={handleMatchTransactionDraft}
+            onConfirmDraft={handleConfirmTransactionDraft}
+            onIgnoreDraft={handleIgnoreTransactionDraft}
+            onReopenDraft={handleReopenTransactionDraft}
             onApply={handleApplyDocumentImport}
             onReprocess={handleReprocessDocumentImport}
             onDeleteSource={handleDeleteDocumentSource}
@@ -1364,8 +1739,11 @@ function App() {
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
+              onUpdateDraft={handleUpdateTransactionDraft}
+              onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
+              onReopenDraft={handleReopenTransactionDraft}
             />
           ) : (
             <article className="panel coach-panel">
@@ -1488,7 +1866,100 @@ function App() {
           onFetchSourcePreview={fetchDocumentImportSourcePreview}
         />
       )}
+
+      {previewAttachment && (
+        <LocalAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      )}
     </main>
+  )
+}
+
+function PendingAttachmentTray({
+  attachments,
+  onPreview,
+  onRemove,
+}: {
+  attachments: PendingMiaAttachment[]
+  onPreview: (attachment: PendingMiaAttachment) => void
+  onRemove: (id: string) => void
+}) {
+  return (
+    <div className="composer-attachment-tray" aria-label="Attachments waiting to send">
+      {attachments.map((attachment) => (
+        <div className="composer-attachment-card" key={attachment.id}>
+          <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
+            {browserPreviewableImage(attachment.content_type) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            <span>{attachmentDisplayName(attachment)}</span>
+          </button>
+          <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
+            <CloseIcon />
+          </button>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function MessageAttachmentList({
+  attachments,
+  imports,
+  onOpenLocal,
+  onOpenImport,
+  onOpenImportId,
+}: {
+  attachments: MiaMessageAttachment[]
+  imports: FinancialDocumentImport[]
+  onOpenLocal: (attachment: MiaMessageAttachment) => void
+  onOpenImport: (documentImport: FinancialDocumentImport) => void
+  onOpenImportId: (documentImportId: number) => void
+}) {
+  return (
+    <div className="message-attachment-list" aria-label="Message attachments">
+      {attachments.map((attachment) => {
+        const documentImport = attachment.document_import_id ? imports.find((candidate) => candidate.id === attachment.document_import_id) : null
+        const hasImagePreview = Boolean(attachment.preview_url && browserPreviewableImage(attachment.content_type))
+        const canOpen = Boolean(attachment.document_import_id || attachment.preview_url || documentImport?.source_available)
+        return (
+          <button
+            type="button"
+            className={`message-attachment-card ${hasImagePreview ? 'is-image' : ''}`}
+            key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}
+            disabled={!canOpen}
+            aria-label={`Open ${messageAttachmentDisplayName(attachment)}`}
+            onClick={() => {
+              if (documentImport) onOpenImport(documentImport)
+              else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
+              else if (attachment.preview_url) onOpenLocal(attachment)
+            }}
+          >
+            {hasImagePreview ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            {!hasImagePreview && <span>{messageAttachmentDisplayName(attachment)}</span>}
+          </button>
+        )
+      })}
+    </div>
+  )
+}
+
+function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
+  const isImage = browserPreviewableImage(attachment.content_type)
+
+  return (
+    <div className="document-preview-overlay" role="presentation">
+      <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={onClose} />
+      <section className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)}>
+        <div className="document-preview-header">
+          <div>
+            <span className="document-status blue">Attachment preview</span>
+            <strong>{attachmentDisplayName(attachment)}</strong>
+          </div>
+          <button type="button" className="document-preview-close-button" onClick={onClose}>Close</button>
+        </div>
+        <div className="document-preview-body">
+          {isImage ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <div className="document-preview-state"><AttachmentIcon /><p>Preview will be available after upload.</p></div>}
+        </div>
+      </section>
+    </div>
   )
 }
 
@@ -1649,6 +2120,7 @@ function DocumentImportWorkspace({
   sectionRef,
   isRealWorkspace,
   imports,
+  categories,
   selectedImport,
   loading,
   error,
@@ -1656,12 +2128,18 @@ function DocumentImportWorkspace({
   uploadingKind,
   itemSavingIds,
   action,
+  draftAction,
   expandedAppliedImportId,
   onExpandedAppliedImportIdChange,
   demoUploads,
   onUpload,
   onSelectImport,
   onUpdateItem,
+  onUpdateDraft,
+  onMatchDraft,
+  onConfirmDraft,
+  onIgnoreDraft,
+  onReopenDraft,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -1671,6 +2149,7 @@ function DocumentImportWorkspace({
   sectionRef?: Ref<HTMLElement>
   isRealWorkspace: boolean
   imports: FinancialDocumentImport[]
+  categories: BudgetCategoryRow[]
   selectedImport: FinancialDocumentImport | null
   loading: boolean
   error: string | null
@@ -1678,12 +2157,18 @@ function DocumentImportWorkspace({
   uploadingKind: DocumentImportKind | null
   itemSavingIds: Set<number>
   action: string | null
+  draftAction: string | null
   expandedAppliedImportId: number | null
   onExpandedAppliedImportIdChange: (id: number | null) => void
   demoUploads: Array<{ label: string; kind: string; status: string; accepts: string }>
   onUpload: (kind: DocumentImportKind, file: File, origin?: 'profile' | 'mia') => void
   onSelectImport: (id: number) => void
-  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
+  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
+  onConfirmDraft: (draft: TransactionDraft) => void
+  onIgnoreDraft: (draft: TransactionDraft) => void
+  onReopenDraft: (draft: TransactionDraft) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -1768,11 +2253,18 @@ function DocumentImportWorkspace({
         />
         <DocumentReviewPanel
           documentImport={selectedImport}
+          categories={categories}
           itemSavingIds={itemSavingIds}
           action={action}
+          draftAction={draftAction}
           appliedDetailsOpen={Boolean(selectedImport && selectedImport.status === 'applied' && selectedImport.id === expandedAppliedImportId)}
           onAppliedDetailsOpenChange={(open) => onExpandedAppliedImportIdChange(open && selectedImport ? selectedImport.id : null)}
           onUpdateItem={onUpdateItem}
+          onUpdateDraft={onUpdateDraft}
+          onMatchDraft={onMatchDraft}
+          onConfirmDraft={onConfirmDraft}
+          onIgnoreDraft={onIgnoreDraft}
+          onReopenDraft={onReopenDraft}
           onApply={onApply}
           onReprocess={onReprocess}
           onDeleteSource={onDeleteSource}
@@ -1824,6 +2316,10 @@ function DocumentUploadCard({
   )
 }
 
+type DocumentHistoryStatusFilter = 'all' | FinancialDocumentImport['status']
+type DocumentHistoryKindFilter = 'all' | DocumentImportKind
+type DocumentHistorySort = 'newest' | 'oldest' | 'needs_review'
+
 function DocumentImportHistory({
   imports,
   selectedImportId,
@@ -1835,34 +2331,126 @@ function DocumentImportHistory({
   loading: boolean
   onSelectImport: (id: number) => void
 }) {
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState<DocumentHistoryStatusFilter>('all')
+  const [kindFilter, setKindFilter] = useState<DocumentHistoryKindFilter>('all')
+  const [sort, setSort] = useState<DocumentHistorySort>('newest')
+  const [page, setPage] = useState(0)
+  const pageSize = 6
+  const filteredImports = useMemo(() => {
+    const query = search.trim().toLowerCase()
+    return imports
+      .filter((documentImport) => statusFilter === 'all' || documentImport.status === statusFilter)
+      .filter((documentImport) => kindFilter === 'all' || documentImport.document_kind === kindFilter)
+      .filter((documentImport) => {
+        if (!query) return true
+        return [
+          documentImportDisplayName(documentImport),
+          documentImport.filename,
+          documentImport.extracted_summary ?? '',
+          documentImport.items.map((item) => `${item.label} ${item.evidence ?? ''} ${item.amount ?? ''} ${item.balance ?? ''} ${item.payment ?? ''}`).join(' '),
+          documentImport.transaction_drafts.map((draft) => `${draft.merchant} ${draft.summary ?? ''}`).join(' '),
+          documentKindLabel(documentImport.document_kind),
+          importStatusLabel(documentImport.status),
+          importPeriodLabel(documentImport),
+        ].join(' ').toLowerCase().includes(query)
+      })
+      .sort((left, right) => {
+        if (sort === 'oldest') return importTimestamp(left) - importTimestamp(right) || left.id - right.id
+        if (sort === 'needs_review') {
+          const leftRank = left.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(left.status) ? 1 : 2
+          const rightRank = right.status === 'needs_review' ? 0 : PROCESSING_IMPORT_STATUSES.has(right.status) ? 1 : 2
+          return leftRank - rightRank || importTimestamp(right) - importTimestamp(left) || right.id - left.id
+        }
+        return importTimestamp(right) - importTimestamp(left) || right.id - left.id
+      })
+  }, [imports, kindFilter, search, sort, statusFilter])
+  const totalPages = Math.max(1, Math.ceil(filteredImports.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const visibleImports = filteredImports.slice(safePage * pageSize, safePage * pageSize + pageSize)
+
   return (
     <aside className="document-history" aria-label="Document import history">
       <div className="document-history-heading">
         <h4>Import history</h4>
         <span>{loading ? 'Refreshing' : `${imports.length} total`}</span>
       </div>
+      {imports.length > 0 && (
+        <div className="document-history-controls" aria-label="Import history filters">
+          <label className="document-history-search">
+            <span className="sr-only">Search imports</span>
+            <input value={search} placeholder="Search imports" onChange={(event) => { setSearch(event.currentTarget.value); setPage(0) }} />
+          </label>
+          <label>
+            <span className="sr-only">Filter by status</span>
+            <select value={statusFilter} onChange={(event) => { setStatusFilter(event.currentTarget.value as DocumentHistoryStatusFilter); setPage(0) }}>
+              <option value="all">All statuses</option>
+              <option value="needs_review">Needs review</option>
+              <option value="processing">Processing</option>
+              <option value="uploaded">Uploaded</option>
+              <option value="applied">Applied</option>
+              <option value="partially_applied">Partially applied</option>
+              <option value="failed">Failed</option>
+              <option value="source_deleted">Source deleted</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Filter by type</span>
+            <select value={kindFilter} onChange={(event) => { setKindFilter(event.currentTarget.value as DocumentHistoryKindFilter); setPage(0) }}>
+              <option value="all">All types</option>
+              <option value="receipt">Receipts</option>
+              <option value="statement">Statements</option>
+              <option value="spreadsheet">Spreadsheets</option>
+              <option value="pay_stub">Pay stubs</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label>
+            <span className="sr-only">Sort imports</span>
+            <select value={sort} onChange={(event) => { setSort(event.currentTarget.value as DocumentHistorySort); setPage(0) }}>
+              <option value="newest">Newest first</option>
+              <option value="oldest">Oldest first</option>
+              <option value="needs_review">Review first</option>
+            </select>
+          </label>
+        </div>
+      )}
       {imports.length === 0 ? (
         <div className="document-empty-state">
           <StatementIcon />
           <h4>No documents yet</h4>
           <p>Upload a sample-safe document to test extraction. Avoid real client statements in local demos.</p>
         </div>
-      ) : (
-        <div className="document-history-list">
-          {imports.map((documentImport) => (
-            <button
-              type="button"
-              key={documentImport.id}
-              className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
-              onClick={() => onSelectImport(documentImport.id)}
-            >
-              <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
-              <strong>{documentImport.filename}</strong>
-              <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
-              <small>{importPeriodLabel(documentImport)}</small>
-            </button>
-          ))}
+      ) : visibleImports.length === 0 ? (
+        <div className="document-empty-state compact">
+          <h4>No imports match</h4>
+          <p>Clear the search or change filters to see more uploads.</p>
         </div>
+      ) : (
+        <>
+          <div className="document-history-list">
+            {visibleImports.map((documentImport) => (
+              <button
+                type="button"
+                key={documentImport.id}
+                className={`document-history-card ${selectedImportId === documentImport.id ? 'active' : ''}`}
+                onClick={() => onSelectImport(documentImport.id)}
+              >
+                <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
+                <strong>{documentImportDisplayName(documentImport)}</strong>
+                <small>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)}</small>
+                <small>{importPeriodLabel(documentImport)}</small>
+              </button>
+            ))}
+          </div>
+          <div className="document-history-pagination" aria-label="Import history pagination">
+            <span>{filteredImports.length === 0 ? '0 shown' : `${safePage * pageSize + 1}-${Math.min((safePage + 1) * pageSize, filteredImports.length)} of ${filteredImports.length}`}</span>
+            <div>
+              <button type="button" disabled={safePage === 0} onClick={() => setPage((current) => Math.max(current - 1, 0))}>Previous</button>
+              <button type="button" disabled={safePage >= totalPages - 1} onClick={() => setPage((current) => Math.min(current + 1, totalPages - 1))}>Next</button>
+            </div>
+          </div>
+        </>
       )}
     </aside>
   )
@@ -1870,11 +2458,18 @@ function DocumentImportHistory({
 
 function DocumentReviewPanel({
   documentImport,
+  categories,
   itemSavingIds,
   action,
+  draftAction,
   appliedDetailsOpen,
   onAppliedDetailsOpenChange,
   onUpdateItem,
+  onUpdateDraft,
+  onMatchDraft,
+  onConfirmDraft,
+  onIgnoreDraft,
+  onReopenDraft,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -1884,11 +2479,18 @@ function DocumentReviewPanel({
   uploading,
 }: {
   documentImport: FinancialDocumentImport | null
+  categories: BudgetCategoryRow[]
   itemSavingIds: Set<number>
   action: string | null
+  draftAction: string | null
   appliedDetailsOpen: boolean
   onAppliedDetailsOpenChange: (open: boolean) => void
-  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => void
+  onUpdateItem: (documentImportId: number, itemId: number, values: DocumentImportItemInput) => Promise<void> | void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
+  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
+  onConfirmDraft: (draft: TransactionDraft) => void
+  onIgnoreDraft: (draft: TransactionDraft) => void
+  onReopenDraft: (draft: TransactionDraft) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -1922,6 +2524,16 @@ function DocumentReviewPanel({
     )
   }
 
+  if (!documentImport.details_included) {
+    return (
+      <article className="document-review-panel document-empty-state" aria-label={`Loading ${documentImportDisplayName(documentImport)}`}>
+        <AttachmentIcon />
+        <h4>Loading review details</h4>
+        <p>Mia is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
+      </article>
+    )
+  }
+
   const warnings = metadataWarnings(documentImport)
   const groupedItems = groupedImportItems(documentImport.items)
   const selectedCount = selectedApplyItemIds(documentImport).length
@@ -1931,11 +2543,11 @@ function DocumentReviewPanel({
   const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
 
   return (
-    <article className="document-review-panel" aria-label={`Review ${documentImport.filename}`}>
+    <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
       <div className="document-review-header">
         <div>
           <span className={`document-status ${importStatusTone(documentImport.status)}`}>{importStatusLabel(documentImport.status)}</span>
-          <h4>{documentImport.filename}</h4>
+          <h4>{documentImportDisplayName(documentImport)}</h4>
           <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
         <div className="document-review-actions">
@@ -1978,11 +2590,32 @@ function DocumentReviewPanel({
       {processing && (
         <div className="document-processing-state" role="status">
           <span />
-          <p>Mia is extracting draft values. This panel refreshes automatically.</p>
+          <p>Mia is extracting draft values and transaction rows. This panel refreshes automatically.</p>
         </div>
       )}
 
-      {fullyApplied && !appliedDetailsOpen && (
+      {(documentImport.transaction_drafts ?? []).length > 0 && (
+        <section className="document-transaction-drafts" aria-label="Extracted transaction drafts">
+          <div className="document-item-group-heading">
+            <h5>Transaction drafts</h5>
+            <span>{(documentImport.transaction_drafts ?? []).length} proposed row{(documentImport.transaction_drafts ?? []).length === 1 ? '' : 's'}</span>
+          </div>
+          <TransactionDraftReviewStack
+            drafts={documentImport.transaction_drafts ?? []}
+            isRealWorkspace
+            action={draftAction}
+            compact
+            categories={categories}
+            onUpdate={onUpdateDraft}
+            onMatch={onMatchDraft}
+            onConfirm={onConfirmDraft}
+            onIgnore={onIgnoreDraft}
+            onReopen={onReopenDraft}
+          />
+        </section>
+      )}
+
+      {fullyApplied && !appliedDetailsOpen && documentImport.items.some((item) => item.applied_at) && (
         <AppliedImportSummary documentImport={documentImport} onEdit={() => onAppliedDetailsOpenChange(true)} />
       )}
 
@@ -1997,7 +2630,7 @@ function DocumentReviewPanel({
               <div className="document-item-list">
                 {items.map((item) => (
                   <DocumentImportItemEditor
-                    key={item.id}
+                    key={documentItemSignature(item)}
                     documentImport={documentImport}
                     item={item}
                     saving={itemSavingIds.has(item.id)}
@@ -2130,20 +2763,21 @@ function DocumentSourcePreview({
   }, [onClose])
 
   const filename = source?.filename ?? documentImport.filename
+  const previewTitle = documentImportDisplayName(documentImport)
   const contentType = source?.content_type ?? documentImport.content_type
-  const isImage = source?.inline_supported === true && contentType.startsWith('image/')
+  const isImage = source?.inline_supported === true && browserPreviewableImage(contentType)
   const isPdf = source?.inline_supported === true && contentType === 'application/pdf'
   const serverPreviewType = usesServerPreview(filename, contentType)
 
   return (
     <div className="document-preview-overlay" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={onClose} />
-      <section className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${filename}`}>
+      <section className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewTitle}`}>
         <header className="document-preview-header">
           <div>
             <span className="document-status blue">Private preview</span>
-            <h3>{filename}</h3>
-            <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Link expires in {source?.expires_in ?? 300}s</p>
+            <h3>{previewTitle}</h3>
+            <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Private source saved; preview links refresh when opened.</p>
           </div>
           <div className="document-preview-actions">
             {source && <a href={source.download_url} target="_blank" rel="noopener noreferrer">Download source</a>}
@@ -2239,6 +2873,20 @@ function usesServerPreview(filename: string, contentType: string) {
   ].includes(contentType)
 }
 
+type EditableDocumentItemDraft = {
+  target_type: DocumentImportItem['target_type']
+  label: string
+  amount: string
+  balance: string
+  payment: string
+  cadence: string
+  source_type: string
+  stack_key: string
+  account_type: string
+  debt_type: string
+  evidence: string
+}
+
 function DocumentImportItemEditor({
   documentImport,
   item,
@@ -2248,23 +2896,46 @@ function DocumentImportItemEditor({
   documentImport: FinancialDocumentImport
   item: DocumentImportItem
   saving: boolean
-  onUpdate: (values: DocumentImportItemInput) => void
+  onUpdate: (values: DocumentImportItemInput) => Promise<void> | void
 }) {
   const applied = Boolean(item.applied_at)
   const canEditDraft = !applied && REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const canCorrectApplied = applied && documentImport.status !== 'source_deleted'
-  const fieldsDisabled = saving || (!canEditDraft && !canCorrectApplied)
+  const editable = canEditDraft || canCorrectApplied
   const selectionDisabled = saving || applied || !canEditDraft
-  const targetDisabled = saving || applied || !canEditDraft
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState<EditableDocumentItemDraft>(() => editableDocumentItemDraft(item))
+  const moneyFields = documentItemMoneyFields(draft.target_type)
+  const fieldsDisabled = saving || !editing
+  const targetDisabled = saving || !editing || applied || !canEditDraft
+
+  function updateDraft(values: Partial<EditableDocumentItemDraft>) {
+    setDraft((current) => ({ ...current, ...values }))
+  }
+
+  function beginEditing() {
+    setDraft(editableDocumentItemDraft(item))
+    setEditing(true)
+  }
+
+  function cancelEditing() {
+    setDraft(editableDocumentItemDraft(item))
+    setEditing(false)
+  }
+
+  async function saveEdits() {
+    await onUpdate(documentItemUpdatePayload(draft))
+    setEditing(false)
+  }
 
   return (
-    <article className={`document-item-card ${item.ignored ? 'ignored' : ''} ${item.applied_at ? 'applied' : ''}`}>
+    <article className={`document-item-card ${item.ignored ? 'ignored' : ''} ${item.applied_at ? 'applied' : ''} ${editing ? 'editing' : ''}`}>
       <div className="document-item-topline">
         <label className="document-check">
           <input
             type="checkbox"
             checked={item.selected && !item.ignored}
-            disabled={selectionDisabled}
+            disabled={selectionDisabled || editing}
             onChange={(event) => onUpdate({ selected: event.target.checked, ignored: false })}
           />
           <span>{item.applied_at ? 'Applied' : 'Apply'}</span>
@@ -2272,82 +2943,92 @@ function DocumentImportItemEditor({
         <button
           type="button"
           className="document-ignore-button"
-          disabled={selectionDisabled}
+          disabled={selectionDisabled || editing}
           onClick={() => onUpdate({ ignored: !item.ignored, selected: item.ignored })}
         >
           {item.ignored ? 'Restore' : 'Ignore'}
         </button>
         {saving && <span className="document-saving">Saving</span>}
-        {applied && canCorrectApplied && <span className="document-saving applied-editable">Edits update saved numbers</span>}
+        {applied && canCorrectApplied && !editing && <span className="document-saving applied-editable">Saved number</span>}
         {item.confidence && <span className={`confidence-pill ${item.confidence}`}>{item.confidence} confidence</span>}
+        {editable && (
+          <div className="document-item-edit-actions">
+            {editing ? (
+              <>
+                <button type="button" className="secondary-button" disabled={saving} onClick={cancelEditing}>Cancel</button>
+                <button type="button" disabled={saving || draft.label.trim().length === 0} onClick={() => void saveEdits()}>{saving ? 'Saving' : 'Save'}</button>
+              </>
+            ) : (
+              <button type="button" className="secondary-button" disabled={saving} onClick={beginEditing}>{applied ? 'Correct value' : 'Edit value'}</button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="document-item-fields">
         <label className="document-field wide">
           <span>Label</span>
           <input
-            key={`label-${item.id}-${item.label}`}
-            defaultValue={item.label}
+            value={draft.label}
             disabled={fieldsDisabled}
-            onBlur={(event) => updateIfChanged(item.label, event.target.value, (value) => onUpdate({ label: value }))}
+            onChange={(event) => updateDraft({ label: event.currentTarget.value })}
           />
         </label>
         <label className="document-field">
           <span>Target</span>
-          <select value={item.target_type} disabled={targetDisabled} onChange={(event) => onUpdate({ target_type: event.target.value as DocumentImportItem['target_type'] })}>
+          <select value={draft.target_type} disabled={targetDisabled} onChange={(event) => updateDraft({ target_type: event.currentTarget.value as DocumentImportItem['target_type'] })}>
             {targetTypeOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
-        {itemMoneyFields(item).map((field) => (
+        {moneyFields.map((field) => (
           <label className="document-field" key={field.key}>
             <span>{field.label}</span>
             <input
-              key={`money-${item.id}-${field.key}-${field.value ?? ''}`}
               type="number"
               min="0"
               step="0.01"
-              defaultValue={field.value ?? ''}
+              value={draft[field.key]}
               disabled={fieldsDisabled}
-              onBlur={(event) => updateMoneyIfChanged(field.value, event.target.value, (value) => onUpdate({ [field.key]: value }))}
+              onChange={(event) => updateDraft({ [field.key]: event.currentTarget.value })}
             />
           </label>
         ))}
-        {(item.target_type === 'income_source' || item.target_type === 'expense_item') && (
+        {(draft.target_type === 'income_source' || draft.target_type === 'expense_item') && (
           <label className="document-field">
             <span>Cadence</span>
-            <select value={item.cadence ?? 'monthly'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ cadence: event.target.value })}>
+            <select value={draft.cadence} disabled={fieldsDisabled} onChange={(event) => updateDraft({ cadence: event.currentTarget.value })}>
               {cadenceOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'income_source' && (
+        {draft.target_type === 'income_source' && (
           <label className="document-field">
             <span>Income type</span>
-            <select value={item.source_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ source_type: event.target.value })}>
+            <select value={draft.source_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ source_type: event.currentTarget.value })}>
               {sourceTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'expense_item' && (
+        {draft.target_type === 'expense_item' && (
           <label className="document-field">
             <span>Stack</span>
-            <select value={item.stack_key ?? 'discretionary'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ stack_key: event.target.value })}>
+            <select value={draft.stack_key} disabled={fieldsDisabled} onChange={(event) => updateDraft({ stack_key: event.currentTarget.value })}>
               {stackKeyOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'account' && (
+        {draft.target_type === 'account' && (
           <label className="document-field">
             <span>Account type</span>
-            <select value={item.account_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ account_type: event.target.value })}>
+            <select value={draft.account_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ account_type: event.currentTarget.value })}>
               {accountTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
         )}
-        {item.target_type === 'debt' && (
+        {draft.target_type === 'debt' && (
           <label className="document-field">
             <span>Debt type</span>
-            <select value={item.debt_type ?? 'other'} disabled={fieldsDisabled} onChange={(event) => onUpdate({ debt_type: event.target.value })}>
+            <select value={draft.debt_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ debt_type: event.currentTarget.value })}>
               {debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
             </select>
           </label>
@@ -2355,7 +3036,12 @@ function DocumentImportItemEditor({
       </div>
 
       {item.evidence && <p className="document-evidence">{item.evidence}</p>}
-      {applied && canCorrectApplied && <p className="document-evidence applied-note">Correcting this applied card updates the saved household record Mia uses. Set an amount to 0 if that saved value should no longer count.</p>}
+      {applied && canCorrectApplied && (
+        <p className="document-evidence applied-note">
+          Click Correct value before changing saved household numbers. Nothing updates until you press Save.
+        </p>
+      )}
+      {!applied && canEditDraft && <p className="document-evidence applied-note">Draft fields are locked until you click Edit value, then Save.</p>}
     </article>
   )
 }
@@ -2380,6 +3066,38 @@ const stackKeyOptions = [
   { value: 'sinking_unexpected', label: 'Sinking Fund — Unexpected' },
 ]
 
+function attachmentDisplayName(attachment: PendingMiaAttachment) {
+  if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
+  if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
+  if (attachment.content_type.startsWith('image/')) return 'Screenshot'
+
+  return documentKindLabel(attachment.document_kind)
+}
+
+function messageAttachmentDisplayName(attachment: MiaMessageAttachment) {
+  if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
+  if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
+  if (attachment.content_type.startsWith('image/')) return 'Screenshot'
+
+  return documentKindLabel(attachment.document_kind)
+}
+
+function documentImportDisplayName(documentImport: FinancialDocumentImport) {
+  if (documentImport.document_kind === 'receipt' && documentImport.content_type.startsWith('image/') && generatedEvidenceFilename(documentImport.filename)) {
+    return 'Receipt screenshot'
+  }
+  if (documentImport.document_kind === 'statement' && documentImport.content_type.startsWith('image/') && generatedEvidenceFilename(documentImport.filename)) {
+    return 'Statement screenshot'
+  }
+  if (documentImport.content_type.startsWith('image/') && generatedEvidenceFilename(documentImport.filename)) return 'Screenshot upload'
+
+  return documentImport.filename
+}
+
+function generatedEvidenceFilename(filename: string) {
+  return /^(?:pasted[-_]evidence|receipt[-_]screenshot|screenshot[-_]upload|mia[-_]attachment)/i.test(filename)
+}
+
 function documentKindLabel(kind: DocumentImportKind) {
   const labels: Record<DocumentImportKind, string> = {
     spreadsheet: 'Spreadsheet',
@@ -2392,19 +3110,226 @@ function documentKindLabel(kind: DocumentImportKind) {
   return labels[kind]
 }
 
+class MiaAttachmentError extends Error {
+  attachments: PendingMiaAttachment[]
+
+  constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
+    super(message, options)
+    this.attachments = attachments
+  }
+}
+
+class MiaAttachmentUploadError extends MiaAttachmentError {
+  constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
+    super(message, attachments, options)
+    this.name = 'MiaAttachmentUploadError'
+  }
+}
+
+class MiaAttachmentProcessingTimeoutError extends MiaAttachmentError {
+  constructor(message: string, attachments: PendingMiaAttachment[]) {
+    super(message, attachments)
+    this.name = 'MiaAttachmentProcessingTimeoutError'
+  }
+}
+
+function attachmentWithDocumentImport(attachment: PendingMiaAttachment, documentImport: FinancialDocumentImport): PendingMiaAttachment {
+  return {
+    ...attachment,
+    document_import_id: documentImport.id,
+    status: documentImport.status,
+    source_available: documentImport.source_available,
+  }
+}
+
+function attachmentWithMessageContext(attachment: PendingMiaAttachment, message: string): PendingMiaAttachment {
+  const documentKind = documentKindForMessageContext(attachment.file, attachment.document_kind, message)
+  return documentKind === attachment.document_kind ? attachment : { ...attachment, document_kind: documentKind }
+}
+
+function documentKindForMessageContext(file: File, currentKind: DocumentImportKind, message: string): DocumentImportKind {
+  if (!budgetSetupSignal(`${file.name} ${message}`)) return currentKind
+  if (currentKind === 'spreadsheet' || currentKind === 'pay_stub') return currentKind
+  return 'other'
+}
+
+function budgetSetupSignal(text: string) {
+  const normalized = text.toLowerCase().replace(/[^a-z0-9&]+/g, ' ')
+  return /\b(my|our|household|monthly|annual|family)\s+budget\b|\bbudget\s+(file|spreadsheet|sheet|screenshot|plan|setup|template|worksheet)\b|\b(set\s*up|update|build)\s+(my|our|the)?\s*budget\b|\bexpense\s+stack\b|\bincome\s+(and|&)\s+expenses\b/i.test(normalized)
+}
+
+function pendingMiaAttachment(file: File): PendingMiaAttachment {
+  const contentType = normalizedContentType(file)
+  return {
+    id: clientSideId('attachment'),
+    file,
+    filename: file.name || `receipt-screenshot-${timestampForFilename()}.jpg`,
+    content_type: contentType,
+    document_kind: inferDocumentKind(file),
+    previewUrl: URL.createObjectURL(file),
+  }
+}
+
+function localAttachmentForMessage(attachment: PendingMiaAttachment): MiaMessageAttachment {
+  return {
+    document_import_id: attachment.document_import_id,
+    filename: attachment.filename,
+    content_type: attachment.content_type,
+    document_kind: attachment.document_kind,
+    status: attachment.status ?? 'uploaded',
+    source_available: attachment.source_available ?? false,
+    preview_url: attachment.previewUrl,
+  }
+}
+
+function attachLocalPreviewsToMessage(message: MiaMessage, attachments: PendingMiaAttachment[]): MiaMessage {
+  if (!message.attachments || attachments.length === 0) return message
+
+  return {
+    ...message,
+    attachments: message.attachments.map((attachment, index) => ({
+      ...attachment,
+      preview_url: attachments[index]?.previewUrl,
+    })),
+  }
+}
+
+function filesFromClipboard(data: DataTransfer) {
+  const files = Array.from(data.files ?? [])
+  if (files.length > 0) return files.map(normalizedEvidenceFile)
+
+  return Array.from(data.items ?? [])
+    .filter((item) => item.kind === 'file')
+    .map((item) => item.getAsFile())
+    .filter((file): file is File => Boolean(file))
+    .map(normalizedEvidenceFile)
+}
+
+function normalizedEvidenceFile(file: File, index: number) {
+  const existingName = file.name.trim()
+  const extension = extensionForFile(file)
+  const hasUsefulName = Boolean(existingName && fileExtension(existingName) && !/^image\.(?:png|jpe?g|webp|heic|heif)$/i.test(existingName))
+  if (hasUsefulName) return file
+
+  const fallbackExtension = extension ?? 'jpg'
+  const prefix = normalizedContentType(file).startsWith('image/') ? 'receipt-screenshot' : 'mia-upload'
+  return new File([file], `${prefix}-${timestampForFilename()}-${index + 1}.${fallbackExtension}`, {
+    type: file.type || contentTypeForExtension(fallbackExtension) || 'application/octet-stream',
+    lastModified: file.lastModified,
+  })
+}
+
+function isSupportedEvidenceFile(file: File) {
+  const extension = extensionForFile(file)
+  const contentType = normalizedContentType(file)
+  if (extension && SUPPORTED_EVIDENCE_EXTENSIONS.has(extension)) return true
+  if (SUPPORTED_EVIDENCE_CONTENT_TYPES.has(contentType)) return true
+
+  return false
+}
+
+function normalizedContentType(file: File) {
+  return file.type.toLowerCase() || contentTypeForExtension(extensionForFile(file) ?? '') || 'application/octet-stream'
+}
+
+function fileExtension(filename: string) {
+  const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/)
+  return match?.[1] ?? null
+}
+
+function extensionForFile(file: File) {
+  return fileExtension(file.name) ?? extensionForContentType(file.type)
+}
+
+function browserPreviewableImage(contentType: string) {
+  return ['image/jpeg', 'image/png', 'image/webp'].includes(contentType.toLowerCase())
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds))
+}
+
+function clientSideId(prefix: string) {
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return `${prefix}-${cryptoApi.randomUUID()}`
+
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(12)
+    cryptoApi.getRandomValues(bytes)
+    return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+  }
+
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function timestampForFilename() {
+  return new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d{3}Z$/, '')
+}
+
+function extensionForContentType(contentType: string) {
+  const normalized = contentType.toLowerCase()
+  if (normalized === 'image/jpeg') return 'jpg'
+  if (normalized === 'image/png') return 'png'
+  if (normalized === 'image/webp') return 'webp'
+  if (normalized === 'image/heic') return 'heic'
+  if (normalized === 'image/heif') return 'heif'
+  if (normalized === 'application/pdf') return 'pdf'
+  if (normalized === 'text/csv' || normalized === 'application/csv') return 'csv'
+  if (normalized === 'application/vnd.ms-excel') return 'xls'
+  if (normalized === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'xlsx'
+  if (normalized === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
+
+  return null
+}
+
+function contentTypeForExtension(extension: string) {
+  const normalized = extension.toLowerCase().replace(/^\./, '')
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    pdf: 'application/pdf',
+    csv: 'text/csv',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  }
+
+  return map[normalized] ?? null
+}
+
+const SUPPORTED_EVIDENCE_EXTENSIONS = new Set(['pdf', 'csv', 'xls', 'xlsx', 'docx', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
+const SUPPORTED_EVIDENCE_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'text/csv',
+  'application/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+])
+
 function inferDocumentKind(file: File): DocumentImportKind {
   const name = file.name.toLowerCase()
   const contentType = file.type.toLowerCase()
   const isSpreadsheet = name.endsWith('.csv') || name.endsWith('.xls') || name.endsWith('.xlsx')
   const isWord = name.endsWith('.docx') || contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  const isImage = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || contentType.startsWith('image/')
+  const isImage = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || name.endsWith('.heic') || name.endsWith('.heif') || contentType.startsWith('image/')
   const isPdf = name.endsWith('.pdf') || contentType === 'application/pdf'
 
   if (isSpreadsheet) return 'spreadsheet'
-  if (isImage) return hasPayStubSignal(name) ? 'pay_stub' : 'receipt'
-  if (isPdf) return hasPayStubSignal(name) ? 'pay_stub' : 'statement'
-  if (isWord) return hasPayStubSignal(name) ? 'pay_stub' : 'other'
   if (hasPayStubSignal(name)) return 'pay_stub'
+  if (budgetSetupSignal(name)) return 'other'
+  if (isImage) return 'receipt'
+  if (isPdf) return 'statement'
+  if (isWord) return 'other'
 
   return 'other'
 }
@@ -2470,31 +3395,83 @@ function targetTypeLabel(targetType: DocumentImportItem['target_type']) {
   return targetTypeOptions.find((option) => option.value === targetType)?.label ?? titleize(targetType)
 }
 
-function itemMoneyFields(item: DocumentImportItem): Array<{ key: 'amount' | 'balance' | 'payment'; label: string; value: number | null }> {
-  if (item.target_type === 'profile_note') return []
-  if (item.target_type === 'account') return [{ key: 'balance', label: 'Balance', value: item.balance }]
-  if (item.target_type === 'debt') {
+function documentItemMoneyFields(targetType: DocumentImportItem['target_type']): Array<{ key: 'amount' | 'balance' | 'payment'; label: string }> {
+  if (targetType === 'profile_note') return []
+  if (targetType === 'account') return [{ key: 'balance', label: 'Balance' }]
+  if (targetType === 'debt') {
     return [
-      { key: 'balance', label: 'Balance', value: item.balance },
-      { key: 'payment', label: 'Payment', value: item.payment },
+      { key: 'balance', label: 'Balance' },
+      { key: 'payment', label: 'Payment' },
     ]
   }
 
-  return [{ key: 'amount', label: item.target_type === 'goal' ? 'Target amount' : 'Monthly amount', value: item.amount }]
+  return [{ key: 'amount', label: targetType === 'goal' ? 'Target amount' : 'Monthly amount' }]
 }
 
-function updateIfChanged(currentValue: string | null, nextValue: string, onChanged: (value: string) => void) {
-  const cleaned = nextValue.trim()
-  if (!cleaned || cleaned === (currentValue ?? '')) return
-  onChanged(cleaned)
+function editableDocumentItemDraft(item: DocumentImportItem): EditableDocumentItemDraft {
+  return {
+    target_type: item.target_type,
+    label: item.label,
+    amount: moneyDraftValue(item.amount),
+    balance: moneyDraftValue(item.balance),
+    payment: moneyDraftValue(item.payment),
+    cadence: item.cadence ?? 'monthly',
+    source_type: item.source_type ?? 'other',
+    stack_key: item.stack_key ?? 'discretionary',
+    account_type: item.account_type ?? 'other',
+    debt_type: item.debt_type ?? 'other',
+    evidence: item.evidence ?? '',
+  }
 }
 
-function updateMoneyIfChanged(currentValue: number | null, nextValue: string, onChanged: (value: string) => void) {
-  const cleaned = nextValue.trim()
-  if (!cleaned) return
-  const current = currentValue === null ? '' : String(currentValue)
-  if (cleaned === current) return
-  onChanged(cleaned)
+function moneyDraftValue(value: number | null) {
+  return value === null ? '' : String(value)
+}
+
+function documentItemUpdatePayload(draft: EditableDocumentItemDraft): DocumentImportItemInput {
+  const payload: DocumentImportItemInput = {
+    target_type: draft.target_type,
+    label: draft.label.trim(),
+    evidence: draft.evidence,
+  }
+
+  if (draft.target_type === 'income_source') {
+    return { ...payload, amount: draft.amount, cadence: draft.cadence, source_type: draft.source_type }
+  }
+  if (draft.target_type === 'expense_item') {
+    return { ...payload, amount: draft.amount, cadence: draft.cadence, stack_key: draft.stack_key }
+  }
+  if (draft.target_type === 'account') {
+    return { ...payload, balance: draft.balance, account_type: draft.account_type }
+  }
+  if (draft.target_type === 'debt') {
+    return { ...payload, balance: draft.balance, payment: draft.payment, debt_type: draft.debt_type }
+  }
+  if (draft.target_type === 'goal') {
+    return { ...payload, amount: draft.amount }
+  }
+
+  return payload
+}
+
+function documentItemSignature(item: DocumentImportItem) {
+  return [
+    item.id,
+    item.target_type,
+    item.label,
+    item.amount,
+    item.balance,
+    item.payment,
+    item.cadence,
+    item.source_type,
+    item.stack_key,
+    item.account_type,
+    item.debt_type,
+    item.evidence,
+    item.selected,
+    item.ignored,
+    item.applied_at,
+  ].join('|')
 }
 
 function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
@@ -2518,6 +3495,30 @@ function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
 function importTimestamp(documentImport: FinancialDocumentImport) {
   const timestamp = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function mergeImportSummariesWithDetails(summaries: FinancialDocumentImport[], current: FinancialDocumentImport[]) {
+  return summaries.map((summary) => {
+    const existing = current.find((documentImport) => documentImport.id === summary.id)
+    if (!existing?.details_included) return summary
+    if (!importDetailsStillCurrent(summary, existing)) return summary
+
+    return {
+      ...summary,
+      details_included: true,
+      items: existing.items,
+      transaction_drafts: existing.transaction_drafts,
+      attempts: existing.attempts,
+    }
+  })
+}
+
+function importDetailsStillCurrent(summary: FinancialDocumentImport, existing: FinancialDocumentImport) {
+  return summary.status === existing.status &&
+    summary.processed_at === existing.processed_at &&
+    summary.applied_at === existing.applied_at &&
+    summary.source_deleted_at === existing.source_deleted_at &&
+    summary.updated_at === existing.updated_at
 }
 
 function replaceImport(imports: FinancialDocumentImport[], documentImport: FinancialDocumentImport) {
@@ -3564,8 +4565,12 @@ function TransactionDraftReviewStack({
   compact = false,
   draftActionsDisabled = false,
   disabledReason,
+  categories = [],
+  onUpdate,
+  onMatch,
   onConfirm,
   onIgnore,
+  onReopen,
 }: {
   drafts: TransactionDraft[]
   isRealWorkspace: boolean
@@ -3573,35 +4578,317 @@ function TransactionDraftReviewStack({
   compact?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
+  categories?: BudgetCategoryRow[]
+  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
+  onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
+  onReopen: (draft: TransactionDraft) => void
 }) {
   return (
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
       <div>
         <p className="eyebrow">Review before applying</p>
-        <h4>Mia drafted these transactions from chat</h4>
-        {compact && <p>Confirm only if the merchant, amount, and category are right. Actuals do not change until you approve.</p>}
+        <h4>Mia drafted transactions for your approval</h4>
+        {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
         {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
       </div>
       {drafts.map((draft) => (
-        <div className="transaction-draft-card" key={draft.id}>
-          <div>
-            <strong>{draft.merchant}</strong>
-            <p>{formatShortDate(draft.occurred_on)} · {currency.format(draft.amount)} · {draft.category_name ?? 'Uncategorized'}</p>
-          </div>
-          <div className="transaction-draft-actions">
-            <button type="button" disabled={!isRealWorkspace || draftActionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
-              {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
-            </button>
-            <button type="button" className="secondary-button" disabled={!isRealWorkspace || draftActionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
-              {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
-            </button>
-          </div>
-        </div>
+        <TransactionDraftReviewCard
+          key={transactionDraftRenderKey(draft)}
+          draft={draft}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          draftActionsDisabled={draftActionsDisabled}
+          categories={categories}
+          onUpdate={onUpdate}
+          onMatch={onMatch}
+          onConfirm={onConfirm}
+          onIgnore={onIgnore}
+          onReopen={onReopen}
+        />
       ))}
     </div>
   )
+}
+
+type EditableDraftSplit = {
+  id?: number
+  amount: string
+  budget_category_id: string
+  category_name: string
+  stack_key: BudgetStackKey | ''
+  notes: string
+}
+
+function TransactionDraftReviewCard({
+  draft,
+  isRealWorkspace,
+  action,
+  draftActionsDisabled,
+  categories,
+  onUpdate,
+  onMatch,
+  onConfirm,
+  onIgnore,
+  onReopen,
+}: {
+  draft: TransactionDraft
+  isRealWorkspace: boolean
+  action: string | null
+  draftActionsDisabled: boolean
+  categories: BudgetCategoryRow[]
+  onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
+  onMatch?: (draft: TransactionDraft, matchId?: number) => void
+  onConfirm: (draft: TransactionDraft) => void
+  onIgnore: (draft: TransactionDraft) => void
+  onReopen: (draft: TransactionDraft) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [merchant, setMerchant] = useState(draft.merchant)
+  const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
+  const [amount, setAmount] = useState(editableAmountForDraft(draft))
+  const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
+  const [editError, setEditError] = useState<string | null>(null)
+  const activeCategories = categories.filter((category) => category.active)
+  const isPending = draft.status === 'pending'
+  const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
+  const displayAmount = exactMoneyNumber(draft.amount, draft.amount_cents)
+  const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0)
+  const targetAmount = Number(amount || 0)
+  const splitMismatch = Math.round(splitTotal * 100) !== Math.round(targetAmount * 100)
+  const saving = action === `update-draft:${draft.id}`
+  const reopening = action === `reopen-draft:${draft.id}`
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
+
+  function resetEditorFromDraft() {
+    setMerchant(draft.merchant)
+    setOccurredOn(draft.occurred_on)
+    setAmount(editableAmountForDraft(draft))
+    setSplits(editableSplitsForDraft(draft))
+    setEditError(null)
+  }
+
+  function beginEditing() {
+    resetEditorFromDraft()
+    setEditing(true)
+  }
+
+  function closeEditing() {
+    resetEditorFromDraft()
+    setEditing(false)
+  }
+
+  function updateSplit(index: number, values: Partial<EditableDraftSplit>) {
+    setSplits((current) => current.map((split, candidateIndex) => (candidateIndex === index ? { ...split, ...values } : split)))
+  }
+
+  function addSplit() {
+    setSplits((current) => ([
+      ...current,
+      { amount: '', budget_category_id: '', category_name: '', stack_key: '', notes: '' },
+    ]))
+  }
+
+  function removeSplit(index: number) {
+    setSplits((current) => current.length <= 1 ? current : current.filter((_, candidateIndex) => candidateIndex !== index))
+  }
+
+  async function saveDraftEdits() {
+    if (!onUpdate) return
+
+    const cleanedSplits = splits.filter((split) => split.id || split.amount || split.budget_category_id || split.category_name || split.stack_key || split.notes)
+    if (cleanedSplits.length === 0) {
+      setEditError('Add at least one split before saving this draft.')
+      return
+    }
+
+    setEditError(null)
+    try {
+      await onUpdate(draft, {
+        occurred_on: occurredOn,
+        merchant,
+        amount,
+        splits: cleanedSplits.map((split) => ({
+          id: split.id,
+          amount: split.amount,
+          budget_category_id: split.budget_category_id ? Number(split.budget_category_id) : null,
+          category_name: split.category_name || null,
+          stack_key: split.stack_key || null,
+          notes: split.notes || null,
+        })),
+      })
+      setEditing(false)
+    } catch (caught) {
+      setEditError(caught instanceof Error ? caught.message : 'Transaction draft could not be updated.')
+    }
+  }
+
+  return (
+    <div className="transaction-draft-card">
+      <div className="transaction-draft-main">
+        <div className="transaction-draft-title-row">
+          <strong>{draft.merchant}</strong>
+          <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
+        </div>
+        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {draft.category_name ?? 'Needs category'}</p>
+        {(draft.splits ?? []).length > 0 && (
+          <div className="transaction-draft-splits">
+            {(draft.splits ?? []).map((split) => (
+              <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</span>
+            ))}
+          </div>
+        )}
+        {proposedMatches.length > 0 && (
+          <div className="transaction-match-suggestions">
+            {proposedMatches.slice(0, 2).map((match) => (
+              <div key={match.id}>
+                <span>Possible duplicate: {match.transaction.merchant} · {formatShortDate(match.transaction.occurred_on)} · {currency.format(match.transaction.amount)}</span>
+                {onMatch && (
+                  <button type="button" className="secondary-button" disabled={actionsDisabled || action === `match-draft:${draft.id}`} onClick={() => onMatch(draft, match.id)}>
+                    {action === `match-draft:${draft.id}` ? 'Matching' : 'Match existing'}
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {editing && isPending && (
+        <div className="transaction-draft-editor">
+          <label>
+            <span>Merchant</span>
+            <input value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} />
+          </label>
+          <label>
+            <span>Date</span>
+            <input type="date" value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} />
+          </label>
+          <label>
+            <span>Total</span>
+            <input type="number" min="0.01" step="0.01" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} />
+          </label>
+          <div className="transaction-split-editor-list">
+            {splits.map((split, index) => (
+              <div className="transaction-split-editor" key={split.id ?? `new-${index}`}>
+                <label>
+                  <span>Split amount</span>
+                  <input type="number" min="0.01" step="0.01" value={split.amount} onChange={(event) => updateSplit(index, { amount: event.currentTarget.value })} />
+                </label>
+                <label>
+                  <span>Category</span>
+                  <select value={split.budget_category_id} onChange={(event) => {
+                    const category = activeCategories.find((candidate) => String(candidate.id) === event.currentTarget.value)
+                    updateSplit(index, {
+                      budget_category_id: event.currentTarget.value,
+                      category_name: category?.name ?? split.category_name,
+                      stack_key: category?.stack_key ?? split.stack_key,
+                    })
+                  }}>
+                    <option value="">Needs category</option>
+                    {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span>Notes</span>
+                  <input value={split.notes} onChange={(event) => updateSplit(index, { notes: event.currentTarget.value })} />
+                </label>
+                <button type="button" className="secondary-button" disabled={splits.length <= 1} onClick={() => removeSplit(index)}>Remove</button>
+              </div>
+            ))}
+          </div>
+          <div className="transaction-draft-edit-actions">
+            <button type="button" className="secondary-button" onClick={addSplit}>Add split</button>
+            {splitMismatch && <span className="transaction-draft-disabled-reason">Splits total {currency.format(splitTotal)} but draft total is {currency.format(targetAmount)}.</span>}
+            {editError && <span className="transaction-draft-disabled-reason" role="alert">{editError}</span>}
+            <button type="button" className="secondary-button" onClick={closeEditing}>Cancel</button>
+            <button type="button" disabled={saving || splitMismatch} onClick={() => void saveDraftEdits()}>{saving ? 'Saving' : 'Save draft'}</button>
+          </div>
+        </div>
+      )}
+
+      {isPending ? (
+        <div className="transaction-draft-actions">
+          {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
+          <button type="button" disabled={actionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+            {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
+          </button>
+          <button type="button" className="secondary-button" disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
+            {action === `ignore-draft:${draft.id}` ? 'Ignoring' : 'Ignore'}
+          </button>
+        </div>
+      ) : (
+        <div className="transaction-draft-actions terminal">
+          <span>{transactionDraftTerminalCopy(draft.status)}</span>
+          <button type="button" className="secondary-button" disabled={reopenDisabled || reopening} onClick={() => onReopen(draft)}>
+            {reopening ? 'Reopening' : transactionDraftReopenLabel(draft.status)}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function transactionDraftStatusTone(status: TransactionDraft['status']) {
+  if (status === 'pending') return 'gold'
+  if (status === 'ignored') return 'red'
+  return 'green'
+}
+
+function transactionDraftTerminalCopy(status: TransactionDraft['status']) {
+  if (status === 'matched') return 'Matched to an existing actual. No new spending was added.'
+  if (status === 'ignored') return 'Ignored. Actuals did not change.'
+  if (status === 'corrected') return 'Confirmed with edits. Actuals were updated.'
+  if (status === 'confirmed') return 'Confirmed. Actuals were updated.'
+  return 'Review complete.'
+}
+
+function transactionDraftReopenLabel(status: TransactionDraft['status']) {
+  if (status === 'matched') return 'Undo match'
+  if (status === 'ignored') return 'Restore draft'
+  return 'Undo to edit'
+}
+
+function transactionDraftRenderKey(draft: TransactionDraft) {
+  return [
+    draft.id,
+    draft.status,
+    draft.occurred_on,
+    draft.merchant,
+    draft.amount_cents ?? draft.amount,
+    (draft.splits ?? []).map((split) => `${split.id}:${split.amount_cents}:${split.budget_category_id}`).join(','),
+    (draft.matches ?? []).map((match) => `${match.id}:${match.status}`).join(','),
+  ].join('|')
+}
+
+function editableAmountForDraft(draft: TransactionDraft) {
+  return exactMoneyString(draft.amount, draft.amount_cents)
+}
+
+function exactMoneyString(value: number, cents?: number | null) {
+  return exactMoneyNumber(value, cents).toFixed(2)
+}
+
+function exactMoneyNumber(value: number, cents?: number | null) {
+  if (typeof cents === 'number') return cents / 100
+  return Number.isFinite(value) ? value : 0
+}
+
+function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
+  const splits = draft.splits && draft.splits.length > 0
+    ? draft.splits
+    : [{ id: undefined, amount: draft.amount, amount_cents: draft.amount_cents ?? null, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null }]
+
+  return splits.map((split) => ({
+    id: split.id,
+    amount: exactMoneyString(split.amount, split.amount_cents),
+    budget_category_id: split.budget_category_id ? String(split.budget_category_id) : '',
+    category_name: split.category_name ?? '',
+    stack_key: split.stack_key ?? '',
+    notes: split.notes ?? '',
+  }))
 }
 
 function CurrentMonthActivityPanel({
@@ -3885,8 +5172,11 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits,
   onArchiveCategory,
   onRestoreCategory,
+  onUpdateDraft,
+  onMatchDraft,
   onConfirmDraft,
   onIgnoreDraft,
+  onReopenDraft,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -3903,8 +5193,11 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
+  onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
+  onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
+  onReopenDraft: (draft: TransactionDraft) => void
 }) {
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
@@ -4057,8 +5350,12 @@ function AnnualBudgetPlanner({
           action={action}
           draftActionsDisabled={isEditingBudget}
           disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
+          categories={plan.rows}
+          onUpdate={onUpdateDraft}
+          onMatch={onMatchDraft}
           onConfirm={onConfirmDraft}
           onIgnore={onIgnoreDraft}
+          onReopen={onReopenDraft}
         />
       )}
 
@@ -4250,6 +5547,10 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
   }
 }
 
+function messageKey(message: MiaMessage, index: number) {
+  return message.id ? `server-${message.id}` : message.client_id ?? `${message.author}-${index}`
+}
+
 function messageParagraphs(message: MiaMessage) {
   const speakerlessContent = message.role === 'assistant'
     ? message.content.replace(/^Mia:\s*/i, '')
@@ -4324,6 +5625,14 @@ function CollapseIcon() {
       <path d="M4 10 10 4" className="icon-stroke" />
       <path d="M14 20v-6h6" className="icon-stroke" />
       <path d="m20 14-6 6" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function CloseIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" className="icon-stroke" />
     </svg>
   )
 }

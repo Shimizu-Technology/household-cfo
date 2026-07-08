@@ -38,6 +38,7 @@ export type DocumentImportKind = 'spreadsheet' | 'statement' | 'pay_stub' | 'rec
 export type DocumentImportStatus = 'uploaded' | 'processing' | 'needs_review' | 'applied' | 'partially_applied' | 'failed' | 'source_deleted'
 export type DocumentImportTargetType = 'income_source' | 'expense_item' | 'account' | 'debt' | 'goal' | 'profile_note'
 export type DocumentImportConfidence = 'high' | 'medium' | 'low'
+export type TransactionDraftMatchStatus = 'proposed' | 'accepted' | 'rejected'
 
 export type DocumentImportUserReference = {
   id: number
@@ -83,6 +84,34 @@ export type DocumentImportAttempt = {
   metadata: Record<string, unknown>
 }
 
+export type TransactionDraftSplit = {
+  id: number
+  budget_category_id: number | null
+  category_name: string | null
+  stack_key: BudgetStackKey | null
+  stack_label: string | null
+  amount: number
+  amount_cents: number
+  notes: string | null
+  confidence: number | string | null
+  metadata?: Record<string, unknown>
+}
+
+export type TransactionDraftMatch = {
+  id: number
+  status: TransactionDraftMatchStatus
+  confidence: number | string | null
+  match_reason: string | null
+  transaction: {
+    id: number
+    occurred_on: string
+    merchant: string
+    amount: number
+    source_type: string
+    categories: string[]
+  }
+}
+
 export type FinancialDocumentImport = {
   id: number
   household_id: number
@@ -99,7 +128,9 @@ export type FinancialDocumentImport = {
   processed_at: string | null
   applied_at: string | null
   source_deleted_at: string | null
+  updated_at: string
   source_available: boolean
+  details_included: boolean
   uploaded_by: DocumentImportUserReference | null
   applied_by: DocumentImportUserReference | null
   source_deleted_by: DocumentImportUserReference | null
@@ -112,8 +143,11 @@ export type FinancialDocumentImport = {
     last_extracted_at?: string
     last_applied_count?: number
     last_applied_at?: string
+    transaction_draft_count?: number
+    transaction_match_count?: number
   }
   items: DocumentImportItem[]
+  transaction_drafts: TransactionDraft[]
   attempts: DocumentImportAttempt[]
 }
 
@@ -230,12 +264,18 @@ export type TransactionDraft = {
   occurred_on: string
   merchant: string
   amount: number
+  amount_cents?: number
   status: string
   source_type?: string
+  financial_document_import_id?: number | null
   category_id: number | null
   category_name: string | null
   stack_label?: string | null
   summary?: string
+  splits?: TransactionDraftSplit[]
+  matches?: TransactionDraftMatch[]
+  matched_transaction_id?: number | null
+  draft_payload?: Record<string, unknown>
 }
 
 export type RecentTransaction = {
@@ -363,10 +403,24 @@ export type CfoFilterData = {
   priority_stack: string[]
 }
 
+export type MiaMessageAttachment = {
+  document_import_id?: number
+  filename: string
+  content_type: string
+  document_kind: DocumentImportKind
+  status: DocumentImportStatus
+  source_available: boolean
+  preview_url?: string
+}
+
 export type MiaMessage = {
+  id?: number
+  client_id?: string
   role: 'assistant' | 'user'
   author: string
   content: string
+  attachments?: MiaMessageAttachment[]
+  created_at?: string
 }
 
 export type MiaMessagesData = {
@@ -692,22 +746,45 @@ export async function fetchSpendingReport(startOn: string, endOn: string): Promi
 }
 
 export type MiaMessageResponse = {
+  user_message: MiaMessage
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
 }
 
-export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number): Promise<MiaMessageResponse> {
+export async function fetchMiaMessages(realWorkspace = false): Promise<MiaMessagesData> {
+  if (!realWorkspace) {
+    return { messages: [], quick_prompts: [], disclaimer: '' }
+  }
+
+  return fetchJson<MiaMessagesData>('/api/v1/mia/messages')
+}
+
+export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = []): Promise<MiaMessageResponse> {
   return postJson<MiaMessageResponse>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
     message,
     ...(realWorkspace && year ? { year } : {}),
     ...(realWorkspace && month ? { month } : {}),
+    ...(realWorkspace && documentImportIds.length > 0 ? { document_import_ids: documentImportIds } : {}),
     messages: history.slice(-12).map((entry) => ({
       role: entry.role,
       content: entry.content,
     })),
   })
+}
+
+function clientRequestId() {
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    cryptoApi.getRandomValues(bytes)
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+
+  return `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function yearQuery(year?: number) {
@@ -747,13 +824,35 @@ export async function updateBudgetAllocation(id: number, plannedAmount: number |
   return payload.budget
 }
 
-export async function confirmTransactionDraft(id: number, values: Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> = {}): Promise<AppData> {
+export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
+  splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null; confidence: number | string | null }>>
+}
+
+export async function updateTransactionDraft(id: number, values: TransactionDraftUpdateInput): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
+  return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>(`/api/v1/transaction_drafts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ transaction_draft: values }),
+  })
+}
+
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput = {}): Promise<AppData> {
   const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, { transaction_draft: values })
   return payload.workspace
 }
 
 export async function ignoreTransactionDraft(id: number): Promise<AppData> {
   const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/ignore`, {})
+  return payload.workspace
+}
+
+export async function matchTransactionDraft(id: number, matchId?: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/match`, matchId ? { match_id: matchId } : {})
+  return payload.workspace
+}
+
+export async function reopenTransactionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/reopen`, {})
   return payload.workspace
 }
 
@@ -773,11 +872,12 @@ export async function fetchDocumentImport(id: number): Promise<FinancialDocument
   return payload.document_import
 }
 
-export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind): Promise<FinancialDocumentImport> {
+export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile'): Promise<FinancialDocumentImport> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('document_kind', documentKind)
-  formData.append('upload_request_id', crypto.randomUUID())
+  formData.append('upload_origin', origin)
+  formData.append('upload_request_id', clientRequestId())
 
   let response: Response
   try {

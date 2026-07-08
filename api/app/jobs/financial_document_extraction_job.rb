@@ -5,7 +5,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   ATTEMPT_METADATA_STRING_LENGTH = 120
   ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
-  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at].freeze
+  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at transaction_draft_count transaction_match_count].freeze
+  STALE_PROCESSING_AFTER = 15.minutes
 
   def perform(financial_document_import_id)
     document_import = FinancialDocumentImport.find_by(id: financial_document_import_id)
@@ -17,7 +18,12 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
     document_import.with_lock do
       return if document_import.source_deleted_at.present?
+      unless extraction_startable?(document_import)
+        schedule_stale_processing_recheck!(document_import) if document_import.status == "processing"
+        return
+      end
 
+      mark_stale_processing_attempts!(document_import) if stale_processing?(document_import)
       attempt = document_import.attempts.create!(
         provider: "openrouter",
         model: extractor.model,
@@ -54,12 +60,16 @@ class FinancialDocumentExtractionJob < ApplicationJob
       Array(data[:items]).each do |item_attributes|
         document_import.items.create!(item_attributes)
       end
+      draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, data[:transaction_drafts]).call
+      warnings = Array(data[:warnings]) + Array(draft_result.fetch(:warnings))
 
       metadata = (document_import.metadata || {}).merge(
         "confidence" => data[:confidence],
-        "warnings" => data[:warnings],
+        "warnings" => warnings.first(FinancialDocuments::Extractor::MAX_WARNINGS),
         "extraction_model" => attempt.model,
-        "last_extracted_at" => Time.current.iso8601
+        "last_extracted_at" => Time.current.iso8601,
+        "transaction_draft_count" => draft_result.fetch(:created_count),
+        "transaction_match_count" => draft_result.fetch(:match_count)
       ).compact
 
       document_import.update!(
@@ -73,6 +83,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         processed_at: Time.current,
         metadata: metadata
       )
+      HouseholdFinance::DocumentImportStatusReconciler.new(document_import).call
 
       attempt.update!(
         status: "succeeded",
@@ -106,6 +117,32 @@ class FinancialDocumentExtractionJob < ApplicationJob
         error: error.to_s.truncate(1000, omission: "…"),
         completed_at: Time.current,
         metadata: sanitized_attempt_metadata(metadata)
+      )
+    end
+  end
+
+  def extraction_startable?(document_import)
+    document_import.status == "uploaded" || stale_processing?(document_import)
+  end
+
+  def stale_processing?(document_import)
+    document_import.status == "processing" && document_import.updated_at.present? && document_import.updated_at <= STALE_PROCESSING_AFTER.ago
+  end
+
+  def schedule_stale_processing_recheck!(document_import)
+    wait_seconds = [ (document_import.updated_at + STALE_PROCESSING_AFTER - Time.current).ceil, 60 ].max
+    Rails.logger.info("[FinancialDocumentExtractionJob] import #{document_import.id} is already processing; scheduling stale recheck in #{wait_seconds} seconds")
+    self.class.set(wait: wait_seconds.seconds).perform_later(document_import.id)
+  end
+
+  def mark_stale_processing_attempts!(document_import)
+    Rails.logger.warn("[FinancialDocumentExtractionJob] restarting stale processing import #{document_import.id}")
+    document_import.attempts.where(status: "processing").find_each do |attempt|
+      attempt.update!(
+        status: "failed",
+        error: "Extraction attempt was abandoned after processing stalled",
+        completed_at: Time.current,
+        metadata: (attempt.metadata || {}).merge("stalled" => true)
       )
     end
   end

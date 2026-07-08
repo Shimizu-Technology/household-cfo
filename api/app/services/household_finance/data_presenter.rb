@@ -434,10 +434,51 @@ module HouseholdFinance
 
     def chat_messages
       return [] unless user
-
       return [] unless chat_session
 
-      chat_session.chat_messages.order(:created_at).last(24).map(&:as_api_json)
+      messages = chat_session.chat_messages.order(:created_at).last(24)
+      imports_by_id = attachment_imports_by_id(messages)
+      messages.map { |message| serialize_chat_message(message, imports_by_id: imports_by_id) }
+    end
+
+    def attachment_imports_by_id(messages)
+      ids = messages.flat_map do |message|
+        Array(message.attachments).filter_map { |attachment| attachment["document_import_id"] || attachment[:document_import_id] }
+      end.map(&:to_i).select(&:positive?).uniq
+      return {} if ids.empty?
+
+      household.financial_document_imports.where(id: ids).index_by(&:id)
+    end
+
+    def serialize_chat_message(message, imports_by_id:)
+      payload = message.as_api_json
+      payload[:attachments] = Array(payload[:attachments]).map { |attachment| serialize_chat_attachment(attachment, imports_by_id: imports_by_id) }
+      payload
+    end
+
+    def serialize_chat_attachment(attachment, imports_by_id:)
+      payload = attachment.respond_to?(:deep_symbolize_keys) ? attachment.deep_symbolize_keys : {}
+      document_import = imports_by_id[payload[:document_import_id].to_i]
+      return payload unless document_import
+
+      payload.merge(
+        filename: document_import.filename,
+        content_type: document_import.content_type,
+        document_kind: document_import.document_kind,
+        status: document_import.status,
+        source_available: document_import.source_available?,
+        preview_url: chat_attachment_preview_url(document_import)
+      ).compact
+    end
+
+    def chat_attachment_preview_url(document_import)
+      return unless S3Service.configured?
+      return unless document_import.source_available?
+      return unless document_import.content_type.in?(%w[image/jpeg image/png image/webp])
+
+      S3Service.presigned_url(document_import.s3_key, expires_in: 300, filename: document_import.filename, disposition: :inline)
+    rescue S3Service::MissingConfigurationError
+      nil
     end
 
     def income_by_type(source_type)

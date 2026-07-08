@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_05_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -82,6 +82,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
   end
 
   create_table "chat_messages", force: :cascade do |t|
+    t.jsonb "attachments", default: [], null: false
     t.bigint "chat_session_id", null: false
     t.text "content", null: false
     t.datetime "created_at", null: false
@@ -375,6 +376,28 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
     t.check_constraint "status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "invitation_email_attempts_status_valid"
   end
 
+  create_table "merchant_category_rules", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.bigint "budget_category_id", null: false
+    t.decimal "confidence", precision: 5, scale: 2, default: "0.8", null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_id", null: false
+    t.datetime "last_confirmed_at"
+    t.string "merchant_pattern", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "source", default: "user_confirmed", null: false
+    t.integer "times_confirmed", default: 1, null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_category_id"], name: "index_merchant_category_rules_on_budget_category_id"
+    t.index ["household_id", "active", "merchant_pattern"], name: "index_merchant_rules_on_household_active_pattern"
+    t.index ["household_id", "merchant_pattern", "budget_category_id"], name: "index_merchant_rules_on_household_pattern_category", unique: true
+    t.index ["household_id"], name: "index_merchant_category_rules_on_household_id"
+    t.check_constraint "char_length(merchant_pattern::text) <= 120", name: "merchant_category_rules_pattern_length"
+    t.check_constraint "confidence >= 0::numeric AND confidence <= 1::numeric", name: "merchant_category_rules_confidence_unit_interval"
+    t.check_constraint "source::text = ANY (ARRAY['user_confirmed'::character varying, 'system_inferred'::character varying, 'coach_confirmed'::character varying]::text[])", name: "merchant_category_rules_source_valid"
+    t.check_constraint "times_confirmed >= 0", name: "merchant_category_rules_times_confirmed_non_negative"
+  end
+
   create_table "solid_cache_entries", force: :cascade do |t|
     t.integer "byte_size", null: false
     t.datetime "created_at", null: false
@@ -507,6 +530,40 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
     t.index ["key"], name: "index_solid_queue_semaphores_on_key", unique: true
   end
 
+  create_table "transaction_draft_matches", force: :cascade do |t|
+    t.decimal "confidence", precision: 5, scale: 2
+    t.datetime "created_at", null: false
+    t.bigint "household_transaction_id", null: false
+    t.string "match_reason"
+    t.jsonb "metadata", default: {}, null: false
+    t.string "status", default: "proposed", null: false
+    t.bigint "transaction_draft_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["household_transaction_id", "status"], name: "index_draft_matches_on_transaction_and_status"
+    t.index ["household_transaction_id"], name: "index_transaction_draft_matches_on_household_transaction_id"
+    t.index ["transaction_draft_id", "household_transaction_id"], name: "index_draft_matches_on_draft_and_transaction", unique: true
+    t.index ["transaction_draft_id"], name: "index_transaction_draft_matches_on_transaction_draft_id"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'accepted'::character varying, 'rejected'::character varying]::text[])", name: "transaction_draft_matches_status_valid"
+  end
+
+  create_table "transaction_draft_splits", force: :cascade do |t|
+    t.integer "amount_cents", null: false
+    t.bigint "budget_category_id"
+    t.string "category_name"
+    t.decimal "confidence", precision: 5, scale: 2
+    t.datetime "created_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.text "notes"
+    t.string "stack_key"
+    t.bigint "transaction_draft_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["budget_category_id"], name: "index_transaction_draft_splits_on_budget_category_id"
+    t.index ["transaction_draft_id", "budget_category_id"], name: "index_draft_splits_on_draft_and_category"
+    t.index ["transaction_draft_id"], name: "index_transaction_draft_splits_on_transaction_draft_id"
+    t.check_constraint "amount_cents > 0", name: "transaction_draft_splits_amount_positive"
+    t.check_constraint "stack_key IS NULL OR (stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[]))", name: "transaction_draft_splits_stack_key_valid"
+  end
+
   create_table "transaction_drafts", force: :cascade do |t|
     t.bigint "budget_category_id"
     t.decimal "confidence", precision: 5, scale: 2
@@ -515,6 +572,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
     t.jsonb "draft_payload", default: {}, null: false
     t.bigint "financial_document_import_id"
     t.bigint "household_id", null: false
+    t.bigint "matched_transaction_id"
     t.string "merchant", null: false
     t.date "occurred_on", null: false
     t.text "raw_input"
@@ -524,11 +582,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
     t.datetime "updated_at", null: false
     t.index ["budget_category_id"], name: "index_transaction_drafts_on_budget_category_id"
     t.index ["confirmed_transaction_id"], name: "index_transaction_drafts_on_confirmed_transaction_id"
+    t.index ["financial_document_import_id", "status"], name: "index_transaction_drafts_on_import_and_status"
     t.index ["financial_document_import_id"], name: "index_transaction_drafts_on_financial_document_import_id"
     t.index ["household_id", "status", "created_at"], name: "idx_on_household_id_status_created_at_cf0ad72279"
     t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
+    t.index ["matched_transaction_id"], name: "index_transaction_drafts_on_matched_transaction_id"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying]::text[])", name: "transaction_drafts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying, 'matched'::character varying]::text[])", name: "transaction_drafts_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "transaction_drafts_amount_positive"
   end
 
@@ -606,15 +666,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_03_020000) do
   add_foreign_key "income_sources", "households"
   add_foreign_key "invitation_email_attempts", "users"
   add_foreign_key "invitation_email_attempts", "users", column: "sent_by_user_id"
+  add_foreign_key "merchant_category_rules", "budget_categories"
+  add_foreign_key "merchant_category_rules", "households"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_ready_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_recurring_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_scheduled_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
+  add_foreign_key "transaction_draft_matches", "household_transactions"
+  add_foreign_key "transaction_draft_matches", "transaction_drafts"
+  add_foreign_key "transaction_draft_splits", "budget_categories"
+  add_foreign_key "transaction_draft_splits", "transaction_drafts"
   add_foreign_key "transaction_drafts", "budget_categories"
   add_foreign_key "transaction_drafts", "financial_document_imports"
   add_foreign_key "transaction_drafts", "household_transactions", column: "confirmed_transaction_id"
+  add_foreign_key "transaction_drafts", "household_transactions", column: "matched_transaction_id"
   add_foreign_key "transaction_drafts", "households"
   add_foreign_key "transaction_splits", "budget_categories"
   add_foreign_key "transaction_splits", "household_transactions"

@@ -68,6 +68,39 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_equal({ "goal_type" => "purchase" }, item.fetch(:metadata))
   end
 
+  test "normalizes transaction confidence labels to decimals" do
+    user = User.create!(clerk_id: "clerk_extractor_transaction_confidence_user", email: "transaction-confidence@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Transaction Confidence Household")
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "uploaded",
+      filename: "receipt.jpg",
+      content_type: "image/jpeg",
+      byte_size: 20,
+      s3_key: "household-cfo/test/receipt.jpg"
+    )
+
+    draft = FinancialDocuments::Extractor.new(api_key: "test-key").send(
+      :normalize_transaction_draft,
+      {
+        "occurred_on" => "2026-07-05",
+        "merchant" => "Penny Cafe",
+        "total_amount" => 13.57,
+        "source_type" => "receipt",
+        "confidence" => "high",
+        "splits" => [
+          { "category_name" => "Dining Out", "stack_key" => "discretionary", "amount" => 13.57, "confidence" => "medium" }
+        ]
+      },
+      document_import
+    )
+
+    assert_equal BigDecimal("0.90"), draft.fetch(:confidence)
+    assert_equal BigDecimal("0.65"), draft.fetch(:splits).first.fetch(:confidence)
+  end
+
   test "rejects oversized inline sources before building OpenRouter payload" do
     user = User.create!(clerk_id: "clerk_extractor_payload_user", email: "extractor-payload@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Extractor Payload Household")

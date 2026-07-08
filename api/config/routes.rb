@@ -23,10 +23,12 @@ Rails.application.routes.draw do
         post :restore, on: :member
       end
       resources :budget_allocations, only: :update
-      resources :transaction_drafts, only: [] do
+      resources :transaction_drafts, only: :update do
         member do
           post :confirm
           post :ignore
+          post :match
+          post :reopen
         end
       end
       resources :document_imports, only: %i[index show create destroy] do

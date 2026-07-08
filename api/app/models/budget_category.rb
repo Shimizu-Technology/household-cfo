@@ -5,6 +5,8 @@ class BudgetCategory < ApplicationRecord
   has_many :budget_allocations, dependent: :destroy
   has_many :transaction_splits, dependent: :restrict_with_exception
   has_many :transaction_drafts, dependent: :nullify
+  has_many :transaction_draft_splits, dependent: :nullify
+  has_many :merchant_category_rules, dependent: :destroy
 
   validates :name, presence: true, length: { maximum: 80 }, uniqueness: { scope: :household_id, case_sensitive: false }
   validates :stack_key, inclusion: { in: STACK_KEYS }

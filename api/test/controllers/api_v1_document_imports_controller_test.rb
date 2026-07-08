@@ -64,6 +64,24 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not body.key?("s3_key")
   end
 
+  test "create enqueues Mia chat attachment extraction immediately" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      assert_difference("FinancialDocumentImport.count", 1) do
+        assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+          post "/api/v1/document_imports",
+            params: { file: uploaded_csv, document_kind: "spreadsheet", upload_origin: "mia" },
+            headers: auth_headers(@user)
+        end
+      end
+    end
+
+    assert_response :created
+    assert_equal "uploaded", FinancialDocumentImport.last.status
+  end
+
   test "create rejects mismatched file contents before upload" do
     uploaded = false
 
@@ -125,6 +143,29 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document_import.content_type
   end
 
+  test "create accepts mobile HEIC photos" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      with_singleton_stub(Marcel::MimeType, :for, ->(*, **) { "image/heic" }) do
+        assert_difference("FinancialDocumentImport.count", 1) do
+          assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+            post "/api/v1/document_imports",
+              params: { file: uploaded_heic, document_kind: "receipt" },
+              headers: auth_headers(@user)
+          end
+        end
+      end
+    end
+
+    assert_response :created
+    document_import = FinancialDocumentImport.last
+    assert_equal "receipt", document_import.document_kind
+    assert_equal "receipt-photo.heic", document_import.filename
+    assert_equal "image/heic", document_import.content_type
+  end
+
   test "create accepts valid docx files when Marcel reports application zip" do
     with_s3_stubs(
       configured?: true,
@@ -141,6 +182,42 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", FinancialDocumentImport.last.content_type
+  end
+
+  test "index returns shallow summaries and show returns review details" do
+    document_import = create_import!(status: "needs_review")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless",
+      total_amount_cents: 103_42,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt row"
+    )
+    draft.transaction_draft_splits.create!(
+      amount_cents: 103_42,
+      budget_category: category,
+      category_name: category.name,
+      stack_key: category.stack_key
+    )
+
+    get "/api/v1/document_imports", headers: auth_headers(@user)
+
+    assert_response :success
+    summary = JSON.parse(response.body).fetch("document_imports").first
+    assert_equal false, summary.fetch("details_included")
+    assert_equal "Payless", summary.fetch("transaction_drafts").first.fetch("merchant")
+    assert_empty summary.fetch("transaction_drafts").first.fetch("splits")
+
+    get "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+
+    assert_response :success
+    details = JSON.parse(response.body).fetch("document_import")
+    assert_equal true, details.fetch("details_included")
+    assert_equal 1, details.fetch("transaction_drafts").first.fetch("splits").length
   end
 
   test "source_url returns preview and download links without exposing s3 key" do
@@ -167,6 +244,34 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "https://private.example.test/attachment", body.fetch("download_url")
     assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
+  end
+
+  test "source_url keeps mobile HEIC photos as attachment links" do
+    document_import = create_import!(
+      document_kind: "receipt",
+      filename: "receipt-photo.heic",
+      content_type: "image/heic",
+      s3_key: "household-cfo/test/source.heic"
+    )
+
+    dispositions = []
+    with_s3_stubs(
+      configured?: true,
+      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
+        assert_equal 300, expires_in
+        assert_equal "receipt-photo.heic", filename
+        dispositions << disposition
+        "https://private.example.test/receipt-#{disposition}.heic"
+      }
+    ) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("inline_supported")
+    assert_equal "https://private.example.test/receipt-attachment.heic", body.fetch("url")
+    assert_equal [ :attachment, :attachment ], dispositions
   end
 
   test "source_url keeps server-previewed csv sources as attachment links" do
@@ -241,6 +346,34 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :no_content
     assert_not FinancialDocumentImport.exists?(document_import.id)
     assert_equal [ false ], record_existed_when_s3_deleted
+  end
+
+  test "destroy blocks imports with resolved transaction drafts" do
+    document_import = create_import!(status: "partially_applied", s3_key: "household-cfo/test/source.pdf")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless",
+      total_amount_cents: 100_00,
+      budget_category: category,
+      source_type: "statement",
+      status: "matched",
+      raw_input: "Matched row"
+    )
+    deleted_keys = []
+
+    with_s3_stubs(
+      configured?: true,
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      delete "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/Delete the source file instead/i, JSON.parse(response.body).fetch("errors").join)
+    assert FinancialDocumentImport.exists?(document_import.id)
+    assert_empty deleted_keys
   end
 
   test "destroy does not delete private source when database destroy fails" do
@@ -381,6 +514,30 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 125_00, debt.payment_cents
   end
 
+  test "unapplied item update rolls back if import reconciliation fails" do
+    document_import = create_import!(status: "needs_review")
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+        params: { item: { label: "Dining corrected", amount: "425" } },
+        headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    item.reload
+    assert_equal "Dining", item.label
+    assert_equal 300_00, item.amount_cents
+  end
+
   test "item update can correct an applied saved household value" do
     document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
     expense = @household.expense_items.create!(
@@ -416,6 +573,42 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "sinking_expected", expense.stack_key
     assert_equal true, expense.active?
     assert item.metadata.key?("last_corrected_at")
+  end
+
+  test "applied item update rolls back saved value if import reconciliation fails" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    expense = @household.expense_items.create!(
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary"
+    )
+    item = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining out",
+      amount_cents: 420_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: expense
+    )
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+        params: { item: { amount: "400", stack_key: "sinking_expected" } },
+        headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    item.reload
+    expense.reload
+    assert_equal 420_00, item.amount_cents
+    assert_equal "discretionary", item.stack_key
+    assert_equal 420_00, expense.amount_cents
+    assert_equal "discretionary", expense.stack_key
   end
 
   test "item update preserves applied expense amount missing from extracted item" do
@@ -601,6 +794,520 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "applied", document_import.reload.status
   end
 
+  test "document transaction draft update and confirm creates split actuals with source lineage" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_800,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt upload"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: {
+        transaction_draft: {
+          amount: "18.00",
+          splits: [
+            { amount: "13.75", budget_category_id: dining.id, notes: "Meal" },
+            { amount: "4.25", category_name: "Tips", stack_key: "discretionary", notes: "Tip" }
+          ]
+        }
+      },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :success
+    draft.reload
+    assert_equal [ 1_375, 425 ], draft.transaction_draft_splits.order(:id).pluck(:amount_cents)
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :success
+    transaction = HouseholdTransaction.last
+    assert_equal document_import.id, transaction.source_import_id
+    assert_equal "receipt", transaction.source_type
+    assert_equal 1_800, transaction.total_amount_cents
+    tips = @household.budget_categories.find_by!(name: "Tips")
+    assert_equal [ [ dining.id, 1_375 ], [ tips.id, 425 ] ], transaction.transaction_splits.order(:id).pluck(:budget_category_id, :amount_cents)
+    assert_equal "confirmed", draft.reload.status
+    assert_equal "applied", document_import.reload.status
+    assert @household.merchant_category_rules.where(merchant_pattern: "penny cafe", budget_category: dining).exists?
+    assert @household.merchant_category_rules.where(merchant_pattern: "penny cafe", budget_category: tips).exists?
+  end
+
+  test "document transaction draft confirmation upserts existing merchant category rule" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    rule = @household.merchant_category_rules.create!(
+      merchant_pattern: "penny cafe",
+      budget_category: dining,
+      confidence: BigDecimal("0.80"),
+      times_confirmed: 2,
+      source: "system_inferred",
+      active: false
+    )
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_800,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt upload"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+
+    assert_no_difference("MerchantCategoryRule.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :success
+    rule.reload
+    assert_equal BigDecimal("0.83"), rule.confidence
+    assert_equal 3, rule.times_confirmed
+    assert_equal "user_confirmed", rule.source
+    assert rule.active?
+    assert rule.last_confirmed_at.present?
+  end
+
+  test "document transaction draft top-level category update collapses stale multi-split categories" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 2)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless",
+      total_amount_cents: 10_342,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt upload"
+    )
+    draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 8_542, category_name: "Groceries")
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: { transaction_draft: { budget_category_id: dining.id } },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :success
+    draft.reload
+    assert_equal dining.id, draft.budget_category_id
+    assert_equal 1, draft.transaction_draft_splits.count
+    split = draft.transaction_draft_splits.first
+    assert_equal dining.id, split.budget_category_id
+    assert_equal 10_342, split.amount_cents
+  end
+
+  test "confirming with split corrections clears stale proposed matches" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 2)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    existing = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    existing.transaction_splits.create!(budget_category: groceries, amount_cents: 10_342)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: groceries,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 10_342, category_name: "Groceries")
+    draft.transaction_draft_matches.create!(household_transaction: existing, confidence: 0.98, match_reason: "same amount")
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        params: {
+          transaction_draft: {
+            splits: [
+              { amount: "85.42", budget_category_id: groceries.id, notes: "Food" },
+              { amount: "18.00", budget_category_id: dining.id, notes: "Other" }
+            ]
+          }
+        },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "corrected", draft.reload.status
+    assert_empty draft.transaction_draft_matches.reload
+  end
+
+  test "document transaction draft match accepts existing actual without changing actual totals" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount, same date, similar merchant")
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/#{draft.id}/match",
+        params: { match_id: match.id },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+    draft.reload
+    assert_equal "matched", draft.status
+    assert_equal transaction.id, draft.matched_transaction_id
+    assert_equal "accepted", match.reload.status
+    assert_equal "applied", document_import.reload.status
+  end
+
+  test "confirmed document transaction draft can be reopened for correction" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt row"
+    )
+    draft.transaction_draft_splits.create!(budget_category: category, amount_cents: 10_342, category_name: category.name, stack_key: category.stack_key)
+
+    post "/api/v1/transaction_drafts/#{draft.id}/confirm", headers: auth_headers(@user), as: :json
+    assert_response :success
+    transaction = draft.reload.confirmed_transaction
+    rule = MerchantCategoryRule.find_by!(
+      household: @household,
+      budget_category: category,
+      merchant_pattern: MerchantCategoryRule.normalized_pattern(draft.merchant)
+    )
+    assert_equal "confirmed", transaction.status
+    assert rule.active?
+    assert_equal 1, rule.times_confirmed
+    assert_equal "applied", document_import.reload.status
+    assert document_import.applied_at
+    existing_transaction = @household.household_transactions.create!(
+      budget_period: transaction.budget_period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    existing_transaction.transaction_splits.create!(budget_category: category, amount_cents: 10_342)
+
+    post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(@user), as: :json
+
+    assert_response :success
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.confirmed_transaction_id
+    assert_equal "ignored", transaction.reload.status
+    assert_equal draft.id, transaction.metadata.fetch("voided_by_transaction_draft_id")
+    assert_not rule.reload.active?
+    assert_equal 0, rule.times_confirmed
+    assert_equal "needs_review", document_import.reload.status
+    assert_nil document_import.applied_at
+    proposed_match = draft.transaction_draft_matches.proposed.find_by!(household_transaction: existing_transaction)
+    assert_operator proposed_match.confidence, :>=, 0.74
+    body = JSON.parse(response.body)
+    assert_equal "pending", body.dig("transaction_draft", "status")
+    assert_equal existing_transaction.id, body.dig("transaction_draft", "matches", 0, "transaction", "id")
+    assert_equal 1, body.dig("workspace", "budget", "annual_plan", "pending_transaction_drafts").length
+  end
+
+  test "matched document transaction draft can be reopened without changing actuals" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    post "/api/v1/transaction_drafts/#{draft.id}/match",
+      params: { match_id: match.id },
+      headers: auth_headers(@user),
+      as: :json
+    assert_response :success
+    assert_equal "matched", draft.reload.status
+    assert_equal "accepted", match.reload.status
+
+    post "/api/v1/transaction_drafts/#{draft.id}/reopen", headers: auth_headers(@user), as: :json
+
+    assert_response :success
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.matched_transaction_id
+    assert_equal "proposed", match.reload.status
+    assert_equal "confirmed", transaction.reload.status
+    assert_equal "needs_review", document_import.reload.status
+  end
+
+  test "confirmed draft reopen is blocked while another draft claims the actual" do
+    document_import = create_import!(status: "needs_review", document_kind: "receipt")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      source_type: "receipt",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 10_342)
+    confirmed_draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: category,
+      source_type: "receipt",
+      status: "confirmed",
+      confirmed_transaction: transaction,
+      raw_input: "Receipt row"
+    )
+    statement_draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless Supermarket",
+      total_amount_cents: 10_342,
+      budget_category: category,
+      source_type: "statement",
+      status: "matched",
+      matched_transaction: transaction,
+      raw_input: "Statement row"
+    )
+    statement_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount", status: "accepted")
+
+    post "/api/v1/transaction_drafts/#{confirmed_draft.id}/reopen", headers: auth_headers(@user), as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/Undo matched statement rows/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "confirmed", confirmed_draft.reload.status
+    assert_equal "confirmed", transaction.reload.status
+  end
+
+  test "document transaction draft ignore rolls back if import reconciliation fails" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      post "/api/v1/transaction_drafts/#{draft.id}/ignore",
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "pending", draft.reload.status
+    assert_equal "needs_review", document_import.reload.status
+  end
+
+  test "document transaction draft match rolls back if import reconciliation fails" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+    match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    with_singleton_stub(HouseholdFinance::DocumentImportStatusReconciler, :new, reconciler_failure) do
+      post "/api/v1/transaction_drafts/#{draft.id}/match",
+        params: { match_id: match.id },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_match(/reconciler failed/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.matched_transaction_id
+    assert_equal "proposed", match.reload.status
+    assert_equal "needs_review", document_import.reload.status
+  end
+
+  test "document transaction draft match cannot claim an already matched actual" do
+    document_import = create_import!(status: "needs_review", document_kind: "statement")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    first_draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "First statement row"
+    )
+    second_draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Second statement row"
+    )
+    first_match = first_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+    second_match = second_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    post "/api/v1/transaction_drafts/#{first_draft.id}/match",
+      params: { match_id: first_match.id },
+      headers: auth_headers(@user),
+      as: :json
+    assert_response :success
+
+    post "/api/v1/transaction_drafts/#{second_draft.id}/match",
+      params: { match_id: second_match.id },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_match(/already linked/i, JSON.parse(response.body).fetch("errors").join)
+    assert_equal "matched", first_draft.reload.status
+    assert_equal "pending", second_draft.reload.status
+    assert_equal "proposed", second_match.reload.status
+  end
+
+  test "duplicate import transaction draft can match an actual already linked by another import" do
+    first_import = create_import!(status: "needs_review", document_kind: "statement")
+    second_import = create_import!(status: "needs_review", document_kind: "statement", filename: "statement-duplicate.csv")
+    category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
+    transaction = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      source_type: "manual_chat",
+      status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_357)
+    first_draft = first_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "matched",
+      matched_transaction: transaction,
+      raw_input: "First statement row"
+    )
+    first_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount", status: "accepted")
+    second_draft = second_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Penny Cafe",
+      total_amount_cents: 1_357,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Duplicate statement row"
+    )
+    second_match = second_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, match_reason: "same amount")
+
+    post "/api/v1/transaction_drafts/#{second_draft.id}/match",
+      params: { match_id: second_match.id },
+      headers: auth_headers(@user),
+      as: :json
+
+    assert_response :success
+    assert_equal "matched", first_draft.reload.status
+    assert_equal "matched", second_draft.reload.status
+    assert_equal transaction.id, second_draft.matched_transaction_id
+    assert_equal "accepted", second_match.reload.status
+  end
+
   test "imports are scoped to the authenticated household" do
     other_user = User.create!(clerk_id: "clerk_other_doc_user", email: "other-doc@example.com", role: "participant", invitation_status: "accepted")
     other_household = Household.create!(created_by_user: other_user, name: "Other Household")
@@ -632,6 +1339,14 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     file.write("Category,Amount\nIncome,4000\nGroceries,800\n")
     file.rewind
     Rack::Test::UploadedFile.new(file.path, "text/csv", original_filename: "budget.csv")
+  end
+
+  def uploaded_heic
+    file = Tempfile.new([ "receipt-photo", ".heic" ])
+    file.binmode
+    file.write("fake heic bytes")
+    file.rewind
+    Rack::Test::UploadedFile.new(file.path, "image/heic", original_filename: "receipt-photo.heic")
   end
 
   def uploaded_docx
@@ -676,6 +1391,14 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       byte_size: 100,
       s3_key: "household-cfo/test/statement.pdf"
     }.merge(attributes))
+  end
+
+  def reconciler_failure(message = "reconciler failed")
+    ->(*) {
+      Object.new.tap do |object|
+        object.define_singleton_method(:call) { raise ArgumentError, message }
+      end
+    }
   end
 
   def with_singleton_stub(target, method_name, replacement)

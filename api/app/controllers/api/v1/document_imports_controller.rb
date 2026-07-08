@@ -9,7 +9,7 @@ module Api
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
 
       MAX_UPLOAD_BYTES = 20.megabytes
-      ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp].freeze
+      ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp .heic .heif].freeze
       REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
       ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
         ".pdf" => %w[application/pdf],
@@ -20,13 +20,17 @@ module Api
         ".jpg" => %w[image/jpeg],
         ".jpeg" => %w[image/jpeg],
         ".png" => %w[image/png],
-        ".webp" => %w[image/webp]
+        ".webp" => %w[image/webp],
+        ".heic" => %w[image/heic image/heif],
+        ".heif" => %w[image/heif image/heic]
       }.freeze
-      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at].freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count].freeze
 
       def index
-        imports = current_household.financial_document_imports.includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user).recent_first.limit(50)
-        render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import) } }
+        imports = current_household.financial_document_imports
+          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: :budget_category)
+          .recent_first.limit(50)
+        render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import, include_details: false) } }
       end
 
       def show
@@ -67,15 +71,32 @@ module Api
       end
 
       def destroy
-        if @document_import.items.where.not(applied_at: nil).exists?
-          return render json: { errors: [ "Delete the source file instead; this import already applied household values" ] }, status: :unprocessable_entity
+        source_key = nil
+        document_import_id = nil
+        destroy_error = nil
+        s3_missing = false
+
+        ApplicationRecord.transaction do
+          @document_import.with_lock do
+            if import_has_resolved_values?(@document_import)
+              destroy_error = "Delete the source file instead; this import already applied or matched household values"
+              raise ActiveRecord::Rollback
+            end
+
+            source_key = @document_import.s3_key
+            if source_key.present? && !S3Service.configured?
+              s3_missing = true
+              raise ActiveRecord::Rollback
+            end
+
+            document_import_id = @document_import.id
+            @document_import.destroy!
+          end
         end
 
-        source_key = @document_import.s3_key
-        return render_s3_not_configured if source_key.present? && !S3Service.configured?
+        return render_s3_not_configured if s3_missing
+        return render json: { errors: [ destroy_error ] }, status: :unprocessable_entity if destroy_error
 
-        document_import_id = @document_import.id
-        @document_import.destroy!
         delete_source_after_destroy(source_key, document_import_id: document_import_id)
         head :no_content
       rescue S3Service::MissingConfigurationError
@@ -94,12 +115,13 @@ module Api
             next
           end
 
-          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists?
+          if @document_import.applied? || @document_import.partially_applied? || @document_import.items.where.not(applied_at: nil).exists? || @document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
             reprocess_error = "Applied document imports cannot be reprocessed; upload a new copy to extract updated values."
             next
           end
 
           @document_import.items.where(applied_at: nil).delete_all
+          @document_import.transaction_drafts.pending.destroy_all
           @document_import.update!(
             status: "uploaded",
             extraction_error: nil,
@@ -205,6 +227,11 @@ module Api
         @document_import = current_household.financial_document_imports.find(params[:id])
       end
 
+      def import_has_resolved_values?(document_import)
+        document_import.items.where.not(applied_at: nil).exists? ||
+          document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+      end
+
       def valid_upload_param?(file)
         file.respond_to?(:tempfile) && file.respond_to?(:original_filename)
       end
@@ -213,7 +240,7 @@ module Api
         filename = file.original_filename.to_s
         extension = File.extname(filename).downcase
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
         return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if File.size(file.tempfile.path) > MAX_UPLOAD_BYTES
 
@@ -254,7 +281,7 @@ module Api
         return "spreadsheet" if extension.in?(%w[.csv .xls .xlsx])
         return "statement" if extension == ".pdf"
         return "other" if extension == ".docx"
-        return "receipt" if extension.in?(%w[.jpg .jpeg .png .webp])
+        return "receipt" if extension.in?(%w[.jpg .jpeg .png .webp .heic .heif])
 
         "other"
       end
@@ -327,10 +354,15 @@ module Api
       end
 
       def inline_supported?(document_import)
-        document_import.pdf? || document_import.image?
+        document_import.pdf? || browser_previewable_image?(document_import)
       end
 
-      def serialize_document_import(document_import, include_attempts: false)
+      def browser_previewable_image?(document_import)
+        document_import.content_type.in?(%w[image/jpeg image/png image/webp]) ||
+          File.extname(document_import.filename.to_s).downcase.in?(%w[.jpg .jpeg .png .webp])
+      end
+
+      def serialize_document_import(document_import, include_attempts: false, include_details: true)
         {
           id: document_import.id,
           household_id: document_import.household_id,
@@ -347,12 +379,15 @@ module Api
           processed_at: document_import.processed_at,
           applied_at: document_import.applied_at,
           source_deleted_at: document_import.source_deleted_at,
+          updated_at: document_import.updated_at&.iso8601,
           source_available: document_import.source_available?,
+          details_included: include_details,
           uploaded_by: serialize_user_reference(document_import.uploaded_by_user),
           applied_by: serialize_user_reference(document_import.applied_by_user),
           source_deleted_by: serialize_user_reference(document_import.source_deleted_by_user),
           metadata: safe_import_metadata(document_import.metadata),
           items: ordered_items_for(document_import).map { |item| serialize_item(item) },
+          transaction_drafts: ordered_transaction_drafts_for(document_import, include_details: include_details).map { |draft| serialize_transaction_draft(draft, include_details: include_details) },
           attempts: include_attempts ? document_import.attempts.recent_first.limit(5).map { |attempt| serialize_attempt(attempt) } : []
         }
       end
@@ -363,6 +398,17 @@ module Api
         else
           document_import.items.order(:id)
         end
+      end
+
+      def ordered_transaction_drafts_for(document_import, include_details: true)
+        scope = if document_import.association(:transaction_drafts).loaded?
+          document_import.transaction_drafts
+        elsif include_details
+          document_import.transaction_drafts.includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
+        else
+          document_import.transaction_drafts.includes(:budget_category)
+        end
+        scope.sort_by { |draft| [ draft.occurred_on || Date.current, draft.id || 0 ] }.reverse
       end
 
       def serialize_item(item)
@@ -392,6 +438,79 @@ module Api
         }
       end
 
+      def serialize_transaction_draft(draft, include_details: true)
+        {
+          id: draft.id,
+          occurred_on: draft.occurred_on.iso8601,
+          merchant: draft.merchant,
+          amount: dollars_or_nil(draft.total_amount_cents),
+          amount_cents: draft.total_amount_cents,
+          status: draft.status,
+          source_type: draft.source_type,
+          financial_document_import_id: draft.financial_document_import_id,
+          category_id: draft.budget_category_id,
+          category_name: draft.budget_category&.name,
+          stack_label: draft.budget_category&.stack_label,
+          confidence: draft.confidence,
+          raw_input: draft.raw_input,
+          summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(dollars_or_nil(draft.total_amount_cents), precision: 2)}",
+          splits: include_details ? ordered_draft_splits_for(draft).map { |split| serialize_transaction_draft_split(split) } : [],
+          matches: include_details ? ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) } : [],
+          matched_transaction_id: draft.matched_transaction_id,
+          draft_payload: safe_draft_payload(draft.draft_payload)
+        }
+      end
+
+      def ordered_draft_splits_for(draft)
+        if draft.association(:transaction_draft_splits).loaded?
+          draft.transaction_draft_splits.sort_by(&:id)
+        else
+          draft.transaction_draft_splits.ordered.includes(:budget_category)
+        end
+      end
+
+      def ordered_draft_matches_for(draft)
+        matches = if draft.association(:transaction_draft_matches).loaded?
+          draft.transaction_draft_matches
+        else
+          draft.transaction_draft_matches.includes(household_transaction: { transaction_splits: :budget_category })
+        end
+        matches.sort_by { |match| [ -(match.confidence || 0).to_d, match.id || 0 ] }
+      end
+
+      def serialize_transaction_draft_split(split)
+        {
+          id: split.id,
+          budget_category_id: split.budget_category_id,
+          category_name: split.budget_category&.name || split.category_name,
+          stack_key: split.budget_category&.stack_key || split.stack_key,
+          stack_label: split.budget_category&.stack_label || split.stack_key.to_s.humanize,
+          amount: dollars_or_nil(split.amount_cents),
+          amount_cents: split.amount_cents,
+          notes: split.notes,
+          confidence: split.confidence,
+          metadata: split.metadata || {}
+        }
+      end
+
+      def serialize_transaction_draft_match(match)
+        transaction = match.household_transaction
+        {
+          id: match.id,
+          status: match.status,
+          confidence: match.confidence,
+          match_reason: match.match_reason,
+          transaction: {
+            id: transaction.id,
+            occurred_on: transaction.occurred_on.iso8601,
+            merchant: transaction.merchant,
+            amount: dollars_or_nil(transaction.total_amount_cents),
+            source_type: transaction.source_type,
+            categories: transaction.transaction_splits.filter_map { |split| split.budget_category&.name }
+          }
+        }
+      end
+
       def serialize_attempt(attempt)
         {
           id: attempt.id,
@@ -418,7 +537,11 @@ module Api
       end
 
       def safe_import_metadata(metadata)
-        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "last_extracted_at", "last_applied_count", "last_applied_at")
+        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count")
+      end
+
+      def safe_draft_payload(payload)
+        (payload || {}).slice("parser", "document_import_id", "row_index", "evidence", "external_id", "raw_description", "warnings")
       end
 
       def reset_extraction_metadata(metadata)

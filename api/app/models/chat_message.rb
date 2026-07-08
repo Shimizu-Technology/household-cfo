@@ -6,12 +6,24 @@ class ChatMessage < ApplicationRecord
 
   validates :role, inclusion: { in: ROLES }
   validates :content, presence: true, length: { maximum: MAX_CONTENT_LENGTH }
+  validate :attachments_are_safe_metadata
 
   def as_api_json(author: nil)
     {
+      id: id,
       role: role,
       author: author || (role == "assistant" ? "Mia" : "You"),
-      content: content
+      content: content,
+      attachments: attachments,
+      created_at: created_at&.iso8601
     }
+  end
+
+  private
+
+  def attachments_are_safe_metadata
+    return if attachments.is_a?(Array) && attachments.length <= 5
+
+    errors.add(:attachments, "must be an array of up to 5 files")
   end
 end

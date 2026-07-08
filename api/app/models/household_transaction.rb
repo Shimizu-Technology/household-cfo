@@ -8,6 +8,8 @@ class HouseholdTransaction < ApplicationRecord
   has_many :transaction_splits, dependent: :destroy
   has_many :budget_categories, through: :transaction_splits
   has_many :transaction_drafts, foreign_key: :confirmed_transaction_id, dependent: :nullify, inverse_of: :confirmed_transaction
+  has_many :matched_transaction_drafts, class_name: "TransactionDraft", foreign_key: :matched_transaction_id, dependent: :nullify, inverse_of: :matched_transaction
+  has_many :transaction_draft_matches, dependent: :destroy
 
   validates :occurred_on, presence: true
   validates :merchant, presence: true, length: { maximum: 120 }

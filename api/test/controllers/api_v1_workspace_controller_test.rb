@@ -363,6 +363,118 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
+  test "mia chat summarizes processed receipt drafts before replying" do
+    user = create_user(email: "mia-receipt-sync@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "resend-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/resend-receipt.png"
+    )
+    category = household.budget_categories.create!(name: "Software", stack_key: "discretionary", sort_order: 1)
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 3),
+      merchant: "Resend",
+      total_amount_cents: 20_00,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Resend receipt"
+    )
+
+    post "/api/v1/mia/messages",
+         params: { message: "Check this receipt", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assistant_content = body.fetch("assistant_message").fetch("content")
+    assert_includes assistant_content, "I found Resend for $20"
+    assert_equal "needs_review", document_import.reload.status
+    assert_equal "Resend", document_import.transaction_drafts.first.merchant
+  end
+
+  test "mia chat persists attached document imports with a single contextual reply" do
+    user = create_user(email: "mia-attachments@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/receipt.png"
+    )
+    category = household.budget_categories.create!(name: "Software", stack_key: "discretionary", sort_order: 1)
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 3),
+      merchant: "Resend",
+      total_amount_cents: 20_00,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Resend receipt"
+    )
+
+    post "/api/v1/mia/messages",
+         params: { message: "Please read this receipt", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("transaction_draft")
+    assistant_content = body.fetch("assistant_message").fetch("content")
+    assert_not_includes assistant_content, "I used your note as context"
+    assert_includes assistant_content, "I found Resend for $20"
+    attachment = body.fetch("user_message").fetch("attachments").first
+    assert_equal document_import.id, attachment.fetch("document_import_id")
+    assert_equal "receipt.png", attachment.fetch("filename")
+    assert_equal "needs_review", attachment.fetch("status")
+
+    get "/api/v1/mia/messages", headers: auth_headers(user)
+
+    assert_response :success
+    user_message = JSON.parse(response.body).fetch("messages").find { |message| message.fetch("role") == "user" }
+    assert_equal document_import.id, user_message.fetch("attachments").first.fetch("document_import_id")
+  end
+
+  test "mia chat explains budget uploads as review before apply setup values" do
+    user = create_user(email: "mia-budget-upload@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "spreadsheet",
+      status: "needs_review",
+      filename: "household-budget.csv",
+      content_type: "text/csv",
+      byte_size: 256,
+      s3_key: "household-cfo/test/household-budget.csv"
+    )
+    document_import.items.create!(target_type: "income_source", label: "Main income", amount_cents: 6_000_00, cadence: "monthly", confidence: "high", selected: true)
+    document_import.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 900_00, cadence: "monthly", stack_key: "discretionary", confidence: "high", selected: true)
+
+    post "/api/v1/mia/messages",
+         params: { message: "Can you set up my budget from this?", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    assistant_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_not_includes assistant_content, "I used your note as context"
+    assert_includes assistant_content, "budget/profile setup values"
+    assert_includes assistant_content, "Main income and Groceries"
+    assert_includes assistant_content, "open Review imports to approve or adjust"
+  end
+
   test "mia chat compacts conversation continuity for follow-up questions" do
     user = create_user(email: "mia-continuity@example.com")
     patch "/api/v1/workspace/setup",

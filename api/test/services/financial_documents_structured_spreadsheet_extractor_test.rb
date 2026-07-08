@@ -59,6 +59,58 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "extracts statement transaction rows from structured spreadsheets without AI" do
+    file = Tempfile.new([ "statement", ".csv" ])
+    file.write(<<~CSV)
+      date,description,amount,category,notes
+      not-a-date,Bad Row,10,Dining Out,Invalid date should skip only this row
+      "May 12, 2026",Ross,45.25,Discretionary,Long-form date should parse
+      2026-07-05,Penny Cafe,13.57,Dining Out,Lunch
+      07/06/2026,Payless,"($103.42)",Groceries,Receipt total
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    drafts = result.data.fetch(:transaction_drafts)
+    assert_equal 3, drafts.length
+    assert_equal "statement", result.data.fetch(:document_kind)
+    assert_equal Date.new(2026, 5, 12), result.data.fetch(:period_start_on)
+    assert_equal Date.new(2026, 7, 6), result.data.fetch(:period_end_on)
+    assert_equal "Ross", drafts.first.fetch(:merchant)
+    assert_equal Date.new(2026, 5, 12), drafts.first.fetch(:occurred_on)
+    assert_equal BigDecimal("0.90"), drafts.first.fetch(:confidence)
+    assert_equal "Penny Cafe", drafts.second.fetch(:merchant)
+    assert_equal 1_357, drafts.second.fetch(:total_amount_cents)
+    assert_equal "Dining Out", drafts.second.fetch(:splits).first.fetch(:category_name)
+    assert_equal BigDecimal("0.90"), drafts.second.fetch(:splits).first.fetch(:confidence)
+    assert_equal 10_342, drafts.third.fetch(:total_amount_cents)
+  ensure
+    file&.close!
+  end
+
+  test "does not import transaction-like combined rows as budget setup items" do
+    file = Tempfile.new([ "combined", ".csv" ])
+    file.write(<<~CSV)
+      type,date,description,amount,category,notes
+      expense,2026-07-05,Penny Cafe,13.57,Dining Out,Lunch transaction
+      expense_item,,Monthly dining budget,400,discretionary,Budget planning row
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "combined.csv").call
+
+    assert result.success?, result.error
+    items = result.data.fetch(:items)
+    drafts = result.data.fetch(:transaction_drafts)
+    assert_equal [ "Monthly dining budget" ], items.map { |item| item.fetch(:label) }
+    assert_equal 1, drafts.length
+    assert_equal "Penny Cafe", drafts.first.fetch(:merchant)
+  ensure
+    file&.close!
+  end
+
   test "extractor uses structured spreadsheet path without OpenRouter key" do
     user = User.create!(clerk_id: "clerk_structured_extractor_user", email: "structured-extractor@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Structured Extractor Household")

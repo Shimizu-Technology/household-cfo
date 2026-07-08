@@ -1,7 +1,7 @@
 class FinancialDocumentImport < ApplicationRecord
   DOCUMENT_KINDS = %w[spreadsheet statement pay_stub receipt other].freeze
   STATUSES = %w[uploaded processing needs_review applied partially_applied failed source_deleted].freeze
-  IMAGE_CONTENT_TYPES = %w[image/jpeg image/png image/webp].freeze
+  IMAGE_CONTENT_TYPES = %w[image/jpeg image/png image/webp image/heic image/heif].freeze
   PDF_CONTENT_TYPES = %w[application/pdf].freeze
   SPREADSHEET_CONTENT_TYPES = %w[text/csv application/csv application/vnd.ms-excel application/vnd.openxmlformats-officedocument.spreadsheetml.sheet].freeze
   WORD_CONTENT_TYPES = %w[application/vnd.openxmlformats-officedocument.wordprocessingml.document].freeze
@@ -13,6 +13,7 @@ class FinancialDocumentImport < ApplicationRecord
 
   has_many :items, class_name: "FinancialDocumentImportItem", dependent: :destroy, inverse_of: :financial_document_import
   has_many :attempts, class_name: "FinancialDocumentImportAttempt", dependent: :destroy, inverse_of: :financial_document_import
+  has_many :transaction_drafts, dependent: :destroy
 
   validates :document_kind, inclusion: { in: DOCUMENT_KINDS }
   validates :status, inclusion: { in: STATUSES }
@@ -28,7 +29,7 @@ class FinancialDocumentImport < ApplicationRecord
   scope :applied_recent_first, -> { where(status: %w[applied partially_applied]).order(Arel.sql("COALESCE(applied_at, updated_at) DESC"), id: :desc) }
 
   def image?
-    content_type.in?(IMAGE_CONTENT_TYPES) || File.extname(filename.to_s).downcase.in?(%w[.jpg .jpeg .png .webp])
+    content_type.in?(IMAGE_CONTENT_TYPES) || File.extname(filename.to_s).downcase.in?(%w[.jpg .jpeg .png .webp .heic .heif])
   end
 
   def pdf?
