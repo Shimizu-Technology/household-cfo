@@ -188,7 +188,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not metadata.key?("raw_response")
   end
 
-  test "job skips imports that are already processing recently" do
+  test "job schedules stale recheck for imports that are already processing recently" do
     @document_import.update!(status: "processing")
     @document_import.attempts.create!(
       provider: "openrouter",
@@ -209,7 +209,9 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
 
     with_extractor_stub(extractor) do
       assert_no_difference("FinancialDocumentImportAttempt.count") do
-        FinancialDocumentExtractionJob.perform_now(@document_import.id)
+        assert_enqueued_with(job: FinancialDocumentExtractionJob, args: [ @document_import.id ]) do
+          FinancialDocumentExtractionJob.perform_now(@document_import.id)
+        end
       end
     end
 

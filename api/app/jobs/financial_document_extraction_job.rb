@@ -18,7 +18,10 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
     document_import.with_lock do
       return if document_import.source_deleted_at.present?
-      return unless extraction_startable?(document_import)
+      unless extraction_startable?(document_import)
+        schedule_stale_processing_recheck!(document_import) if document_import.status == "processing"
+        return
+      end
 
       mark_stale_processing_attempts!(document_import) if stale_processing?(document_import)
       attempt = document_import.attempts.create!(
@@ -124,6 +127,12 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   def stale_processing?(document_import)
     document_import.status == "processing" && document_import.updated_at.present? && document_import.updated_at <= STALE_PROCESSING_AFTER.ago
+  end
+
+  def schedule_stale_processing_recheck!(document_import)
+    wait_seconds = [ (document_import.updated_at + STALE_PROCESSING_AFTER - Time.current).ceil, 60 ].max
+    Rails.logger.info("[FinancialDocumentExtractionJob] import #{document_import.id} is already processing; scheduling stale recheck in #{wait_seconds} seconds")
+    self.class.set(wait: wait_seconds.seconds).perform_later(document_import.id)
   end
 
   def mark_stale_processing_attempts!(document_import)
