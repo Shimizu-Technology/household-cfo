@@ -205,6 +205,7 @@ function App() {
     monthly_amount: '',
   })
   const [isChatExpanded, setIsChatExpanded] = useState(false)
+  const [showChatScrollButton, setShowChatScrollButton] = useState(false)
   const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
@@ -538,14 +539,27 @@ function App() {
     return () => window.removeEventListener('keydown', handleEscape)
   }, [previewAttachment, previewImport])
 
-  useEffect(() => {
-    if (activeSection !== 'Ask Mia') return
-
+  const updateChatScrollAffordance = useCallback(() => {
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
-    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
-  }, [activeSection, currentMessages.length, miaLoading])
+    const distanceFromBottom = chatCard.scrollHeight - chatCard.scrollTop - chatCard.clientHeight
+    setShowChatScrollButton(distanceFromBottom > 72)
+  }, [])
+
+  const scrollMiaChatToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+    const chatCard = chatCardRef.current
+    if (!chatCard) return
+
+    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior })
+    setShowChatScrollButton(false)
+  }, [])
+
+  useEffect(() => {
+    if (activeSection !== 'Ask Mia') return
+
+    scrollMiaChatToBottom('smooth')
+  }, [activeSection, currentMessages.length, miaLoading, scrollMiaChatToBottom])
 
   function switchSection(section: string) {
     captureAnalyticsEvent('section_selected', {
@@ -1485,58 +1499,71 @@ function App() {
                 ))}
               </div>
 
-              <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading}>
-                {currentMessages.length === 0 && !miaLoading && (
-                  <div className="empty-chat-state">
-                    <span className="message-avatar" aria-hidden="true">M</span>
-                    <h3>Mia is ready when you are.</h3>
-                    <p>Ask what you need to decide next. Mia will use the approved household context already loaded here.</p>
-                  </div>
-                )}
-                {currentMessages.map((message, index) => (
-                  <div className={`message-row ${message.role}`} key={messageKey(message, index)}>
-                    {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
-                    <div className={`message ${message.role}`}>
-                      <strong>{message.author}</strong>
-                      {messageParagraphs(message).map((paragraph, paragraphIndex) => (
-                        <p key={`${message.author}-${index}-${paragraphIndex}`}>{paragraph}</p>
-                      ))}
-                      {(message.attachments ?? []).length > 0 && (
-                        <MessageAttachmentList
-                          attachments={message.attachments ?? []}
-                          imports={documentImports}
-                          onOpenLocal={(attachment) => {
-                            if (!attachment.preview_url) return
-                            setPreviewAttachment({
-                              id: `message-${attachment.filename}`,
-                              file: new File([], attachment.filename, { type: attachment.content_type }),
-                              filename: attachment.filename,
-                              content_type: attachment.content_type,
-                              document_kind: attachment.document_kind,
-                              previewUrl: attachment.preview_url,
-                            })
-                          }}
-                          onOpenImport={handleOpenDocumentSource}
-                          onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
-                        />
-                      )}
+              <div className="chat-card-wrap">
+                <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading} onScroll={updateChatScrollAffordance}>
+                  {currentMessages.length === 0 && !miaLoading && (
+                    <div className="empty-chat-state">
+                      <span className="message-avatar" aria-hidden="true">M</span>
+                      <h3>Mia is ready when you are.</h3>
+                      <p>Ask what you need to decide next. Mia will use the approved household context already loaded here.</p>
                     </div>
-                  </div>
-                ))}
-                {miaLoading && (
-                  <div className="message-row assistant typing-row">
-                    <span className="message-avatar" aria-hidden="true">M</span>
-                    <div className="message assistant">
-                      <strong>Mia</strong>
-                      <div className="typing-dots" aria-label="Mia is thinking">
-                        <span />
-                        <span />
-                        <span />
+                  )}
+                  {currentMessages.map((message, index) => (
+                    <div className={`message-row ${message.role}`} key={messageKey(message, index)}>
+                      {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
+                      <div className={`message ${message.role}`}>
+                        <strong>{message.author}</strong>
+                        {messageParagraphs(message).map((paragraph, paragraphIndex) => (
+                          <p key={`${message.author}-${index}-${paragraphIndex}`}>{paragraph}</p>
+                        ))}
+                        {(message.attachments ?? []).length > 0 && (
+                          <MessageAttachmentList
+                            attachments={message.attachments ?? []}
+                            imports={documentImports}
+                            onOpenLocal={(attachment) => {
+                              if (!attachment.preview_url) return
+                              setPreviewAttachment({
+                                id: `message-${attachment.filename}`,
+                                file: new File([], attachment.filename, { type: attachment.content_type }),
+                                filename: attachment.filename,
+                                content_type: attachment.content_type,
+                                document_kind: attachment.document_kind,
+                                previewUrl: attachment.preview_url,
+                              })
+                            }}
+                            onOpenImport={handleOpenDocumentSource}
+                            onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
+                          />
+                        )}
                       </div>
                     </div>
-                  </div>
+                  ))}
+                  {miaLoading && (
+                    <div className="message-row assistant typing-row">
+                      <span className="message-avatar" aria-hidden="true">M</span>
+                      <div className="message assistant">
+                        <strong>Mia</strong>
+                        <div className="typing-dots" aria-label="Mia is thinking">
+                          <span />
+                          <span />
+                          <span />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </article>
+                {showChatScrollButton && currentMessages.length > 0 && (
+                  <button
+                    type="button"
+                    className="chat-scroll-bottom-button"
+                    aria-label="Scroll to latest Mia message"
+                    onClick={() => scrollMiaChatToBottom()}
+                  >
+                    <ScrollDownIcon />
+                    <span>Latest</span>
+                  </button>
                 )}
-              </article>
+              </div>
 
               {pendingTransactionDrafts.length > 0 && (
                 <TransactionDraftReviewStack
@@ -5625,6 +5652,15 @@ function CollapseIcon() {
       <path d="M4 10 10 4" className="icon-stroke" />
       <path d="M14 20v-6h6" className="icon-stroke" />
       <path d="m20 14-6 6" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function ScrollDownIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 5v13" className="icon-stroke" />
+      <path d="m7 13 5 5 5-5" className="icon-stroke" />
     </svg>
   )
 }

@@ -11,8 +11,11 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
         "start_on" => "2026-07-01",
         "end_on" => "2026-07-31",
         "totals" => { "planned" => 300.0, "actual" => 85.0, "pending" => 20.0, "remaining" => 215.0 },
-        "categories" => [ { "name" => "Groceries", "planned" => 300.0, "actual" => 85.0, "pending" => 20.0, "remaining" => 215.0 } ]
-      }
+        "categories" => [ { "name" => "Groceries", "planned" => 300.0, "actual" => 85.0, "pending" => 20.0, "remaining" => 215.0 } ],
+        "transactions" => [ { "id" => 1 } ],
+        "pending_drafts" => []
+      },
+      conversation_context: { active_topic: { title: "Old receipt" }, rolling_summary: "McDonald's is pending" }
     ).call
 
     summary = packet.fetch(:spending_report_summary)
@@ -20,7 +23,10 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
     assert_equal "2026-07-01", summary.fetch(:start_on)
     assert_equal "2026-07-31", summary.fetch(:end_on)
     assert_equal 85.0, summary.dig(:totals, :actual)
+    assert_equal 0, summary.fetch(:pending_draft_count)
+    assert_equal 1, summary.fetch(:confirmed_transaction_count)
     assert_equal [ { name: "Groceries", planned: 300.0, actual: 85.0, pending: 20.0, remaining: 215.0 } ], summary.fetch(:top_categories)
+    refute packet.key?(:conversation_context)
   end
 
   test "builds a compact annual plan packet with string keyed plan data" do

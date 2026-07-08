@@ -23,6 +23,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     with_net_http_start_stub(response, requests, start_options) do
       answer = HouseholdFinance::MiaNarrator.new(
         user_message: "Can I order takeout?",
+        history: [ { role: "assistant", content: "Old stale fact: McDonald's is still pending." } ],
         answer_packet: {
           kind: "budget_question",
           fallback_response: "Based on your active annual plan, you have $55 remaining and $40 pending review.",
@@ -43,6 +44,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_includes system_prompts, "The participant is the Household CFO"
     assert_includes user_prompt, "ANSWER_PACKET_JSON"
     assert_includes user_prompt, "pending_review"
+    refute_includes payload.fetch("messages").to_json, "Old stale fact"
   end
 
   test "allows historical transaction lookup narration without treating recorded language as a write claim" do
@@ -86,6 +88,51 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       ).call
 
       assert_equal "Based on your active annual plan, you have $55 remaining and $40 pending review.", answer
+    end
+  end
+
+  test "falls back when narration claims a budget adjustment happened for pending review" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I've made the adjustment, and your budget has been changed to reflect the McDonald's transaction." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "I spent $25 at McDonald's",
+        answer_packet: {
+          kind: "transaction_draft",
+          fallback_response: "I drafted this for review: McDonald's for $25. Month-to-date actuals will not change until you approve it.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I drafted this for review: McDonald's for $25. Month-to-date actuals will not change until you approve it.", answer
+    end
+  end
+
+  test "falls back when spending report narration invents a pending draft that the packet says is absent" do
+    response = ok_response(
+      choices: [
+        { message: { content: "July confirmed spending is $0, but McDonald's is still a pending draft, so confirm or delete the pending draft next." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How much did I spend this month?",
+        answer_packet: {
+          kind: "spending_report",
+          fallback_response: "For July 2026, confirmed spending is $0 and no pending drafts are waiting on this period.",
+          write_state: "no_write",
+          spending_report_summary: { period_label: "July 2026", pending_draft_count: 0 }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "For July 2026, confirmed spending is $0 and no pending drafts are waiting on this period.", answer
     end
   end
 

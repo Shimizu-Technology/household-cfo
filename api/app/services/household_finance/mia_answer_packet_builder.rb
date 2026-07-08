@@ -24,14 +24,13 @@ module HouseholdFinance
         annual_plan_summary: annual_plan_summary,
         spending_report_summary: spending_report_summary,
         transaction_draft: transaction_draft_packet,
-        conversation_context: safe_conversation_context,
         guardrails: guardrails
       }.compact
     end
 
     private
 
-    attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft, :conversation_context
+    attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft
 
     def answer_basis
       case kind
@@ -79,6 +78,8 @@ module HouseholdFinance
         start_on: report[:start_on],
         end_on: report[:end_on],
         totals: report[:totals],
+        pending_draft_count: Array(report[:pending_drafts]).length,
+        confirmed_transaction_count: Array(report[:transactions]).length,
         top_categories: Array(report[:categories]).first(5).map { |category| category.slice(:name, :planned, :actual, :remaining, :pending) }
       }.compact
     end
@@ -101,12 +102,6 @@ module HouseholdFinance
           }
         end
       }.compact
-    end
-
-    def safe_conversation_context
-      return unless conversation_context.respond_to?(:to_h)
-
-      conversation_context.to_h.slice(:active_topic, :open_topics, :rolling_summary)
     end
 
     def guardrails
