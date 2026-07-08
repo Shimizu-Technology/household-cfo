@@ -75,7 +75,9 @@ module HouseholdFinance
 
       report = spending_report.respond_to?(:deep_symbolize_keys) ? spending_report.deep_symbolize_keys : {}
       {
-        period: report[:period],
+        period_label: report[:period_label],
+        start_on: report[:start_on],
+        end_on: report[:end_on],
         totals: report[:totals],
         top_categories: Array(report[:categories]).first(5).map { |category| category.slice(:name, :planned, :actual, :remaining, :pending) }
       }.compact
