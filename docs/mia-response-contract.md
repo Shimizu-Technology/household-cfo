@@ -51,10 +51,17 @@ Persona and model-guided answers:
 - `api/app/services/mia/persona.rb` injects the response contract into Mia's system prompt.
 - `api/app/services/demo/mia_responder.rb` also includes the critical answer-contract rules in the non-overridable safety prompt so future coach skins cannot remove them.
 
+Model narration after PR #29:
+
+- `api/app/services/household_finance/mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, and pending drafts.
+- `api/app/services/household_finance/mia_narrator.rb` lets Claude/Mia narrate those packets in the live persona so responses feel warm, Chamorro-grounded, CFO-minded, and less robotic.
+- The model may not change facts, invent missing data, imply pending drafts are actuals, or claim writes happened.
+- If model narration fails or violates guardrails, Rails falls back to the deterministic answer.
+
 Deterministic financial answers:
 
 - Rails still computes money truth for reports, budget Q&A, transaction lookup, transaction drafts, and common coaching branches such as discretionary purchase checks, readiness planning, and expected sinking-fund bills like car registration.
-- Deterministic narrators should still sound like Mia by naming the basis of the answer and giving one next move.
+- Deterministic services still calculate the answer packet and provide the safe fallback.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
 
 Conversation continuity:

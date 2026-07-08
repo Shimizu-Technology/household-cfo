@@ -72,7 +72,7 @@ Use demo-safe sample data only. Do not commit real client financial data, creden
 
 ## Next phase
 
-The active real-mode build plan, Mia persona template, admin plan, and next document-import architecture live at:
+The active real-mode build plan, Mia persona template, admin plan, production checklist, and post-PR #29 roadmap live at:
 
 ```text
 docs/real-mode-build-plan.md
@@ -80,6 +80,7 @@ docs/mia-persona-template.md
 docs/admin-cohort-management.md
 docs/private-document-imports-and-mia-context.md
 docs/production-readiness-checklist.md
+docs/post-pr29-roadmap.md
 ```
 
 ## Deferred until after the real-mode MVP

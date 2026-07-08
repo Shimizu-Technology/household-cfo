@@ -1,8 +1,10 @@
 # Post-PR #20 roadmap
 
-Updated: 2026-07-05
+Updated: 2026-07-08
 
-This is the working checklist for what remains after PR #20 merges. It is based on Mrs. Mel's V1 feedback, the meeting notes, Greptile hardening, and the current annual budget/transaction-loop implementation.
+This historical checklist tracked work after PR #20. PR #29 has now merged the Document Intelligence Platform v1, so the current forward roadmap lives in `docs/post-pr29-roadmap.md`.
+
+This file remains as background on how the annual budget and document-intelligence work was sequenced.
 
 ## First: merge/deploy confidence
 
@@ -21,26 +23,28 @@ This is the working checklist for what remains after PR #20 merges. It is based 
 - [ ] Deploy API/web.
 - [ ] Production smoke on `https://householdcfomethod.com` with the real smoke account.
 
-## PR #21 recommendation: Document Intelligence Platform v1
+## PR #21/#29: Document Intelligence Platform v1
+
+Status: merged in PR #29.
 
 Goal: build the full receipt/photo/statement intake and reconciliation loop as one coherent platform layer, not separate half-features.
 
-- [ ] First-class Ask Mia attachment upload and profile/evidence upload paths.
-- [ ] Private S3 source storage through Rails only.
-- [ ] Server-side extraction with attempt history, warnings, confidence, and safe errors.
-- [ ] Extract receipt/image facts into editable `TransactionDraft` records.
-- [ ] Support split receipts, e.g. Payless groceries plus cigarettes.
-- [ ] Extract rows from bank/card statements and transaction screenshots.
-- [ ] Map each extracted row to the correct budget month by transaction date.
-- [ ] Stage extracted rows as drafts/reconciliation items.
-- [ ] Dedupe/match against already confirmed manual/receipt transactions.
-- [ ] Let user edit, split, confirm, ignore, or mark matched.
-- [ ] Confirm only after participant approval; pending extraction never changes actuals.
-- [ ] Keep source lineage from import → draft → confirmed/matched transaction.
-- [ ] Add evidence library status for extracted values, transaction drafts, and matches.
-- [ ] Add tests with S3/OpenRouter stubbed.
+- [x] First-class Ask Mia attachment upload and profile/evidence upload paths.
+- [x] Private S3 source storage through Rails only.
+- [x] Server-side extraction with attempt history, warnings, confidence, and safe errors.
+- [x] Extract receipt/image facts into editable `TransactionDraft` records.
+- [x] Support split receipts, e.g. Payless groceries plus cigarettes.
+- [x] Extract rows from bank/card statements and transaction screenshots.
+- [x] Map each extracted row to the correct budget month by transaction date.
+- [x] Stage extracted rows as drafts/reconciliation items.
+- [x] Dedupe/match against already confirmed manual/receipt transactions.
+- [x] Let user edit, split, confirm, ignore, or mark matched.
+- [x] Confirm only after participant approval; pending extraction never changes actuals.
+- [x] Keep source lineage from import → draft → confirmed/matched transaction.
+- [x] Add evidence library status for extracted values, transaction drafts, and matches.
+- [x] Add tests with S3/OpenRouter stubbed.
 
-See `docs/document-intelligence-platform-v1.md` for the implementation spec.
+See `docs/document-intelligence-platform-v1.md` for the implementation spec and `docs/post-pr29-roadmap.md` for current next steps.
 
 ## PR #22 recommendation: Mia memory + merchant/category learning controls
 
@@ -59,6 +63,8 @@ Goal: make Mia feel continuous without treating chat as financial truth.
 - [ ] Use structured records and approved facts before memory or model inference.
 
 ## Coaching quality / model narration
+
+Status: next active PR after PR #29. See `docs/post-pr29-roadmap.md`.
 
 Goal: keep Rails deterministic for financial truth while making Mia less robotic.
 

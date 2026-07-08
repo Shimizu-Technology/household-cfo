@@ -363,6 +363,32 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
+  test "mia chat routes deterministic coaching packets through Mia narrator" do
+    user = create_user(email: "mia-narrator@example.com")
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
+          headers: auth_headers(user),
+          as: :json
+    packets = []
+    fake_narrator = ->(**kwargs) {
+      packets << kwargs.fetch(:answer_packet)
+      Object.new.tap { |object| object.define_singleton_method(:call) { "Narrated in Mia voice from Rails facts." } }
+    }
+
+    with_singleton_stub(HouseholdFinance::MiaNarrator, :new, fake_narrator) do
+      post "/api/v1/mia/messages",
+           params: { message: "Can I buy concert tickets?" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    assert_equal "Narrated in Mia voice from Rails facts.", JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_equal "coaching", packets.first.fetch(:kind)
+    assert_equal "no_write", packets.first.fetch(:write_state)
+    assert_includes packets.first.fetch(:fallback_response), "safe-to-spend"
+  end
+
   test "mia chat summarizes processed receipt drafts before replying" do
     user = create_user(email: "mia-receipt-sync@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -682,5 +708,17 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def with_singleton_stub(target, method_name, replacement)
+    singleton = class << target; self; end
+    original = singleton.instance_method(method_name)
+    singleton.define_method(method_name) do |*args, **kwargs, &block|
+      replacement.call(*args, **kwargs, &block)
+    end
+    yield
+  ensure
+    singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
+    singleton.define_method(method_name, original)
   end
 end
