@@ -251,12 +251,26 @@ module Api
       end
 
       def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
-        return coach_answer if coach_answer
-        return transaction_lookup_answer if transaction_lookup_answer
-        return pending_draft_answer if pending_draft_answer
-        return budget_answer if budget_answer
-        return HouseholdFinance::SpendingReportNarrator.new(spending_report, prompt: content).call if spending_report
-        return drafted_transaction_message(transaction_draft) if transaction_draft
+        if coach_answer
+          return narrate_structured_answer(content, history, conversation_context, kind: "coaching", fallback_response: coach_answer, annual_plan: annual_plan, write_state: "no_write")
+        end
+        if transaction_lookup_answer
+          return narrate_structured_answer(content, history, conversation_context, kind: "transaction_lookup", fallback_response: transaction_lookup_answer, write_state: "no_write")
+        end
+        if pending_draft_answer
+          return narrate_structured_answer(content, history, conversation_context, kind: "pending_drafts", fallback_response: pending_draft_answer, write_state: "pending_review")
+        end
+        if budget_answer
+          return narrate_structured_answer(content, history, conversation_context, kind: "budget_question", fallback_response: budget_answer, annual_plan: annual_plan, write_state: "no_write")
+        end
+        if spending_report
+          report_answer = HouseholdFinance::SpendingReportNarrator.new(spending_report, prompt: content).call
+          return narrate_structured_answer(content, history, conversation_context, kind: "spending_report", fallback_response: report_answer, spending_report: spending_report, write_state: "no_write")
+        end
+        if transaction_draft
+          draft_answer = drafted_transaction_message(transaction_draft)
+          return narrate_structured_answer(content, history, conversation_context, kind: "transaction_draft", fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: "pending_review")
+        end
 
         context = HouseholdFinance::MiaContextBuilder.new(
           current_household,
@@ -265,6 +279,25 @@ module Api
           conversation_context: conversation_context
         ).call
         ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: false)
+      end
+
+      def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil)
+        answer_packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
+          kind: kind,
+          fallback_response: fallback_response,
+          write_state: write_state,
+          selected_month: budget_month_param,
+          annual_plan: annual_plan,
+          spending_report: spending_report,
+          transaction_draft: transaction_draft,
+          conversation_context: conversation_context
+        ).call
+
+        HouseholdFinance::MiaNarrator.new(
+          user_message: content,
+          history: history,
+          answer_packet: answer_packet
+        ).call
       end
 
       def drafted_transaction_message(draft)

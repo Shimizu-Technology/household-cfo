@@ -1360,6 +1360,56 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "rent", rent_body.fetch("transaction_draft").fetch("merchant")
   end
 
+  test "mia spending report uses current month language over selected budget month" do
+    travel_to Time.zone.local(2026, 7, 8, 12) do
+      user = create_user(email: "mia-current-month-report@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+      category = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+      june_period = manager.current_period_for(Date.new(2026, 6, 15))
+      july_period = manager.current_period_for(Date.new(2026, 7, 8))
+      june_transaction = household.household_transactions.create!(budget_period: june_period, occurred_on: Date.new(2026, 6, 28), merchant: "Netlify", total_amount_cents: 1_340, source_type: "manual_ui", status: "confirmed")
+      july_transaction = household.household_transactions.create!(budget_period: july_period, occurred_on: Date.new(2026, 7, 8), merchant: "Cafe", total_amount_cents: 2_500, source_type: "manual_ui", status: "confirmed")
+      june_transaction.transaction_splits.create!(budget_category: category, amount_cents: 1_340)
+      july_transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_500)
+
+      post "/api/v1/mia/messages",
+        params: { year: 2026, month: 6, message: "How much did I spend this month?" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      body = JSON.parse(response.body)
+      report = body.fetch("spending_report")
+      assert_equal "2026-07-01", report.fetch("start_on")
+      assert_equal "2026-07-08", report.fetch("end_on")
+      assert_equal 25.0, report.fetch("totals").fetch("actual")
+      content = body.fetch("assistant_message").fetch("content")
+      assert_includes content, "Jul 1, 2026"
+      assert_includes content, "$25"
+      refute_includes content, "June"
+      refute_includes content, "$13.40"
+
+      post "/api/v1/mia/messages",
+        params: { year: 2026, month: 7, message: "How about June? How did I do in June?" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      june_body = JSON.parse(response.body)
+      june_report = june_body.fetch("spending_report")
+      assert_equal "2026-06-01", june_report.fetch("start_on")
+      assert_equal "2026-06-30", june_report.fetch("end_on")
+      assert_equal 13.4, june_report.fetch("totals").fetch("actual")
+      june_content = june_body.fetch("assistant_message").fetch("content")
+      assert_includes june_content, "June 2026"
+      assert_includes june_content, "$13.40"
+      assert_includes june_content, "Netlify"
+      refute_includes june_content, "July 2026 so far"
+      refute_includes june_content, "Rent spending"
+    end
+  end
+
   test "mia answers budget status questions directly" do
     travel_to Time.zone.local(2026, 7, 15, 12) do
       user = create_user(email: "mia-budget-status@example.com")

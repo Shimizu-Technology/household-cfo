@@ -184,6 +184,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       "Should we use the same boundary?",
       "What if it is urgent?",
       "Can I do $50 instead?",
+      "How much can I spend instead?",
       "Would that hurt the plan?",
       "What if my spouse agrees?",
       "How do I explain that?"
@@ -250,7 +251,9 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
     new_topics = [
       "New question: can I leave my job?",
       "Different question, how much is car registration?",
-      "I spent $12 at Cafe today"
+      "I spent $12 at Cafe today",
+      "How much did I spend this month?",
+      "How about June? How did I do in June?"
     ]
     new_topics.each do |message|
       result = HouseholdFinance::ConversationFollowupResolver.new(message, conversation_context: context).call
@@ -258,7 +261,19 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       assert_nil result.direct_answer, message
     end
 
-    followups.length + recalls.length + empty_recalls.length + new_topics.length + 2
+    acknowledgments = [
+      "For sure, thank you for that chelu",
+      "Thanks Mia",
+      "Got it"
+    ]
+    acknowledgments.each do |message|
+      result = HouseholdFinance::ConversationFollowupResolver.new(message, conversation_context: context).call
+      assert_not result.follow_up?, message
+      assert_equal message, result.message
+      assert_includes result.direct_answer, "approved household numbers", message
+    end
+
+    followups.length + recalls.length + empty_recalls.length + new_topics.length + acknowledgments.length + 2
   end
 
   def run_transaction_draft_cases(household, manager)

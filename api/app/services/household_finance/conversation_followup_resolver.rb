@@ -4,7 +4,17 @@ module HouseholdFinance
 
     FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|same thing|from earlier|another|also|same place|same merchant|there|tip|plus|add that)\b/i.freeze
     RECALL_PATTERN = /\b(?:remind me|what were we talking about|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
+    ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    SPENDING_REPORT_PATTERNS = [
+      /\bhow much\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,
+      /\bhow much\s+(?:was|were)\b.*\b(?:spent|spending|actuals?|transactions?)\b/i,
+      /\b(?:how did|how'd)\s+(?:i|we)\s+do\b.*\b(?:this month|last month|month|quarter|year|#{MonthTerms.pattern})\b/i,
+      /\b(?:how about|what about)\s+(?:this month|last month|#{MonthTerms.pattern})\b/i,
+      /\b(?:show|report)\b.*\b(?:spending|spent|actuals?|transactions?)\b/i,
+      /\bwhat\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,
+      /\b(?:spending|spent|actuals?|transactions?)\b.*\b(?:this month|last month|#{MonthTerms.pattern})\b/i
+    ].freeze
     MAX_ENRICHED_LENGTH = 1_200
 
     def initialize(message, conversation_context: nil)
@@ -16,6 +26,7 @@ module HouseholdFinance
       return Result.new(message: message, direct_answer: nil, follow_up?: false) if message.blank?
       return recall_result if recall_request? && useful_context?
       return empty_recall_result if recall_request?
+      return acknowledgment_result if acknowledgment?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if topic_continuation?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if follow_up? && active_topic.present?
 
@@ -57,12 +68,22 @@ module HouseholdFinance
       "#{prefix} Current follow-up: #{message}".truncate(MAX_ENRICHED_LENGTH, omission: "…")
     end
 
+    def acknowledgment_result
+      answer = "You got it — when you are ready, send me the next amount, due date, transaction, or decision and I’ll keep the coaching grounded in approved household numbers."
+
+      Result.new(message: message, direct_answer: answer, follow_up?: false)
+    end
+
     def useful_context?
       active_topic.present? || open_topics.any? || rolling_summary.present?
     end
 
     def recall_request?
       message.match?(RECALL_PATTERN)
+    end
+
+    def acknowledgment?
+      message.match?(ACKNOWLEDGMENT_PATTERN)
     end
 
     def follow_up?
@@ -85,7 +106,12 @@ module HouseholdFinance
     def strong_new_topic?
       normalized = message.downcase
       normalized.match?(/\b(?:new question|different question|switch topics|unrelated)\b/) ||
-        normalized.match?(/\b(?:my cousin|car registration|car repair|payday loan|balance transfer|leave my job|business income|pending drafts?|i spent|we spent)\b/)
+        normalized.match?(/\b(?:my cousin|car registration|car repair|payday loan|balance transfer|leave my job|business income|pending drafts?|i spent|we spent)\b/) ||
+        spending_report_question?
+    end
+
+    def spending_report_question?
+      SPENDING_REPORT_PATTERNS.any? { |pattern| message.match?(pattern) }
     end
 
     def active_topic
