@@ -10,9 +10,16 @@ module HouseholdFinance
     DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
     MAX_PACKET_BYTES = 12_000
     MAX_HISTORY_MESSAGES = 8
-    MAX_OUTPUT_TOKENS = 320
+    MAX_OUTPUT_TOKENS = 512
+    OPEN_TIMEOUT_SECONDS = 5
+    READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
-    FALSE_WRITE_TERMS = /\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?)\b/i
+    DANGEROUS_WRITE_CLAIMS = [
+      /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i,
+      /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:now\s+)?(?:show|include|reflect)\b/i,
+      /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:have|has|were|was|are|is)?\s*(?:now\s+)?(?:been\s+)?(?:updated|changed|deducted|applied|recorded|posted|logged|tracked)\b/i,
+      /\b(?:this|that|the)\s+(?:transaction|purchase|charge|payment|receipt|spend|spending)\s+(?:has\s+(?:now\s+)?been|was|is\s+now|is)\s+(?:added|recorded|logged|posted|tracked|deducted|applied)\b/i
+    ].freeze
 
     def initialize(user_message:, answer_packet:, history: [], api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MIA_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL)), persona: ::Mia::Persona.default)
       @user_message = user_message.to_s.squish
@@ -51,13 +58,16 @@ module HouseholdFinance
       request["X-Title"] = "Household CFO Method Mia Narrator"
       request.body = payload.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, read_timeout: 18, open_timeout: 5) do |http|
+      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
         http.request(request)
       end
       return unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
-      parsed.dig("choices", 0, "message", "content")
+      choice = parsed.dig("choices", 0)
+      return if choice&.fetch("finish_reason", nil).to_s == "length"
+
+      choice&.dig("message", "content")
     rescue JSON::ParserError
       nil
     end
@@ -83,7 +93,8 @@ module HouseholdFinance
         Rewrite the fallback_response in Mia's voice: warm, direct, Chamorro-grounded when earned, and Household CFO-minded.
         Preserve every concrete fact, amount, date, merchant, category, status, and pending-vs-confirmed distinction from the packet.
         Do not invent balances, transactions, due dates, categories, document findings, memories, or external facts.
-        Do not say a transaction was added, recorded, logged, deducted, applied, or updated actuals unless the packet write_state is confirmed_write.
+        Do not claim you added, recorded, logged, deducted, applied, or updated a transaction unless the packet write_state is confirmed_write.
+        For transaction_lookup or spending_report packets, you may describe existing historical rows as confirmed or on record, but do not imply a new write happened.
         If write_state is pending_review or no_write, say the Household CFO must review/confirm before actuals change.
         Reply in plain text only, 3-5 sentences, no markdown, no bullets, no heading, no generic opener.
       PROMPT
@@ -154,7 +165,7 @@ module HouseholdFinance
     def false_write_claim?(content)
       return false if answer_packet[:write_state] == "confirmed_write"
 
-      content.match?(FALSE_WRITE_TERMS)
+      DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.match?(pattern) }
     end
   end
 end

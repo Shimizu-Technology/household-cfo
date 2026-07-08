@@ -13,13 +13,14 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
 
   test "narrates answer packets through OpenRouter and strips generic openers" do
     requests = []
+    start_options = []
     response = ok_response(
       choices: [
         { message: { content: "That's a good question. You have $55 left, chelu, but $40 is still pending review. Review those drafts before actuals change." } }
       ]
     )
 
-    with_net_http_start_stub(response, requests) do
+    with_net_http_start_stub(response, requests, start_options) do
       answer = HouseholdFinance::MiaNarrator.new(
         user_message: "Can I order takeout?",
         answer_packet: {
@@ -36,10 +37,56 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     payload = JSON.parse(requests.first.body)
     system_prompts = payload.fetch("messages").select { |message| message.fetch("role") == "system" }.map { |message| message.fetch("content") }.join(" ")
     user_prompt = payload.fetch("messages").last.fetch("content")
+    assert_equal HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS, payload.fetch("max_tokens")
+    assert_equal HouseholdFinance::MiaNarrator::READ_TIMEOUT_SECONDS, start_options.first.fetch(:read_timeout)
     assert_includes system_prompts, "Rails has already computed the financial truth"
     assert_includes system_prompts, "The participant is the Household CFO"
     assert_includes user_prompt, "ANSWER_PACKET_JSON"
     assert_includes user_prompt, "pending_review"
+  end
+
+  test "allows historical transaction lookup narration without treating recorded language as a write claim" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I found a recorded $85 Payless charge and two logged grocery purchases this month, based on confirmed transactions already on record. Use those confirmed rows to decide whether the grocery category needs a reset before the next shop." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Show my grocery transactions",
+        answer_packet: {
+          kind: "transaction_lookup",
+          fallback_response: "Based on confirmed transactions, I found three grocery purchases this month.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I found a recorded $85 Payless charge and two logged grocery purchases this month, based on confirmed transactions already on record. Use those confirmed rows to decide whether the grocery category needs a reset before the next shop.", answer
+    end
+  end
+
+  test "falls back when OpenRouter truncates the narration" do
+    response = ok_response(
+      choices: [
+        { finish_reason: "length", message: { content: "You have $55 left, but" } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Can I order takeout?",
+        answer_packet: {
+          kind: "budget_question",
+          fallback_response: "Based on your active annual plan, you have $55 remaining and $40 pending review.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "Based on your active annual plan, you have $55 remaining and $40 pending review.", answer
+    end
   end
 
   test "falls back when narration claims a write happened for pending review" do
@@ -73,10 +120,11 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
-  def with_net_http_start_stub(response, requests = [])
+  def with_net_http_start_stub(response, requests = [], start_options = [])
     singleton = class << Net::HTTP; self; end
     original = singleton.instance_method(:start)
-    singleton.define_method(:start) do |*_args, **_kwargs, &block|
+    singleton.define_method(:start) do |*_args, **kwargs, &block|
+      start_options << kwargs
       http = Object.new
       http.define_singleton_method(:request) do |request|
         requests << request

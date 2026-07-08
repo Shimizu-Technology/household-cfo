@@ -56,13 +56,18 @@ module HouseholdFinance
       return unless annual_plan
 
       rows = Array(annual_plan[:rows] || annual_plan["rows"])
+      active_rows = rows.select { |row| active_row?(row) }
       pending = Array(annual_plan[:pending_transaction_drafts] || annual_plan["pending_transaction_drafts"])
       {
         year: annual_plan_year,
-        active_category_count: rows.count { |row| row[:active] != false && row["active"] != false },
+        active_category_count: active_rows.length,
         pending_draft_count: pending.length,
-        top_categories: rows.first(6).map { |row| { name: row[:name] || row["name"], stack_key: row[:stack_key] || row["stack_key"] } }
+        top_categories: active_rows.first(6).map { |row| { name: row[:name] || row["name"], stack_key: row[:stack_key] || row["stack_key"] } }
       }
+    end
+
+    def active_row?(row)
+      row[:active] != false && row["active"] != false
     end
 
     def spending_report_summary
