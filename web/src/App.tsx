@@ -15,9 +15,11 @@ import {
   fetchAdminUsers,
   fetchAppData,
   fetchBudget,
+  fetchDocumentImport,
   fetchDocumentImportSourcePreview,
   fetchDocumentImportSourceUrl,
   fetchDocumentImports,
+  fetchMiaMessages,
   fetchSpendingReport,
   ignoreTransactionDraft,
   matchTransactionDraft,
@@ -82,7 +84,7 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
-const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp'
+const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
 const MAX_CHAT_ATTACHMENTS = 5
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
@@ -132,21 +134,21 @@ const documentUploadCards: Array<{
     kind: 'statement',
     label: 'Bank or card statement',
     eyebrow: 'Fresh balances',
-    accepts: '.pdf,.xlsx,.xls,.csv',
-    helper: 'Upload a PDF, CSV, or spreadsheet statement to stage transaction rows, propose matches, and reconcile actuals by month.',
+    accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
+    helper: 'Upload a PDF, CSV, spreadsheet, or statement screenshot to stage transaction rows, propose matches, and reconcile actuals by month.',
   },
   {
     kind: 'pay_stub',
     label: 'Pay stub',
     eyebrow: 'Income proof',
-    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp',
+    accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
   },
   {
     kind: 'receipt',
     label: 'Receipt or quick evidence',
     eyebrow: 'Quick evidence',
-    accepts: '.pdf,.jpg,.jpeg,.png,.webp',
+    accepts: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     helper: 'Upload a receipt, PDF, or photo so Mia can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
   },
 ]
@@ -288,7 +290,7 @@ function App() {
 
     try {
       const imports = await fetchDocumentImports()
-      setDocumentImports(imports)
+      setDocumentImports((current) => mergeImportSummariesWithDetails(imports, current))
     } catch (caught) {
       if (!quiet) {
         setDocumentsError(caught instanceof Error ? caught.message : 'Document imports could not be loaded.')
@@ -297,6 +299,18 @@ function App() {
       if (!quiet) setDocumentsLoading(false)
     }
   }, [isRealWorkspace])
+
+  const refreshMiaMessages = useCallback(async ({ quiet = true }: { quiet?: boolean } = {}) => {
+    if (!isRealWorkspace || miaLoading) return
+
+    try {
+      const mia = await fetchMiaMessages(true)
+      setMessagesStorageKey(chatStorageKey)
+      setMessages(mia.messages)
+    } catch (caught) {
+      if (!quiet) setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be refreshed.')
+    }
+  }, [chatStorageKey, isRealWorkspace, miaLoading])
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
@@ -363,6 +377,44 @@ function App() {
       cancelled = true
     }
   }, [refreshDocumentImports, workspaceLoadKey])
+
+  useEffect(() => {
+    if (!isRealWorkspace || !selectedImport || selectedImport.details_included) return
+
+    let cancelled = false
+    const importId = selectedImport.id
+    fetchDocumentImport(importId)
+      .then((documentImport) => {
+        if (cancelled) return
+        setDocumentImports((current) => replaceImport(current, documentImport))
+      })
+      .catch((caught) => {
+        if (!cancelled) setDocumentsError(caught instanceof Error ? caught.message : 'Document review details could not be loaded.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [isRealWorkspace, selectedImport])
+
+  useEffect(() => {
+    if (!isRealWorkspace) return
+
+    function refreshIfVisible() {
+      if (document.visibilityState === 'hidden') return
+      void refreshMiaMessages()
+    }
+
+    const intervalId = window.setInterval(refreshIfVisible, activeSection === 'Ask Mia' ? 5000 : 15000)
+    window.addEventListener('focus', refreshIfVisible)
+    document.addEventListener('visibilitychange', refreshIfVisible)
+
+    return () => {
+      window.clearInterval(intervalId)
+      window.removeEventListener('focus', refreshIfVisible)
+      document.removeEventListener('visibilitychange', refreshIfVisible)
+    }
+  }, [activeSection, isRealWorkspace, refreshMiaMessages])
 
   useEffect(() => {
     if (!isRealWorkspace || !documentStatusSignature) return
@@ -479,12 +531,14 @@ function App() {
     }
 
     const messageContent = cleanPrompt || 'Please review this upload.'
+    const optimisticMessageId = clientSideId('mia-message')
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
     setPendingMiaAttachments([])
     const priorMessages = currentMessages
     const optimisticMessage: MiaMessage = {
+      client_id: optimisticMessageId,
       role: 'user',
       author: 'You',
       content: messageContent,
@@ -526,22 +580,15 @@ function App() {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
         })
       }
-    } catch {
+    } catch (caught) {
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
         prompt_length_bucket: messageLengthBucket(messageContent.length),
         attachment_count: attachmentsToSend.length,
       })
-      setMessages((current) => [
-        ...current,
-        {
-          role: 'assistant',
-          author: 'Mia',
-          content:
-            'I can still coach the framework. Your next move is to protect fixed bills, keep the Expense Stack honest, then decide what creates real optionality.',
-        },
-      ])
+      setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
+      setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
       setPendingMiaAttachments((current) => [...attachmentsToSend, ...current])
     } finally {
       setMiaLoading(false)
@@ -854,16 +901,17 @@ function App() {
       return
     }
 
+    const uploadFile = normalizedEvidenceFile(file, 0)
     setUploadingKind(kind)
     setDocumentsError(null)
     setDocumentsNotice(null)
-    trackDocumentUpload(kind, 'started', file)
+    trackDocumentUpload(kind, 'started', uploadFile)
     try {
-      const documentImport = await uploadDocumentImport(file, kind)
+      const documentImport = await uploadDocumentImport(uploadFile, kind)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
       setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. Mia is extracting draft values for review.`)
-      trackDocumentUpload(kind, 'succeeded', file)
+      trackDocumentUpload(kind, 'succeeded', uploadFile)
       captureAnalyticsEvent('document_import_created', {
         document_kind: kind,
         origin,
@@ -871,7 +919,7 @@ function App() {
       })
 
     } catch (caught) {
-      trackDocumentUpload(kind, 'failed', file)
+      trackDocumentUpload(kind, 'failed', uploadFile)
       const uploadError = caught instanceof Error ? caught.message : 'Document could not be uploaded.'
       setDocumentsError(uploadError)
       if (origin === 'mia') setMiaError(uploadError)
@@ -891,12 +939,16 @@ function App() {
       return
     }
 
+    const normalizedFiles = files.map(normalizedEvidenceFile)
+    const acceptedFiles = normalizedFiles.filter(isSupportedEvidenceFile)
+    const rejectedCount = normalizedFiles.length - acceptedFiles.length
     const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
-    const accepted = files.slice(0, room).map(pendingMiaAttachment)
-    if (files.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
+    const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
+    if (rejectedCount > 0) setMiaError('That file type is not supported yet. Use PDF, CSV, Excel, Word, JPG, PNG, WEBP, HEIC, or HEIF.')
+    else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
     else setMiaError(null)
 
-    setPendingMiaAttachments((current) => [...current, ...accepted])
+    if (accepted.length > 0) setPendingMiaAttachments((current) => [...current, ...accepted])
   }
 
   function removePendingMiaAttachment(id: string) {
@@ -1342,7 +1394,7 @@ function App() {
                   </div>
                 )}
                 {currentMessages.map((message, index) => (
-                  <div className={`message-row ${message.role}`} key={`${message.author}-${index}`}>
+                  <div className={`message-row ${message.role}`} key={messageKey(message, index)}>
                     {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
                     <div className={`message ${message.role}`}>
                       <strong>{message.author}</strong>
@@ -1424,7 +1476,7 @@ function App() {
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled={!isRealWorkspace || Boolean(uploadingKind)}
+                  disabled={!isRealWorkspace || Boolean(uploadingKind) || miaLoading}
                   title={isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
                   aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
@@ -1735,7 +1787,7 @@ function PendingAttachmentTray({
       {attachments.map((attachment) => (
         <div className="composer-attachment-card" key={attachment.id}>
           <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
-            {attachment.content_type.startsWith('image/') ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            {browserPreviewableImage(attachment.content_type) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
             <span>{attachmentDisplayName(attachment)}</span>
           </button>
           <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
@@ -1774,7 +1826,7 @@ function MessageAttachmentList({
               else if (documentImport) onOpenImport(documentImport)
             }}
           >
-            {attachment.preview_url && attachment.content_type.startsWith('image/') ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            {attachment.preview_url && browserPreviewableImage(attachment.content_type) ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
             <span>{messageAttachmentDisplayName(attachment)}</span>
           </button>
         )
@@ -1784,7 +1836,7 @@ function MessageAttachmentList({
 }
 
 function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
-  const isImage = attachment.content_type.startsWith('image/')
+  const isImage = browserPreviewableImage(attachment.content_type)
 
   return (
     <div className="document-preview-overlay" role="presentation">
@@ -2366,6 +2418,16 @@ function DocumentReviewPanel({
     )
   }
 
+  if (!documentImport.details_included) {
+    return (
+      <article className="document-review-panel document-empty-state" aria-label={`Loading ${documentImportDisplayName(documentImport)}`}>
+        <AttachmentIcon />
+        <h4>Loading review details</h4>
+        <p>Mia is opening the extracted values, transaction drafts, split lines, and matches for {documentImportDisplayName(documentImport)}.</p>
+      </article>
+    )
+  }
+
   const warnings = metadataWarnings(documentImport)
   const groupedItems = groupedImportItems(documentImport.items)
   const selectedCount = selectedApplyItemIds(documentImport).length
@@ -2597,7 +2659,7 @@ function DocumentSourcePreview({
   const filename = source?.filename ?? documentImport.filename
   const previewTitle = documentImportDisplayName(documentImport)
   const contentType = source?.content_type ?? documentImport.content_type
-  const isImage = source?.inline_supported === true && contentType.startsWith('image/')
+  const isImage = source?.inline_supported === true && browserPreviewableImage(contentType)
   const isPdf = source?.inline_supported === true && contentType === 'application/pdf'
   const serverPreviewType = usesServerPreview(filename, contentType)
 
@@ -2943,11 +3005,12 @@ function documentKindLabel(kind: DocumentImportKind) {
 }
 
 function pendingMiaAttachment(file: File): PendingMiaAttachment {
+  const contentType = normalizedContentType(file)
   return {
-    id: crypto.randomUUID(),
+    id: clientSideId('attachment'),
     file,
-    filename: file.name || 'attached-evidence',
-    content_type: file.type || 'application/octet-stream',
+    filename: file.name || `receipt-screenshot-${timestampForFilename()}.jpg`,
+    content_type: contentType,
     document_kind: inferDocumentKind(file),
     previewUrl: URL.createObjectURL(file),
   }
@@ -2978,23 +3041,66 @@ function attachLocalPreviewsToMessage(message: MiaMessage, attachments: PendingM
 
 function filesFromClipboard(data: DataTransfer) {
   const files = Array.from(data.files ?? [])
-  if (files.length > 0) return files.map(normalizedClipboardFile)
+  if (files.length > 0) return files.map(normalizedEvidenceFile)
 
   return Array.from(data.items ?? [])
     .filter((item) => item.kind === 'file')
     .map((item) => item.getAsFile())
     .filter((file): file is File => Boolean(file))
-    .map(normalizedClipboardFile)
+    .map(normalizedEvidenceFile)
 }
 
-function normalizedClipboardFile(file: File, index: number) {
-  if (file.name && file.name !== 'image.png') return file
+function normalizedEvidenceFile(file: File, index: number) {
+  const existingName = file.name.trim()
+  const extension = extensionForFile(file)
+  const hasUsefulName = Boolean(existingName && fileExtension(existingName) && !/^image\.(?:png|jpe?g|webp|heic|heif)$/i.test(existingName))
+  if (hasUsefulName) return file
 
-  const extension = extensionForContentType(file.type) ?? 'png'
-  return new File([file], `receipt-screenshot-${timestampForFilename()}-${index + 1}.${extension}`, {
-    type: file.type || `image/${extension}`,
+  const fallbackExtension = extension ?? 'jpg'
+  const prefix = normalizedContentType(file).startsWith('image/') ? 'receipt-screenshot' : 'mia-upload'
+  return new File([file], `${prefix}-${timestampForFilename()}-${index + 1}.${fallbackExtension}`, {
+    type: file.type || contentTypeForExtension(fallbackExtension) || 'application/octet-stream',
     lastModified: file.lastModified,
   })
+}
+
+function isSupportedEvidenceFile(file: File) {
+  const extension = extensionForFile(file)
+  const contentType = normalizedContentType(file)
+  if (extension && SUPPORTED_EVIDENCE_EXTENSIONS.has(extension)) return true
+  if (SUPPORTED_EVIDENCE_CONTENT_TYPES.has(contentType)) return true
+
+  return false
+}
+
+function normalizedContentType(file: File) {
+  return file.type.toLowerCase() || contentTypeForExtension(extensionForFile(file) ?? '') || 'application/octet-stream'
+}
+
+function fileExtension(filename: string) {
+  const match = filename.toLowerCase().match(/\.([a-z0-9]+)$/)
+  return match?.[1] ?? null
+}
+
+function extensionForFile(file: File) {
+  return fileExtension(file.name) ?? extensionForContentType(file.type)
+}
+
+function browserPreviewableImage(contentType: string) {
+  return ['image/jpeg', 'image/png', 'image/webp'].includes(contentType.toLowerCase())
+}
+
+function clientSideId(prefix: string) {
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return `${prefix}-${cryptoApi.randomUUID()}`
+
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(12)
+    cryptoApi.getRandomValues(bytes)
+    return `${prefix}-${Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')}`
+  }
+
+  return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function timestampForFilename() {
@@ -3002,21 +3108,61 @@ function timestampForFilename() {
 }
 
 function extensionForContentType(contentType: string) {
-  if (contentType === 'image/jpeg') return 'jpg'
-  if (contentType === 'image/png') return 'png'
-  if (contentType === 'image/webp') return 'webp'
-  if (contentType === 'application/pdf') return 'pdf'
-  if (contentType === 'text/csv') return 'csv'
+  const normalized = contentType.toLowerCase()
+  if (normalized === 'image/jpeg') return 'jpg'
+  if (normalized === 'image/png') return 'png'
+  if (normalized === 'image/webp') return 'webp'
+  if (normalized === 'image/heic') return 'heic'
+  if (normalized === 'image/heif') return 'heif'
+  if (normalized === 'application/pdf') return 'pdf'
+  if (normalized === 'text/csv' || normalized === 'application/csv') return 'csv'
+  if (normalized === 'application/vnd.ms-excel') return 'xls'
+  if (normalized === 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet') return 'xlsx'
+  if (normalized === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') return 'docx'
 
   return null
 }
+
+function contentTypeForExtension(extension: string) {
+  const normalized = extension.toLowerCase().replace(/^\./, '')
+  const map: Record<string, string> = {
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+    pdf: 'application/pdf',
+    csv: 'text/csv',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  }
+
+  return map[normalized] ?? null
+}
+
+const SUPPORTED_EVIDENCE_EXTENSIONS = new Set(['pdf', 'csv', 'xls', 'xlsx', 'docx', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
+const SUPPORTED_EVIDENCE_CONTENT_TYPES = new Set([
+  'application/pdf',
+  'text/csv',
+  'application/csv',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/heic',
+  'image/heif',
+])
 
 function inferDocumentKind(file: File): DocumentImportKind {
   const name = file.name.toLowerCase()
   const contentType = file.type.toLowerCase()
   const isSpreadsheet = name.endsWith('.csv') || name.endsWith('.xls') || name.endsWith('.xlsx')
   const isWord = name.endsWith('.docx') || contentType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  const isImage = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || contentType.startsWith('image/')
+  const isImage = name.endsWith('.jpg') || name.endsWith('.jpeg') || name.endsWith('.png') || name.endsWith('.webp') || name.endsWith('.heic') || name.endsWith('.heif') || contentType.startsWith('image/')
   const isPdf = name.endsWith('.pdf') || contentType === 'application/pdf'
 
   if (isSpreadsheet) return 'spreadsheet'
@@ -3189,6 +3335,30 @@ function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
 function importTimestamp(documentImport: FinancialDocumentImport) {
   const timestamp = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
   return Number.isNaN(timestamp) ? 0 : timestamp
+}
+
+function mergeImportSummariesWithDetails(summaries: FinancialDocumentImport[], current: FinancialDocumentImport[]) {
+  return summaries.map((summary) => {
+    const existing = current.find((documentImport) => documentImport.id === summary.id)
+    if (!existing?.details_included) return summary
+    if (!importDetailsStillCurrent(summary, existing)) return summary
+
+    return {
+      ...summary,
+      details_included: true,
+      items: existing.items,
+      transaction_drafts: existing.transaction_drafts,
+      attempts: existing.attempts,
+    }
+  })
+}
+
+function importDetailsStillCurrent(summary: FinancialDocumentImport, existing: FinancialDocumentImport) {
+  return summary.status === existing.status &&
+    summary.processed_at === existing.processed_at &&
+    summary.applied_at === existing.applied_at &&
+    summary.source_deleted_at === existing.source_deleted_at &&
+    summary.updated_at === existing.updated_at
 }
 
 function replaceImport(imports: FinancialDocumentImport[], documentImport: FinancialDocumentImport) {
@@ -5183,6 +5353,10 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
   } catch {
     // Ignore private browsing/storage quota issues. Chat still works in memory.
   }
+}
+
+function messageKey(message: MiaMessage, index: number) {
+  return message.id ? `server-${message.id}` : message.client_id ?? `${message.author}-${index}`
 }
 
 function messageParagraphs(message: MiaMessage) {

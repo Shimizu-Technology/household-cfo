@@ -10,10 +10,12 @@ class ChatMessage < ApplicationRecord
 
   def as_api_json(author: nil)
     {
+      id: id,
       role: role,
       author: author || (role == "assistant" ? "Mia" : "You"),
       content: content,
-      attachments: attachments
+      attachments: attachments,
+      created_at: created_at&.iso8601
     }
   end
 

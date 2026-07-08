@@ -125,6 +125,29 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", document_import.content_type
   end
 
+  test "create accepts mobile HEIC photos" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { content_type && key }
+    ) do
+      with_singleton_stub(Marcel::MimeType, :for, ->(*, **) { "image/heic" }) do
+        assert_difference("FinancialDocumentImport.count", 1) do
+          assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+            post "/api/v1/document_imports",
+              params: { file: uploaded_heic, document_kind: "receipt" },
+              headers: auth_headers(@user)
+          end
+        end
+      end
+    end
+
+    assert_response :created
+    document_import = FinancialDocumentImport.last
+    assert_equal "receipt", document_import.document_kind
+    assert_equal "receipt-photo.heic", document_import.filename
+    assert_equal "image/heic", document_import.content_type
+  end
+
   test "create accepts valid docx files when Marcel reports application zip" do
     with_s3_stubs(
       configured?: true,
@@ -141,6 +164,42 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     assert_equal "application/vnd.openxmlformats-officedocument.wordprocessingml.document", FinancialDocumentImport.last.content_type
+  end
+
+  test "index returns shallow summaries and show returns review details" do
+    document_import = create_import!(status: "needs_review")
+    category = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    draft = document_import.transaction_drafts.create!(
+      household: @household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Payless",
+      total_amount_cents: 103_42,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Receipt row"
+    )
+    draft.transaction_draft_splits.create!(
+      amount_cents: 103_42,
+      budget_category: category,
+      category_name: category.name,
+      stack_key: category.stack_key
+    )
+
+    get "/api/v1/document_imports", headers: auth_headers(@user)
+
+    assert_response :success
+    summary = JSON.parse(response.body).fetch("document_imports").first
+    assert_equal false, summary.fetch("details_included")
+    assert_equal "Payless", summary.fetch("transaction_drafts").first.fetch("merchant")
+    assert_empty summary.fetch("transaction_drafts").first.fetch("splits")
+
+    get "/api/v1/document_imports/#{document_import.id}", headers: auth_headers(@user)
+
+    assert_response :success
+    details = JSON.parse(response.body).fetch("document_import")
+    assert_equal true, details.fetch("details_included")
+    assert_equal 1, details.fetch("transaction_drafts").first.fetch("splits").length
   end
 
   test "source_url returns preview and download links without exposing s3 key" do
@@ -167,6 +226,34 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "https://private.example.test/attachment", body.fetch("download_url")
     assert_equal [ :inline, :attachment ], dispositions
     assert_not body.key?("s3_key")
+  end
+
+  test "source_url keeps mobile HEIC photos as attachment links" do
+    document_import = create_import!(
+      document_kind: "receipt",
+      filename: "receipt-photo.heic",
+      content_type: "image/heic",
+      s3_key: "household-cfo/test/source.heic"
+    )
+
+    dispositions = []
+    with_s3_stubs(
+      configured?: true,
+      presigned_url: ->(_key, expires_in:, filename:, disposition:) {
+        assert_equal 300, expires_in
+        assert_equal "receipt-photo.heic", filename
+        dispositions << disposition
+        "https://private.example.test/receipt-#{disposition}.heic"
+      }
+    ) do
+      get "/api/v1/document_imports/#{document_import.id}/source_url", headers: auth_headers(@user)
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal false, body.fetch("inline_supported")
+    assert_equal "https://private.example.test/receipt-attachment.heic", body.fetch("url")
+    assert_equal [ :attachment, :attachment ], dispositions
   end
 
   test "source_url keeps server-previewed csv sources as attachment links" do
@@ -1222,6 +1309,14 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     file.write("Category,Amount\nIncome,4000\nGroceries,800\n")
     file.rewind
     Rack::Test::UploadedFile.new(file.path, "text/csv", original_filename: "budget.csv")
+  end
+
+  def uploaded_heic
+    file = Tempfile.new([ "receipt-photo", ".heic" ])
+    file.binmode
+    file.write("fake heic bytes")
+    file.rewind
+    Rack::Test::UploadedFile.new(file.path, "image/heic", original_filename: "receipt-photo.heic")
   end
 
   def uploaded_docx

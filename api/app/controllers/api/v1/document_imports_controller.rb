@@ -9,7 +9,7 @@ module Api
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
 
       MAX_UPLOAD_BYTES = 20.megabytes
-      ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp].freeze
+      ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp .heic .heif].freeze
       REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
       ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
         ".pdf" => %w[application/pdf],
@@ -20,15 +20,17 @@ module Api
         ".jpg" => %w[image/jpeg],
         ".jpeg" => %w[image/jpeg],
         ".png" => %w[image/png],
-        ".webp" => %w[image/webp]
+        ".webp" => %w[image/webp],
+        ".heic" => %w[image/heic image/heif],
+        ".heif" => %w[image/heif image/heic]
       }.freeze
       EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count].freeze
 
       def index
         imports = current_household.financial_document_imports
-          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: [ :budget_category, :matched_transaction, { transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } } } ])
+          .includes(:items, :uploaded_by_user, :applied_by_user, :source_deleted_by_user, transaction_drafts: :budget_category)
           .recent_first.limit(50)
-        render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import) } }
+        render json: { document_imports: imports.map { |document_import| serialize_document_import(document_import, include_details: false) } }
       end
 
       def show
@@ -238,7 +240,7 @@ module Api
         filename = file.original_filename.to_s
         extension = File.extname(filename).downcase
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
-        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, or WEBP." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
         return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if File.size(file.tempfile.path) > MAX_UPLOAD_BYTES
 
@@ -279,7 +281,7 @@ module Api
         return "spreadsheet" if extension.in?(%w[.csv .xls .xlsx])
         return "statement" if extension == ".pdf"
         return "other" if extension == ".docx"
-        return "receipt" if extension.in?(%w[.jpg .jpeg .png .webp])
+        return "receipt" if extension.in?(%w[.jpg .jpeg .png .webp .heic .heif])
 
         "other"
       end
@@ -352,10 +354,15 @@ module Api
       end
 
       def inline_supported?(document_import)
-        document_import.pdf? || document_import.image?
+        document_import.pdf? || browser_previewable_image?(document_import)
       end
 
-      def serialize_document_import(document_import, include_attempts: false)
+      def browser_previewable_image?(document_import)
+        document_import.content_type.in?(%w[image/jpeg image/png image/webp]) ||
+          File.extname(document_import.filename.to_s).downcase.in?(%w[.jpg .jpeg .png .webp])
+      end
+
+      def serialize_document_import(document_import, include_attempts: false, include_details: true)
         {
           id: document_import.id,
           household_id: document_import.household_id,
@@ -372,13 +379,15 @@ module Api
           processed_at: document_import.processed_at,
           applied_at: document_import.applied_at,
           source_deleted_at: document_import.source_deleted_at,
+          updated_at: document_import.updated_at&.iso8601,
           source_available: document_import.source_available?,
+          details_included: include_details,
           uploaded_by: serialize_user_reference(document_import.uploaded_by_user),
           applied_by: serialize_user_reference(document_import.applied_by_user),
           source_deleted_by: serialize_user_reference(document_import.source_deleted_by_user),
           metadata: safe_import_metadata(document_import.metadata),
           items: ordered_items_for(document_import).map { |item| serialize_item(item) },
-          transaction_drafts: ordered_transaction_drafts_for(document_import).map { |draft| serialize_transaction_draft(draft) },
+          transaction_drafts: ordered_transaction_drafts_for(document_import, include_details: include_details).map { |draft| serialize_transaction_draft(draft, include_details: include_details) },
           attempts: include_attempts ? document_import.attempts.recent_first.limit(5).map { |attempt| serialize_attempt(attempt) } : []
         }
       end
@@ -391,11 +400,13 @@ module Api
         end
       end
 
-      def ordered_transaction_drafts_for(document_import)
+      def ordered_transaction_drafts_for(document_import, include_details: true)
         scope = if document_import.association(:transaction_drafts).loaded?
           document_import.transaction_drafts
-        else
+        elsif include_details
           document_import.transaction_drafts.includes(:budget_category, :matched_transaction, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
+        else
+          document_import.transaction_drafts.includes(:budget_category)
         end
         scope.sort_by { |draft| [ draft.occurred_on || Date.current, draft.id || 0 ] }.reverse
       end
@@ -427,7 +438,7 @@ module Api
         }
       end
 
-      def serialize_transaction_draft(draft)
+      def serialize_transaction_draft(draft, include_details: true)
         {
           id: draft.id,
           occurred_on: draft.occurred_on.iso8601,
@@ -443,8 +454,8 @@ module Api
           confidence: draft.confidence,
           raw_input: draft.raw_input,
           summary: "#{draft.merchant} — #{ActionController::Base.helpers.number_to_currency(dollars_or_nil(draft.total_amount_cents), precision: 2)}",
-          splits: ordered_draft_splits_for(draft).map { |split| serialize_transaction_draft_split(split) },
-          matches: ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) },
+          splits: include_details ? ordered_draft_splits_for(draft).map { |split| serialize_transaction_draft_split(split) } : [],
+          matches: include_details ? ordered_draft_matches_for(draft).map { |match| serialize_transaction_draft_match(match) } : [],
           matched_transaction_id: draft.matched_transaction_id,
           draft_payload: safe_draft_payload(draft.draft_payload)
         }

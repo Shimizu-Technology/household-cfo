@@ -128,7 +128,9 @@ export type FinancialDocumentImport = {
   processed_at: string | null
   applied_at: string | null
   source_deleted_at: string | null
+  updated_at: string
   source_available: boolean
+  details_included: boolean
   uploaded_by: DocumentImportUserReference | null
   applied_by: DocumentImportUserReference | null
   source_deleted_by: DocumentImportUserReference | null
@@ -412,10 +414,13 @@ export type MiaMessageAttachment = {
 }
 
 export type MiaMessage = {
+  id?: number
+  client_id?: string
   role: 'assistant' | 'user'
   author: string
   content: string
   attachments?: MiaMessageAttachment[]
+  created_at?: string
 }
 
 export type MiaMessagesData = {
@@ -748,6 +753,14 @@ export type MiaMessageResponse = {
   spending_report?: SpendingReport | null
 }
 
+export async function fetchMiaMessages(realWorkspace = false): Promise<MiaMessagesData> {
+  if (!realWorkspace) {
+    return { messages: [], quick_prompts: [], disclaimer: '' }
+  }
+
+  return fetchJson<MiaMessagesData>('/api/v1/mia/messages')
+}
+
 export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = []): Promise<MiaMessageResponse> {
   return postJson<MiaMessageResponse>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
     message,
@@ -759,6 +772,19 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
       content: entry.content,
     })),
   })
+}
+
+function clientRequestId() {
+  const cryptoApi = globalThis.crypto
+  if (typeof cryptoApi?.randomUUID === 'function') return cryptoApi.randomUUID()
+
+  if (typeof cryptoApi?.getRandomValues === 'function') {
+    const bytes = new Uint8Array(16)
+    cryptoApi.getRandomValues(bytes)
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+  }
+
+  return `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
 function yearQuery(year?: number) {
@@ -850,7 +876,7 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
   const formData = new FormData()
   formData.append('file', file)
   formData.append('document_kind', documentKind)
-  formData.append('upload_request_id', crypto.randomUUID())
+  formData.append('upload_request_id', clientRequestId())
 
   let response: Response
   try {
