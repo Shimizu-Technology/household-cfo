@@ -188,6 +188,28 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_not metadata.key?("raw_response")
   end
 
+  test "job skips imports that were already processed synchronously" do
+    @document_import.update!(status: "needs_review", extracted_summary: "Already read")
+    extractor_called = false
+    extractor = Object.new.tap do |object|
+      object.define_singleton_method(:model) { "test/model" }
+      object.define_singleton_method(:call) do |_document_import|
+        extractor_called = true
+        FinancialDocuments::Extractor::Result.new(success: false, data: nil, error: "should not run", metadata: {})
+      end
+    end
+
+    with_extractor_stub(extractor) do
+      assert_no_difference("FinancialDocumentImportAttempt.count") do
+        FinancialDocumentExtractionJob.perform_now(@document_import.id)
+      end
+    end
+
+    assert_equal false, extractor_called
+    assert_equal "needs_review", @document_import.reload.status
+    assert_equal "Already read", @document_import.extracted_summary
+  end
+
   test "attempt creation failure does not leave import stuck processing" do
     callback = lambda { |attempt| throw(:abort) if attempt.financial_document_import_id == @document_import.id }
     FinancialDocumentImportAttempt.set_callback(:create, :before, callback)

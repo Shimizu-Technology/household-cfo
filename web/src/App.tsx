@@ -96,6 +96,9 @@ type PendingMiaAttachment = {
   content_type: string
   document_kind: DocumentImportKind
   previewUrl: string
+  document_import_id?: number
+  status?: FinancialDocumentImport['status']
+  source_available?: boolean
 }
 
 type BudgetAllocationChange = {
@@ -208,6 +211,7 @@ function App() {
   const [documentsNotice, setDocumentsNotice] = useState<string | null>(null)
   const [uploadingKind, setUploadingKind] = useState<DocumentImportKind | null>(null)
   const [pendingMiaAttachments, setPendingMiaAttachments] = useState<PendingMiaAttachment[]>([])
+  const pendingMiaAttachmentsRef = useRef<PendingMiaAttachment[]>([])
   const [previewAttachment, setPreviewAttachment] = useState<PendingMiaAttachment | null>(null)
   const [selectedImportId, setSelectedImportId] = useState<number | null>(null)
   const [itemSavingIds, setItemSavingIds] = useState<Set<number>>(() => new Set())
@@ -251,6 +255,10 @@ function App() {
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
+  useEffect(() => {
+    pendingMiaAttachmentsRef.current = pendingMiaAttachments
+  }, [pendingMiaAttachments])
+
   const documentStatusSignature = useMemo(
     () => documentImports
       .filter((documentImport) => PROCESSING_IMPORT_STATUSES.has(documentImport.status))
@@ -536,6 +544,7 @@ function App() {
     setMiaError(null)
     setQuestion('')
     setPendingMiaAttachments([])
+    pendingMiaAttachmentsRef.current = []
     const priorMessages = currentMessages
     const optimisticMessage: MiaMessage = {
       client_id: optimisticMessageId,
@@ -546,15 +555,18 @@ function App() {
     }
     setMessages((current) => [...current, optimisticMessage])
 
+    let preparedAttachmentsForRetry = attachmentsToSend
+
     try {
-      const uploadedImports = await uploadPendingMiaAttachments(attachmentsToSend)
+      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend)
+      preparedAttachmentsForRetry = uploadResult.attachments
       const response = await sendMiaMessage(
         messageContent,
         priorMessages,
         isRealWorkspace,
         selectedBudgetYear,
         selectedBudgetMonthIndex + 1,
-        uploadedImports.map((documentImport) => documentImport.id),
+        uploadResult.documentImportIds,
       )
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
@@ -573,7 +585,8 @@ function App() {
       if (response.spending_report) {
         setSpendingReport(response.spending_report)
       }
-      const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, attachmentsToSend)
+      if (attachmentsToSend.length > 0) void refreshDocumentImports({ quiet: true })
+      const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, uploadResult.attachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
@@ -589,7 +602,8 @@ function App() {
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
-      setPendingMiaAttachments((current) => [...attachmentsToSend, ...current])
+      const retryAttachments = caught instanceof MiaAttachmentUploadError ? caught.attachments : preparedAttachmentsForRetry
+      setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
       setMiaLoading(false)
       requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
@@ -960,13 +974,18 @@ function App() {
   }
 
   async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[]) {
+    const preparedAttachments = [...attachments]
     const uploadedImports: FinancialDocumentImport[] = []
-    for (const attachment of attachments) {
+
+    for (const [index, attachment] of attachments.entries()) {
+      if (attachment.document_import_id) continue
+
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
         const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind)
         uploadedImports.push(documentImport)
+        preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
         trackDocumentUpload(attachment.document_kind, 'succeeded', attachment.file)
@@ -977,13 +996,18 @@ function App() {
         })
       } catch (caught) {
         trackDocumentUpload(attachment.document_kind, 'failed', attachment.file)
-        throw caught
+        const message = caught instanceof Error ? caught.message : 'Document upload failed'
+        throw new MiaAttachmentUploadError(message, preparedAttachments, { cause: caught })
       } finally {
         setUploadingKind(null)
       }
     }
 
-    return uploadedImports
+    return {
+      attachments: preparedAttachments,
+      uploadedImports,
+      documentImportIds: preparedAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
+    }
   }
 
   function handleMiaPaste(event: ClipboardEvent<HTMLTextAreaElement>) {
@@ -1111,6 +1135,23 @@ function App() {
   function handleOpenDocumentSource(documentImport: FinancialDocumentImport) {
     setDocumentsError(null)
     setPreviewImport(documentImport)
+  }
+
+  async function handleOpenDocumentSourceById(documentImportId: number) {
+    const existingImport = documentImports.find((documentImport) => documentImport.id === documentImportId)
+    if (existingImport) {
+      handleOpenDocumentSource(existingImport)
+      return
+    }
+
+    setDocumentsError(null)
+    try {
+      const documentImport = await fetchDocumentImport(documentImportId)
+      setDocumentImports((current) => replaceImport(current, documentImport))
+      setPreviewImport(documentImport)
+    } catch (caught) {
+      setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be opened.')
+    }
   }
 
   async function handleSetupSubmit(event: FormEvent<HTMLFormElement>) {
@@ -1417,6 +1458,7 @@ function App() {
                             })
                           }}
                           onOpenImport={handleOpenDocumentSource}
+                          onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
                         />
                       )}
                     </div>
@@ -1804,30 +1846,35 @@ function MessageAttachmentList({
   imports,
   onOpenLocal,
   onOpenImport,
+  onOpenImportId,
 }: {
   attachments: MiaMessageAttachment[]
   imports: FinancialDocumentImport[]
   onOpenLocal: (attachment: MiaMessageAttachment) => void
   onOpenImport: (documentImport: FinancialDocumentImport) => void
+  onOpenImportId: (documentImportId: number) => void
 }) {
   return (
     <div className="message-attachment-list" aria-label="Message attachments">
       {attachments.map((attachment) => {
         const documentImport = attachment.document_import_id ? imports.find((candidate) => candidate.id === attachment.document_import_id) : null
-        const canOpen = Boolean(attachment.preview_url || documentImport?.source_available)
+        const hasImagePreview = Boolean(attachment.preview_url && browserPreviewableImage(attachment.content_type))
+        const canOpen = Boolean(attachment.document_import_id || attachment.preview_url || documentImport?.source_available)
         return (
           <button
             type="button"
-            className="message-attachment-card"
+            className={`message-attachment-card ${hasImagePreview ? 'is-image' : ''}`}
             key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}
             disabled={!canOpen}
+            aria-label={`Open ${messageAttachmentDisplayName(attachment)}`}
             onClick={() => {
-              if (attachment.preview_url) onOpenLocal(attachment)
-              else if (documentImport) onOpenImport(documentImport)
+              if (documentImport) onOpenImport(documentImport)
+              else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
+              else if (attachment.preview_url) onOpenLocal(attachment)
             }}
           >
-            {attachment.preview_url && browserPreviewableImage(attachment.content_type) ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
-            <span>{messageAttachmentDisplayName(attachment)}</span>
+            {hasImagePreview ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            {!hasImagePreview && <span>{messageAttachmentDisplayName(attachment)}</span>}
           </button>
         )
       })}
@@ -2671,7 +2718,7 @@ function DocumentSourcePreview({
           <div>
             <span className="document-status blue">Private preview</span>
             <h3>{previewTitle}</h3>
-            <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Link expires in {source?.expires_in ?? 300}s</p>
+            <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · Private source saved; preview links refresh when opened.</p>
           </div>
           <div className="document-preview-actions">
             {source && <a href={source.download_url} target="_blank" rel="noopener noreferrer">Download source</a>}
@@ -3004,6 +3051,25 @@ function documentKindLabel(kind: DocumentImportKind) {
   return labels[kind]
 }
 
+class MiaAttachmentUploadError extends Error {
+  attachments: PendingMiaAttachment[]
+
+  constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'MiaAttachmentUploadError'
+    this.attachments = attachments
+  }
+}
+
+function attachmentWithDocumentImport(attachment: PendingMiaAttachment, documentImport: FinancialDocumentImport): PendingMiaAttachment {
+  return {
+    ...attachment,
+    document_import_id: documentImport.id,
+    status: documentImport.status,
+    source_available: documentImport.source_available,
+  }
+}
+
 function pendingMiaAttachment(file: File): PendingMiaAttachment {
   const contentType = normalizedContentType(file)
   return {
@@ -3018,11 +3084,12 @@ function pendingMiaAttachment(file: File): PendingMiaAttachment {
 
 function localAttachmentForMessage(attachment: PendingMiaAttachment): MiaMessageAttachment {
   return {
+    document_import_id: attachment.document_import_id,
     filename: attachment.filename,
     content_type: attachment.content_type,
     document_kind: attachment.document_kind,
-    status: 'uploaded',
-    source_available: false,
+    status: attachment.status ?? 'uploaded',
+    source_available: attachment.source_available ?? false,
     preview_url: attachment.previewUrl,
   }
 }

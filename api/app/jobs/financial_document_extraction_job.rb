@@ -17,6 +17,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
     document_import.with_lock do
       return if document_import.source_deleted_at.present?
+      return unless document_import.status == "uploaded"
 
       attempt = document_import.attempts.create!(
         provider: "openrouter",

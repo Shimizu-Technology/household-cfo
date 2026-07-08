@@ -64,8 +64,8 @@ module Api
         compact_conversation(session, user_message, assistant_message, follow_up: followup.follow_up?)
 
         render json: {
-          user_message: user_message.as_api_json(author: "You"),
-          assistant_message: assistant_message.as_api_json(author: "Mia"),
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           budget: annual_plan ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
@@ -95,20 +95,22 @@ module Api
       end
 
       def render_attached_document_response(session, content, attached_imports)
-        assistant_content = attached_document_message(content, attached_imports)
+        processed_imports = process_attached_imports(attached_imports)
+        assistant_content = attached_document_message(content, processed_imports)
+        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).plan_data
         user_message, assistant_message = ApplicationRecord.transaction do
           [
-            session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
+            session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
             session.chat_messages.create!(role: "assistant", content: assistant_content)
           ]
         end
         compact_conversation(session, user_message, assistant_message)
 
         render json: {
-          user_message: user_message.as_api_json(author: "You"),
-          assistant_message: assistant_message.as_api_json(author: "Mia"),
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: nil,
-          budget: nil,
+          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
           spending_report: nil
         }, status: :created
       end
@@ -118,6 +120,52 @@ module Api
         return [] if ids.empty?
 
         current_household.financial_document_imports.where(id: ids).order(:id).to_a
+      end
+
+      def process_attached_imports(document_imports)
+        document_imports.each do |document_import|
+          FinancialDocumentExtractionJob.perform_now(document_import.id) if document_import.status == "uploaded"
+        end
+        document_imports.map(&:reload)
+      end
+
+      def serialize_chat_message(message, author: nil)
+        payload = message.as_api_json(author: author)
+        imports_by_id = attachment_imports_by_id(payload[:attachments])
+        payload[:attachments] = Array(payload[:attachments]).map { |attachment| serialize_chat_attachment(attachment, imports_by_id: imports_by_id) }
+        payload
+      end
+
+      def attachment_imports_by_id(attachments)
+        ids = Array(attachments).filter_map { |attachment| attachment["document_import_id"] || attachment[:document_import_id] }.map(&:to_i).select(&:positive?).uniq
+        return {} if ids.empty?
+
+        current_household.financial_document_imports.where(id: ids).index_by(&:id)
+      end
+
+      def serialize_chat_attachment(attachment, imports_by_id:)
+        payload = attachment.respond_to?(:deep_symbolize_keys) ? attachment.deep_symbolize_keys : {}
+        document_import = imports_by_id[payload[:document_import_id].to_i]
+        return payload unless document_import
+
+        payload.merge(
+          filename: document_import.filename,
+          content_type: document_import.content_type,
+          document_kind: document_import.document_kind,
+          status: document_import.status,
+          source_available: document_import.source_available?,
+          preview_url: chat_attachment_preview_url(document_import)
+        ).compact
+      end
+
+      def chat_attachment_preview_url(document_import)
+        return unless S3Service.configured?
+        return unless document_import.source_available?
+        return unless document_import.content_type.in?(%w[image/jpeg image/png image/webp])
+
+        S3Service.presigned_url(document_import.s3_key, expires_in: 300, filename: document_import.filename, disposition: :inline)
+      rescue S3Service::MissingConfigurationError
+        nil
       end
 
       def serialize_attachment(document_import)
@@ -132,15 +180,44 @@ module Api
       end
 
       def attached_document_message(content, attached_imports)
-        labels = attached_imports.map { |document_import| evidence_label(document_import) }
         note = content == "Please review this upload." ? nil : content
-        opening = if labels.one?
-          "Got it — I’m reviewing the #{labels.first} you sent."
-        else
-          "Got it — I’m reviewing the #{labels.to_sentence} you sent."
+        results = attached_imports.map { |document_import| attached_document_result_message(document_import) }
+        note_line = note.present? ? "I used your note as context: #{note}" : nil
+        [ note_line, *results ].compact.join("\n\n")
+      end
+
+      def attached_document_result_message(document_import)
+        if document_import.status == "failed"
+          return "I could not read the #{evidence_label(document_import)} yet: #{document_import.extraction_error.presence || 'extraction failed'}. The upload is saved, but no household numbers changed."
         end
-        next_step = "If I can read money details from #{labels.one? ? 'it' : 'them'}, I’ll turn them into review cards below so you can confirm, edit, match, or ignore before anything affects actuals."
-        [ opening, note.present? ? "Your note: #{note}" : nil, next_step ].compact.join("\n\n")
+
+        drafts = document_import.transaction_drafts.pending.includes(:budget_category, :transaction_draft_splits).order(:occurred_on, :id).to_a
+        if drafts.any?
+          return drafted_document_transaction_message(document_import, drafts)
+        end
+
+        items = document_import.items.where(ignored: false).order(:id).to_a
+        if items.any?
+          labels = items.first(3).map(&:label).to_sentence
+          return "I read the #{evidence_label(document_import)} and found #{items.length} reviewable household value#{'s' unless items.length == 1}: #{labels}. Review the cards below before anything becomes official."
+        end
+
+        if document_import.status.in?(%w[uploaded processing])
+          return "The #{evidence_label(document_import)} is still processing. I’ll show review cards here as soon as the backend finishes reading it."
+        end
+
+        "I read the #{evidence_label(document_import)}, but I did not find clear money details to draft. The upload is saved for review, and no household numbers changed."
+      end
+
+      def drafted_document_transaction_message(document_import, drafts)
+        first_draft = drafts.first
+        amount = money(first_draft.total_amount_cents)
+        date = first_draft.occurred_on.strftime("%b %-d, %Y")
+        merchant = first_draft.merchant.presence || evidence_label(document_import).titleize
+        category = first_draft.budget_category&.name || first_draft.transaction_draft_splits.first&.category_name || "Uncategorized"
+        intro = "I read the #{evidence_label(document_import)} and drafted #{merchant} for #{amount} on #{date} in #{category}."
+        extra = drafts.length > 1 ? " I also found #{drafts.length - 1} more transaction row#{'s' unless drafts.length == 2}." : ""
+        "#{intro}#{extra} Review the card#{'s' if drafts.length > 1} below before anything affects actuals."
       end
 
       def evidence_label(document_import)

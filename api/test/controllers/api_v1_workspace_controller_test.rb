@@ -369,11 +369,22 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     document_import = household.financial_document_imports.create!(
       uploaded_by_user: user,
       document_kind: "receipt",
-      status: "uploaded",
+      status: "needs_review",
       filename: "receipt.png",
       content_type: "image/png",
       byte_size: 128,
       s3_key: "household-cfo/test/receipt.png"
+    )
+    category = household.budget_categories.create!(name: "Software", stack_key: "discretionary", sort_order: 1)
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 3),
+      merchant: "Resend",
+      total_amount_cents: 20_00,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Resend receipt"
     )
 
     post "/api/v1/mia/messages",
@@ -384,10 +395,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     body = JSON.parse(response.body)
     assert_nil body.fetch("transaction_draft")
-    assert_includes body.fetch("assistant_message").fetch("content"), "I’m reviewing the receipt screenshot you sent"
+    assistant_content = body.fetch("assistant_message").fetch("content")
+    assert_includes assistant_content, "I used your note as context: Please read this receipt"
+    assert_includes assistant_content, "I read the receipt screenshot and drafted Resend for $20"
     attachment = body.fetch("user_message").fetch("attachments").first
     assert_equal document_import.id, attachment.fetch("document_import_id")
     assert_equal "receipt.png", attachment.fetch("filename")
+    assert_equal "needs_review", attachment.fetch("status")
 
     get "/api/v1/mia/messages", headers: auth_headers(user)
 

@@ -3228,6 +3228,35 @@ h3 {
   padding: 7px 10px 7px 7px;
 }
 
+.message.user .message-attachment-list {
+  justify-content: flex-end;
+}
+
+.message.user .message-attachment-card:not(.is-image) {
+  border-color: rgba(255, 253, 248, 0.18);
+  background: rgba(255, 253, 248, 0.1);
+  color: rgba(255, 253, 248, 0.92);
+}
+
+.message-attachment-card.is-image {
+  display: block;
+  width: min(230px, 64vw);
+  overflow: hidden;
+  border: 0;
+  border-radius: 18px;
+  background: transparent;
+  box-shadow: 0 16px 40px rgba(28, 35, 31, 0.18);
+}
+
+.message-attachment-card.is-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 230px;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
 .local-attachment-preview {
   position: relative;
   display: grid;
