@@ -921,7 +921,7 @@ function App() {
     setDocumentsNotice(null)
     trackDocumentUpload(kind, 'started', uploadFile)
     try {
-      const documentImport = await uploadDocumentImport(uploadFile, kind)
+      const documentImport = await uploadDocumentImport(uploadFile, kind, origin)
       setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
       setSelectedImportId(documentImport.id)
       setDocumentsNotice(`${documentKindLabel(kind)} uploaded privately. Mia is extracting draft values for review.`)
@@ -983,7 +983,7 @@ function App() {
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
-        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind)
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia')
         uploadedImports.push(documentImport)
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])

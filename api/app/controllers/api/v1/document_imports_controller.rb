@@ -59,7 +59,7 @@ module Api
         end
 
         document_import.update!(s3_key: s3_key)
-        FinancialDocumentExtractionJob.perform_later(document_import.id)
+        FinancialDocumentExtractionJob.perform_later(document_import.id) unless mia_chat_upload?
 
         render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
       rescue S3Service::MissingConfigurationError
@@ -230,6 +230,10 @@ module Api
       def import_has_resolved_values?(document_import)
         document_import.items.where.not(applied_at: nil).exists? ||
           document_import.transaction_drafts.where(status: %w[confirmed corrected matched]).exists?
+      end
+
+      def mia_chat_upload?
+        params[:upload_origin].to_s == "mia"
       end
 
       def valid_upload_param?(file)
