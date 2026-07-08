@@ -184,6 +184,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       "Should we use the same boundary?",
       "What if it is urgent?",
       "Can I do $50 instead?",
+      "How much can I spend instead?",
       "Would that hurt the plan?",
       "What if my spouse agrees?",
       "How do I explain that?"

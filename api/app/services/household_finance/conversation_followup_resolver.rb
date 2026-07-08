@@ -7,7 +7,8 @@ module HouseholdFinance
     ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     SPENDING_REPORT_PATTERNS = [
-      /\bhow much\b.*\b(?:spend|spent|spending|actuals?|transactions?)\b/i,
+      /\bhow much\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,
+      /\bhow much\s+(?:was|were)\b.*\b(?:spent|spending|actuals?|transactions?)\b/i,
       /\b(?:how did|how'd)\s+(?:i|we)\s+do\b.*\b(?:this month|last month|month|quarter|year|#{MonthTerms.pattern})\b/i,
       /\b(?:how about|what about)\s+(?:this month|last month|#{MonthTerms.pattern})\b/i,
       /\b(?:show|report)\b.*\b(?:spending|spent|actuals?|transactions?)\b/i,
