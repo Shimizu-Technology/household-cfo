@@ -3356,9 +3356,9 @@ h3 {
   line-height: 1.45;
 }
 
-.composer-attach,
-.composer-voice,
-.send-button {
+.mia-chat-shell .ask-row .composer-attach,
+.mia-chat-shell .ask-row .composer-voice,
+.mia-chat-shell .ask-row .send-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3366,12 +3366,16 @@ h3 {
   border-radius: 999px;
 }
 
-.composer-attach,
-.composer-voice {
+.mia-chat-shell .ask-row .composer-attach,
+.mia-chat-shell .ask-row .composer-voice {
   width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
   border: 1px solid var(--line);
   background: white;
-  color: rgba(123, 74, 88, 0.55);
+  color: rgba(123, 74, 88, 0.72);
+  box-shadow: none;
 }
 
 .composer-voice.is-recording {
@@ -3397,8 +3401,9 @@ h3 {
   fill: currentColor;
 }
 
-.send-button {
+.mia-chat-shell .ask-row .send-button {
   gap: 8px;
+  width: auto;
   padding: 0 16px;
   background: var(--emerald);
   color: white;
@@ -3563,8 +3568,9 @@ h3 {
   }
 
   .mia-chat-shell .ask-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 40px 40px minmax(0, 1fr) 42px;
     gap: 6px;
+    align-items: center;
     padding: 10px;
   }
 
@@ -3572,18 +3578,23 @@ h3 {
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
-  .composer-attach,
-  .send-button {
+  .mia-chat-shell .ask-row .composer-attach,
+  .mia-chat-shell .ask-row .composer-voice,
+  .mia-chat-shell .ask-row .send-button {
     min-height: 40px;
-  }
-
-  .composer-attach {
-    width: 40px;
-  }
-
-  .send-button {
-    width: 42px;
+    height: 40px;
     padding: 0;
+  }
+
+  .mia-chat-shell .ask-row .composer-attach,
+  .mia-chat-shell .ask-row .composer-voice {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .mia-chat-shell .ask-row .send-button {
+    width: 42px;
+    min-width: 42px;
   }
 
   .send-button span {

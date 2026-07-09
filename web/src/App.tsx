@@ -641,6 +641,10 @@ function App() {
       return
     }
     if (miaLoading || voiceTranscribing) return
+    if (!window.isSecureContext) {
+      setMiaError('Voice input needs HTTPS on phones. Use localhost on this computer, the Netlify preview, or an HTTPS tunnel for mobile testing.')
+      return
+    }
     if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
       setMiaError('Voice input is not available in this browser. You can still type your note for Mia.')
       return
