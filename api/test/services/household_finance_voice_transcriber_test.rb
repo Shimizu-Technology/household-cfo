@@ -112,7 +112,7 @@ class HouseholdFinanceVoiceTranscriberTest < ActiveSupport::TestCase
     end
     yield
   ensure
-    singleton.send(:remove_method, :start) if singleton.method_defined?(:start)
+    singleton.send(:remove_method, :start) if singleton.instance_methods(false).include?(:start)
     singleton.define_method(:start, original)
   end
 end

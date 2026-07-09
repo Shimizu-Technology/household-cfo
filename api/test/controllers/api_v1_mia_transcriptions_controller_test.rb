@@ -109,7 +109,7 @@ class ApiV1MiaTranscriptionsControllerTest < ActionDispatch::IntegrationTest
     end
     yield
   ensure
-    singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
+    singleton.send(:remove_method, method_name) if singleton.instance_methods(false).include?(method_name)
     singleton.define_method(method_name, original)
   end
 end
