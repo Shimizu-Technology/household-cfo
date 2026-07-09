@@ -588,6 +588,7 @@ function App() {
     setVoiceRecording(false)
 
     if (chunks.length === 0) {
+      setVoiceNotice(null)
       setMiaError("I couldn't hear anything in that recording. Try again or type the note for Mia.")
       return
     }
@@ -661,8 +662,13 @@ function App() {
         void handleVoiceRecordingComplete(recorder.mimeType || mimeType || 'audio/webm')
       }
       recorder.onerror = () => {
+        recorder.onstop = null
+        voiceChunksRef.current = []
+        mediaRecorderRef.current = null
         setMiaError('Voice recording stopped unexpectedly. Try again or type your note for Mia.')
         setVoiceRecording(false)
+        setVoiceTranscribing(false)
+        setVoiceNotice(null)
         stopVoiceStream()
       }
       recorder.start()
