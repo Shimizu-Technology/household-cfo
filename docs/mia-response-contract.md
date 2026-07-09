@@ -18,10 +18,11 @@ Every real Mia response should be governed in this order:
 2. Mrs. Mel Section 7 persona seed, loaded verbatim from `api/config/mia_personas.yml`.
 3. The Mia Response Contract v1.
 4. Approved structured household facts from Postgres.
-5. Current annual plan, selected month, confirmed transactions, and pending drafts.
+5. Current annual plan, selected month, confirmed transactions, pending transaction drafts, and pending Mia action drafts.
 6. Approved document source/freshness summaries.
-7. Recent chat history.
-8. General model knowledge only when app data does not answer the question.
+7. Confirmed relevant memories, once personalization is implemented and enabled.
+8. Recent chat history.
+9. General model knowledge only when app data does not answer the question.
 
 ## The contract
 
@@ -63,6 +64,14 @@ Deterministic financial answers:
 - Rails still computes money truth for reports, budget Q&A, transaction lookup, transaction drafts, and common coaching branches such as discretionary purchase checks, readiness planning, and expected sinking-fund bills like car registration.
 - Deterministic services still calculate the answer packet and provide the safe fallback.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
+
+Supervised action drafts:
+
+- Mia may prepare narrow budget/category action drafts, but she must not silently mutate financial records. Profile/debt/asset action drafts require separate specialized review flows.
+- The safe agentic pattern is: Mia proposes, the Household CFO reviews/approves, Rails validates/applies, and the audit log records what changed.
+- Before approval, Mia should say she prepared or suggested a change, not that she updated the budget.
+- Action drafts must use explicit schemas and Rails validations, never arbitrary model-generated patches or frontend-only writes.
+- The detailed plan lives in `docs/mia-memory-and-supervised-actions.md`.
 
 Conversation continuity:
 
@@ -123,3 +132,4 @@ docs/mia-browser-research-post-v1.md
 - Persona brief implementation: `docs/mia-persona-template.md`
 - Mrs. Mel v1 implementation plan: `docs/mrs-mel-v1-feedback-implementation-plan.md`
 - Memory/coaching vision: `/Users/leonshimizu/Desktop/ShimizuTechnology/Brain-Dump/work/shimizu-tech/Mel-Mendiola-ASC-Trust/23) Mia Memory and self-learning coaching vision - 2026-06-23.md`
+- Mia Memory and supervised action plan: `docs/mia-memory-and-supervised-actions.md`

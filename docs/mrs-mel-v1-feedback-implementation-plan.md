@@ -23,6 +23,32 @@ This document intentionally summarizes product/technical direction without copyi
 
 ---
 
+## Status update after PR #31
+
+PR #29, PR #30, and PR #31 completed the biggest remaining V1 feedback foundations:
+
+- Document Intelligence Platform v1: receipt/photo/statement/spreadsheet extraction, transaction drafts, split drafts, matching/reconciliation, source lineage, reopen/undo, and merchant/category learning.
+- Mia Coaching Quality / Model Narrator: Rails-approved answer packets, model narration, guardrails, and deterministic fallback.
+- Voice Input + Mia Eval Harness: backend-only OpenRouter STT, editable transcripts before send, no auto-confirm, and YAML-backed regression prompts.
+
+The next direction is documented in:
+
+```text
+docs/post-pr29-roadmap.md
+docs/mia-memory-and-supervised-actions.md
+```
+
+Working sequence:
+
+1. Production smoke the merged document/transaction/voice loop.
+2. Add supervised Mia action drafts so Mia can propose budget/category edits for review before Rails applies them.
+3. Discuss Mia Memory with Mrs. Mel, then build a visible/user-controlled Memory MVP.
+4. Polish the annual budget UX and pilot-ready review flows.
+
+The product boundary remains unchanged: Mia proposes and coaches; Rails validates and writes; the Household CFO confirms.
+
+---
+
 ## Current status after PR #20 work
 
 PR #20 now covers most of the planned **PR 2 — Annual budget + transaction loop foundation** scope and several earlier demo-confidence blockers.

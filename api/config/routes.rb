@@ -24,6 +24,12 @@ Rails.application.routes.draw do
         post :restore, on: :member
       end
       resources :budget_allocations, only: :update
+      resources :mia_action_drafts, only: [] do
+        member do
+          post :apply
+          post :cancel
+        end
+      end
       resources :transaction_drafts, only: :update do
         member do
           post :confirm

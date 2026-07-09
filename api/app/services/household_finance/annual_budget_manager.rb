@@ -43,6 +43,7 @@ module HouseholdFinance
         end,
         monthly_income: monthly_income_by_period(periods),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
+        pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
       }
@@ -296,6 +297,14 @@ module HouseholdFinance
         .recent_first
         .limit(20)
         .map { |draft| draft_payload(draft) }
+    end
+
+    def pending_mia_action_drafts_payload(budget_year)
+      household.mia_action_drafts.pending.includes(:mia_action_items)
+        .where(year: budget_year.year, draft_type: "budget_edit")
+        .recent_first
+        .limit(10)
+        .map { |draft| MiaActionDraftPresenter.new(draft).call }
     end
 
     def recent_transactions_payload(periods)

@@ -23,25 +23,33 @@ module Api
         routed_content = followup.message
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         pending_draft_answer = pending_guardrail_answer(routed_content)
+        action_result = pending_draft_answer ? nil : HouseholdFinance::MiaActionDraftBuilder.new(
+          current_household,
+          routed_content,
+          user: current_user,
+          annual_budget_manager: annual_budget_manager,
+          selected_month: budget_month_param,
+          raw_input: content
+        ).call
         coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
           current_household,
           routed_content,
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param
         )
-        coach_answer = pending_draft_answer ? nil : followup.direct_answer || coach_answerer.call
-        transaction_lookup_answer = (coach_answer || pending_draft_answer) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
-        pending_draft_answer ||= (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
-        spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(routed_content)
-        annual_plan = coach_answer ? coach_answerer.prepared_annual_plan : nil
+        coach_answer = (pending_draft_answer || action_result) ? nil : followup.direct_answer || coach_answerer.call
+        transaction_lookup_answer = (coach_answer || pending_draft_answer || action_result) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
+        pending_draft_answer ||= (transaction_lookup_answer || coach_answer || action_result) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
+        spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer || action_result) ? nil : spending_report_for(routed_content)
+        annual_plan = action_result&.annual_plan || (coach_answer ? coach_answerer.prepared_annual_plan : nil)
         budget_answer = nil
         transaction_draft = nil
-        unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report
+        unless action_result || coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report
           budget_answer_manager = budget_answer_manager_for(routed_content, annual_budget_manager)
           annual_plan = budget_answer_manager.plan_data
           budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(routed_content, annual_plan: annual_plan).call
         end
-        unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer
+        unless action_result || coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer
           transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
             current_household,
             routed_content,
@@ -51,16 +59,18 @@ module Api
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end
-        unless coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer || transaction_draft
+        unless action_result || coach_answer || transaction_lookup_answer || pending_draft_answer || spending_report || budget_answer || transaction_draft
           annual_plan ||= annual_budget_manager.plan_data
         end
-        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
+        assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context)
+        mia_action_draft = nil
         user_message, assistant_message = ApplicationRecord.transaction do
-          [
-            session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(role: "assistant", content: assistant_content)
-          ]
+          user_chat_message = session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) })
+          assistant_chat_message = session.chat_messages.create!(role: "assistant", content: assistant_content)
+          mia_action_draft = action_result&.proposal&.create_draft!(source_chat_message: user_chat_message, assistant_chat_message: assistant_chat_message)
+          [ user_chat_message, assistant_chat_message ]
         end
+        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data if mia_action_draft
 
         compact_conversation(session, user_message, assistant_message, follow_up: followup.follow_up?)
 
@@ -68,6 +78,7 @@ module Api
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
+          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
           budget: annual_plan ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }, status: :created
@@ -111,6 +122,7 @@ module Api
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: nil,
+          mia_action_draft: nil,
           budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
           spending_report: nil
         }, status: :created
@@ -257,7 +269,10 @@ module Api
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: target_year)
       end
 
-      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, conversation_context)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context)
+        if action_result
+          return action_result.response
+        end
         if coach_answer
           return narrate_structured_answer(content, history, conversation_context, kind: "coaching", fallback_response: coach_answer, annual_plan: annual_plan, write_state: "no_write")
         end
@@ -317,6 +332,10 @@ module Api
           HouseholdFinance::Money.dollars(cents),
           precision: cents.to_i % 100 == 0 ? 0 : 2
         )
+      end
+
+      def serialize_mia_action_draft(draft)
+        HouseholdFinance::MiaActionDraftPresenter.new(draft).call
       end
 
       def serialize_transaction_draft(draft)

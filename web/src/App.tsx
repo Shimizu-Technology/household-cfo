@@ -3,7 +3,9 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent,
 import './App.css'
 import {
   applyDocumentImport,
+  applyMiaActionDraft,
   archiveBudgetCategory,
+  cancelMiaActionDraft,
   clearMiaMessages,
   confirmTransactionDraft,
   createAdminCohort,
@@ -60,6 +62,8 @@ import type {
   DocumentSourceUrl,
   FinancialDocumentImport,
   InvitationStatus,
+  MiaActionDraft,
+  MiaActionItem,
   MiaMessage,
   MiaMessageAttachment,
   RecentTransaction,
@@ -265,6 +269,7 @@ function App() {
     [documentImports],
   )
   const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = data?.budget.annual_plan
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
   const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
@@ -765,6 +770,12 @@ function App() {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
         })
       }
+      if (response.mia_action_draft) {
+        captureAnalyticsEvent('mia_action_draft_presented', {
+          draft_type: response.mia_action_draft.draft_type,
+          item_count: response.mia_action_draft.items.length,
+        })
+      }
     } catch (caught) {
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
@@ -941,6 +952,58 @@ function App() {
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be restored.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleApplyMiaActionDraft(draft: MiaActionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`apply-mia-action:${draft.id}`)
+    setBudgetError(null)
+    setMiaError(null)
+    try {
+      const workspace = await applyMiaActionDraft(draft.id)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('mia_action_draft_applied', {
+        draft_type: draft.draft_type,
+        item_count: draft.items.length,
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Mia action draft could not be applied.'
+      setBudgetError(message)
+      setMiaError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleCancelMiaActionDraft(draft: MiaActionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`cancel-mia-action:${draft.id}`)
+    setBudgetError(null)
+    setMiaError(null)
+    try {
+      const workspace = await cancelMiaActionDraft(draft.id)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('mia_action_draft_canceled', {
+        draft_type: draft.draft_type,
+        item_count: draft.items.length,
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Mia action draft could not be canceled.'
+      setBudgetError(message)
+      setMiaError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -1689,6 +1752,17 @@ function App() {
                 )}
               </div>
 
+              {pendingMiaActionDrafts.length > 0 && (
+                <MiaActionDraftReviewStack
+                  drafts={pendingMiaActionDrafts}
+                  isRealWorkspace={Boolean(isRealWorkspace)}
+                  action={budgetAction}
+                  compact
+                  onApply={handleApplyMiaActionDraft}
+                  onCancel={handleCancelMiaActionDraft}
+                />
+              )}
+
               {pendingTransactionDrafts.length > 0 && (
                 <TransactionDraftReviewStack
                   drafts={pendingTransactionDrafts}
@@ -1903,6 +1977,8 @@ function App() {
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
+              onApplyMiaActionDraft={handleApplyMiaActionDraft}
+              onCancelMiaActionDraft={handleCancelMiaActionDraft}
               onUpdateDraft={handleUpdateTransactionDraft}
               onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
@@ -4722,6 +4798,117 @@ function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record
   })
 }
 
+function MiaActionDraftReviewStack({
+  drafts,
+  isRealWorkspace,
+  action,
+  compact = false,
+  draftActionsDisabled = false,
+  disabledReason,
+  onApply,
+  onCancel,
+}: {
+  drafts: MiaActionDraft[]
+  isRealWorkspace: boolean
+  action: string | null
+  compact?: boolean
+  draftActionsDisabled?: boolean
+  disabledReason?: string
+  onApply: (draft: MiaActionDraft) => void
+  onCancel: (draft: MiaActionDraft) => void
+}) {
+  return (
+    <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
+      <div>
+        <p className="eyebrow">Review before applying</p>
+        <h4>Mia drafted budget edits for your approval</h4>
+        {compact && <p>Apply only if the planned-dollar changes are right. Actual spending does not change from these drafts.</p>}
+        {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+      </div>
+      {drafts.map((draft) => (
+        <MiaActionDraftReviewCard
+          key={miaActionDraftRenderKey(draft)}
+          draft={draft}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          draftActionsDisabled={draftActionsDisabled}
+          onApply={onApply}
+          onCancel={onCancel}
+        />
+      ))}
+    </div>
+  )
+}
+
+function MiaActionDraftReviewCard({
+  draft,
+  isRealWorkspace,
+  action,
+  draftActionsDisabled,
+  onApply,
+  onCancel,
+}: {
+  draft: MiaActionDraft
+  isRealWorkspace: boolean
+  action: string | null
+  draftActionsDisabled: boolean
+  onApply: (draft: MiaActionDraft) => void
+  onCancel: (draft: MiaActionDraft) => void
+}) {
+  const isPending = draft.status === 'pending'
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+
+  return (
+    <div className="mia-action-draft-card">
+      <div className="mia-action-draft-main">
+        <div className="transaction-draft-title-row">
+          <strong>{draft.title}</strong>
+          <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+        </div>
+        <p>{draft.summary}</p>
+        {draft.rationale && <p>{draft.rationale}</p>}
+        <div className="mia-action-item-list">
+          {draft.items.map((item) => (
+            <div className="mia-action-item" key={item.id}>
+              <strong>{item.label}</strong>
+              {item.description && <span>{item.description}</span>}
+              {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
+            </div>
+          ))}
+        </div>
+        <small className="mia-action-safety-copy">You stay the Household CFO. Rails validates the draft when you apply it, records an audit event, and leaves actuals untouched.</small>
+      </div>
+      {isPending ? (
+        <div className="mia-action-draft-actions">
+          <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply budget edit'}
+          </button>
+          <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
+            {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
+          </button>
+        </div>
+      ) : (
+        <div className="mia-action-draft-actions terminal">
+          <span>{draft.status === 'applied' ? 'Applied to planned budget. Actuals did not change.' : 'Canceled. No budget numbers changed.'}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function miaActionDraftRenderKey(draft: MiaActionDraft) {
+  return [draft.id, draft.status, draft.items.map((item) => `${item.id}:${item.label}`).join(',')].join('|')
+}
+
+function miaActionItemFinePrint(item: MiaActionItem) {
+  if (item.action_type !== 'update_allocation') return null
+
+  const changes = Array.isArray(item.payload.changes) ? item.payload.changes : []
+  if (changes.length === 0) return null
+  if (changes.length === 12) return 'Applies to every month in the selected budget year.'
+  return `Applies to ${changes.length} month${changes.length === 1 ? '' : 's'}.`
+}
+
 function TransactionDraftReviewStack({
   drafts,
   isRealWorkspace,
@@ -5336,6 +5523,8 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits,
   onArchiveCategory,
   onRestoreCategory,
+  onApplyMiaActionDraft,
+  onCancelMiaActionDraft,
   onUpdateDraft,
   onMatchDraft,
   onConfirmDraft,
@@ -5357,6 +5546,8 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
+  onApplyMiaActionDraft: (draft: MiaActionDraft) => void
+  onCancelMiaActionDraft: (draft: MiaActionDraft) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
@@ -5494,7 +5685,8 @@ function AnnualBudgetPlanner({
         </div>
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
-          <span>{plan.pending_transaction_drafts.length} pending drafts</span>
+          <span>{plan.pending_transaction_drafts.length} pending transaction drafts</span>
+          {(plan.pending_mia_action_drafts ?? []).length > 0 && <span>{(plan.pending_mia_action_drafts ?? []).length} Mia action drafts</span>}
           {renderBudgetEditActions()}
         </div>
       </div>
@@ -5506,6 +5698,18 @@ function AnnualBudgetPlanner({
         <Metric label="Annual planned" value={currency.format(annualPlanned)} />
         <Metric label="Annual actual" value={currency.format(annualActual)} />
       </div>
+
+      {(plan.pending_mia_action_drafts ?? []).length > 0 && (
+        <MiaActionDraftReviewStack
+          drafts={plan.pending_mia_action_drafts ?? []}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before applying Mia action drafts.' : undefined}
+          draftActionsDisabled={isEditingBudget}
+          onApply={onApplyMiaActionDraft}
+          onCancel={onCancelMiaActionDraft}
+        />
+      )}
 
       {plan.pending_transaction_drafts.length > 0 && (
         <TransactionDraftReviewStack

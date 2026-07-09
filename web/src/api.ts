@@ -329,12 +329,40 @@ export type SpendingReport = {
   }>
 }
 
+export type MiaActionItem = {
+  id: number
+  action_type: 'create_category' | 'update_category' | 'update_allocation' | 'archive_category' | 'restore_category'
+  target_record_type: string | null
+  target_record_id: number | null
+  label: string
+  description: string | null
+  payload: Record<string, unknown>
+  before_snapshot: Record<string, unknown>
+  after_snapshot: Record<string, unknown>
+}
+
+export type MiaActionDraft = {
+  id: number
+  status: 'pending' | 'applied' | 'canceled'
+  draft_type: 'budget_edit'
+  year: number
+  title: string
+  summary: string
+  rationale: string | null
+  source_prompt: string | null
+  created_at: string | null
+  applied_at: string | null
+  canceled_at: string | null
+  items: MiaActionItem[]
+}
+
 export type AnnualBudgetPlan = {
   year: number
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
   monthly_income: Record<number, number>
   pending_transaction_drafts: TransactionDraft[]
+  pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
 }
@@ -749,6 +777,7 @@ export type MiaMessageResponse = {
   user_message: MiaMessage
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
+  mia_action_draft?: MiaActionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
 }
@@ -822,6 +851,16 @@ export async function updateBudgetAllocation(id: number, plannedAmount: number |
     body: JSON.stringify({ allocation: { planned_amount: plannedAmount } }),
   })
   return payload.budget
+}
+
+export async function applyMiaActionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/apply`, {})
+  return payload.workspace
+}
+
+export async function cancelMiaActionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/cancel`, {})
+  return payload.workspace
 }
 
 export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {

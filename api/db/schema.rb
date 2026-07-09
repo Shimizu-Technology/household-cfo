@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_05_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_06_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -282,6 +282,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_05_010000) do
     t.check_constraint "target_amount_cents >= 0", name: "goals_target_amount_cents_non_negative"
   end
 
+  create_table "household_audit_events", force: :cascade do |t|
+    t.string "actor_type", default: "user", null: false
+    t.bigint "auditable_id"
+    t.string "auditable_type"
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.bigint "household_id", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "occurred_at", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id"
+    t.index ["auditable_type", "auditable_id"], name: "index_household_audit_events_on_auditable"
+    t.index ["household_id", "occurred_at"], name: "index_household_audit_events_on_household_occurred_at"
+    t.index ["household_id"], name: "index_household_audit_events_on_household_id"
+    t.index ["user_id"], name: "index_household_audit_events_on_user_id"
+    t.check_constraint "actor_type::text = ANY (ARRAY['user'::character varying, 'mia'::character varying, 'system'::character varying]::text[])", name: "household_audit_events_actor_type_valid"
+  end
+
   create_table "household_memberships", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "household_id", null: false
@@ -396,6 +414,57 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_05_010000) do
     t.check_constraint "confidence >= 0::numeric AND confidence <= 1::numeric", name: "merchant_category_rules_confidence_unit_interval"
     t.check_constraint "source::text = ANY (ARRAY['user_confirmed'::character varying, 'system_inferred'::character varying, 'coach_confirmed'::character varying]::text[])", name: "merchant_category_rules_source_valid"
     t.check_constraint "times_confirmed >= 0", name: "merchant_category_rules_times_confirmed_non_negative"
+  end
+
+  create_table "mia_action_drafts", force: :cascade do |t|
+    t.datetime "applied_at"
+    t.bigint "applied_by_user_id"
+    t.bigint "assistant_chat_message_id"
+    t.datetime "canceled_at"
+    t.bigint "canceled_by_user_id"
+    t.datetime "created_at", null: false
+    t.string "draft_type", default: "budget_edit", null: false
+    t.bigint "household_id", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.text "rationale"
+    t.bigint "requested_by_user_id", null: false
+    t.bigint "source_chat_message_id"
+    t.text "source_prompt"
+    t.string "status", default: "pending", null: false
+    t.text "summary", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.integer "year", null: false
+    t.index ["applied_by_user_id"], name: "index_mia_action_drafts_on_applied_by_user_id"
+    t.index ["assistant_chat_message_id"], name: "index_mia_action_drafts_on_assistant_chat_message_id"
+    t.index ["canceled_by_user_id"], name: "index_mia_action_drafts_on_canceled_by_user_id"
+    t.index ["household_id", "status", "year", "created_at"], name: "index_mia_action_drafts_on_household_status_year_created"
+    t.index ["household_id"], name: "index_mia_action_drafts_on_household_id"
+    t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
+    t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
+    t.check_constraint "draft_type::text = 'budget_edit'::text", name: "mia_action_drafts_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'canceled'::character varying]::text[])", name: "mia_action_drafts_status_valid"
+    t.check_constraint "year >= 2000 AND year <= 2100", name: "mia_action_drafts_year_reasonable"
+  end
+
+  create_table "mia_action_items", force: :cascade do |t|
+    t.string "action_type", null: false
+    t.jsonb "after_snapshot", default: {}, null: false
+    t.jsonb "before_snapshot", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "label", null: false
+    t.bigint "mia_action_draft_id", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.integer "position", default: 0, null: false
+    t.bigint "target_record_id"
+    t.string "target_record_type"
+    t.datetime "updated_at", null: false
+    t.index ["mia_action_draft_id", "position"], name: "index_mia_action_items_on_draft_position"
+    t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
+    t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
+    t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying]::text[])", name: "mia_action_items_action_type_valid"
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|
@@ -656,6 +725,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_05_010000) do
   add_foreign_key "financial_document_imports", "users", column: "source_deleted_by_user_id"
   add_foreign_key "financial_document_imports", "users", column: "uploaded_by_user_id"
   add_foreign_key "goals", "households"
+  add_foreign_key "household_audit_events", "households"
+  add_foreign_key "household_audit_events", "users"
   add_foreign_key "household_memberships", "households"
   add_foreign_key "household_memberships", "users"
   add_foreign_key "household_profiles", "households"
@@ -668,6 +739,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_05_010000) do
   add_foreign_key "invitation_email_attempts", "users", column: "sent_by_user_id"
   add_foreign_key "merchant_category_rules", "budget_categories"
   add_foreign_key "merchant_category_rules", "households"
+  add_foreign_key "mia_action_drafts", "chat_messages", column: "assistant_chat_message_id"
+  add_foreign_key "mia_action_drafts", "chat_messages", column: "source_chat_message_id"
+  add_foreign_key "mia_action_drafts", "households"
+  add_foreign_key "mia_action_drafts", "users", column: "applied_by_user_id"
+  add_foreign_key "mia_action_drafts", "users", column: "canceled_by_user_id"
+  add_foreign_key "mia_action_drafts", "users", column: "requested_by_user_id"
+  add_foreign_key "mia_action_items", "mia_action_drafts"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
