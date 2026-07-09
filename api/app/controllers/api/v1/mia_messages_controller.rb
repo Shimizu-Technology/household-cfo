@@ -30,7 +30,7 @@ module Api
           reference_month: budget_month_param
         )
         coach_answer = pending_draft_answer ? nil : followup.direct_answer || coach_answerer.call
-        transaction_lookup_answer = coach_answer ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
+        transaction_lookup_answer = (coach_answer || pending_draft_answer) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
         pending_draft_answer ||= (transaction_lookup_answer || coach_answer) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
         spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer) ? nil : spending_report_for(routed_content)
         annual_plan = coach_answer ? coach_answerer.prepared_annual_plan : nil
