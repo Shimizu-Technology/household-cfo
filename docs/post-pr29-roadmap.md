@@ -41,7 +41,7 @@ Mrs. Mel's strongest remaining product feedback is that the transaction loop and
 Recommended order:
 
 1. **PR #30 — Mia Coaching Quality / Model Narrator**
-2. **PR #31 — Voice Input**
+2. **PR #31 — Voice Input + Mia Eval Harness Foundation**
 3. **PR #32 — Mia Memory MVP**
 
 ## PR #30 — Mia Coaching Quality / Model Narrator
@@ -89,25 +89,27 @@ User asks question
 - Mia does not say a transaction was added/recorded unless Rails already confirmed it.
 - Generic opener such as `That's a good question` does not appear.
 
-## PR #31 — Voice Input
+## PR #31 — Voice Input + Mia Eval Harness Foundation
 
-Goal: mobile users can talk to Mia and land in the same safe review-before-apply flow.
+Goal: mobile users can talk to Mia and land in the same safe review-before-apply flow, while real-world prompts protect Mia behavior from regressions.
 
 Scope:
 
 - Add microphone affordance in Ask Mia.
 - Capture audio in the browser with clear recording state.
 - Upload audio to Rails.
-- Transcribe server-side through an approved backend-only provider.
+- Transcribe server-side through backend-only OpenRouter STT credentials.
 - Feed transcript into the same Mia message / transaction draft path as typed chat.
 - Never auto-confirm transactions from voice.
+- Add `HouseholdFinance::MiaEvalHarness` and `api/test/evals/mia_eval_cases.yml` for practical regression prompts.
 
 Acceptance criteria:
 
 - User can say: `I spent twenty five at McDonald's today.`
-- Transcript is visible/editable before or during send.
+- Transcript is visible/editable before send.
 - Mia drafts the transaction for review; actuals do not change until confirm.
 - Failed transcription gives a useful retry message and does not create bad records.
+- Eval cases cover concert tickets, spending reports, June follow-up, manual spend draft, ignore/count-as-actuals guardrails, budget status, job transition, bill overwhelm, and pending drafts.
 
 ## PR #32 — Mia Memory MVP
 

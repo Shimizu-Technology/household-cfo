@@ -1,6 +1,11 @@
 module HouseholdFinance
   class PendingDraftAnswerer
-    PENDING_TERMS = /\b(?:pending\s+drafts?|drafts?\s+(?:waiting|pending|review)|waiting\s+(?:for\s+)?(?:approval|review)|pretend\s+pending)\b/i.freeze
+    PENDING_TERMS = /\b(?:pending\s+drafts?|drafts?\s+(?:waiting|pending|review)|waiting\s+(?:for\s+)?(?:approval|review)|pretend\s+pending|what(?:'s|\s+is)\s+pending|(?:did|does|will)\s+(?:that|this|it)\s+count\s+as\s+actuals?|actually\s+ignore\s+(?:that|this|it)|ignore\s+all|ignore\s+(?:that|this|it))\b/i.freeze
+    GUARDRAIL_TERMS = /\b(?:pretend\s+pending|ignore\s+all|(?:did|does|will)\s+(?:that|this|it)\s+count\s+as\s+actuals?|actually\s+ignore\s+(?:that|this|it)|ignore\s+(?:that|this|it))\b/i.freeze
+
+    def self.guardrail_question?(message)
+      message.to_s.match?(GUARDRAIL_TERMS)
+    end
 
     def initialize(household, message, today: Date.current)
       @household = household
@@ -24,10 +29,12 @@ module HouseholdFinance
       more_line = drafts.length > 5 ? " There are #{drafts.length - 5} more pending drafts after those." : ""
       prefix = if message.match?(/pretend\s+pending/i)
         "No — I will not pretend pending drafts are confirmed actuals."
-      elsif message.match?(/counted|actuals?/i)
-        "No — pending drafts are not counted in actuals."
       elsif message.match?(/ignore\s+all/i)
         "I cannot bulk-ignore every pending draft from chat."
+      elsif message.match?(/ignore\s+(?:that|this|it)/i)
+        "I cannot ignore a draft from chat; no actuals changed from that request."
+      elsif message.match?(/counted|count\s+as\s+actuals?|actuals?/i)
+        "No — pending drafts are not counted in actuals."
       else
         "You have #{drafts.length} pending transaction #{'draft'.pluralize(drafts.length)} waiting for review."
       end

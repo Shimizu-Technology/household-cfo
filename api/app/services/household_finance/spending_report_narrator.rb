@@ -78,7 +78,7 @@ module HouseholdFinance
         "Yes — based on confirmed transactions for #{report.fetch(:period_label)}, you are within budget: #{money(actual)} confirmed against #{money(planned)} planned."
       end
 
-      pending_line = pending.positive? ? "You also have #{money(pending)} waiting for approval, and I am not counting that as actual until you confirm it." : "No pending drafts are waiting on this period."
+      pending_line = pending.positive? ? "You also have #{money(pending)} in pending drafts waiting for approval, and I am not counting that as actual until you confirm it." : "No pending drafts are waiting on this period."
       remaining_line = remaining.negative? ? "Confirmed actuals are over by #{money(remaining.abs)}. Top actual categories: #{top_line}." : "You have #{money(remaining)} left on confirmed actuals. Top actual categories: #{top_line}."
       next_move = remaining.negative? ? "Your next CFO move is to name what was one-time versus a repeat pattern before cutting essentials." : "Keep logging before the small purchases turn into a mystery, then make the next approval on purpose."
 

@@ -8,7 +8,7 @@ Rails API for Household CFO Method powered by VERA. It serves the demo-safe Mia/
 - PostgreSQL
 - Clerk JWT verification through JWKS
 - Resend invite email delivery for admin-created invitations
-- OpenRouter optional fallback for Mia responses and server-side financial document extraction
+- OpenRouter optional fallback for Mia responses plus server-side financial document extraction and voice transcription
 - Private AWS S3 document storage (custom service, no ActiveStorage)
 
 ## Local setup
@@ -57,6 +57,8 @@ OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=~anthropic/claude-sonnet-latest
 OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
 OPENROUTER_PDF_ENGINE=mistral-ocr
+OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3
+MIA_TRANSCRIPTION_LANGUAGE=en
 ```
 
 Uploads create draft extracted values first. Users must review/apply selected values before household income, expenses, accounts, debts, or goals are updated.

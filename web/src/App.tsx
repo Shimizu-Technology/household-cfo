@@ -29,6 +29,7 @@ import {
   restoreBudgetCategory,
   saveWorkspaceSetup,
   sendMiaMessage,
+  transcribeMiaVoice,
   updateBudgetAllocation,
   updateAdminCohort,
   updateBudgetCategory,
@@ -88,6 +89,13 @@ const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.
 const MAX_CHAT_ATTACHMENTS = 5
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
+const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+
+function preferredVoiceMimeType() {
+  if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return undefined
+
+  return VOICE_MIME_TYPES.find((mimeType) => MediaRecorder.isTypeSupported(mimeType))
+}
 
 type PendingMiaAttachment = {
   id: string
@@ -206,6 +214,9 @@ function App() {
   })
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
+  const [voiceRecording, setVoiceRecording] = useState(false)
+  const [voiceTranscribing, setVoiceTranscribing] = useState(false)
+  const [voiceNotice, setVoiceNotice] = useState<string | null>(null)
   const [documentImports, setDocumentImports] = useState<FinancialDocumentImport[]>([])
   const [documentsLoading, setDocumentsLoading] = useState(false)
   const [documentsError, setDocumentsError] = useState<string | null>(null)
@@ -230,6 +241,9 @@ function App() {
   const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
   const chatCardRef = useRef<HTMLElement | null>(null)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const voiceStreamRef = useRef<MediaStream | null>(null)
+  const voiceChunksRef = useRef<Blob[]>([])
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
@@ -560,6 +574,116 @@ function App() {
 
     scrollMiaChatToBottom('smooth')
   }, [activeSection, currentMessages.length, miaLoading, scrollMiaChatToBottom])
+
+  const stopVoiceStream = useCallback(() => {
+    voiceStreamRef.current?.getTracks().forEach((track) => track.stop())
+    voiceStreamRef.current = null
+  }, [])
+
+  const handleVoiceRecordingComplete = useCallback(async (mimeType: string) => {
+    const chunks = voiceChunksRef.current
+    voiceChunksRef.current = []
+    mediaRecorderRef.current = null
+    stopVoiceStream()
+    setVoiceRecording(false)
+
+    if (chunks.length === 0) {
+      setVoiceNotice(null)
+      setMiaError("I couldn't hear anything in that recording. Try again or type the note for Mia.")
+      return
+    }
+
+    setVoiceTranscribing(true)
+    setVoiceNotice(null)
+    try {
+      const transcript = (await transcribeMiaVoice(new Blob(chunks, { type: mimeType || 'audio/webm' }))).trim()
+      if (!transcript) {
+        setMiaError("I couldn't turn that recording into text. Try again or type the note for Mia.")
+        return
+      }
+
+      setQuestion((current) => current.trim() ? `${current.trimEnd()}\n${transcript}` : transcript)
+      setVoiceNotice('Transcript ready — review it before sending. Mia will only stage drafts for you to confirm.')
+      setMiaError(null)
+      window.setTimeout(() => composerRef.current?.focus(), 0)
+    } catch (error) {
+      setMiaError(error instanceof Error ? error.message : 'Voice transcription failed. Try again or type your note for Mia.')
+    } finally {
+      setVoiceTranscribing(false)
+    }
+  }, [stopVoiceStream])
+
+  useEffect(() => () => {
+    const recorder = mediaRecorderRef.current
+    if (recorder) {
+      recorder.onstop = null
+      if (recorder.state !== 'inactive') recorder.stop()
+    }
+    voiceChunksRef.current = []
+    mediaRecorderRef.current = null
+    stopVoiceStream()
+  }, [stopVoiceStream])
+
+  const handleVoiceButtonClick = useCallback(async () => {
+    if (voiceRecording) {
+      setVoiceNotice('Transcribing your recording…')
+      const recorder = mediaRecorderRef.current
+      if (recorder && recorder.state !== 'inactive') {
+        recorder.stop()
+      } else {
+        setVoiceRecording(false)
+      }
+      return
+    }
+
+    if (!isRealWorkspace) {
+      setMiaError('Sign in to a real workspace before using voice input.')
+      return
+    }
+    if (miaLoading || voiceTranscribing) return
+    if (!window.isSecureContext) {
+      setMiaError('Voice input needs HTTPS on phones. Use localhost on this computer, the Netlify preview, or an HTTPS tunnel for mobile testing.')
+      return
+    }
+    if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder === 'undefined') {
+      setMiaError('Voice input is not available in this browser. You can still type your note for Mia.')
+      return
+    }
+
+    setMiaError(null)
+    setVoiceNotice(null)
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      voiceStreamRef.current = stream
+      const mimeType = preferredVoiceMimeType()
+      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+      voiceChunksRef.current = []
+      mediaRecorderRef.current = recorder
+      recorder.ondataavailable = (event) => {
+        if (event.data.size > 0) voiceChunksRef.current.push(event.data)
+      }
+      recorder.onstop = () => {
+        void handleVoiceRecordingComplete(recorder.mimeType || mimeType || 'audio/webm')
+      }
+      recorder.onerror = () => {
+        recorder.onstop = null
+        voiceChunksRef.current = []
+        mediaRecorderRef.current = null
+        setMiaError('Voice recording stopped unexpectedly. Try again or type your note for Mia.')
+        setVoiceRecording(false)
+        setVoiceTranscribing(false)
+        setVoiceNotice(null)
+        stopVoiceStream()
+      }
+      recorder.start()
+      setVoiceRecording(true)
+      setVoiceNotice('Recording. Tap stop when you are done speaking.')
+    } catch (error) {
+      stopVoiceStream()
+      setVoiceRecording(false)
+      setMiaError(error instanceof Error ? error.message : 'Microphone access was blocked. Allow microphone access or type your note for Mia.')
+    }
+  }, [handleVoiceRecordingComplete, isRealWorkspace, miaLoading, stopVoiceStream, voiceRecording, voiceTranscribing])
 
   function switchSection(section: string) {
     captureAnalyticsEvent('section_selected', {
@@ -1581,6 +1705,7 @@ function App() {
               )}
 
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
+              {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
 
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
                 <input
@@ -1604,23 +1729,35 @@ function App() {
                 <button
                   className="composer-attach"
                   type="button"
-                  disabled={!isRealWorkspace || Boolean(uploadingKind) || miaLoading}
+                  disabled={!isRealWorkspace || Boolean(uploadingKind) || miaLoading || voiceRecording || voiceTranscribing}
                   title={isRealWorkspace ? 'Attach a receipt, screenshot, statement, or budget file for review' : 'Sign in to a real workspace before uploading documents.'}
                   aria-label="Attach receipt, screenshot, statement, or budget file"
                   onClick={() => miaAttachmentInputRef.current?.click()}
                 >
                   <AttachmentIcon />
                 </button>
+                <button
+                  className={`composer-voice${voiceRecording ? ' is-recording' : ''}`}
+                  type="button"
+                  disabled={!isRealWorkspace || miaLoading || voiceTranscribing}
+                  title={isRealWorkspace ? (voiceRecording ? 'Stop recording and transcribe' : 'Record a voice note for Mia') : 'Sign in to a real workspace before using voice input.'}
+                  aria-label={voiceRecording ? 'Stop voice recording' : 'Record voice note for Mia'}
+                  aria-pressed={voiceRecording}
+                  onClick={() => void handleVoiceButtonClick()}
+                >
+                  {voiceRecording ? <StopIcon /> : <MicrophoneIcon />}
+                </button>
                 <textarea
                   value={question}
                   onChange={(event) => {
                     setMiaError(null)
+                    setVoiceNotice(null)
                     setQuestion(event.target.value)
                   }}
                   onKeyDown={handleAskMiaKeyDown}
                   onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder="Ask Mia or attach evidence..."
+                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Ask Mia or attach evidence...'}
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
@@ -1628,7 +1765,7 @@ function App() {
                 <button
                   className="send-button"
                   type="submit"
-                  disabled={miaLoading || (!question.trim() && pendingMiaAttachments.length === 0)}
+                  disabled={miaLoading || voiceRecording || voiceTranscribing || (!question.trim() && pendingMiaAttachments.length === 0)}
                   aria-label={miaLoading ? 'Mia is thinking' : 'Send message to Mia'}
                 >
                   <span>{miaLoading ? 'Thinking' : 'Send'}</span>
@@ -5669,6 +5806,25 @@ function CloseIcon() {
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true">
       <path d="m6.5 6.5 11 11M17.5 6.5l-11 11" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function MicrophoneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M12 4.25a3 3 0 0 1 3 3v4.25a3 3 0 0 1-6 0V7.25a3 3 0 0 1 3-3Z" className="icon-stroke" />
+      <path d="M6.75 10.75v.75a5.25 5.25 0 0 0 10.5 0v-.75" className="icon-stroke" />
+      <path d="M12 16.75v3" className="icon-stroke" />
+      <path d="M9 19.75h6" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function StopIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M8 8h8v8H8z" />
     </svg>
   )
 }

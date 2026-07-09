@@ -3179,10 +3179,27 @@ h3 {
   font-weight: 800;
 }
 
+.voice-status {
+  margin: 0 12px 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(24, 94, 67, 0.14);
+  border-radius: 14px;
+  background: rgba(24, 94, 67, 0.07);
+  color: var(--emerald);
+  font-size: 0.8rem;
+  font-weight: 900;
+}
+
+.voice-status.is-recording {
+  border-color: rgba(157, 52, 52, 0.22);
+  background: rgba(157, 52, 52, 0.08);
+  color: var(--status-red);
+}
+
 .mia-chat-shell .ask-row {
   display: grid;
   flex: 0 0 auto;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto minmax(0, 1fr) auto;
   gap: 8px;
   align-items: end;
   padding: 12px;
@@ -3339,8 +3356,9 @@ h3 {
   line-height: 1.45;
 }
 
-.composer-attach,
-.send-button {
+.mia-chat-shell .ask-row .composer-attach,
+.mia-chat-shell .ask-row .composer-voice,
+.mia-chat-shell .ask-row .send-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -3348,21 +3366,44 @@ h3 {
   border-radius: 999px;
 }
 
-.composer-attach {
+.mia-chat-shell .ask-row .composer-attach,
+.mia-chat-shell .ask-row .composer-voice {
   width: 42px;
+  height: 42px;
+  min-width: 42px;
+  padding: 0;
   border: 1px solid var(--line);
   background: white;
-  color: rgba(123, 74, 88, 0.55);
+  color: rgba(123, 74, 88, 0.72);
+  box-shadow: none;
+}
+
+.composer-voice.is-recording {
+  border-color: rgba(157, 52, 52, 0.28);
+  background: rgba(157, 52, 52, 0.1);
+  color: var(--status-red);
+  box-shadow: 0 0 0 5px rgba(157, 52, 52, 0.08);
+}
+
+.composer-attach:disabled,
+.composer-voice:disabled {
+  opacity: 0.46;
 }
 
 .composer-attach svg,
+.composer-voice svg,
 .send-button svg {
   width: 18px;
   height: 18px;
 }
 
-.send-button {
+.composer-voice svg {
+  fill: currentColor;
+}
+
+.mia-chat-shell .ask-row .send-button {
   gap: 8px;
+  width: auto;
   padding: 0 16px;
   background: var(--emerald);
   color: white;
@@ -3527,8 +3568,9 @@ h3 {
   }
 
   .mia-chat-shell .ask-row {
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: 40px 40px minmax(0, 1fr) 42px;
     gap: 6px;
+    align-items: center;
     padding: 10px;
   }
 
@@ -3536,18 +3578,23 @@ h3 {
     padding-bottom: max(10px, env(safe-area-inset-bottom));
   }
 
-  .composer-attach,
-  .send-button {
+  .mia-chat-shell .ask-row .composer-attach,
+  .mia-chat-shell .ask-row .composer-voice,
+  .mia-chat-shell .ask-row .send-button {
     min-height: 40px;
-  }
-
-  .composer-attach {
-    width: 40px;
-  }
-
-  .send-button {
-    width: 42px;
+    height: 40px;
     padding: 0;
+  }
+
+  .mia-chat-shell .ask-row .composer-attach,
+  .mia-chat-shell .ask-row .composer-voice {
+    width: 40px;
+    min-width: 40px;
+  }
+
+  .mia-chat-shell .ask-row .send-button {
+    width: 42px;
+    min-width: 42px;
   }
 
   .send-button span {
