@@ -85,9 +85,14 @@ module HouseholdFinance
         raise StaleDraftError, "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit."
       end
 
-      Array(payload.fetch(:changes)).each do |change_payload|
-        change = change_payload.deep_symbolize_keys
-        allocation = scoped_allocation_scope.lock.find(change.fetch(:allocation_id))
+      changes = Array(payload.fetch(:changes)).map(&:deep_symbolize_keys)
+      allocations_by_id = scoped_allocation_scope
+        .lock
+        .where(id: changes.map { |change| change.fetch(:allocation_id).to_i })
+        .index_by(&:id)
+
+      changes.each do |change|
+        allocation = allocations_by_id.fetch(change.fetch(:allocation_id).to_i) { raise ActiveRecord::RecordNotFound, "Budget allocation not found" }
         unless allocation.budget_category_id == category_id && allocation.budget_period.budget_year.year == draft.year
           raise ActiveRecord::RecordNotFound, "Budget allocation not found"
         end

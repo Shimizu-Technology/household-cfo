@@ -38,6 +38,32 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied Mia’s budget draft"
   end
 
+  test "explicit month wins over per-month wording in allocation drafts" do
+    user = create_user(email: "mia-action-explicit-month@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "Set Groceries budget to $800 per month in July" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    changes = draft.fetch("items").first.fetch("payload").fetch("changes")
+    assert_equal 1, changes.length
+    assert_equal 7, changes.first.fetch("month")
+
+    post "/api/v1/mia_action_drafts/#{draft.fetch("id")}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal 80_000, planned_amount_for_month(category, 7)
+    assert_equal 50_000, planned_amount_for_month(category, 6)
+    assert_equal 50_000, planned_amount_for_month(category, 8)
+  end
+
   test "mia chat persists messages even when action draft persistence fails" do
     user = create_user(email: "mia-action-persistence-failure@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -235,6 +261,16 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   def allocation_sources_for(category)
     BudgetAllocation.uncached do
       BudgetAllocation.where(budget_category_id: category.id).order(:id).pluck(:source).uniq
+    end
+  end
+
+  def planned_amount_for_month(category, month)
+    BudgetAllocation.uncached do
+      BudgetAllocation
+        .joins(:budget_period)
+        .where(budget_category_id: category.id)
+        .find_by!(budget_periods: { starts_on: Date.new(Date.current.year, month, 1) })
+        .planned_amount_cents
     end
   end
 end

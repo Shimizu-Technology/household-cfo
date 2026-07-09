@@ -3,7 +3,7 @@ module HouseholdFinance
     MONEY_PATTERN = /\$?\s*\d[\d,]*(?:\.\d{1,2})?/.freeze
     ACTION_TERMS = /\b(set|change|update|adjust|make|increase|raise|decrease|lower|reduce|move|transfer|shift|add|create|rename|reclassify|recategorize|archive|delete|remove|restore)\b/i
     BUDGET_CONTEXT_TERMS = /\b(budget|category|categories|planned|plan|allocation|monthly|per month|expense stack|line item|row)\b/i
-    ALL_YEAR_TERMS = /\b(all year|every month|monthly|per month|for the year|annual(?:ly)?)\b/i
+    ALL_YEAR_TERMS = /\b(all year|every month|for the year|annual(?:ly)?)\b/i
     STACK_LABELS = SnapshotBuilder::STACK_LABELS
 
     Result = Struct.new(:proposal, :response, :annual_plan, keyword_init: true)
