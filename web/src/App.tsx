@@ -654,9 +654,9 @@ function App() {
     setVoiceNotice(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      voiceStreamRef.current = stream
       const mimeType = preferredVoiceMimeType()
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
-      voiceStreamRef.current = stream
       voiceChunksRef.current = []
       mediaRecorderRef.current = recorder
       recorder.ondataavailable = (event) => {
