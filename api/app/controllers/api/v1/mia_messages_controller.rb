@@ -63,12 +63,11 @@ module Api
           annual_plan ||= annual_budget_manager.plan_data
         end
         assistant_content = assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context)
-        mia_action_draft = nil
-        user_message, assistant_message = ApplicationRecord.transaction do
-          user_chat_message = session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) })
-          assistant_chat_message = session.chat_messages.create!(role: "assistant", content: assistant_content)
-          mia_action_draft = action_result&.proposal&.create_draft!(source_chat_message: user_chat_message, assistant_chat_message: assistant_chat_message)
-          [ user_chat_message, assistant_chat_message ]
+        user_message, assistant_message = persist_chat_messages(session, content, attached_imports, assistant_content)
+        mia_action_draft = persist_mia_action_draft(action_result, user_message, assistant_message)
+        if action_result&.proposal && mia_action_draft.nil?
+          assistant_message.update!(content: action_draft_persistence_failure_message)
+          assistant_message.reload
         end
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data if mia_action_draft
 
@@ -140,6 +139,28 @@ module Api
           FinancialDocumentExtractionJob.perform_later(document_import.id) if document_import.status == "uploaded"
         end
         document_imports.map(&:reload)
+      end
+
+      def persist_chat_messages(session, content, attached_imports, assistant_content)
+        ApplicationRecord.transaction do
+          [
+            session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
+            session.chat_messages.create!(role: "assistant", content: assistant_content)
+          ]
+        end
+      end
+
+      def persist_mia_action_draft(action_result, user_message, assistant_message)
+        return unless action_result&.proposal
+
+        action_result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+      rescue ActiveRecord::ActiveRecordError => e
+        Rails.logger.warn("Mia action draft could not be persisted chat_message_id=#{assistant_message&.id}: #{e.class}: #{e.message}")
+        nil
+      end
+
+      def action_draft_persistence_failure_message
+        "I understood the budget edit, but I could not prepare the review card. Nothing changed in the official budget. Please try again or edit the annual budget directly."
       end
 
       def serialize_chat_message(message, author: nil)

@@ -11,15 +11,16 @@ module HouseholdFinance
 
     def call
       ApplicationRecord.transaction do
-        draft.with_lock do
-          raise ArgumentError, "Mia action draft is not pending" unless draft.pending?
+        # Canonical budget-write lock order: household first, then child rows.
+        # Keep this consistent with AnnualBudgetManager and action cancelation to
+        # avoid deadlocks between concurrent budget/draft operations.
+        household.lock!
+        draft.lock!
+        raise ArgumentError, "Mia action draft is not pending" unless draft.pending?
 
-          household.with_lock do
-            draft.mia_action_items.order(:position, :id).each { |item| apply_item!(item) }
-            draft.update!(status: "applied", applied_by_user: user, applied_at: Time.current)
-            audit!("mia_action_draft.applied")
-          end
-        end
+        draft.mia_action_items.order(:position, :id).each { |item| apply_item!(item) }
+        draft.update!(status: "applied", applied_by_user: user, applied_at: Time.current)
+        audit!("mia_action_draft.applied")
       end
 
       Result.new(success?: true, draft: draft.reload, errors: [])
@@ -79,7 +80,7 @@ module HouseholdFinance
     def apply_update_allocation!(item)
       payload = item.payload.deep_symbolize_keys
       category_id = payload.fetch(:category_id).to_i
-      category = household.budget_categories.find(category_id)
+      category = household.budget_categories.lock.find(category_id)
       unless category.active?
         raise StaleDraftError, "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit."
       end

@@ -25,49 +25,51 @@ module HouseholdFinance
       end
 
       def create_draft!(source_chat_message:, assistant_chat_message:)
-        draft = household.mia_action_drafts.create!(
-          requested_by_user: user,
-          source_chat_message: source_chat_message,
-          assistant_chat_message: assistant_chat_message,
-          draft_type: "budget_edit",
-          status: "pending",
-          year: year,
-          title: title,
-          summary: summary,
-          rationale: rationale,
-          source_prompt: source_prompt,
-          metadata: metadata
-        )
-
-        items.each_with_index do |item, index|
-          draft.mia_action_items.create!(
-            position: index,
-            action_type: item.action_type,
-            target_record_type: item.target_record_type,
-            target_record_id: item.target_record_id,
-            label: item.label,
-            description: item.description,
-            payload: item.payload,
-            before_snapshot: item.before_snapshot,
-            after_snapshot: item.after_snapshot
+        ApplicationRecord.transaction do
+          draft = household.mia_action_drafts.create!(
+            requested_by_user: user,
+            source_chat_message: source_chat_message,
+            assistant_chat_message: assistant_chat_message,
+            draft_type: "budget_edit",
+            status: "pending",
+            year: year,
+            title: title,
+            summary: summary,
+            rationale: rationale,
+            source_prompt: source_prompt,
+            metadata: metadata
           )
-        end
-        household.household_audit_events.create!(
-          user: user,
-          actor_type: "mia",
-          event_type: "mia_action_draft.proposed",
-          auditable_type: "MiaActionDraft",
-          auditable_id: draft.id,
-          occurred_at: Time.current,
-          metadata: {
-            draft_id: draft.id,
-            title: draft.title,
-            item_count: draft.mia_action_items.size,
-            source_prompt: source_prompt
-          }
-        )
 
-        draft
+          items.each_with_index do |item, index|
+            draft.mia_action_items.create!(
+              position: index,
+              action_type: item.action_type,
+              target_record_type: item.target_record_type,
+              target_record_id: item.target_record_id,
+              label: item.label,
+              description: item.description,
+              payload: item.payload,
+              before_snapshot: item.before_snapshot,
+              after_snapshot: item.after_snapshot
+            )
+          end
+          household.household_audit_events.create!(
+            user: user,
+            actor_type: "mia",
+            event_type: "mia_action_draft.proposed",
+            auditable_type: "MiaActionDraft",
+            auditable_id: draft.id,
+            occurred_at: Time.current,
+            metadata: {
+              draft_id: draft.id,
+              title: draft.title,
+              item_count: draft.mia_action_items.size,
+              source_prompt: source_prompt
+            }
+          )
+
+          draft
+        end
       end
     end
 

@@ -38,6 +38,37 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied Mia’s budget draft"
   end
 
+  test "mia chat persists messages even when action draft persistence fails" do
+    user = create_user(email: "mia-action-persistence-failure@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+
+    original_create_draft = HouseholdFinance::MiaActionDraftBuilder::Proposal.instance_method(:create_draft!)
+    begin
+      HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!) do |**|
+        raise ActiveRecord::StatementInvalid, "simulated draft persistence failure"
+      end
+
+      assert_no_difference("MiaActionDraft.count") do
+        assert_difference("ChatMessage.count", 2) do
+          post "/api/v1/mia/messages",
+            params: { message: "Set Groceries budget to $800 per month" },
+            headers: auth_headers(user),
+            as: :json
+        end
+      end
+    ensure
+      HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!, original_create_draft)
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("mia_action_draft")
+    assert_includes body.fetch("assistant_message").fetch("content"), "could not prepare the review card"
+    assert_equal [ "Set Groceries budget to $800 per month", body.fetch("assistant_message").fetch("content") ], household.chat_sessions.find_by!(user: user).chat_messages.order(:created_at).pluck(:content)
+    assert_equal [ 50_000 ], planned_amounts_for(household.budget_categories.find_by!(name: "Groceries"))
+  end
+
   test "canceling a Mia action draft leaves the annual budget unchanged" do
     user = create_user(email: "mia-action-cancel@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
