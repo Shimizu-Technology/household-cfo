@@ -22,7 +22,7 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 - Dashboard/Budget/Wealth/CFO Filter/Optionality calculations from saved user data
 - Server-persisted Mia chat for signed-in users, with dynamic household context
 - Private S3-backed financial document imports with upload, source preview/download/delete, review/edit/apply, and Ask Mia attachment flow
-- Backend-only Mia voice transcription: browser recording uploads to Rails, transcript is visible/editable, and typed/voice messages use the same review-before-apply flow
+- Backend-only Mia voice transcription through OpenRouter STT: browser recording uploads to Rails, transcript is visible/editable, and typed/voice messages use the same review-before-apply flow
 - Clerk auth plumbing with invite-only local `users` records
 - Browser-based admin console for cohorts, role/cohort policy, admin/coach/participant invite records, Resend invite emails, and cohort assignment
 - PostgreSQL database configuration for local, test, and production-like environments

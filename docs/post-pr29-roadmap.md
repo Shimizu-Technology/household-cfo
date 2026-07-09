@@ -98,7 +98,7 @@ Scope:
 - Add microphone affordance in Ask Mia.
 - Capture audio in the browser with clear recording state.
 - Upload audio to Rails.
-- Transcribe server-side through backend-only Groq Whisper credentials.
+- Transcribe server-side through backend-only OpenRouter STT credentials.
 - Feed transcript into the same Mia message / transaction draft path as typed chat.
 - Never auto-confirm transactions from voice.
 - Add `HouseholdFinance::MiaEvalHarness` and `api/test/evals/mia_eval_cases.yml` for practical regression prompts.

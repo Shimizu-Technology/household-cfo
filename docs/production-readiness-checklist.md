@@ -108,9 +108,9 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 1. Confirm Netlify has `VITE_API_BASE_URL=https://your-render-api.onrender.com` and has been redeployed after the env change.
 2. Confirm Render has `FRONTEND_URL` / `FRONTEND_URLS` for `https://householdcfomethod.com` and any preview host being tested.
 3. Confirm Render has private S3 configuration: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, and `AWS_S3_PREFIX`.
-4. Confirm Render has backend-only voice transcription envs when voice is enabled: `GROQ_API_KEY` and `MIA_TRANSCRIPTION_MODEL`.
+4. Confirm Render has backend-only OpenRouter voice transcription when voice is enabled: `OPENROUTER_API_KEY`, optional `OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3`, and optional `MIA_TRANSCRIPTION_LANGUAGE=en`.
 5. Check Render logs for `[S3Service] Upload failed`, CORS errors, Clerk authorization errors, transcription configuration errors, or `Private S3 document storage is not configured`.
-5. Test an explicit upload from `https://householdcfomethod.com` using a demo-safe `.xlsx` or image file.
+6. Test an explicit upload from `https://householdcfomethod.com` using a demo-safe `.xlsx` or image file.
 
 ## Full production smoke test
 

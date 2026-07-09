@@ -73,7 +73,7 @@ Conversation continuity:
 
 Voice input:
 
-- Browser audio is uploaded to Rails and transcribed server-side through backend-only credentials.
+- Browser audio is uploaded to Rails and transcribed server-side through backend-only OpenRouter STT credentials.
 - The transcript is shown in the composer for user review/editing before sending.
 - Voice-created spend follows the same Mia message path as typed spend: it may create a pending draft, but never confirmed actuals.
 - Failed transcription does not create records.
