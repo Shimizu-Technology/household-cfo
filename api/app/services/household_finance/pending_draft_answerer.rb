@@ -1,6 +1,6 @@
 module HouseholdFinance
   class PendingDraftAnswerer
-    PENDING_TERMS = /\b(?:pending\s+drafts?|drafts?\s+(?:waiting|pending|review)|waiting\s+(?:for\s+)?(?:approval|review)|pretend\s+pending|what(?:'s|\s+is)\s+pending|(?:did|does|will)\s+(?:that|this|it)\s+count\s+as\s+actuals?|actually\s+ignore\s+(?:that|this|it)|ignore\s+(?:that|this|it))\b/i.freeze
+    PENDING_TERMS = /\b(?:pending\s+drafts?|drafts?\s+(?:waiting|pending|review)|waiting\s+(?:for\s+)?(?:approval|review)|pretend\s+pending|what(?:'s|\s+is)\s+pending|(?:did|does|will)\s+(?:that|this|it)\s+count\s+as\s+actuals?|actually\s+ignore\s+(?:that|this|it)|ignore\s+all|ignore\s+(?:that|this|it))\b/i.freeze
     GUARDRAIL_TERMS = /\b(?:pretend\s+pending|ignore\s+all|(?:did|does|will)\s+(?:that|this|it)\s+count\s+as\s+actuals?|actually\s+ignore\s+(?:that|this|it)|ignore\s+(?:that|this|it))\b/i.freeze
 
     def self.guardrail_question?(message)

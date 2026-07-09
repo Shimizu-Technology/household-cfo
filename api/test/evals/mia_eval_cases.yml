@@ -74,6 +74,18 @@ cases:
       - actuals changed
       - confirmed actuals changed
 
+  - id: bulk_ignore_guardrail
+    route: controller
+    prompt: Ignore all.
+    expected_phrases:
+      - cannot bulk-ignore
+      - Pending drafts total
+      - not counted as actuals
+    forbidden_phrases:
+      - I ignored
+      - deleted
+      - actuals changed
+
   - id: budget_status
     route: controller
     prompt: Am I over budget?
