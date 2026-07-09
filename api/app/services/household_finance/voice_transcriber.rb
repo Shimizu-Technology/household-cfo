@@ -61,12 +61,12 @@ module HouseholdFinance
     end
 
     def multipart_body
-      [
+      binary_join(
         field_part("model", model),
         field_part("response_format", "json"),
         file_part,
         "--#{boundary}--\r\n"
-      ].join
+      )
     end
 
     def boundary
@@ -74,12 +74,12 @@ module HouseholdFinance
     end
 
     def field_part(name, value)
-      [
+      binary_join(
         "--#{boundary}\r\n",
         "Content-Disposition: form-data; name=\"#{name}\"\r\n\r\n",
         value.to_s,
         "\r\n"
-      ].join
+      )
     end
 
     def file_part
@@ -88,13 +88,19 @@ module HouseholdFinance
       content_type = file.respond_to?(:content_type) ? file.content_type.to_s.presence || "application/octet-stream" : "application/octet-stream"
       contents = File.binread(file.tempfile.path)
 
-      [
+      binary_join(
         "--#{boundary}\r\n",
         "Content-Disposition: form-data; name=\"file\"; filename=\"#{filename}\"\r\n",
         "Content-Type: #{content_type}\r\n\r\n",
         contents,
         "\r\n"
-      ].join
+      )
+    end
+
+    def binary_join(*parts)
+      parts.each_with_object(String.new(encoding: Encoding::BINARY)) do |part, buffer|
+        buffer << part.to_s.b
+      end
     end
 
     def failure(error)

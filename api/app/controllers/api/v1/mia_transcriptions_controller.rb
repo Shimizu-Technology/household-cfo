@@ -4,6 +4,7 @@ module Api
   module V1
     class MiaTranscriptionsController < BaseController
       before_action :authenticate_user!
+      before_action :require_existing_household!
 
       MAX_AUDIO_BYTES = 12.megabytes
       ALLOWED_EXTENSIONS = %w[.webm .m4a .mp3 .wav .ogg .flac .mp4].freeze
@@ -26,6 +27,12 @@ module Api
       end
 
       private
+
+      def require_existing_household!
+        return if current_user.household_memberships.exists?
+
+        render json: { errors: [ "Open a real workspace before using voice input." ] }, status: :forbidden
+      end
 
       def valid_upload_param?(file)
         file.respond_to?(:tempfile) && file.respond_to?(:original_filename)

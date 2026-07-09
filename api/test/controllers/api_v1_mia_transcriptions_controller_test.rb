@@ -22,6 +22,17 @@ class ApiV1MiaTranscriptionsControllerTest < ActionDispatch::IntegrationTest
     assert_match(/Unsupported audio type/, JSON.parse(response.body).fetch("errors").join)
   end
 
+  test "create requires an existing workspace before using provider quota" do
+    user = create_user(create_household: false)
+
+    post "/api/v1/mia/transcriptions",
+      params: { audio: uploaded_file },
+      headers: auth_headers(user)
+
+    assert_response :forbidden
+    assert_includes JSON.parse(response.body).fetch("errors").join, "real workspace"
+  end
+
   test "create returns service unavailable when transcription is not configured" do
     user = create_user
 
@@ -56,7 +67,7 @@ class ApiV1MiaTranscriptionsControllerTest < ActionDispatch::IntegrationTest
 
   private
 
-  def create_user(email: "voice-user@example.com")
+  def create_user(email: "voice-user@example.com", create_household: true)
     User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",
       email: email,
@@ -64,7 +75,18 @@ class ApiV1MiaTranscriptionsControllerTest < ActionDispatch::IntegrationTest
       last_name: "User",
       role: "participant",
       invitation_status: "accepted"
+    ).tap do |user|
+      create_household_for(user) if create_household
+    end
+  end
+
+  def create_household_for(user)
+    household = Household.create!(
+      created_by_user: user,
+      name: "Voice Household",
+      primary_goal: "Use voice safely."
     )
+    household.household_memberships.create!(user: user, role: "owner")
   end
 
   def uploaded_file(extension: ".webm", content_type: "audio/webm", contents: "fake audio bytes")
