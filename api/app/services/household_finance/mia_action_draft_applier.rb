@@ -24,6 +24,8 @@ module HouseholdFinance
       end
 
       Result.new(success?: true, draft: draft.reload, errors: [])
+    rescue ActiveRecord::RecordNotUnique
+      Result.new(success?: false, draft: draft, errors: [ stale_category_name_message ])
     rescue ActiveRecord::RecordInvalid => e
       Result.new(success?: false, draft: draft, errors: e.record.errors.full_messages)
     rescue ArgumentError, ActiveRecord::RecordNotFound, StaleDraftError => e
@@ -53,8 +55,13 @@ module HouseholdFinance
 
     def apply_create_category!(item)
       payload = item.payload.deep_symbolize_keys
+      name = payload.fetch(:name).to_s.squish
+      if household.budget_categories.where("LOWER(name) = ?", name.downcase).exists?
+        raise StaleDraftError, stale_category_name_message(name)
+      end
+
       manager.create_category!(
-        name: payload.fetch(:name),
+        name: name,
         stack_key: payload.fetch(:stack_key),
         monthly_amount: Money.dollars(payload.fetch(:monthly_amount_cents).to_i)
       )
@@ -130,6 +137,12 @@ module HouseholdFinance
         .includes(:budget_category, budget_period: :budget_year)
         .joins(:budget_category, budget_period: :budget_year)
         .where(budget_categories: { household_id: household.id }, budget_years: { household_id: household.id })
+    end
+
+    def stale_category_name_message(name = nil)
+      proposed_name = draft.mia_action_items.find { |item| item.action_type == "create_category" }&.payload&.dig("name")
+      label = name.to_s.squish.presence || proposed_name.to_s.squish.presence || "that name"
+      "A budget category named #{label} now exists. Ask Mia to draft a fresh edit for the existing category. Nothing changed."
     end
 
     def manager

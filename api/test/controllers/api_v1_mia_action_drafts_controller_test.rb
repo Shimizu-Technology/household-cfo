@@ -557,6 +557,69 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ 90_000 ], planned_amounts_for(category)
   end
 
+  test "applying a create-category draft rejects a name that was created after proposal" do
+    user = create_user(email: "mia-action-create-category-stale@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    manager.ensure_plan!
+
+    post "/api/v1/mia/messages",
+      params: { message: "Create a non-discretionary budget category for Daycare at $900 per month" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    existing = manager.create_category!(name: "daycare", stack_key: "discretionary", monthly_amount: 125)
+
+    assert_no_difference("BudgetCategory.count") do
+      assert_no_difference("HouseholdAuditEvent.count") do
+        post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply",
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_includes body.fetch("errors"), "A budget category named Daycare now exists. Ask Mia to draft a fresh edit for the existing category. Nothing changed."
+    assert_equal "pending", MiaActionDraft.find(draft.fetch("id")).status
+    assert_equal existing.id, household.budget_categories.where("LOWER(name) = ?", "daycare").sole.id
+    assert_equal [ 12_500 ], planned_amounts_for(existing)
+  end
+
+  test "create-category unique-index races return a stale review error instead of a server error" do
+    user = create_user(email: "mia-action-create-category-race@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
+
+    post "/api/v1/mia/messages",
+      params: { message: "Create a non-discretionary budget category for Daycare at $900 per month" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    original_create_category = HouseholdFinance::AnnualBudgetManager.instance_method(:create_category!)
+    begin
+      HouseholdFinance::AnnualBudgetManager.define_method(:create_category!) do |**|
+        raise ActiveRecord::RecordNotUnique, "simulated concurrent category insert"
+      end
+
+      post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply",
+        headers: auth_headers(user),
+        as: :json
+    ensure
+      HouseholdFinance::AnnualBudgetManager.define_method(:create_category!, original_create_category)
+    end
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_includes body.fetch("errors"), "A budget category named Daycare now exists. Ask Mia to draft a fresh edit for the existing category. Nothing changed."
+    assert_equal "pending", MiaActionDraft.find(draft.fetch("id")).status
+    refute household.budget_categories.where("LOWER(name) = ?", "daycare").exists?
+  end
+
   test "mia can draft and apply a planned-dollar move between categories" do
     user = create_user(email: "mia-action-move@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
