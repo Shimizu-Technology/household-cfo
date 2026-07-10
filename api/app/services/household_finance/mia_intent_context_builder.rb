@@ -95,23 +95,27 @@ module HouseholdFinance
     end
 
     def pending_transaction_reviews
-      Array(annual_plan[:pending_transaction_drafts]).first(MAX_PENDING_DRAFTS).map do |draft|
-        {
-          id: draft[:id],
-          merchant: bounded(draft[:merchant], 120),
-          occurred_on: draft[:occurred_on],
-          amount: draft[:amount],
-          category_id: draft[:category_id],
-          category_name: bounded(draft[:category_name], 80),
-          splits: Array(draft[:splits]).first(20).map do |split|
-            {
-              category_id: split[:budget_category_id],
-              category_name: bounded(split[:category_name], 80),
-              amount: split[:amount]
-            }
-          end
-        }.compact
-      end
+      household.transaction_drafts.pending
+        .includes(:budget_category, transaction_draft_splits: :budget_category)
+        .recent_first
+        .limit(MAX_PENDING_DRAFTS)
+        .map do |draft|
+          {
+            id: draft.id,
+            merchant: bounded(draft.merchant, 120),
+            occurred_on: draft.occurred_on.iso8601,
+            amount: Money.dollars(draft.total_amount_cents),
+            category_id: draft.budget_category_id,
+            category_name: bounded(draft.budget_category&.name, 80),
+            splits: draft.transaction_draft_splits.ordered.first(20).map do |split|
+              {
+                category_id: split.budget_category_id,
+                category_name: bounded(split.budget_category&.name || split.category_name, 80),
+                amount: Money.dollars(split.amount_cents)
+              }
+            end
+          }.compact
+        end
     end
 
     def bounded(value, limit)

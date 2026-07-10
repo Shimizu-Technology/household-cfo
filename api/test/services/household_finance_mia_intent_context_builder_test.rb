@@ -7,6 +7,16 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
     category = manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
     annual_plan = manager.plan_data
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.new(2025, 12, 31),
+      merchant: "Prior-year Cafe",
+      total_amount_cents: 12_34,
+      budget_category: category,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "Prior-year pending review"
+    )
+    draft.transaction_draft_splits.create!(budget_category: category, category_name: category.name, stack_key: category.stack_key, amount_cents: 12_34)
     transcript = [
       { id: 1, role: "user", content: "What is our largest category?", created_at: "2026-07-01T00:00:00Z" },
       { id: 2, role: "assistant", content: "Fixed essentials is the largest.", created_at: "2026-07-01T00:00:01Z" }
@@ -32,6 +42,10 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     assert_includes context.fetch(:supported_budget_actions), "set_allocation"
     assert_includes context.fetch(:supported_transaction_draft_actions), "update_transaction_draft"
     assert_includes context.fetch(:transaction_draft_editable_fields), "occurred_on"
+    pending_transaction = context.fetch(:pending_transaction_reviews).sole
+    assert_equal draft.id, pending_transaction.fetch(:id)
+    assert_equal "2025-12-31", pending_transaction.fetch(:occurred_on)
+    assert_equal "Prior-year Cafe", pending_transaction.fetch(:merchant)
     refute context.to_json.include?("s3_key")
   end
 
