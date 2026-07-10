@@ -4876,7 +4876,7 @@ function MiaActionDraftReviewCard({
             </div>
           ))}
         </div>
-        <small className="mia-action-safety-copy">You stay the Household CFO. Rails validates the draft when you apply it, records an audit event, and leaves actuals untouched.</small>
+        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft again when you apply it, save a record of the change, and leave actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">

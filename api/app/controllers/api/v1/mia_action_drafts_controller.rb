@@ -61,7 +61,13 @@ module Api
       end
 
       def applied_message(draft)
-        "Applied Mia’s budget draft: #{draft.summary} The official annual budget is updated, and actual spending stayed unchanged."
+        "Applied Mia’s budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
+      end
+
+      def applied_summary(summary)
+        cleaned = summary.to_s.sub(/\AI drafted\s+/i, "").squish
+        cleaned = "the approved change" if cleaned.blank?
+        cleaned.sub(/\A\w/) { |first_letter| first_letter.upcase }
       end
 
       def canceled_message(draft)
