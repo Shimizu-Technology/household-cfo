@@ -164,6 +164,8 @@ module HouseholdFinance
       return validation_result("Choose two different categories before I draft a budget move.") if from_category.id == to_category.id
 
       month_numbers = month_numbers_for_message
+      return month_numbers if month_numbers.is_a?(Result)
+
       from_changes = allocation_changes_for(from_category, month_numbers: month_numbers, mode: :decrease_by, amount_cents: amount_cents)
       return from_changes if from_changes.is_a?(Result)
 
@@ -346,6 +348,8 @@ module HouseholdFinance
       return validation_result("I can draft budget allocation edits only with a dollar amount of $0 or more.") if amount_cents.negative?
 
       month_numbers = month_numbers_for_message
+      return month_numbers if month_numbers.is_a?(Result)
+
       changes = allocation_changes_for(category, month_numbers: month_numbers, mode: parsed.fetch(:mode), amount_cents: amount_cents)
       return changes if changes.is_a?(Result)
       return no_allocation_change_result(category, changes, mode: parsed.fetch(:mode), amount_cents: amount_cents, month_numbers: month_numbers) if no_allocation_change?(changes)
@@ -529,7 +533,12 @@ module HouseholdFinance
       elsif lowered.match?(/\blast month\b/)
         Date.new(annual_budget_manager.year, selected_month, 1).prev_month
       end
-      return [ relative_date.month ] if relative_date&.year == annual_budget_manager.year
+      if relative_date
+        return [ relative_date.month ] if relative_date.year == annual_budget_manager.year
+
+        direction = lowered.match?(/\bnext month\b/) ? "Next month" : "Last month"
+        return validation_result("#{direction} falls outside the #{annual_budget_manager.year} budget. Open #{relative_date.year} or name a month in #{annual_budget_manager.year}; nothing changed.")
+      end
 
       explicit_month = MonthTerms.detect_number(action_text)
       return [ explicit_month ] if explicit_month

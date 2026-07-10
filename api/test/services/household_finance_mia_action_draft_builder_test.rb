@@ -89,6 +89,42 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal "restore_category", restore_result.proposal.items.first.action_type
   end
 
+  test "legacy fallback rejects relative months that cross the selected budget year" do
+    next_month = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Set Groceries budget to $600 next month",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 12,
+      raw_input: "Set Groceries budget to $600 next month"
+    ).call
+    last_month = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Set Groceries budget to $600 last month",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 1,
+      raw_input: "Set Groceries budget to $600 last month"
+    ).call
+    move_next_month = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Move $50 from Dining Out to Groceries in next month",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 12,
+      raw_input: "Move $50 from Dining Out to Groceries in next month"
+    ).call
+
+    assert_nil next_month.proposal
+    assert_includes next_month.response, "Next month falls outside the 2026 budget"
+    assert_includes next_month.response, "Open 2027"
+    assert_nil last_month.proposal
+    assert_includes last_month.response, "Last month falls outside the 2026 budget"
+    assert_includes last_month.response, "Open 2025"
+    assert_nil move_next_month.proposal
+    assert_includes move_next_month.response, "Next month falls outside the 2026 budget"
+  end
+
   test "rejects structured no-op wrong-year and unknown-category commands" do
     no_op = build_command(
       type: "set_allocation",
