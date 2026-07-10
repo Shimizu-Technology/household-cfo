@@ -78,10 +78,40 @@ module HouseholdFinance
           subject_matches = resolved[:subject].blank? || topic["subject"].to_s.casecmp?(resolved[:subject].to_s)
           type_matches && subject_matches
         end
-        return matched if matched
+        return upgraded_recall_topic(matched) if matched
+
+        return {
+          "schema_version" => 2,
+          "id" => SecureRandom.uuid,
+          "type" => bounded(resolved[:type], 80),
+          "title" => bounded(resolved[:title], 160),
+          "subject" => bounded(resolved[:subject], 160),
+          "status" => "open",
+          "intent" => "recall",
+          "confidence" => intent_result.confidence.to_f.round(3),
+          "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),
+          "action" => recalled_action,
+          "updated_at" => Time.current.iso8601
+        }.compact
       end
 
       candidates.first || current
+    end
+
+    def upgraded_recall_topic(topic)
+      topic.merge(
+        "schema_version" => 2,
+        "intent" => "recall",
+        "confidence" => intent_result.confidence.to_f.round(3),
+        "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),
+        "action" => recalled_action || topic["action"],
+        "updated_at" => Time.current.iso8601
+      ).compact
+    end
+
+    def recalled_action
+      action = intent_result.action.to_h.deep_symbolize_keys
+      action if action[:type].present? && action[:type] != "none"
     end
 
     def continuation_topic_id(current, topic)

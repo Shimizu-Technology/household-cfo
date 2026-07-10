@@ -79,7 +79,7 @@ Supervised action drafts:
 
 Conversation continuity:
 
-- For conversational reference resolution, precedence is: current message, pending review state, validated active thread, recent raw transcript, then older compacted summary. Current database records remain authoritative for every financial fact regardless of conversation order.
+- For conversational reference resolution, precedence is: current message, pending review state, recent raw transcript and explicit user corrections, version-2 validated active thread, then older/legacy summaries. A rejected assistant interpretation never outranks the participant's prior unresolved request. Current database records remain authoritative for every financial fact regardless of conversation order.
 - Mia uses up to 32 recent role-preserving messages within a 24,000-character budget; it does not rely on an arbitrary last-12 cutoff or send unlimited chat history.
 - Versioned active-thread state stores the validated intent, subject, resolved message, structured action, review id, and lifecycle status. Apply/Cancel and transaction confirmation flows update that status.
 - The compacted older summary remains useful across long chats, but it is not the primary router and cannot override newer raw turns.

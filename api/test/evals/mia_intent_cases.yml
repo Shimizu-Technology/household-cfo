@@ -104,6 +104,54 @@ cases:
         year: 0
         draft_id: 0
 
+  - id: explicit_correction_rejects_wrong_readiness_turn
+    prompt: "What were we just talking about?"
+    recent_messages:
+      - role: user
+        content: "What's our largest category?"
+      - role: assistant
+        content: "Fixed essentials is the largest category at $4,000."
+      - role: user
+        content: "For July can you lower that down to 3000?"
+      - role: assistant
+        content: "I could not prepare the review card."
+      - role: user
+        content: "Yeah, please do that"
+      - role: assistant
+        content: "Your readiness is Red and we should make a runway plan."
+      - role: user
+        content: "That's not what I asked - what were we just doing?"
+      - role: assistant
+        content: "We were discussing the readiness plan."
+    expected_intent: recall
+    expected_action: set_allocation
+    expected_category_id: 42
+    expected_months: [7]
+    expected_amount: "3000.00"
+    model_resolution:
+      intent: recall
+      confidence: 0.99
+      continuation: true
+      resolved_message: "Recall the unresolved July Fixed essentials budget edit"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: budget_edit
+        title: July Fixed essentials edit
+        subject: Fixed essentials
+      action:
+        type: set_allocation
+        category_id: 42
+        category_name: Fixed essentials
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: non_discretionary
+        amount: "3000.00"
+        months: [7]
+        year: 2026
+        draft_id: 0
+
   - id: existing_review_is_reused
     prompt: "Yes, do it"
     recent_messages:

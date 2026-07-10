@@ -45,6 +45,38 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes request, "Fixed essentials"
   end
 
+  test "treats a high-confidence complete budget command as actionable despite stale assistant clarification" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Yeah, please do that",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Set Fixed essentials to $3,000 for July 2026",
+          needs_clarification: true,
+          clarification: "Which items inside Fixed essentials should change?",
+          topic: { type: "budget_edit", title: "July Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "3000.00",
+            months: [ 7 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    refute result.clarification?
+    assert_empty result.clarification
+  end
+
   test "rejects model invented category references and asks for clarification" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Lower that to $3,000",
