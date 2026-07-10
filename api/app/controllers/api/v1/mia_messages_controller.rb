@@ -59,6 +59,8 @@ module Api
         budget_answer = routed[:budget_answer]
         transaction_draft = routed[:transaction_draft]
         intent_direct_answer = routed[:direct_answer]
+        conversation_resolution = resolved_conversation_turn(intent_result)
+        response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
 
         assistant_content = assistant_content_for(
           content,
@@ -71,8 +73,9 @@ module Api
           pending_draft_answer,
           coach_answer,
           action_result,
-          conversation_context,
-          direct_answer: intent_direct_answer
+          response_conversation_context,
+          direct_answer: intent_direct_answer,
+          conversation_resolution: conversation_resolution
         )
         user_message, assistant_message = persist_chat_messages(session, content, attached_imports, assistant_content)
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
@@ -464,6 +467,33 @@ module Api
         content.to_s.squish.match?(/\A(?:yes|yeah|yep|yup)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead))*[\s,!.]*\z|\A(?:please\s+)?(?:do that|do it|draft that|make that change|go ahead)[\s,!.]*\z/i)
       end
 
+      def resolved_conversation_turn(intent_result)
+        return unless intent_result
+
+        topic = intent_result.topic.to_h.deep_symbolize_keys
+        action = intent_result.action.to_h.deep_symbolize_keys
+        {
+          schema_version: 2,
+          type: topic[:type],
+          title: topic[:title],
+          subject: topic[:subject],
+          intent: intent_result.intent,
+          confidence: intent_result.confidence,
+          resolved_message: intent_result.resolved_message,
+          action: action[:type] == "none" ? nil : action
+        }.compact
+      end
+
+      def resolved_conversation_context(conversation_context, resolved_turn)
+        return conversation_context unless resolved_turn
+
+        conversation_context.deep_symbolize_keys.merge(
+          active_topic: resolved_turn,
+          resolved_current_turn: resolved_turn,
+          resolution_rule: "Use resolved_current_turn for the participant's current conversational meaning. Recent database facts remain authoritative for money truth."
+        )
+      end
+
       def clarification_answer(intent_result)
         intent_result.clarification.presence || "I want to make sure I have the right request. Please name the category, amount, and month you want to change. Nothing changed yet."
       end
@@ -499,7 +529,7 @@ module Api
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: target_year)
       end
 
-      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil, conversation_resolution: nil)
         return direct_answer if direct_answer.present?
 
         if action_result
@@ -542,7 +572,14 @@ module Api
           reference_month: budget_month_param,
           conversation_context: conversation_context
         ).call
-        ::Demo::MiaResponder.new.call(content, history: history, context: context, draft_capable: false)
+        response_history = conversation_resolution&.dig(:intent) == "recall" ? [] : history
+        ::Demo::MiaResponder.new.call(
+          content,
+          history: response_history,
+          context: context,
+          draft_capable: false,
+          conversation_resolution: conversation_resolution
+        )
       end
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil)

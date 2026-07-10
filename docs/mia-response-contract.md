@@ -82,6 +82,7 @@ Conversation continuity:
 - For conversational reference resolution, precedence is: current message, pending review state, recent raw transcript and explicit user corrections, version-2 validated active thread, then older/legacy summaries. A rejected assistant interpretation never outranks the participant's prior unresolved request. Current database records remain authoritative for every financial fact regardless of conversation order.
 - Mia uses up to 32 recent role-preserving messages within a 24,000-character budget; it does not rely on an arbitrary last-12 cutoff or send unlimited chat history.
 - Versioned active-thread state stores the validated intent, subject, resolved message, structured action, review id, and lifecycle status. Apply/Cancel and transaction confirmation flows update that status.
+- The response narrator receives the server-validated current-turn resolution. For recall turns, it composes from that resolution instead of re-reading rejected assistant guesses from the raw transcript; structured financial records still supply the amounts and plan truth.
 - The compacted older summary remains useful across long chats, but it is not the primary router and cannot override newer raw turns.
 - Conversation state travels across devices for the same signed-in user because it is stored in Postgres with the chat session.
 - Conversation continuity is context only, not financial truth. Confirmed actuals, balances, plans, transactions, due dates, and approved document facts still come from structured records.

@@ -104,6 +104,62 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 300_000, planned_amount_for_month(fixed, 7)
   end
 
+  test "model resolved recall composes from verified resolution instead of rejected assistant history" do
+    user = create_user(email: "mia-model-intent-recall@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    fixed = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    session.chat_messages.create!(role: "user", content: "For July can you lower that down to 3000?")
+    session.chat_messages.create!(role: "assistant", content: "Your next move is to send the next three due bills.")
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "recall",
+      confidence: 0.99,
+      continuation: true,
+      resolved_message: "Recall setting Fixed essentials to $3,000 for July #{Date.current.year}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_action", title: "Lowering Fixed essentials category", subject: "Fixed essentials" },
+      action: {
+        type: "set_allocation",
+        category_id: fixed.id,
+        category_name: "Fixed essentials",
+        target_category_id: 0,
+        target_category_name: "",
+        new_name: "",
+        stack_key: "non_discretionary",
+        amount: "3000",
+        months: [ 7 ],
+        year: Date.current.year,
+        draft_id: 0
+      },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+    captured = {}
+    responder = Object.new
+    responder.define_singleton_method(:call) do |_message, history:, context:, draft_capable:, conversation_resolution:|
+      captured.merge!(history: history, context: context, draft_capable: draft_capable, resolution: conversation_resolution)
+      "We were discussing setting Fixed essentials to $3,000 for July. Nothing changed yet."
+    end
+
+    with_intent_resolver(resolver) do
+      with_mia_responder(responder) do
+        post "/api/v1/mia/messages",
+          params: { year: Date.current.year, month: 7, message: "What were we just talking about?" },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :created
+    assert_empty captured.fetch(:history)
+    assert_equal "recall", captured.dig(:resolution, :intent)
+    assert_equal "set_allocation", captured.dig(:resolution, :action, :type)
+    assert_equal fixed.id, captured.dig(:resolution, :action, :category_id)
+    assert_includes JSON.parse(response.body).fetch("assistant_message").fetch("content"), "Fixed essentials"
+  end
+
   test "model resolved pending review intent returns the existing card without duplicating it" do
     user = create_user(email: "mia-model-intent-existing-card@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -532,6 +588,16 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end
     original_new = singleton.instance_method(:new)
     singleton.define_method(:new) { |**_kwargs| resolver }
+    yield
+  ensure
+    singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
+    singleton.define_method(:new, original_new)
+  end
+
+  def with_mia_responder(responder)
+    singleton = class << Demo::MiaResponder; self; end
+    original_new = singleton.instance_method(:new)
+    singleton.define_method(:new) { |**_kwargs| responder }
     yield
   ensure
     singleton.send(:remove_method, :new) if singleton.method_defined?(:new)

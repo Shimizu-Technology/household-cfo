@@ -139,6 +139,29 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes prompt, "say so plainly instead of guessing"
   end
 
+  test "verified conversation resolution tells the narrator not to repeat a rejected prerequisite" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    messages = responder.send(
+      :verified_conversation_resolution_messages,
+      {
+        intent: "recall",
+        action: {
+          type: "set_allocation",
+          category_id: 42,
+          category_name: "Fixed essentials",
+          amount: "3000",
+          months: [ 7 ],
+          year: 2026
+        }
+      }
+    )
+
+    assert_equal [ "system" ], messages.pluck(:role)
+    assert_includes messages.first.fetch(:content), "VERIFIED_CURRENT_CONVERSATION_RESOLUTION_JSON"
+    assert_includes messages.first.fetch(:content), "do not repeat an older assistant request for underlying items"
+    assert_includes messages.first.fetch(:content), '"category_id":42'
+  end
+
   test "model responses have generic opener stripped" do
     responder = Demo::MiaResponder.new(api_key: nil)
 
@@ -196,7 +219,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
   def stubbed_model_responder(response)
     Demo::MiaResponder.new(api_key: "test-key").tap do |responder|
-      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false|
+      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false, conversation_resolution: nil|
         raise "expected household context" if context.blank?
 
         response
