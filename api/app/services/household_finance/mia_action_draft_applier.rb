@@ -80,6 +80,15 @@ module HouseholdFinance
         raise StaleDraftError, "Budget changed since Mia drafted this. Ask Mia to draft a fresh edit."
       end
 
+      proposed_name = payload[:name].to_s.squish
+      if proposed_name.present?
+        conflicting_category = household.budget_categories.lock
+          .where("LOWER(name) = ?", proposed_name.downcase)
+          .where.not(id: category.id)
+          .first
+        raise StaleDraftError, stale_category_name_message(proposed_name) if conflicting_category
+      end
+
       manager.update_category!(category, name: payload[:name], stack_key: payload[:stack_key])
     end
 
@@ -139,7 +148,7 @@ module HouseholdFinance
     end
 
     def stale_category_name_message(name = nil)
-      proposed_name = draft.mia_action_items.find { |item| item.action_type == "create_category" }&.payload&.dig("name")
+      proposed_name = draft.mia_action_items.find { |item| item.action_type.in?(%w[create_category update_category]) }&.payload&.dig("name")
       label = name.to_s.squish.presence || proposed_name.to_s.squish.presence || "that name"
       "A budget category named #{label} now exists. Ask Mia to draft a fresh edit for the existing category. Nothing changed."
     end

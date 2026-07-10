@@ -532,6 +532,36 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "non_discretionary", category.reload.stack_key
   end
 
+  test "applying a rename draft rejects a target name created after proposal" do
+    user = create_user(email: "mia-action-rename-category-stale@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "Rename Groceries category to Food" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    manager.create_category!(name: "food", stack_key: "discretionary", monthly_amount: 125)
+
+    assert_no_difference("BudgetCategory.count") do
+      assert_no_difference("HouseholdAuditEvent.count") do
+        post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply",
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    body = JSON.parse(response.body)
+    assert_includes body.fetch("errors"), "A budget category named Food now exists. Ask Mia to draft a fresh edit for the existing category. Nothing changed."
+    assert_equal "pending", MiaActionDraft.find(draft.fetch("id")).status
+    assert_equal "Groceries", groceries.reload.name
+  end
+
   test "mia can draft and apply a new budget category" do
     user = create_user(email: "mia-action-create-category@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
