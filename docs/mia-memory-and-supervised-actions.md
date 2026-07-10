@@ -53,12 +53,16 @@ The safe agentic model is:
 
 ```text
 User asks Mia to remember, update, or adjust something
--> Rails/Mia produces a structured draft or suggestion
+-> Claude resolves conversational intent/references into a strict supported schema
+-> Rails validates every referenced record, amount, month, and allowed action
+-> Mia/Rails produces a structured draft or suggestion
 -> UI shows a reviewable diff/card
 -> Household CFO confirms, edits, or cancels
--> Rails validates and applies
+-> Rails revalidates and applies
 -> Audit log records who proposed, who approved, and what changed
 ```
+
+Rails supplies truth and safe tools; it does not script Mia's wording. Claude handles language, references, corrections, and conversational continuity. Claude never receives a general-purpose write primitive and cannot bypass the review card.
 
 ## Design principle: supervised agent, not autonomous editor
 
@@ -146,7 +150,19 @@ Action drafts make Mia useful as an assistant that can help operate the plan. Me
 
 # PR #32 — Mia Action Drafts / supervised budget editing
 
-This is the first implementation track after PR #31. The narrow v1 scope is budget/category edits only:
+This is the first implementation track after PR #31. It also establishes the structured intent/context layer required for action drafts to behave like a coherent assistant instead of a regex command parser.
+
+Conversation context uses:
+
+- up to 32 recent role-preserving messages within a 24,000-character budget,
+- versioned active-thread state with the resolved action and review lifecycle,
+- pending transaction/action review ids,
+- selected month/year and an allowed category catalog,
+- an older compacted summary only after recent raw turns,
+- model-backed strict JSON intent resolution with Rails allowlist validation,
+- deterministic explicit-command fallback and clarification instead of guessing when the model is unavailable.
+
+The narrow v1 write scope is budget/category edits only:
 
 - planned allocation edits,
 - planned-dollar moves between categories,

@@ -2,7 +2,7 @@
 
 module HouseholdFinance
   class MiaAnswerPacketBuilder
-    def initialize(kind:, fallback_response:, write_state:, selected_month: nil, annual_plan: nil, spending_report: nil, transaction_draft: nil, conversation_context: nil)
+    def initialize(kind:, fallback_response:, write_state:, selected_month: nil, annual_plan: nil, spending_report: nil, transaction_draft: nil, conversation_context: nil, mia_action_result: nil)
       @kind = kind.to_s
       @fallback_response = fallback_response.to_s
       @write_state = write_state.presence || "no_write"
@@ -11,6 +11,7 @@ module HouseholdFinance
       @spending_report = spending_report
       @transaction_draft = transaction_draft
       @conversation_context = conversation_context
+      @mia_action_result = mia_action_result
     end
 
     def call
@@ -24,13 +25,15 @@ module HouseholdFinance
         annual_plan_summary: annual_plan_summary,
         spending_report_summary: spending_report_summary,
         transaction_draft: transaction_draft_packet,
+        budget_action: budget_action_packet,
+        conversation_state: conversation_state,
         guardrails: guardrails
       }.compact
     end
 
     private
 
-    attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft
+    attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft, :conversation_context, :mia_action_result
 
     def answer_basis
       case kind
@@ -126,6 +129,47 @@ module HouseholdFinance
             notes: split.notes
           }
         end
+      }.compact
+    end
+
+    def budget_action_packet
+      return unless mia_action_result
+
+      if (proposal = mia_action_result.proposal)
+        return {
+          status: "proposed",
+          title: proposal.title,
+          summary: proposal.summary,
+          rationale: proposal.rationale,
+          items: proposal.items.map do |item|
+            {
+              action_type: item.action_type,
+              label: item.label,
+              description: item.description,
+              before: item.before_snapshot,
+              after: item.after_snapshot
+            }
+          end
+        }
+      end
+
+      draft = mia_action_result.existing_draft
+      return unless draft
+
+      {
+        id: draft.id,
+        status: draft.status,
+        title: draft.title,
+        summary: draft.summary
+      }
+    end
+
+    def conversation_state
+      context = conversation_context.respond_to?(:deep_symbolize_keys) ? conversation_context.deep_symbolize_keys : {}
+      {
+        active_thread: context[:active_topic],
+        open_threads: Array(context[:open_topics]).first(4),
+        older_summary: context[:rolling_summary]
       }.compact
     end
 

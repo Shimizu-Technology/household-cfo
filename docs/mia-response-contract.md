@@ -52,12 +52,16 @@ Persona and model-guided answers:
 - `api/app/services/mia/persona.rb` injects the response contract into Mia's system prompt.
 - `api/app/services/demo/mia_responder.rb` also includes the critical answer-contract rules in the non-overridable safety prompt so future coach skins cannot remove them.
 
-Model narration after PR #29:
+Model intent and narration after PR #32:
 
-- `api/app/services/household_finance/mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, and pending drafts.
-- `api/app/services/household_finance/mia_narrator.rb` lets Claude/Mia narrate those packets in the live persona so responses feel warm, Chamorro-grounded, CFO-minded, and less robotic.
+- `ConversationTranscriptBuilder` sends a token/character-bounded recent transcript of up to 32 messages instead of a fixed 12-message slice. Older context remains available through the lower-priority persisted summary.
+- `MiaIntentContextBuilder` assembles the selected period, recent raw turns, active/open threads, allowed category catalog, and pending review cards without exposing raw private documents.
+- `MiaIntentResolver` lets Claude resolve intent, conversational references, corrections, and supported budget commands into a strict JSON schema before routing. Model-returned category/review ids are checked against the allowed Rails context and cannot write records directly.
+- `MiaConversationStateUpdater` persists the validated active thread, resolved request, action parameters, and pending review id across reloads/devices.
+- `mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, pending drafts, and conversation state.
+- `mia_narrator.rb` receives the recent transcript and verified answer packet, then answers naturally in Mia's live persona. The verified reference answer is a safety/factual fallback, not a required script.
 - The model may not change facts, invent missing data, imply pending drafts are actuals, or claim writes happened.
-- If model narration fails or violates guardrails, Rails falls back to the deterministic answer.
+- If model intent resolution is unavailable, explicit deterministic commands still work; ambiguous confirmations ask for a precise restatement instead of guessing. If narration fails or violates guardrails, Rails returns the verified fallback.
 
 Deterministic financial answers:
 
@@ -75,10 +79,13 @@ Supervised action drafts:
 
 Conversation continuity:
 
-- Mia keeps a server-side compacted summary on each chat session, including active/open topics, amounts discussed, latest recommendation, and next move.
-- The compacted conversation state travels across devices for the same signed-in user because it is stored in Postgres with the chat session.
+- For conversational reference resolution, precedence is: current message, pending review state, validated active thread, recent raw transcript, then older compacted summary. Current database records remain authoritative for every financial fact regardless of conversation order.
+- Mia uses up to 32 recent role-preserving messages within a 24,000-character budget; it does not rely on an arbitrary last-12 cutoff or send unlimited chat history.
+- Versioned active-thread state stores the validated intent, subject, resolved message, structured action, review id, and lifecycle status. Apply/Cancel and transaction confirmation flows update that status.
+- The compacted older summary remains useful across long chats, but it is not the primary router and cannot override newer raw turns.
+- Conversation state travels across devices for the same signed-in user because it is stored in Postgres with the chat session.
 - Conversation continuity is context only, not financial truth. Confirmed actuals, balances, plans, transactions, due dates, and approved document facts still come from structured records.
-- Clearing Mia chat also clears the compacted conversation summary and open-topic state.
+- Clearing Mia chat also clears the transcript, compacted summary, and active/open thread state.
 
 Voice input:
 
@@ -94,8 +101,9 @@ Document context:
 
 Eval harness:
 
-- Real-world prompts live in `api/test/evals/mia_eval_cases.yml`.
-- `HouseholdFinance::MiaEvalHarness` checks expected and forbidden response phrases against deterministic Rails routes so narrator/persona work does not regress pending-vs-actual, month, draft, or coaching guardrails.
+- Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`.
+- Multi-turn intent/reference cases live in `api/test/evals/mia_intent_cases.yml`, including pronouns, confirmations, recall, pending-card reuse, and clarification.
+- `HouseholdFinance::MiaEvalHarness` and intent resolver tests protect pending-vs-actual, month, draft, coaching, context, and structured-action guardrails without requiring frontend AI calls.
 
 ## What this means in practice
 

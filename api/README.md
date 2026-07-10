@@ -55,6 +55,8 @@ AWS_S3_BUCKET=household-cfo-private-dev
 AWS_S3_PREFIX=household-cfo/development
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=~anthropic/claude-sonnet-latest
+# Optional: must support OpenRouter strict structured outputs.
+OPENROUTER_MIA_INTENT_MODEL=~anthropic/claude-sonnet-latest
 OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
 OPENROUTER_PDF_ENGINE=mistral-ocr
 OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3

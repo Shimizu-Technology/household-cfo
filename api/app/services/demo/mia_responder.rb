@@ -120,7 +120,7 @@ module Demo
         next unless role.to_s.in?([ "assistant", "user" ]) && content.to_s.strip.present?
 
         { role: role.to_s, content: content.to_s.strip }
-      end.last(12)
+      end.last(32)
     end
 
     def sanitize_assistant_content(content, user_message: nil, draft_capable: false)

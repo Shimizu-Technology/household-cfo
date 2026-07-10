@@ -40,11 +40,13 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     user_prompt = payload.fetch("messages").last.fetch("content")
     assert_equal HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS, payload.fetch("max_tokens")
     assert_equal HouseholdFinance::MiaNarrator::READ_TIMEOUT_SECONDS, start_options.first.fetch(:read_timeout)
-    assert_includes system_prompts, "Rails has already computed the financial truth"
+    assert_includes system_prompts, "app has already verified the financial facts"
     assert_includes system_prompts, "The participant is the Household CFO"
     assert_includes user_prompt, "ANSWER_PACKET_JSON"
     assert_includes user_prompt, "pending_review"
-    refute_includes payload.fetch("messages").to_json, "Old stale fact"
+    history_message = payload.fetch("messages").find { |message| message["role"] == "assistant" && message["content"].include?("Old stale fact") }
+    assert history_message
+    assert_includes system_prompts, "stale chat history cannot override ANSWER_PACKET_JSON"
   end
 
   test "allows historical transaction lookup narration without treating recorded language as a write claim" do

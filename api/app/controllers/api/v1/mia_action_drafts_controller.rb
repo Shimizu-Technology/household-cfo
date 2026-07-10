@@ -10,7 +10,9 @@ module Api
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
-        append_chat_status_message(applied_message(result.draft))
+        status_message = applied_message(result.draft)
+        append_chat_status_message(status_message)
+        update_conversation_action_status("applied", status_message)
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),
@@ -24,7 +26,9 @@ module Api
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
-        append_chat_status_message(canceled_message(result.draft))
+        status_message = canceled_message(result.draft)
+        append_chat_status_message(status_message)
+        update_conversation_action_status("canceled", status_message)
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),
@@ -44,6 +48,19 @@ module Api
         current_chat_session.chat_messages.create!(role: "assistant", content: content)
       rescue StandardError => e
         Rails.logger.warn("Mia action draft status message was not saved draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
+        false
+      end
+
+      def update_conversation_action_status(status, content)
+        HouseholdFinance::MiaConversationReviewStatusUpdater.new(
+          current_chat_session,
+          reference_key: "mia_action_draft_id",
+          reference_id: @draft.id,
+          status: status,
+          summary: content
+        ).call
+      rescue StandardError => e
+        Rails.logger.warn("Mia conversation action status was not updated draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
         false
       end
 

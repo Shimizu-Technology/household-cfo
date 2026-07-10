@@ -1,0 +1,174 @@
+cases:
+  - id: contextual_budget_pronoun
+    prompt: "For July can you lower that down to 3000?"
+    recent_messages:
+      - role: user
+        content: "What's our largest category?"
+      - role: assistant
+        content: "Your largest planned category for July is Fixed essentials at $4,000."
+    expected_intent: budget_action
+    expected_action: set_allocation
+    expected_category_id: 42
+    expected_months: [7]
+    expected_amount: "3000.00"
+    model_resolution:
+      intent: budget_action
+      confidence: 0.98
+      continuation: true
+      resolved_message: "Set Fixed essentials to $3,000 for July 2026"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: budget_edit
+        title: July Fixed essentials edit
+        subject: Fixed essentials
+      action:
+        type: set_allocation
+        category_id: 42
+        category_name: Fixed essentials
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: "3000.00"
+        months: [7]
+        year: 2026
+        draft_id: 0
+
+  - id: confirmation_continues_budget_edit
+    prompt: "Yeah, please do that"
+    recent_messages:
+      - role: user
+        content: "For July can you lower Fixed essentials down to 3000?"
+      - role: assistant
+        content: "I can prepare that supervised budget edit for your review."
+    expected_intent: budget_action
+    expected_action: set_allocation
+    expected_category_id: 42
+    expected_months: [7]
+    expected_amount: "3000.00"
+    model_resolution:
+      intent: budget_action
+      confidence: 0.99
+      continuation: true
+      resolved_message: "Set Fixed essentials to $3,000 for July 2026"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: budget_edit
+        title: July Fixed essentials edit
+        subject: Fixed essentials
+      action:
+        type: set_allocation
+        category_id: 42
+        category_name: Fixed essentials
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: "3000.00"
+        months: [7]
+        year: 2026
+        draft_id: 0
+
+  - id: recall_does_not_become_readiness
+    prompt: "What were we just talking about?"
+    recent_messages:
+      - role: user
+        content: "For July can you lower Fixed essentials down to 3000?"
+      - role: assistant
+        content: "I can prepare that budget edit for review."
+    expected_intent: recall
+    expected_action: none
+    model_resolution:
+      intent: recall
+      confidence: 0.99
+      continuation: true
+      resolved_message: "Recall the July Fixed essentials budget edit discussion"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: budget_edit
+        title: July Fixed essentials edit
+        subject: Fixed essentials
+      action:
+        type: none
+        category_id: 0
+        category_name: ""
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: ""
+        months: []
+        year: 0
+        draft_id: 0
+
+  - id: existing_review_is_reused
+    prompt: "Yes, do it"
+    recent_messages:
+      - role: assistant
+        content: "The Fixed essentials budget edit is waiting for your review."
+    pending_budget_reviews:
+      - id: 91
+        title: Edit planned budget dollars
+        summary: Set Fixed essentials to $3,000 for July 2026
+        status: pending
+    expected_intent: budget_action
+    expected_action: review_pending_action
+    expected_draft_id: 91
+    model_resolution:
+      intent: budget_action
+      confidence: 0.99
+      continuation: true
+      resolved_message: "Review the pending Fixed essentials budget edit"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: budget_edit
+        title: July Fixed essentials edit
+        subject: Fixed essentials
+      action:
+        type: review_pending_action
+        category_id: 42
+        category_name: Fixed essentials
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: "3000.00"
+        months: [7]
+        year: 2026
+        draft_id: 91
+
+  - id: ambiguous_category_requests_clarification
+    prompt: "Lower that one"
+    recent_messages:
+      - role: assistant
+        content: "Rent and Fixed essentials are your two largest categories."
+    expected_intent: clarification
+    expected_action: none
+    expected_clarification: true
+    model_resolution:
+      intent: clarification
+      confidence: 0.55
+      continuation: true
+      resolved_message: "Clarify which category and amount to lower"
+      needs_clarification: true
+      clarification: "Did you mean Rent or Fixed essentials, and what amount should it be?"
+      topic:
+        type: budget_edit
+        title: Budget category edit
+        subject: Rent or Fixed essentials
+      action:
+        type: none
+        category_id: 0
+        category_name: ""
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: ""
+        months: []
+        year: 0
+        draft_id: 0

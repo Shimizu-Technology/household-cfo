@@ -108,8 +108,8 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 1. Confirm Netlify has `VITE_API_BASE_URL=https://your-render-api.onrender.com` and has been redeployed after the env change.
 2. Confirm Render has `FRONTEND_URL` / `FRONTEND_URLS` for `https://householdcfomethod.com` and any preview host being tested.
 3. Confirm Render has private S3 configuration: `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_REGION`, `AWS_S3_BUCKET`, and `AWS_S3_PREFIX`.
-4. Confirm Render has backend-only OpenRouter voice transcription when voice is enabled: `OPENROUTER_API_KEY`, optional `OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3`, and optional `MIA_TRANSCRIPTION_LANGUAGE=en`.
-5. Check Render logs for `[S3Service] Upload failed`, CORS errors, Clerk authorization errors, transcription configuration errors, or `Private S3 document storage is not configured`.
+4. Confirm Render has backend-only OpenRouter configuration: `OPENROUTER_API_KEY`, a Sonnet model that supports strict structured outputs through `OPENROUTER_MIA_INTENT_MODEL`/`OPENROUTER_MIA_MODEL`, optional `OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3`, and optional `MIA_TRANSCRIPTION_LANGUAGE=en`.
+5. Check Render logs for `[S3Service] Upload failed`, `[HouseholdFinance::MiaIntentResolver]`, CORS errors, Clerk authorization errors, transcription configuration errors, or `Private S3 document storage is not configured`.
 6. Test an explicit upload from `https://householdcfomethod.com` using a demo-safe `.xlsx` or image file.
 
 ## Full production smoke test
@@ -124,6 +124,8 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 - Applied corrections update saved household numbers.
 - Source preview/download/delete work only from explicit controls.
 - Ask Mia persists chat and uses approved context.
+- Ask Mia resolves a multi-turn reference correctly: ask for the largest category, request “lower that to $3,000 for July,” ask what you were discussing, then say “yes, please do that”; the same category/month/amount must remain active and only a review card may be prepared.
+- Existing pending review cards are reused instead of duplicated, and model/provider failure asks for an exact restatement instead of guessing.
 - Ask Mia voice input records, transcribes, puts editable transcript in the composer, and does not auto-confirm actuals.
 - Ask Mia attachment flow creates a reviewable import.
 - Admin tab visible only to admins; participant cannot see it.

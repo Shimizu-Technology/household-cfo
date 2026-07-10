@@ -38,6 +38,131 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied Mia’s budget edit"
   end
 
+  test "model resolved budget intent creates a Rails validated review card and structured conversation thread" do
+    user = create_user(email: "mia-model-intent-action@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    fixed = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.98,
+      continuation: true,
+      resolved_message: "Set Fixed essentials to $3,000 for July #{Date.current.year}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_edit", title: "July Fixed essentials edit", subject: "Fixed essentials" },
+      action: {
+        type: "set_allocation",
+        category_id: fixed.id,
+        category_name: "Fixed essentials",
+        target_category_id: 0,
+        target_category_name: "",
+        new_name: "",
+        stack_key: "",
+        amount: "3000.00",
+        months: [ 7 ],
+        year: Date.current.year,
+        draft_id: 0
+      },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    with_intent_resolver(resolver) do
+      post "/api/v1/mia/messages",
+        params: { year: Date.current.year, month: 7, message: "Yeah, please do that" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    draft = body.fetch("mia_action_draft")
+    assert_equal "pending", draft.fetch("status")
+    change = draft.fetch("items").first.fetch("payload").fetch("changes").first
+    assert_equal 7, change.fetch("month")
+    assert_equal 400_000, change.fetch("before_cents")
+    assert_equal 300_000, change.fetch("after_cents")
+    assert_equal 400_000, planned_amount_for_month(fixed, 7)
+
+    topic = household.chat_sessions.find_by!(user: user).reload.active_topic
+    assert_equal 2, topic.fetch("schema_version")
+    assert_equal "budget_edit", topic.fetch("type")
+    assert_equal "Fixed essentials", topic.fetch("subject")
+    assert_equal "pending_review", topic.fetch("status")
+    assert_equal draft.fetch("id"), topic.fetch("mia_action_draft_id")
+    assert_equal "set_allocation", topic.fetch("action").fetch("type")
+
+    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    session = household.chat_sessions.find_by!(user: user).reload
+    assert_equal "applied", session.active_topic.fetch("status")
+    assert_includes session.rolling_summary, "applied"
+    assert_equal 300_000, planned_amount_for_month(fixed, 7)
+  end
+
+  test "model resolved pending review intent returns the existing card without duplicating it" do
+    user = create_user(email: "mia-model-intent-existing-card@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    fixed = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    initial_result = HouseholdFinance::MiaActionDraftBuilder.new(
+      household,
+      user: user,
+      annual_budget_manager: HouseholdFinance::AnnualBudgetManager.new(household),
+      selected_month: 7,
+      raw_input: "Set Fixed essentials to $3,000 in July",
+      command: {
+        type: "set_allocation",
+        category_id: fixed.id,
+        category_name: "Fixed essentials",
+        amount: "3000",
+        months: [ 7 ],
+        year: Date.current.year
+      }
+    ).call
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    source = session.chat_messages.create!(role: "user", content: "Set Fixed essentials to $3,000 in July")
+    assistant = session.chat_messages.create!(role: "assistant", content: initial_result.response)
+    existing = initial_result.proposal.create_draft!(source_chat_message: source, assistant_chat_message: assistant)
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.99,
+      continuation: true,
+      resolved_message: "Review the pending Fixed essentials budget edit",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_edit", title: "July Fixed essentials edit", subject: "Fixed essentials" },
+      action: {
+        type: "review_pending_action",
+        category_id: fixed.id,
+        category_name: "Fixed essentials",
+        draft_id: existing.id,
+        months: [ 7 ],
+        year: Date.current.year
+      },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    assert_no_difference("MiaActionDraft.count") do
+      with_intent_resolver(resolver) do
+        post "/api/v1/mia/messages",
+          params: { year: Date.current.year, month: 7, message: "Yeah, please do that" },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_equal existing.id, body.fetch("mia_action_draft").fetch("id")
+    assert_includes body.fetch("assistant_message").fetch("content"), "review card is ready"
+  end
+
   test "mia does not surface a no-op allocation draft" do
     user = create_user(email: "mia-action-no-op@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -159,12 +284,12 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     body = JSON.parse(response.body)
-    assert_nil body.fetch("mia_action_draft")
-    assert_includes body.fetch("assistant_message").fetch("content"), "already prepared"
+    assert_equal first_draft_id, body.fetch("mia_action_draft").fetch("id")
+    assert_includes body.fetch("assistant_message").fetch("content"), "review card is ready"
     assert_equal [ first_draft_id ], body.fetch("budget").fetch("annual_plan").fetch("pending_mia_action_drafts").map { |draft| draft.fetch("id") }
   end
 
-  test "mia continues the recalled budget action instead of an older readiness topic" do
+  test "deterministic fallback asks for an exact restatement instead of guessing from an older topic" do
     user = create_user(email: "mia-action-recalled-topic@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     manager = HouseholdFinance::AnnualBudgetManager.new(household)
@@ -221,15 +346,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     body = JSON.parse(response.body)
-    action_draft_payload = body.fetch("mia_action_draft")
-    assert_equal "pending", action_draft_payload.fetch("status")
-    assert_includes body.fetch("assistant_message").fetch("content"), "Fixed essentials"
+    assert_nil body.fetch("mia_action_draft")
+    assert_includes body.fetch("assistant_message").fetch("content"), "do not want to guess"
+    assert_includes body.fetch("assistant_message").fetch("content"), "restate the category, amount, and month"
     refute_includes body.fetch("assistant_message").fetch("content"), "readiness"
-    changes = action_draft_payload.fetch("items").first.fetch("payload").fetch("changes")
-    assert_equal 1, changes.length
-    assert_equal 7, changes.first.fetch("month")
-    assert_equal 400_000, changes.first.fetch("before_cents")
-    assert_equal 300_000, changes.first.fetch("after_cents")
     assert_equal 400_000, planned_amount_for_month(fixed, 7)
   end
 
@@ -407,6 +527,16 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def with_intent_resolver(resolver)
+    singleton = class << HouseholdFinance::MiaIntentResolver; self; end
+    original_new = singleton.instance_method(:new)
+    singleton.define_method(:new) { |**_kwargs| resolver }
+    yield
+  ensure
+    singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
+    singleton.define_method(:new, original_new)
+  end
 
   def create_user(email:)
     User.create!(

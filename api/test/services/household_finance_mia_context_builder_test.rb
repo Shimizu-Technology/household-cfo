@@ -62,7 +62,15 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
       context_type: "conversation_continuity",
       memory_rule: "Conversation continuity is context only, not financial truth.",
       rolling_summary: "Open topic: car repair for work.",
-      active_topic: { title: "Car repair", type: "car_repair", amount_label: "$640" },
+      active_topic: {
+        schema_version: 2,
+        title: "Car repair",
+        type: "car_repair",
+        amount_label: "$640",
+        intent: "coaching",
+        resolved_message: "Review the $640 car repair",
+        action: { type: "set_allocation", category_id: 42, category_name: "Emergency Repairs", amount: "640", months: [ 7 ], year: 2026 }
+      },
       open_topics: [ { title: "Car repair", type: "car_repair", amount_label: "$640" } ]
     }
 
@@ -78,6 +86,11 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal "conversation_continuity", continuity.fetch("context_type")
     assert_includes continuity.fetch("memory_rule"), "not financial truth"
     assert_equal "Car repair", continuity.dig("active_topic", "title")
+    assert_equal 2, continuity.dig("active_topic", "schema_version")
+    assert_equal "coaching", continuity.dig("active_topic", "intent")
+    assert_equal "Review the $640 car repair", continuity.dig("active_topic", "resolved_message")
+    assert_equal "set_allocation", continuity.dig("active_topic", "action", "type")
+    assert_equal 42, continuity.dig("active_topic", "action", "category_id")
   end
 
   test "includes document freshness without raw source details" do
