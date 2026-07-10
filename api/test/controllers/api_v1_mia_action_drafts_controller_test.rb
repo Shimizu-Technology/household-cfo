@@ -38,6 +38,26 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied Mia’s budget edit"
   end
 
+  test "mia does not surface a no-op allocation draft" do
+    user = create_user(email: "mia-action-no-op@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+
+    assert_no_difference("MiaActionDraft.count") do
+      post "/api/v1/mia/messages",
+        params: { message: "Set Groceries budget to $500 per month" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("mia_action_draft")
+    assert_includes body.fetch("assistant_message").fetch("content"), "already $500"
+    assert_includes body.fetch("assistant_message").fetch("content"), "nothing would change"
+    assert_equal [ 50_000 ], planned_amounts_for(category)
+  end
+
   test "explicit month wins over per-month wording in allocation drafts" do
     user = create_user(email: "mia-action-explicit-month@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -96,6 +116,116 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "update_allocation", item.fetch("action_type")
     assert_includes item.fetch("label"), "Fixed essentials"
     changes = item.fetch("payload").fetch("changes")
+    assert_equal 1, changes.length
+    assert_equal 7, changes.first.fetch("month")
+    assert_equal 400_000, changes.first.fetch("before_cents")
+    assert_equal 300_000, changes.first.fetch("after_cents")
+    assert_equal 400_000, planned_amount_for_month(fixed, 7)
+  end
+
+  test "mia points back to an existing pending budget review card instead of drafting a duplicate" do
+    user = create_user(email: "mia-action-no-duplicate-after-recall@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "What's our largest category?" },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "For July can you lower that down to 3000?" },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+    first_draft_id = JSON.parse(response.body).fetch("mia_action_draft").fetch("id")
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "What were we just talking about?" },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+    assert_includes JSON.parse(response.body).fetch("assistant_message").fetch("content"), "Fixed essentials"
+
+    assert_no_difference("MiaActionDraft.count") do
+      post "/api/v1/mia/messages",
+        params: { year: Date.current.year, month: 7, message: "Yeah, please do that" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("mia_action_draft")
+    assert_includes body.fetch("assistant_message").fetch("content"), "already prepared"
+    assert_equal [ first_draft_id ], body.fetch("budget").fetch("annual_plan").fetch("pending_mia_action_drafts").map { |draft| draft.fetch("id") }
+  end
+
+  test "mia continues the recalled budget action instead of an older readiness topic" do
+    user = create_user(email: "mia-action-recalled-topic@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    fixed = manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    manager.create_category!(name: "Rent", stack_key: "non_discretionary", monthly_amount: 1_800)
+    manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    budget_topic = {
+      id: SecureRandom.uuid,
+      type: "budget_report",
+      title: "Budget or spending report",
+      subject: "Fixed essentials",
+      status: "open",
+      latest_user_context: "For July can you lower that down to 3000?",
+      latest_mia_summary: "I can draft setting Fixed essentials to $3,000 for July after you confirm the category.",
+      next_move: "Draft the Fixed essentials July edit for review.",
+      updated_at: Time.current.iso8601
+    }
+    readiness_topic = {
+      id: SecureRandom.uuid,
+      type: "readiness_plan",
+      title: "Readiness plan",
+      subject: "red/yellow/green plan",
+      status: "open",
+      latest_user_context: "How do I get out of the red?",
+      latest_mia_summary: "Readiness is Red.",
+      next_move: "Send the next three due bills.",
+      updated_at: 5.minutes.ago.iso8601
+    }
+    household.chat_sessions.create!(
+      user: user,
+      title: "Ask Mia",
+      active_topic: readiness_topic,
+      open_topics: [ budget_topic, readiness_topic ],
+      rolling_summary: "Open conversation topics: budget action for Fixed essentials and readiness plan."
+    )
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "What were we just talking about?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    recall_body = JSON.parse(response.body)
+    assert_includes recall_body.fetch("assistant_message").fetch("content"), "Fixed essentials"
+    session = household.chat_sessions.find_by!(user: user).reload
+    assert_equal "budget_report", session.active_topic.fetch("type")
+    assert_equal "Fixed essentials", session.active_topic.fetch("subject")
+    assert_equal "For July can you lower that down to 3000?", session.active_topic.fetch("latest_user_context")
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "Yeah, please do that" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    action_draft_payload = body.fetch("mia_action_draft")
+    assert_equal "pending", action_draft_payload.fetch("status")
+    assert_includes body.fetch("assistant_message").fetch("content"), "Fixed essentials"
+    refute_includes body.fetch("assistant_message").fetch("content"), "readiness"
+    changes = action_draft_payload.fetch("items").first.fetch("payload").fetch("changes")
     assert_equal 1, changes.length
     assert_equal 7, changes.first.fetch("month")
     assert_equal 400_000, changes.first.fetch("before_cents")

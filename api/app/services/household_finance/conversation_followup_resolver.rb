@@ -3,8 +3,9 @@ module HouseholdFinance
     Result = Struct.new(:message, :direct_answer, :follow_up?, keyword_init: true)
 
     FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|same thing|from earlier|another|also|same place|same merchant|there|tip|plus|add that)\b/i.freeze
-    RECALL_PATTERN = /\b(?:remind me|what were we talking about|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
+    RECALL_PATTERN = /\b(?:remind me|what were we(?: just)? talking about|what did we(?: just)? talk about|what were we(?: just)? doing|what did we(?: just)? do|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
     ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
+    CONFIRMATION_PATTERN = /\A(?:yes|yeah|yep|yup|please|ok|okay|sure|for sure|go ahead)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead|yes|yeah|ok|okay|sure))*[\s,!.]*\z|\A(?:do that|do it|draft that|make that change|please do that|please do it)[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     SPENDING_REPORT_PATTERNS = [
       /\bhow much\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,
@@ -26,6 +27,7 @@ module HouseholdFinance
       return Result.new(message: message, direct_answer: nil, follow_up?: false) if message.blank?
       return recall_result if recall_request? && useful_context?
       return empty_recall_result if recall_request?
+      return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if confirmation? && active_topic.present?
       return acknowledgment_result if acknowledgment?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if topic_continuation?
       return Result.new(message: enriched_message, direct_answer: nil, follow_up?: true) if follow_up? && active_topic.present?
@@ -61,6 +63,8 @@ module HouseholdFinance
         "Follow-up to previous #{topic['type']} topic.",
         "Topic: #{topic['title']}.",
         topic["subject"].present? ? "Subject: #{topic['subject']}." : nil,
+        topic["latest_user_context"].present? ? "Prior user context: #{topic['latest_user_context']}" : nil,
+        topic["latest_mia_summary"].present? ? "Prior Mia summary: #{topic['latest_mia_summary']}" : nil,
         topic["amount_label"].present? ? "Prior amount discussed: #{topic['amount_label']}." : nil,
         topic["next_move"].present? ? "Prior next move: #{topic['next_move']}." : nil
       ].compact.join(" ")
@@ -84,6 +88,10 @@ module HouseholdFinance
 
     def acknowledgment?
       message.match?(ACKNOWLEDGMENT_PATTERN)
+    end
+
+    def confirmation?
+      message.match?(CONFIRMATION_PATTERN)
     end
 
     def follow_up?

@@ -88,6 +88,7 @@ module HouseholdFinance
       annual_budget_manager.ensure_plan!
       @annual_plan = annual_budget_manager.plan_data.deep_symbolize_keys
       return nil unless budget_edit_context?
+      return existing_pending_action_result if duplicate_pending_action_confirmation?
 
       move_allocation_proposal ||
         rename_category_proposal ||
@@ -102,12 +103,32 @@ module HouseholdFinance
     attr_reader :household, :message, :user, :annual_budget_manager, :selected_month, :raw_input, :annual_plan
 
     def action_text
-      @action_text ||= current_follow_up_text.presence || message
+      @action_text ||= begin
+        if confirmation_follow_up? && prior_user_context.present?
+          prior_user_context
+        else
+          current_follow_up_text.presence || message
+        end
+      end
     end
 
     def current_follow_up_text
       match = message.match(/\bCurrent follow-up:\s*(.+)\z/i)
       match&.[](1)&.squish
+    end
+
+    def prior_user_context
+      match = message.match(/\bPrior user context:\s*(.+?)(?=\s+Prior Mia summary:|\s+Prior amount discussed:|\s+Prior next move:|\s+Current follow-up:|\z)/i)
+      match&.[](1)&.squish
+    end
+
+    def prior_mia_summary
+      match = message.match(/\bPrior Mia summary:\s*(.+?)(?=\s+Prior amount discussed:|\s+Prior next move:|\s+Current follow-up:|\z)/i)
+      match&.[](1)&.squish
+    end
+
+    def confirmation_follow_up?
+      current_follow_up_text.to_s.match?(/\A(?:yes|yeah|yep|yup|please|ok|okay|sure|for sure|go ahead)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead|yes|yeah|ok|okay|sure))*[\s,!.]*\z|\A(?:do that|do it|draft that|make that change|please do that|please do it)[\s,!.]*\z/i)
     end
 
     def budget_edit_context?
@@ -323,6 +344,7 @@ module HouseholdFinance
       month_numbers = month_numbers_for_message
       changes = allocation_changes_for(category, month_numbers: month_numbers, mode: parsed.fetch(:mode), amount_cents: amount_cents)
       return changes if changes.is_a?(Result)
+      return no_allocation_change_result(category, changes, mode: parsed.fetch(:mode), amount_cents: amount_cents, month_numbers: month_numbers) if no_allocation_change?(changes)
 
       item = allocation_item(category, changes, allocation_label(category, parsed.fetch(:mode), amount_cents))
       scope = scope_label(month_numbers)
@@ -334,6 +356,14 @@ module HouseholdFinance
         items: [ item ],
         metadata: { source: "mia_chat", parser: "allocation_amount", month_numbers: month_numbers, mode: parsed.fetch(:mode) }
       )
+    end
+
+    def duplicate_pending_action_confirmation?
+      confirmation_follow_up? && prior_mia_summary.to_s.match?(/\b(?:drafted|review card)\b/i) && annual_plan.fetch(:pending_mia_action_drafts).any?
+    end
+
+    def existing_pending_action_result
+      validation_result("I already prepared that budget review card. Use Apply to make the change, or Cancel if you do not want it. Nothing else changed yet.")
     end
 
     def allocation_amount_request
@@ -421,6 +451,20 @@ module HouseholdFinance
       end
 
       changes
+    end
+
+    def no_allocation_change?(changes)
+      changes.all? { |change| change.fetch(:before_cents) == change.fetch(:after_cents) }
+    end
+
+    def no_allocation_change_result(category, changes, mode:, amount_cents:, month_numbers:)
+      scope = scope_label(month_numbers)
+      if mode == :set
+        return validation_result("#{category.name} is already #{money(amount_cents)} for #{scope}. I did not create a draft because nothing would change.")
+      end
+
+      current_amounts = changes.map { |change| money(change.fetch(:before_cents)) }.uniq.to_sentence
+      validation_result("That would leave #{category.name} unchanged for #{scope} at #{current_amounts}. I did not create a draft because nothing would change.")
     end
 
     def allocation_item(category, changes, label)
