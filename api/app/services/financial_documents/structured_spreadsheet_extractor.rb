@@ -54,8 +54,11 @@ module FinancialDocuments
 
     def call
       summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename).call
+      return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} rows. Split it into smaller date ranges so Mia can stage every transaction without silently truncating the file.") if truncated_transaction_rows?(summary)
+
       items = extract_items(summary)
       transaction_drafts = extract_transaction_drafts(summary)
+      return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so Mia can stage every transaction.") if transaction_drafts.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
       return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty?
 
       success(
@@ -76,6 +79,14 @@ module FinancialDocuments
     private
 
     attr_reader :file_path, :filename, :document_kind
+
+    def truncated_transaction_rows?(summary)
+      Array(summary[:sheets]).any? do |sheet|
+        rows = Array(sheet[:rows])
+        header_row = rows.find { |row| transaction_header?(row[:values]) }
+        header_row && sheet[:row_count].to_i > sheet[:sampled_row_count].to_i
+      end
+    end
 
     def extract_items(summary)
       Array(summary[:sheets]).flat_map do |sheet|
@@ -125,7 +136,7 @@ module FinancialDocuments
         rows.drop_while { |row| row[:row] <= header_row[:row] }.filter_map do |row|
           transaction_draft_from_row(row[:values], header_map, row_number: row[:row])
         end
-      end.first(HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS)
+      end
     end
 
     def transaction_draft_from_row(values, header_map, row_number:)

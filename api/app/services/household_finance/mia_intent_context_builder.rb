@@ -22,7 +22,6 @@ module HouseholdFinance
           relative_date_rule: "Today, yesterday, this month, last month, and next month are relative to today, not the budget view period."
         },
         budget_view_period: selected_period,
-        selected_period: selected_period,
         conversation: {
           active_thread: validated_active_thread,
           open_threads: validated_open_threads,
@@ -38,7 +37,7 @@ module HouseholdFinance
           create_category rename_category reclassify_category archive_category
           restore_category review_pending_action
         ],
-        supported_transaction_draft_actions: %w[update_transaction_draft],
+        supported_transaction_draft_actions: %w[create_transaction_draft update_transaction_draft],
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
       }
     end

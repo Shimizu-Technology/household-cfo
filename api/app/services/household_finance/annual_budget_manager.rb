@@ -2,6 +2,7 @@ module HouseholdFinance
   class AnnualBudgetManager
     MONTH_NAMES = %w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec].freeze
     SUPPORTED_YEARS = 2000..2100
+    MAX_PENDING_TRANSACTION_DRAFTS = 500
 
     def self.supported_year?(value)
       SUPPORTED_YEARS.cover?(value.to_i)
@@ -295,7 +296,7 @@ module HouseholdFinance
       household.transaction_drafts.pending.includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
         .recent_first
-        .limit(20)
+        .limit(MAX_PENDING_TRANSACTION_DRAFTS)
         .map { |draft| draft_payload(draft) }
     end
 

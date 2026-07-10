@@ -65,5 +65,8 @@ assert.ok(
   app.includes('const previousBudgetView = budgetView') && app.includes('setBudgetView((current) => (') && app.includes('? previousBudgetView'),
   'budget year navigation must restore the previous view when loading a different year fails',
 )
+assert.ok(app.includes('Search merchant, category, date, or amount'), 'large transaction review queues should be searchable')
+assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
+assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review queue controls should have intentional responsive styling')
 
 console.log('design regression checks passed')

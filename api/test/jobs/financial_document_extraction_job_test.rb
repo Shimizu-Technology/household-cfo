@@ -58,7 +58,13 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
           ]
         },
         error: nil,
-        metadata: { usage: { "total_tokens" => 123 }, finish_reason: "stop" }
+        metadata: {
+          usage: { "total_tokens" => 123 },
+          finish_reason: "stop",
+          extraction_mode: "pdf_batches",
+          page_count: 9,
+          batch_count: 3
+        }
       )
     )
 
@@ -73,6 +79,9 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal 2, @document_import.items.count
     assert_equal "succeeded", @document_import.attempts.last.status
     assert_equal({ "total_tokens" => 123 }, @document_import.attempts.last.metadata.fetch("usage"))
+    assert_equal "pdf_batches", @document_import.metadata.fetch("extraction_mode")
+    assert_equal 9, @document_import.metadata.fetch("extraction_page_count")
+    assert_equal 3, @document_import.metadata.fetch("extraction_batch_count")
   end
 
   test "successful extraction stages transaction drafts with splits and match proposals" do

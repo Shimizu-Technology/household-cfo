@@ -30,7 +30,7 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
       selected_month: 7
     ).call
 
-    assert_equal "Jul 2026", context.dig(:selected_period, :label)
+    assert_nil context[:selected_period]
     assert_equal "Jul 2026", context.dig(:budget_view_period, :label)
     assert_equal Date.current.iso8601, context.dig(:calendar, :today)
     assert_includes context.dig(:calendar, :relative_date_rule), "not the budget view period"

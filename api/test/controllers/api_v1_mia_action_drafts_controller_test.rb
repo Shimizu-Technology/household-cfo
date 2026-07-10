@@ -620,6 +620,57 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     refute household.budget_categories.where("LOWER(name) = ?", "daycare").exists?
   end
 
+  test "model resolved reported spend creates the pending review immediately with a Rails category suggestion" do
+    user = create_user(email: "mia-model-transaction-create@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "transaction_report",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Create a pending review for $12.35 at Walkthrough Cafe Retest today",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "transaction_report", title: "Walkthrough Cafe Retest expense", subject: "Walkthrough Cafe Retest" },
+      action: {
+        type: "create_transaction_draft",
+        draft_id: 0,
+        merchant: "Walkthrough Cafe Retest",
+        amount: "12.35",
+        occurred_on: Date.current.iso8601,
+        category_id: 0,
+        category_name: "",
+        stack_key: "",
+        splits: []
+      },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    assert_difference("TransactionDraft.count", 1) do
+      assert_no_difference("HouseholdTransaction.count") do
+        with_intent_resolver(resolver) do
+          post "/api/v1/mia/messages",
+            params: { message: "I spent $12.35 at Walkthrough Cafe Retest today." },
+            headers: auth_headers(user),
+            as: :json
+        end
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    draft = household.transaction_drafts.find(body.dig("transaction_draft", "id"))
+    assert_equal "pending", draft.status
+    assert_equal dining.id, draft.budget_category_id
+    assert_equal 12_35, draft.total_amount_cents
+    assert_equal Date.current, draft.occurred_on
+    assert_includes body.dig("assistant_message", "content"), "drafted this for review"
+    assert_equal draft.id, body.dig("budget", "annual_plan", "pending_transaction_drafts", 0, "id")
+  end
+
   test "model resolved transaction correction updates the pending review without changing actuals" do
     user = create_user(email: "mia-transaction-correction@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

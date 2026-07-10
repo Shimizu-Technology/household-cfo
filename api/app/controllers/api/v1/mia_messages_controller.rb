@@ -320,13 +320,26 @@ module Api
           when "spending_report"
             spending_report = spending_report_for(resolved_content)
           when "transaction_report"
-            transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
-              current_household,
-              resolved_content,
-              annual_budget_manager: annual_budget_manager,
-              plan_prepared: true,
-              raw_input: content
-            ).call
+            if intent_result.transaction_report_action? && intent_result.actionable?
+              creation = HouseholdFinance::MiaTransactionDraftCreator.new(
+                current_household,
+                command: intent_result.action,
+                raw_input: content
+              ).call
+              if creation.success?
+                transaction_draft = creation.draft
+              else
+                direct_answer = "I understood the expense, but I could not create its review card: #{creation.errors.to_sentence}. Nothing changed."
+              end
+            else
+              transaction_draft = HouseholdFinance::TransactionDraftBuilder.new(
+                current_household,
+                resolved_content,
+                annual_budget_manager: annual_budget_manager,
+                plan_prepared: true,
+                raw_input: content
+              ).call
+            end
             annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
           when "transaction_draft_action"
             if intent_result.actionable?

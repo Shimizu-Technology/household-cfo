@@ -140,6 +140,9 @@ export type FinancialDocumentImport = {
     original_filename?: string
     upload_request_id?: string
     extraction_model?: string
+    extraction_mode?: string
+    extraction_page_count?: number
+    extraction_batch_count?: number
     last_extracted_at?: string
     last_applied_count?: number
     last_applied_at?: string

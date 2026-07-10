@@ -1,6 +1,6 @@
 module HouseholdFinance
   class DocumentTransactionDraftPersister
-    MAX_DRAFTS = 120
+    MAX_DRAFTS = 500
     MAX_SPLITS = 12
     CONFIDENCE_LEVEL_DECIMALS = {
       "high" => BigDecimal("0.90"),

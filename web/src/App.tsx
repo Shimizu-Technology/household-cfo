@@ -1246,7 +1246,7 @@ function App() {
       .map((attachment) => attachment.document_import_id!)
     if (pendingIds.length === 0) return currentAttachments
 
-    const deadline = Date.now() + 75_000
+    const deadline = Date.now() + 20_000
     while (pendingIds.length > 0 && Date.now() < deadline) {
       await sleep(1_800)
       const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
@@ -1258,13 +1258,6 @@ function App() {
       pendingIds = currentAttachments
         .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
         .map((attachment) => attachment.document_import_id!)
-    }
-
-    if (pendingIds.length > 0) {
-      throw new MiaAttachmentProcessingTimeoutError(
-        'Mia is still reading the upload. Please try sending again in a moment; the saved upload will not be duplicated.',
-        currentAttachments,
-      )
     }
 
     return currentAttachments
@@ -2818,6 +2811,13 @@ function DocumentReviewPanel({
       <div className="document-summary-box">
         <strong>Mia read</strong>
         <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
+        {(documentImport.metadata.extraction_page_count || documentImport.metadata.transaction_draft_count) && (
+          <div className="document-extraction-coverage" aria-label="Statement extraction coverage">
+            {documentImport.metadata.extraction_page_count && <span>{documentImport.metadata.extraction_page_count} PDF pages processed</span>}
+            {documentImport.metadata.extraction_batch_count && <span>{documentImport.metadata.extraction_batch_count} extraction batches completed</span>}
+            {typeof documentImport.metadata.transaction_draft_count === 'number' && <span>{documentImport.metadata.transaction_draft_count} transaction reviews created</span>}
+          </div>
+        )}
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
       </div>
 
@@ -3363,13 +3363,6 @@ class MiaAttachmentUploadError extends MiaAttachmentError {
   constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
     super(message, attachments, options)
     this.name = 'MiaAttachmentUploadError'
-  }
-}
-
-class MiaAttachmentProcessingTimeoutError extends MiaAttachmentError {
-  constructor(message: string, attachments: PendingMiaAttachment[]) {
-    super(message, attachments)
-    this.name = 'MiaAttachmentProcessingTimeoutError'
   }
 }
 
@@ -4936,15 +4929,69 @@ function TransactionDraftReviewStack({
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
 }) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(compact ? 5 : 10)
+  const filteredDrafts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) return drafts
+
+    return drafts.filter((draft) => [
+      draft.merchant,
+      draft.occurred_on,
+      draft.category_name ?? '',
+      ...(draft.splits ?? []).map((split) => split.category_name ?? ''),
+      exactMoneyNumber(draft.amount, draft.amount_cents).toFixed(2),
+    ].join(' ').toLowerCase().includes(normalizedQuery))
+  }, [drafts, query])
+  const totalPages = Math.max(1, Math.ceil(filteredDrafts.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const pageStart = safePage * pageSize
+  const visibleDrafts = filteredDrafts.slice(pageStart, pageStart + pageSize)
+
   return (
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
-      <div>
-        <p className="eyebrow">Review before applying</p>
-        <h4>Mia drafted transactions for your approval</h4>
-        {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
-        {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+      <div className="transaction-draft-stack-heading">
+        <div>
+          <p className="eyebrow">Review before applying</p>
+          <h4>Mia drafted transactions for your approval</h4>
+          {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
+          {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+        </div>
+        <strong>{drafts.length} review{drafts.length === 1 ? '' : 's'}</strong>
       </div>
-      {drafts.map((draft) => (
+
+      {drafts.length > 5 && (
+        <div className="transaction-draft-queue-controls" aria-label="Transaction review queue controls">
+          <label>
+            <span className="sr-only">Search transaction reviews</span>
+            <input
+              type="search"
+              value={query}
+              placeholder="Search merchant, category, date, or amount"
+              onChange={(event) => {
+                setQuery(event.currentTarget.value)
+                setPage(0)
+              }}
+            />
+          </label>
+          <label>
+            <span>Show</span>
+            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.currentTarget.value)); setPage(0) }}>
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+            </select>
+          </label>
+        </div>
+      )}
+
+      {visibleDrafts.length === 0 ? (
+        <div className="transaction-draft-empty-filter">
+          <strong>No transaction reviews match that search.</strong>
+          <button type="button" className="secondary-button" onClick={() => { setQuery(''); setPage(0) }}>Clear search</button>
+        </div>
+      ) : visibleDrafts.map((draft) => (
         <TransactionDraftReviewCard
           key={transactionDraftRenderKey(draft)}
           draft={draft}
@@ -4959,6 +5006,19 @@ function TransactionDraftReviewStack({
           onReopen={onReopen}
         />
       ))}
+
+      {filteredDrafts.length > pageSize && (
+        <nav className="transaction-draft-pagination" aria-label="Transaction review pages">
+          <span>
+            {pageStart + 1}–{Math.min(pageStart + pageSize, filteredDrafts.length)} of {filteredDrafts.length}
+          </span>
+          <div>
+            <button type="button" className="secondary-button" disabled={safePage === 0} onClick={() => setPage(Math.max(0, safePage - 1))}>Previous</button>
+            <span aria-live="polite">Page {safePage + 1} of {totalPages}</span>
+            <button type="button" className="secondary-button" disabled={safePage >= totalPages - 1} onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}>Next</button>
+          </div>
+        </nav>
+      )}
     </div>
   )
 }

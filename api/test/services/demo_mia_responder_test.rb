@@ -193,6 +193,26 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "added"
   end
 
+  test "generic replies cannot claim a current draft was created when the route created no review card" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+
+    [
+      "Okay, I'll draft that under Dining Out.",
+      "Yes, I did draft it under Dining Out.",
+      "I have prepared the transaction review."
+    ].each do |claim|
+      response = responder.send(
+        :sanitize_assistant_content,
+        claim,
+        user_message: "Yes",
+        draft_capable: false
+      )
+
+      assert_includes response, "did not create a new transaction review", claim
+      assert_includes response, "Nothing changed", claim
+    end
+  end
+
   test "demo mode does not tell users to confirm unavailable drafts" do
     response = Demo::MiaResponder.new(api_key: nil).send(
       :sanitize_assistant_content,

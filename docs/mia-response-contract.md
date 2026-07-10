@@ -68,7 +68,9 @@ Deterministic financial answers:
 - Rails still computes money truth for reports, budget Q&A, transaction lookup, transaction drafts, and common coaching branches such as discretionary purchase checks, readiness planning, and expected sinking-fund bills like car registration.
 - Deterministic services still calculate the answer packet and provide the safe fallback.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
+- A reported past expense with a clear merchant, amount, and date immediately creates a pending transaction review. Category is not required to stage the review: Rails may suggest one from merchant/category rules and the active budget, and the participant can edit it before confirmation.
 - Mia may edit the date, merchant, amount, category, or validated splits of an existing pending transaction review when the participant clearly asks for a correction. Rails scopes and validates the draft and every category/split; the draft remains pending and actuals remain unchanged.
+- Mia may never claim a review card was created unless the current Rails response includes the persisted draft. Generic conversation turns cannot promise or retroactively invent a draft.
 
 Supervised action drafts:
 

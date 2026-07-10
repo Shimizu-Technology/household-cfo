@@ -189,6 +189,42 @@ cases:
         year: 2026
         draft_id: 91
 
+  - id: reported_spend_creates_pending_review_without_category_clarification
+    prompt: "I spent $12.35 at Walkthrough Cafe Retest today."
+    recent_messages: []
+    expected_intent: transaction_report
+    expected_action: create_transaction_draft
+    expected_amount: "12.35"
+    expected_merchant: Walkthrough Cafe Retest
+    expected_occurred_on: "2026-07-10"
+    expected_clarification: false
+    model_resolution:
+      intent: transaction_report
+      confidence: 0.99
+      continuation: false
+      resolved_message: "Create a pending review for $12.35 at Walkthrough Cafe Retest on July 10, 2026"
+      needs_clarification: true
+      clarification: "What category should I use?"
+      topic:
+        type: transaction_report
+        title: Walkthrough Cafe Retest expense
+        subject: Walkthrough Cafe Retest
+      action:
+        type: create_transaction_draft
+        category_id: 0
+        category_name: ""
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: "12.35"
+        months: []
+        year: 0
+        draft_id: 0
+        occurred_on: "2026-07-10"
+        merchant: Walkthrough Cafe Retest
+        splits: []
+
   - id: pending_transaction_date_correction
     prompt: "Actually it wasn't today, it was yesterday"
     recent_messages:

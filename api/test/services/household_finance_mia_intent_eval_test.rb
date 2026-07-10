@@ -34,6 +34,7 @@ class HouseholdFinanceMiaIntentEvalTest < ActiveSupport::TestCase
       assert_equal eval_case["expected_amount"], result.action.fetch(:amount), eval_case.fetch("id") if eval_case.key?("expected_amount")
       assert_equal eval_case["expected_draft_id"], result.action.fetch(:draft_id), eval_case.fetch("id") if eval_case.key?("expected_draft_id")
       assert_equal eval_case["expected_occurred_on"], result.action.fetch(:occurred_on), eval_case.fetch("id") if eval_case.key?("expected_occurred_on")
+      assert_equal eval_case["expected_merchant"], result.action.fetch(:merchant), eval_case.fetch("id") if eval_case.key?("expected_merchant")
       assert_equal eval_case["expected_clarification"], result.clarification?, eval_case.fetch("id") if eval_case.key?("expected_clarification")
     end
   end
@@ -42,7 +43,7 @@ class HouseholdFinanceMiaIntentEvalTest < ActiveSupport::TestCase
 
   def base_context
     {
-      selected_period: { year: 2026, month: 7, label: "Jul 2026" },
+      budget_view_period: { year: 2026, month: 7, label: "Jul 2026" },
       budget_categories: [
         { id: 42, name: "Fixed essentials", stack_key: "non_discretionary", selected_month: { planned: 4_000, actual: 0, remaining: 4_000 } },
         { id: 43, name: "Rent", stack_key: "non_discretionary", selected_month: { planned: 1_800, actual: 0, remaining: 1_800 } }

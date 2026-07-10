@@ -147,7 +147,12 @@ module Demo
         .then { |value| remove_banned_branding(value) }
         .sub(/\A[\s,;:.-]+/, "")
         .strip
-      return sanitized unless transaction_report_message?(user_message)
+      unless transaction_report_message?(user_message)
+        if !draft_capable && unsupported_current_draft_claim?(sanitized)
+          return "I did not create a new transaction review from that message. Restate the merchant, amount, and date so I can prepare it safely. Nothing changed."
+        end
+        return sanitized
+      end
 
       if transaction_report_amount_cents(user_message).zero? && sanitized.match?(/\b(?:added|recorded|logged|posted|tracked|deducted|applied|updated actuals?|draft(?:ed)?)\b/i)
         return "I did not draft a transaction because the amount is $0. If money actually moved, send me the real amount and I’ll prepare it for review before it changes actuals."
@@ -156,6 +161,11 @@ module Demo
       return "I can talk through the spending, but this demo chat cannot create reviewable transaction drafts. Use a real workspace to draft and confirm actuals." unless draft_capable
 
       "I can draft that transaction for review. Confirm the draft only if the merchant, amount, and category are right. Month-to-date actuals will not change until you confirm."
+    end
+
+    def unsupported_current_draft_claim?(content)
+      content.match?(/\b(?:i(?:['’]ve| have| did)?|mia)\s+(?:already\s+|just\s+)?(?:draft(?:ed)?|created|prepared)\b/i) ||
+        content.match?(/\bi(?:['’]ll| will)\s+draft\b/i)
     end
 
     def remove_banned_branding(content)

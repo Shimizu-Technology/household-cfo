@@ -108,6 +108,39 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "could not safely match"
   end
 
+  test "resolves a complete reported expense into a pending transaction draft action without requiring a category" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I spent $12.35 at Walkthrough Cafe Retest today",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_report",
+          continuation: false,
+          resolved_message: "Create a pending review for $12.35 at Walkthrough Cafe Retest on July 10, 2026",
+          needs_clarification: true,
+          clarification: "What category should I use?",
+          topic: { type: "transaction_report", title: "Walkthrough Cafe Retest expense", subject: "Walkthrough Cafe Retest" },
+          action: default_action.merge(
+            type: "create_transaction_draft",
+            merchant: "Walkthrough Cafe Retest",
+            amount: "12.35",
+            occurred_on: "2026-07-10"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert result.transaction_report_action?
+    refute result.clarification?
+    assert_equal "Walkthrough Cafe Retest", result.action.fetch(:merchant)
+    assert_equal "12.35", result.action.fetch(:amount)
+    assert_equal "2026-07-10", result.action.fetch(:occurred_on)
+  end
+
   test "resolves a date correction for an allowed pending transaction review" do
     context = intent_context.deep_dup
     context[:pending_transaction_reviews] = [
@@ -207,7 +240,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
   def intent_context
     {
-      selected_period: { year: 2026, month: 7, label: "Jul 2026" },
+      budget_view_period: { year: 2026, month: 7, label: "Jul 2026" },
       conversation: {
         active_thread: { type: "budget_edit", subject: "Fixed essentials" },
         recent_messages: [
