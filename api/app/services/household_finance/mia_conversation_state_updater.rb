@@ -23,8 +23,9 @@ module HouseholdFinance
         topics = normalized_topics(chat_session.open_topics)
         topics = upsert_topic(topics, topic) if topic
 
+        active_topic = topic.presence || (intent_result.continuation ? current.presence : nil) || {}
         chat_session.update!(
-          active_topic: topic.presence || current.presence || {},
+          active_topic: active_topic,
           open_topics: topics,
           rolling_summary: build_summary(topics),
           last_compacted_message_id: assistant_message.id,
