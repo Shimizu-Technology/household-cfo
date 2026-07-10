@@ -796,7 +796,7 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
     ...(realWorkspace && year ? { year } : {}),
     ...(realWorkspace && month ? { month } : {}),
     ...(realWorkspace && documentImportIds.length > 0 ? { document_import_ids: documentImportIds } : {}),
-    messages: history.slice(-12).map((entry) => ({
+    messages: history.slice(-32).map((entry) => ({
       role: entry.role,
       content: entry.content,
     })),
