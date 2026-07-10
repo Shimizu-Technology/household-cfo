@@ -89,31 +89,38 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal "restore_category", restore_result.proposal.items.first.action_type
   end
 
-  test "legacy fallback rejects relative months that cross the selected budget year" do
-    next_month = HouseholdFinance::MiaActionDraftBuilder.new(
-      @household,
-      "Set Groceries budget to $600 next month",
-      user: @user,
-      annual_budget_manager: @manager,
-      selected_month: 12,
-      raw_input: "Set Groceries budget to $600 next month"
-    ).call
-    last_month = HouseholdFinance::MiaActionDraftBuilder.new(
-      @household,
-      "Set Groceries budget to $600 last month",
-      user: @user,
-      annual_budget_manager: @manager,
-      selected_month: 1,
-      raw_input: "Set Groceries budget to $600 last month"
-    ).call
-    move_next_month = HouseholdFinance::MiaActionDraftBuilder.new(
-      @household,
-      "Move $50 from Dining Out to Groceries in next month",
-      user: @user,
-      annual_budget_manager: @manager,
-      selected_month: 12,
-      raw_input: "Move $50 from Dining Out to Groceries in next month"
-    ).call
+  test "legacy fallback rejects calendar-relative months that cross the budget year" do
+    next_month = move_next_month = nil
+    travel_to Date.new(2026, 12, 15) do
+      next_month = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household,
+        "Set Groceries budget to $600 next month",
+        user: @user,
+        annual_budget_manager: @manager,
+        selected_month: 1,
+        raw_input: "Set Groceries budget to $600 next month"
+      ).call
+      move_next_month = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household,
+        "Move $50 from Dining Out to Groceries in next month",
+        user: @user,
+        annual_budget_manager: @manager,
+        selected_month: 1,
+        raw_input: "Move $50 from Dining Out to Groceries in next month"
+      ).call
+    end
+
+    last_month = nil
+    travel_to Date.new(2026, 1, 15) do
+      last_month = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household,
+        "Set Groceries budget to $600 last month",
+        user: @user,
+        annual_budget_manager: @manager,
+        selected_month: 12,
+        raw_input: "Set Groceries budget to $600 last month"
+      ).call
+    end
 
     assert_nil next_month.proposal
     assert_includes next_month.response, "Next month falls outside the 2026 budget"
@@ -123,6 +130,30 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes last_month.response, "Open 2025"
     assert_nil move_next_month.proposal
     assert_includes move_next_month.response, "Next month falls outside the 2026 budget"
+  end
+
+  test "legacy relative month parsing ignores the month open in the budget UI" do
+    travel_to Date.new(2026, 7, 10) do
+      last_month = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household,
+        "Set Groceries budget to $600 last month",
+        user: @user,
+        annual_budget_manager: @manager,
+        selected_month: 1,
+        raw_input: "Set Groceries budget to $600 last month"
+      ).call
+      next_month = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household,
+        "Set Groceries budget to $650 next month",
+        user: @user,
+        annual_budget_manager: @manager,
+        selected_month: 12,
+        raw_input: "Set Groceries budget to $650 next month"
+      ).call
+
+      assert_equal [ 6 ], last_month.proposal.items.first.payload.fetch(:changes).pluck(:month)
+      assert_equal [ 8 ], next_month.proposal.items.first.payload.fetch(:changes).pluck(:month)
+    end
   end
 
   test "rejects structured no-op wrong-year and unknown-category commands" do

@@ -21,12 +21,17 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     ).call
 
     assert_equal "Jul 2026", context.dig(:selected_period, :label)
+    assert_equal "Jul 2026", context.dig(:budget_view_period, :label)
+    assert_equal Date.current.iso8601, context.dig(:calendar, :today)
+    assert_includes context.dig(:calendar, :relative_date_rule), "not the budget view period"
     assert_equal transcript, context.dig(:conversation, :recent_messages)
     assert_equal "Older readiness plan", context.dig(:conversation, :older_summary)
     category_context = context.fetch(:budget_categories).find { |row| row.fetch(:id) == category.id }
     assert_equal "Fixed essentials", category_context.fetch(:name)
     assert_equal 4_000, category_context.dig(:selected_month, :planned)
     assert_includes context.fetch(:supported_budget_actions), "set_allocation"
+    assert_includes context.fetch(:supported_transaction_draft_actions), "update_transaction_draft"
+    assert_includes context.fetch(:transaction_draft_editable_fields), "occurred_on"
     refute context.to_json.include?("s3_key")
   end
 

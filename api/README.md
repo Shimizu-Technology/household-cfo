@@ -94,7 +94,7 @@ bundle exec bundler-audit check --update
 - `GET /api/v1/workspace` — returns the authenticated user's real Household CFO workspace from Postgres.
 - `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
 - `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
-- `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context.
+- `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context. GET returns the full conversation since the last clear; model calls independently use bounded recent context. POST can safely update validated fields on an existing pending transaction review without confirming actuals.
 - `GET/POST /api/v1/document_imports`, `GET /api/v1/document_imports/:id`, `POST /api/v1/document_imports/:id/apply`, `POST /api/v1/document_imports/:id/reprocess`, `GET /api/v1/document_imports/:id/source_url`, `DELETE /api/v1/document_imports/:id/source` — private S3 document upload, extraction, review, and apply workflow.
 - `GET/POST/PATCH /api/v1/admin/users` and `POST /api/v1/admin/users/:id/resend_invitation` — staff/admin invite records, Resend delivery status, role/status management, and cohort assignment.
 - `GET/POST/PATCH /api/v1/admin/cohorts` — admin-only cohort creation and cohort metadata management.

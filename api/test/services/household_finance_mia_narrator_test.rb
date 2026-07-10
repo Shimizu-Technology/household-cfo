@@ -138,6 +138,50 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "allows a verified pending draft update while preserving actuals" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I updated the pending Walkthrough Cafe review from July 10 to July 9. It still needs your confirmation, and actuals did not change." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Actually it was yesterday",
+        answer_packet: {
+          kind: "transaction_draft_update",
+          fallback_response: "I updated the pending Walkthrough Cafe review date to July 9. It is still pending, and actuals did not change.",
+          write_state: "draft_updated"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I updated the pending Walkthrough Cafe review from July 10 to July 9. It still needs your confirmation, and actuals did not change.", answer
+    end
+  end
+
+  test "rejects an actuals update claim from a pending draft edit" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I updated the pending Walkthrough Cafe review, and your actuals are now updated for July 9." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Actually it was yesterday",
+        answer_packet: {
+          kind: "transaction_draft_update",
+          fallback_response: "I updated the pending Walkthrough Cafe review date to July 9. It is still pending, and actuals did not change.",
+          write_state: "draft_updated"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I updated the pending Walkthrough Cafe review date to July 9. It is still pending, and actuals did not change.", answer
+    end
+  end
+
   test "falls back when budget narration invents a pending draft that the packet says is absent" do
     response = ok_response(
       choices: [

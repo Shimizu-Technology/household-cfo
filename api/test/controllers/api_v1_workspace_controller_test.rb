@@ -670,6 +670,23 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty session.chat_messages
   end
 
+  test "mia chat returns every persisted message since the last clear" do
+    user = create_user(email: "full-chat-history@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    30.times do |index|
+      session.chat_messages.create!(role: index.even? ? "user" : "assistant", content: "Persisted message #{index + 1}")
+    end
+
+    get "/api/v1/mia/messages", headers: auth_headers(user)
+
+    assert_response :success
+    messages = JSON.parse(response.body).fetch("messages")
+    assert_equal 30, messages.length
+    assert_equal "Persisted message 1", messages.first.fetch("content")
+    assert_equal "Persisted message 30", messages.last.fetch("content")
+  end
+
   test "mia chat history can be cleared" do
     user = create_user(email: "clear@example.com")
     post "/api/v1/mia/messages", params: { message: "test" }, headers: auth_headers(user), as: :json

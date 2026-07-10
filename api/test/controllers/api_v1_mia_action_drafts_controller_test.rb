@@ -620,6 +620,91 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     refute household.budget_categories.where("LOWER(name) = ?", "daycare").exists?
   end
 
+  test "model resolved transaction correction updates the pending review without changing actuals" do
+    user = create_user(email: "mia-transaction-correction@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Walkthrough Cafe",
+      total_amount_cents: 12_34,
+      budget_category: dining,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $12.34 at Walkthrough Cafe today"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, category_name: dining.name, stack_key: dining.stack_key, amount_cents: 12_34)
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "transaction_draft_action",
+      confidence: 0.99,
+      continuation: true,
+      resolved_message: "Change the pending Walkthrough Cafe date to #{Date.current.prev_day.iso8601}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "transaction_draft", title: "Walkthrough Cafe review", subject: "Walkthrough Cafe" },
+      action: { type: "update_transaction_draft", draft_id: draft.id, occurred_on: Date.current.prev_day.iso8601 },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    assert_no_difference("HouseholdTransaction.count") do
+      with_intent_resolver(resolver) do
+        post "/api/v1/mia/messages",
+          params: { year: Date.current.year, month: Date.current.month, message: "Actually it wasn't today, it was yesterday" },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_equal Date.current.prev_day.iso8601, body.dig("transaction_draft", "occurred_on")
+    assert_equal Date.current.prev_day, draft.reload.occurred_on
+    assert_equal "pending", draft.status
+    assert_includes body.dig("assistant_message", "content"), "updated"
+    assert_includes body.dig("assistant_message", "content"), "actuals did not change"
+    refute_includes body.dig("assistant_message", "content"), "I will update"
+    pending = body.dig("budget", "annual_plan", "pending_transaction_drafts")
+    assert_equal Date.current.prev_day.iso8601, pending.find { |item| item.fetch("id") == draft.id }.fetch("occurred_on")
+  end
+
+  test "explicit yesterday correction safely updates one pending transaction when intent provider is unavailable" do
+    user = create_user(email: "mia-transaction-correction-fallback@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Fallback Cafe",
+      total_amount_cents: 9_50,
+      budget_category: dining,
+      source_type: "manual_chat",
+      status: "pending",
+      raw_input: "I spent $9.50 today"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, category_name: dining.name, stack_key: dining.stack_key, amount_cents: 9_50)
+    unavailable_resolver = Object.new
+    unavailable_resolver.define_singleton_method(:call) { nil }
+
+    assert_no_difference("HouseholdTransaction.count") do
+      with_intent_resolver(unavailable_resolver) do
+        post "/api/v1/mia/messages",
+          params: { message: "Actually it wasn't today, it was yesterday" },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :created
+    assert_equal Date.current.prev_day, draft.reload.occurred_on
+    assert_equal "pending", draft.status
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "updated the pending Fallback Cafe review"
+    assert_includes content, "actuals did not change"
+  end
+
   test "mia can draft and apply a planned-dollar move between categories" do
     user = create_user(email: "mia-action-move@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

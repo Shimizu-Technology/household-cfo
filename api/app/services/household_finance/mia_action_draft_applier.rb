@@ -56,9 +56,8 @@ module HouseholdFinance
     def apply_create_category!(item)
       payload = item.payload.deep_symbolize_keys
       name = payload.fetch(:name).to_s.squish
-      if household.budget_categories.where("LOWER(name) = ?", name.downcase).exists?
-        raise StaleDraftError, stale_category_name_message(name)
-      end
+      conflicting_category = household.budget_categories.lock.find_by("LOWER(name) = ?", name.downcase)
+      raise StaleDraftError, stale_category_name_message(name) if conflicting_category
 
       manager.create_category!(
         name: name,

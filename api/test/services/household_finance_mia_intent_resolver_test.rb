@@ -108,6 +108,90 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "could not safely match"
   end
 
+  test "resolves a date correction for an allowed pending transaction review" do
+    context = intent_context.deep_dup
+    context[:pending_transaction_reviews] = [
+      { id: 77, merchant: "Walkthrough Cafe", occurred_on: "2026-07-10", amount: 12.34, category_id: 44, category_name: "Dining Out" }
+    ]
+    context[:budget_categories] << { id: 44, name: "Dining Out", stack_key: "discretionary" }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Actually it wasn't today, it was yesterday",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_draft_action",
+          continuation: true,
+          resolved_message: "Change the pending Walkthrough Cafe date to July 9, 2026",
+          topic: { type: "transaction_draft", title: "Walkthrough Cafe review", subject: "Walkthrough Cafe" },
+          action: default_action.merge(type: "update_transaction_draft", draft_id: 77, occurred_on: "2026-07-09")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert result.transaction_draft_action?
+    assert_equal 77, result.action.fetch(:draft_id)
+    assert_equal "2026-07-09", result.action.fetch(:occurred_on)
+  end
+
+  test "rejects a transaction correction that references an invented pending draft" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Change that transaction to yesterday",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_draft_action",
+          continuation: true,
+          resolved_message: "Change transaction 999 to July 9, 2026",
+          topic: { type: "transaction_draft", title: "Transaction review", subject: "Unknown" },
+          action: default_action.merge(type: "update_transaction_draft", draft_id: 999, occurred_on: "2026-07-09")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "pending transaction review"
+  end
+
+  test "asks specifically for a destination when a budget move omits it" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Move $100 from Fixed essentials",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Move $100 from Fixed essentials",
+          topic: { type: "budget_edit", title: "Move planned dollars", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "move_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "100",
+            months: [ 7 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "move_allocation", result.action.fetch(:type)
+    assert_equal "Which active category should receive the money?", result.clarification
+  end
+
   test "returns nil when the provider response is invalid so deterministic fallback can run" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Tell me about my budget",
@@ -166,7 +250,10 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       amount: "",
       months: [],
       year: 0,
-      draft_id: 0
+      draft_id: 0,
+      occurred_on: "",
+      merchant: "",
+      splits: []
     }
   end
 end

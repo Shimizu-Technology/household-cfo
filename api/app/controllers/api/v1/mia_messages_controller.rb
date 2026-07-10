@@ -58,6 +58,7 @@ module Api
         annual_plan = routed[:annual_plan]
         budget_answer = routed[:budget_answer]
         transaction_draft = routed[:transaction_draft]
+        transaction_draft_answer = routed[:transaction_draft_answer]
         intent_direct_answer = routed[:direct_answer]
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
@@ -68,6 +69,7 @@ module Api
           annual_plan,
           spending_report,
           transaction_draft,
+          transaction_draft_answer,
           budget_answer,
           transaction_lookup_answer,
           pending_draft_answer,
@@ -294,6 +296,7 @@ module Api
         spending_report = nil
         budget_answer = nil
         transaction_draft = nil
+        transaction_draft_answer = nil
 
         unless direct_answer || pending_draft_answer
           case intent_result.intent
@@ -325,6 +328,19 @@ module Api
               raw_input: content
             ).call
             annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
+          when "transaction_draft_action"
+            if intent_result.actionable?
+              draft_edit = HouseholdFinance::MiaTransactionDraftEditor.new(current_household, command: intent_result.action).call
+              if draft_edit.success?
+                transaction_draft = draft_edit.draft
+                transaction_draft_answer = draft_edit.response
+                annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager)
+              else
+                direct_answer = draft_edit.response
+              end
+            else
+              direct_answer = clarification_answer(intent_result)
+            end
           when "transaction_lookup"
             transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, resolved_content).call
           when "pending_drafts"
@@ -352,12 +368,16 @@ module Api
           spending_report: spending_report,
           annual_plan: action_result&.annual_plan || annual_plan,
           budget_answer: budget_answer,
-          transaction_draft: transaction_draft
+          transaction_draft: transaction_draft,
+          transaction_draft_answer: transaction_draft_answer
         }
       end
 
       def route_legacy_message(content, conversation_context:, annual_budget_manager:)
         followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
+        transaction_correction = legacy_transaction_correction_route(content, annual_budget_manager: annual_budget_manager, followup: followup)
+        return transaction_correction if transaction_correction
+
         if confirmation_message?(content)
           return route_persisted_confirmation(
             content,
@@ -418,7 +438,67 @@ module Api
           spending_report: spending_report,
           annual_plan: annual_plan,
           budget_answer: budget_answer,
-          transaction_draft: transaction_draft
+          transaction_draft: transaction_draft,
+          transaction_draft_answer: nil
+        }
+      end
+
+      def legacy_transaction_correction_route(content, annual_budget_manager:, followup:)
+        text = content.to_s.squish
+        correction_like = text.match?(/\b(?:actually|change|update|correct)\b.*\b(?:yesterday|date|merchant|amount|category|split|transaction|draft)\b/i) ||
+          text.match?(/\bwasn['’]?t\s+today\b.*\byesterday\b/i)
+        return unless correction_like
+
+        pending = current_household.transaction_drafts.pending.recent_first.limit(2).to_a
+        return if pending.empty?
+        if pending.many?
+          return legacy_transaction_route_payload(
+            followup,
+            annual_budget_manager: annual_budget_manager,
+            direct_answer: "I found more than one pending transaction review. Name the merchant you want to correct, or use Edit on its review card. Nothing changed."
+          )
+        end
+
+        if text.match?(/\byesterday\b/i)
+          edit = HouseholdFinance::MiaTransactionDraftEditor.new(
+            current_household,
+            command: { draft_id: pending.first.id, occurred_on: Date.current.prev_day.iso8601 }
+          ).call
+          return legacy_transaction_route_payload(
+            followup,
+            annual_budget_manager: annual_budget_manager,
+            direct_answer: edit.success? ? nil : edit.response,
+            transaction_draft: edit.success? ? edit.draft : nil,
+            transaction_draft_answer: edit.success? ? edit.response : nil
+          )
+        end
+
+        legacy_transaction_route_payload(
+          followup,
+          annual_budget_manager: annual_budget_manager,
+          direct_answer: "I could not safely resolve every field in that correction. Use Edit on the pending review card or restate the merchant and replacement value. Nothing changed."
+        )
+      end
+
+      def legacy_transaction_route_payload(followup, annual_budget_manager:, direct_answer:, transaction_draft: nil, transaction_draft_answer: nil)
+        annual_plan = if transaction_draft
+          annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager)
+        else
+          annual_budget_manager.plan_data
+        end
+        {
+          routed_content: followup.message,
+          followup: followup,
+          direct_answer: direct_answer,
+          pending_draft_answer: nil,
+          action_result: nil,
+          coach_answer: nil,
+          transaction_lookup_answer: nil,
+          spending_report: nil,
+          annual_plan: annual_plan,
+          budget_answer: nil,
+          transaction_draft: transaction_draft,
+          transaction_draft_answer: transaction_draft_answer
         }
       end
 
@@ -459,7 +539,8 @@ module Api
           spending_report: nil,
           annual_plan: action_result&.annual_plan || annual_budget_manager.plan_data,
           budget_answer: nil,
-          transaction_draft: nil
+          transaction_draft: nil,
+          transaction_draft_answer: nil
         }
       end
 
@@ -529,7 +610,7 @@ module Api
         HouseholdFinance::AnnualBudgetManager.new(current_household, year: target_year)
       end
 
-      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil, conversation_resolution: nil)
+      def assistant_content_for(content, history, annual_plan, spending_report, transaction_draft, transaction_draft_answer, budget_answer, transaction_lookup_answer, pending_draft_answer, coach_answer, action_result, conversation_context, direct_answer: nil, conversation_resolution: nil)
         return direct_answer if direct_answer.present?
 
         if action_result
@@ -562,8 +643,10 @@ module Api
           return narrate_structured_answer(content, history, conversation_context, kind: "spending_report", fallback_response: report_answer, spending_report: spending_report, write_state: "no_write")
         end
         if transaction_draft
-          draft_answer = drafted_transaction_message(transaction_draft)
-          return narrate_structured_answer(content, history, conversation_context, kind: "transaction_draft", fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: "pending_review")
+          draft_answer = transaction_draft_answer.presence || drafted_transaction_message(transaction_draft)
+          kind = transaction_draft_answer.present? ? "transaction_draft_update" : "transaction_draft"
+          write_state = transaction_draft_answer.present? ? "draft_updated" : "pending_review"
+          return narrate_structured_answer(content, history, conversation_context, kind: kind, fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: write_state, selected_month: transaction_draft.occurred_on.month)
         end
 
         context = HouseholdFinance::MiaContextBuilder.new(
@@ -582,12 +665,12 @@ module Api
         )
       end
 
-      def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil)
+      def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
         answer_packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
           kind: kind,
           fallback_response: fallback_response,
           write_state: write_state,
-          selected_month: budget_month_param,
+          selected_month: selected_month || budget_month_param,
           annual_plan: annual_plan,
           spending_report: spending_report,
           transaction_draft: transaction_draft,

@@ -9,13 +9,14 @@ module HouseholdFinance
       /\b(?:tell me about|explain|overview|summary)\b.*\b(?:budget|plan)\b/i,
       /\b(?:budget|plan)\b.*\b(?:overview|summary|breakdown|break down|categor(?:y|ies)|line items?)\b/i,
       /\b(?:what are all|all the|each)\b.*\b(?:breakdowns?|categor(?:y|ies)|line items?)\b/i,
-      /\b(?:largest|biggest|highest|top)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i,
+      /\b(?:largest|biggest|highest|top|smallest|lowest)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i,
       /\bfollow up to previous budget report topic\b/i,
       /\bbudget report\b/i
     ].freeze
     BUDGET_HEALTH_PATTERN = /\b(?:how are we looking|where are we at|how do we look|are we on track|on track|off track|budget status)\b/i
     CATEGORY_BREAKDOWN_PATTERN = /\b(?:breakdowns?|break down|by category|each category|all categories|line items?)\b/i
     LARGEST_CATEGORY_PATTERN = /\b(?:largest|biggest|highest|top)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i
+    SMALLEST_CATEGORY_PATTERN = /\b(?:smallest|lowest)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i
 
     def self.budget_question?(message)
       text = message.to_s.squish
@@ -55,6 +56,7 @@ module HouseholdFinance
       return nil if month_index.nil?
 
       return largest_category_answer if largest_category_question?
+      return smallest_category_answer if smallest_category_question?
       return category_breakdown_answer if category_breakdown_question?
       return budget_health_answer if budget_health_question?
       return budget_overview_answer if budget_overview_question?
@@ -93,6 +95,10 @@ module HouseholdFinance
       normalized_message.match?(LARGEST_CATEGORY_PATTERN)
     end
 
+    def smallest_category_question?
+      normalized_message.match?(SMALLEST_CATEGORY_PATTERN)
+    end
+
     def budget_health_question?
       normalized_message.match?(BUDGET_HEALTH_PATTERN)
     end
@@ -129,6 +135,13 @@ module HouseholdFinance
       return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the household’s core categories, then ask me for the largest line again." unless row
 
       "Your largest planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Pending drafts are not counted in that actual number. Next CFO move: review what makes up #{row.fetch(:name)} before reducing it; if you want to change it, I can draft the edit for your approval."
+    end
+
+    def smallest_category_answer
+      row = smallest_planned_row
+      return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the household’s core categories, then ask me for the smallest line again." unless row
+
+      "Your smallest active planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Pending drafts are not counted in that actual number."
     end
 
     def budget_health_answer
@@ -190,6 +203,10 @@ module HouseholdFinance
 
     def largest_planned_row
       rows.max_by { |row| row_month_cents(row, :planned) }
+    end
+
+    def smallest_planned_row
+      rows.min_by { |row| row_month_cents(row, :planned) }
     end
 
     def remaining_phrase(remaining_cents)

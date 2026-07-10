@@ -45,6 +45,16 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     assert_includes largest, "Fixed essentials"
     assert_includes largest, "$4,000 planned"
     assert_includes largest, "I can draft the edit for your approval"
+
+    smallest = HouseholdFinance::BudgetQuestionAnswerer.new(
+      "What is the smallest budget category?",
+      annual_plan: plan,
+      today: Date.new(2026, 7, 15)
+    ).call
+
+    assert_includes smallest, "Dining Out"
+    assert_includes smallest, "$300 planned"
+    refute_includes smallest, "active discretionary plan"
   end
 
   test "relative month budget questions do not read the wrong plan year" do

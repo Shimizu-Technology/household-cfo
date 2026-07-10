@@ -5896,7 +5896,7 @@ function loadStoredMiaMessages(storageKey: string) {
       && typeof message.author === 'string'
       && typeof message.content === 'string'
       && message.content.trim().length > 0
-    )).slice(-24)
+    ))
   } catch {
     return []
   }
@@ -5909,7 +5909,7 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
       return
     }
 
-    window.localStorage.setItem(storageKey, JSON.stringify(messages.slice(-24)))
+    window.localStorage.setItem(storageKey, JSON.stringify(messages))
   } catch {
     // Ignore private browsing/storage quota issues. Chat still works in memory.
   }

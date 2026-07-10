@@ -527,16 +527,22 @@ module HouseholdFinance
 
       lowered = action_text.downcase
       relative_date = if lowered.match?(/\b(this|current) month\b/)
-        Date.new(annual_budget_manager.year, selected_month, 1)
+        Date.current
       elsif lowered.match?(/\bnext month\b/)
-        Date.new(annual_budget_manager.year, selected_month, 1).next_month
+        Date.current.next_month
       elsif lowered.match?(/\blast month\b/)
-        Date.new(annual_budget_manager.year, selected_month, 1).prev_month
+        Date.current.prev_month
       end
       if relative_date
         return [ relative_date.month ] if relative_date.year == annual_budget_manager.year
 
-        direction = lowered.match?(/\bnext month\b/) ? "Next month" : "Last month"
+        direction = if lowered.match?(/\bnext month\b/)
+          "Next month"
+        elsif lowered.match?(/\blast month\b/)
+          "Last month"
+        else
+          "This month"
+        end
         return validation_result("#{direction} falls outside the #{annual_budget_manager.year} budget. Open #{relative_date.year} or name a month in #{annual_budget_manager.year}; nothing changed.")
       end
 

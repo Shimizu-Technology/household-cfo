@@ -55,7 +55,7 @@ Persona and model-guided answers:
 Model intent and narration after PR #32:
 
 - `ConversationTranscriptBuilder` sends a token/character-bounded recent transcript of up to 32 messages instead of a fixed 12-message slice. Older context remains available through the lower-priority persisted summary.
-- `MiaIntentContextBuilder` assembles the selected period, recent raw turns, active/open threads, allowed category catalog, and pending review cards without exposing raw private documents.
+- `MiaIntentContextBuilder` assembles the current calendar date, separately labelled budget view period, recent raw turns, active/open threads, allowed category catalog, and pending review cards without exposing raw private documents. Relative words such as today, yesterday, last month, and next month use the calendar date, not whichever month happens to be open in the UI.
 - `MiaIntentResolver` lets Claude resolve intent, conversational references, corrections, and supported budget commands into a strict JSON schema before routing. Model-returned category/review ids are checked against the allowed Rails context and cannot write records directly.
 - `MiaConversationStateUpdater` persists the validated active thread, resolved request, action parameters, and pending review id across reloads/devices.
 - `mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, pending drafts, and conversation state.
@@ -68,6 +68,7 @@ Deterministic financial answers:
 - Rails still computes money truth for reports, budget Q&A, transaction lookup, transaction drafts, and common coaching branches such as discretionary purchase checks, readiness planning, and expected sinking-fund bills like car registration.
 - Deterministic services still calculate the answer packet and provide the safe fallback.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
+- Mia may edit the date, merchant, amount, category, or validated splits of an existing pending transaction review when the participant clearly asks for a correction. Rails scopes and validates the draft and every category/split; the draft remains pending and actuals remain unchanged.
 
 Supervised action drafts:
 
@@ -80,7 +81,7 @@ Supervised action drafts:
 Conversation continuity:
 
 - For conversational reference resolution, precedence is: current message, pending review state, recent raw transcript and explicit user corrections, version-2 validated active thread, then older/legacy summaries. A rejected assistant interpretation never outranks the participant's prior unresolved request. Current database records remain authoritative for every financial fact regardless of conversation order.
-- Mia uses up to 32 recent role-preserving messages within a 24,000-character budget; it does not rely on an arbitrary last-12 cutoff or send unlimited chat history.
+- The signed-in chat interface displays every persisted message since the participant last cleared the conversation. Display history is intentionally separate from model context: Mia still receives only up to 32 recent role-preserving messages within a 24,000-character budget, plus validated thread state and an older compact summary.
 - Versioned active-thread state stores the validated intent, subject, resolved message, structured action, review id, and lifecycle status. Apply/Cancel and transaction confirmation flows update that status.
 - The response narrator receives the server-validated current-turn resolution. For recall turns, it composes from that resolution instead of re-reading rejected assistant guesses from the raw transcript; structured financial records still supply the amounts and plan truth.
 - The compacted older summary remains useful across long chats, but it is not the primary router and cannot override newer raw turns.

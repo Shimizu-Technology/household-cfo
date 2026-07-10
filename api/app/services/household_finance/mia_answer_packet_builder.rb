@@ -41,7 +41,7 @@ module HouseholdFinance
         "active annual plan, confirmed actuals, and pending drafts"
       when "spending_report", "transaction_lookup"
         "confirmed household transactions"
-      when "pending_drafts", "transaction_draft"
+      when "pending_drafts", "transaction_draft", "transaction_draft_update"
         "pending transaction drafts awaiting Household CFO review"
       else
         "approved household profile, active annual plan, confirmed actuals, and pending drafts"
@@ -177,7 +177,8 @@ module HouseholdFinance
       [
         "Use approved structured facts as source of truth.",
         "Separate planned budget, confirmed actuals, and pending drafts.",
-        "Do not claim writes happened unless write_state is confirmed_write.",
+        "Do not claim official budget or actual writes happened unless write_state is confirmed_write.",
+        "When write_state is draft_updated, the pending review fields changed but actuals did not.",
         "End with one concrete Household CFO next move."
       ]
     end

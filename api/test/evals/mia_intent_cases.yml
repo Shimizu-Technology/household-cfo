@@ -189,6 +189,51 @@ cases:
         year: 2026
         draft_id: 91
 
+  - id: pending_transaction_date_correction
+    prompt: "Actually it wasn't today, it was yesterday"
+    recent_messages:
+      - role: user
+        content: "I spent $12.34 at Walkthrough Cafe today."
+      - role: assistant
+        content: "I drafted Walkthrough Cafe for July 10, 2026 under Dining Out."
+    pending_transaction_reviews:
+      - id: 77
+        merchant: Walkthrough Cafe
+        occurred_on: "2026-07-10"
+        amount: 12.34
+        category_id: 44
+        category_name: Dining Out
+    expected_intent: transaction_draft_action
+    expected_action: update_transaction_draft
+    expected_draft_id: 77
+    expected_occurred_on: "2026-07-09"
+    model_resolution:
+      intent: transaction_draft_action
+      confidence: 0.99
+      continuation: true
+      resolved_message: "Change the pending Walkthrough Cafe review date to July 9, 2026"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: transaction_draft
+        title: Walkthrough Cafe review
+        subject: Walkthrough Cafe
+      action:
+        type: update_transaction_draft
+        category_id: 0
+        category_name: ""
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: ""
+        months: []
+        year: 0
+        draft_id: 77
+        occurred_on: "2026-07-09"
+        merchant: ""
+        splits: []
+
   - id: ambiguous_category_requests_clarification
     prompt: "Lower that one"
     recent_messages:

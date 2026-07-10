@@ -14,7 +14,8 @@ class HouseholdFinanceMiaIntentEvalTest < ActiveSupport::TestCase
           older_summary: "An older readiness plan exists, but the latest thread is the July budget edit.",
           recent_messages: Array(eval_case["recent_messages"])
         },
-        pending_budget_reviews: Array(eval_case["pending_budget_reviews"])
+        pending_budget_reviews: Array(eval_case["pending_budget_reviews"]),
+        pending_transaction_reviews: Array(eval_case["pending_transaction_reviews"])
       )
       resolver = HouseholdFinance::MiaIntentResolver.new(
         user_message: eval_case.fetch("prompt"),
@@ -32,6 +33,7 @@ class HouseholdFinanceMiaIntentEvalTest < ActiveSupport::TestCase
       assert_equal eval_case["expected_months"], result.action.fetch(:months), eval_case.fetch("id") if eval_case.key?("expected_months")
       assert_equal eval_case["expected_amount"], result.action.fetch(:amount), eval_case.fetch("id") if eval_case.key?("expected_amount")
       assert_equal eval_case["expected_draft_id"], result.action.fetch(:draft_id), eval_case.fetch("id") if eval_case.key?("expected_draft_id")
+      assert_equal eval_case["expected_occurred_on"], result.action.fetch(:occurred_on), eval_case.fetch("id") if eval_case.key?("expected_occurred_on")
       assert_equal eval_case["expected_clarification"], result.clarification?, eval_case.fetch("id") if eval_case.key?("expected_clarification")
     end
   end

@@ -20,14 +20,14 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 - Real authenticated participant workspaces backed by PostgreSQL
 - Manual-entry household setup for income, Expense Stack, emergency fund, debt, assets, and runway target
 - Dashboard/Budget/Wealth/CFO Filter/Optionality calculations from saved user data
-- Server-persisted Mia chat for signed-in users, with a token-bounded recent transcript, versioned active-thread state, model-backed structured intent resolution, and approved household context
+- Server-persisted Mia chat for signed-in users: the UI shows the full conversation since the last clear, while model context stays token-bounded with versioned active-thread state, model-backed structured intent resolution, and approved household context
 - Private S3-backed financial document imports with upload, source preview/download/delete, review/edit/apply, and Ask Mia attachment flow
 - Backend-only Mia voice transcription through OpenRouter STT: browser recording uploads to Rails, transcript is visible/editable, and typed/voice messages use the same review-before-apply flow
 - Clerk auth plumbing with invite-only local `users` records
 - Browser-based admin console for cohorts, role/cohort policy, admin/coach/participant invite records, Resend invite emails, and cohort assignment
 - PostgreSQL database configuration for local, test, and production-like environments
 - CI checks for Rails security/lint/tests and web lint/test/build/audit
-- YAML-backed Mia response and multi-turn intent evals for spending reports, pending drafts, contextual budget edits, recall, voice-created spend, and job/bill coaching boundaries
+- YAML-backed Mia response and multi-turn intent evals for spending reports, pending-draft corrections, contextual budget edits, recall, voice-created spend, and job/bill coaching boundaries
 
 ## Local setup
 
@@ -88,7 +88,7 @@ docs/mia-memory-and-supervised-actions.md
 
 ## Mia eval harness
 
-Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-turn intent/reference fixtures live in `api/test/evals/mia_intent_cases.yml` and cover contextual pronouns, confirmations, recall, clarification, and reuse of pending review cards. The test harness validates expected behavior and forbidden claims without frontend AI calls or live OpenRouter dependencies.
+Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-turn intent/reference fixtures live in `api/test/evals/mia_intent_cases.yml` and cover contextual pronouns, confirmations, recall, pending transaction corrections, clarification, and reuse of pending review cards. The test harness validates expected behavior and forbidden claims without frontend AI calls or live OpenRouter dependencies.
 
 ## Next product direction
 
