@@ -39,7 +39,12 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
       annual_plan: {
         "year" => 2026,
         "rows" => [
-          { "name" => "Groceries", "stack_key" => "needs", "active" => true },
+          {
+            "name" => "Groceries",
+            "stack_key" => "needs",
+            "active" => true,
+            "months" => Array.new(12) { { "planned" => 300.0, "actual" => 85.0, "remaining" => 215.0 } }
+          },
           { "name" => "Old Category", "stack_key" => "wants", "active" => false }
         ],
         "pending_transaction_drafts" => [ { "id" => 1 } ]
@@ -52,6 +57,6 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
     assert_equal "active annual plan, confirmed actuals, and pending drafts", packet.fetch(:basis)
     assert_equal 1, packet.dig(:annual_plan_summary, :active_category_count)
     assert_equal 1, packet.dig(:annual_plan_summary, :pending_draft_count)
-    assert_equal [ { name: "Groceries", stack_key: "needs" } ], packet.dig(:annual_plan_summary, :top_categories)
+    assert_equal [ { name: "Groceries", stack_key: "needs", planned: 300.0, actual: 85.0, remaining: 215.0 } ], packet.dig(:annual_plan_summary, :top_categories)
   end
 end

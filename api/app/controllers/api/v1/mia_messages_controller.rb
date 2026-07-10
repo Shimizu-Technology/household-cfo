@@ -234,7 +234,7 @@ module Api
         end
 
         if document_import.status.in?(%w[uploaded processing])
-          return "The #{evidence_label(document_import)} is still processing. I’ll show review cards here as soon as the backend finishes reading it."
+          return "The #{evidence_label(document_import)} is still processing. I’ll show review cards here as soon as the app finishes reading it."
         end
 
         "I read the #{evidence_label(document_import)}, but I did not find clear money details to draft. The upload is saved for review, and no household numbers changed."

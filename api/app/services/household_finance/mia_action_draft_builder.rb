@@ -83,7 +83,7 @@ module HouseholdFinance
     end
 
     def call
-      return nil unless message.match?(ACTION_TERMS)
+      return nil unless action_text.match?(ACTION_TERMS)
 
       annual_budget_manager.ensure_plan!
       @annual_plan = annual_budget_manager.plan_data.deep_symbolize_keys
@@ -101,27 +101,37 @@ module HouseholdFinance
 
     attr_reader :household, :message, :user, :annual_budget_manager, :selected_month, :raw_input, :annual_plan
 
+    def action_text
+      @action_text ||= current_follow_up_text.presence || message
+    end
+
+    def current_follow_up_text
+      match = message.match(/\bCurrent follow-up:\s*(.+)\z/i)
+      match&.[](1)&.squish
+    end
+
     def budget_edit_context?
-      return true if message.match?(BUDGET_CONTEXT_TERMS)
-      return true if message.match?(/\b(move|transfer|shift)\b/i) && message.match?(MONEY_PATTERN) && message.match?(/\bfrom\b/i) && message.match?(/\bto\b/i)
-      return true if message.match?(MONEY_PATTERN) && category_mentioned?
+      return true if action_text.match?(BUDGET_CONTEXT_TERMS)
+      return true if action_text.match?(/\b(move|transfer|shift)\b/i) && action_text.match?(MONEY_PATTERN) && action_text.match?(/\bfrom\b/i) && action_text.match?(/\bto\b/i)
+      return true if action_text.match?(MONEY_PATTERN) && category_mentioned?
+      return true if action_text.match?(MONEY_PATTERN) && contextual_active_category.present?
 
       false
     end
 
     def category_mentioned?
-      active_rows.any? { |row| normalized_label(message).include?(normalized_label(row.fetch(:name))) }
+      active_rows.any? { |row| normalized_label(action_text).include?(normalized_label(row.fetch(:name))) }
     end
 
     def move_allocation_proposal
-      match = message.match(/\b(?:move|transfer|shift)\s+(?<amount>#{MONEY_PATTERN})\s+(?:per\s+month\s+)?from\s+(?<from>.+?)\s+to\s+(?<to>.+?)\s*\z/i)
+      match = action_text.match(/\b(?:move|transfer|shift)\s+(?<amount>#{MONEY_PATTERN})\s+(?:per\s+month\s+)?from\s+(?<from>.+?)\s+to\s+(?<to>.+?)\s*\z/i)
       return unless match
 
       amount_cents = amount_cents_from(match[:amount])
       return validation_result("I can draft budget moves only with a dollar amount above $0.") unless amount_cents.positive?
 
-      from_category = find_active_category(match[:from])
-      to_category = find_active_category(match[:to])
+      from_category = find_active_category(resolved_category_phrase(match[:from]))
+      to_category = find_active_category(resolved_category_phrase(match[:to]))
       missing = []
       missing << clean_category_phrase(match[:from]) unless from_category
       missing << clean_category_phrase(match[:to]) unless to_category
@@ -149,10 +159,10 @@ module HouseholdFinance
     end
 
     def rename_category_proposal
-      match = message.match(/\brename\s+(?:the\s+)?(?<from>.+?)\s+(?:category\s+)?(?:to|as)\s+(?<to>.+?)\s*\z/i)
+      match = action_text.match(/\brename\s+(?:the\s+)?(?<from>.+?)\s+(?:category\s+)?(?:to|as)\s+(?<to>.+?)\s*\z/i)
       return unless match
 
-      category = find_active_category(match[:from])
+      category = find_active_category(resolved_category_phrase(match[:from]))
       return missing_category_result([ clean_category_phrase(match[:from]) ]) unless category
 
       new_name = clean_new_category_name(match[:to])
@@ -180,14 +190,14 @@ module HouseholdFinance
     end
 
     def reclassify_category_proposal
-      stack_key = stack_key_from_text(message)
+      stack_key = stack_key_from_text(action_text)
       return unless stack_key
-      return if message.match?(MONEY_PATTERN)
+      return if action_text.match?(MONEY_PATTERN)
 
-      match = message.match(/\b(?:reclassify|recategorize|change|move)\s+(?:the\s+)?(?<category>.+?)\s+(?:category\s+)?(?:to|as|into|under)\s+/i)
+      match = action_text.match(/\b(?:reclassify|recategorize|change|move)\s+(?:the\s+)?(?<category>.+?)\s+(?:category\s+)?(?:to|as|into|under)\s+/i)
       return unless match
 
-      category = find_active_category(match[:category])
+      category = find_active_category(resolved_category_phrase(match[:category]))
       return missing_category_result([ clean_category_phrase(match[:category]) ]) unless category
       return validation_result("#{category.name} is already in #{stack_label(stack_key)}.") if category.stack_key == stack_key
 
@@ -211,10 +221,10 @@ module HouseholdFinance
     end
 
     def archive_or_restore_category_proposal
-      archive_match = message.match(/\b(?:archive|delete|remove)\s+(?:the\s+)?(?<category>.+?)(?:\s+category)?\s*\z/i)
-      restore_match = message.match(/\brestore\s+(?:the\s+)?(?<category>.+?)(?:\s+category)?\s*\z/i)
+      archive_match = action_text.match(/\b(?:archive|delete|remove)\s+(?:the\s+)?(?<category>.+?)(?:\s+category)?\s*\z/i)
+      restore_match = action_text.match(/\brestore\s+(?:the\s+)?(?<category>.+?)(?:\s+category)?\s*\z/i)
       return unless archive_match || restore_match
-      return unless message.match?(BUDGET_CONTEXT_TERMS)
+      return unless action_text.match?(BUDGET_CONTEXT_TERMS) || contextual_active_category.present?
 
       if restore_match
         category = find_archived_category(restore_match[:category])
@@ -239,7 +249,7 @@ module HouseholdFinance
         )
       end
 
-      category = find_active_category(archive_match[:category])
+      category = find_active_category(resolved_category_phrase(archive_match[:category]))
       return missing_category_result([ clean_category_phrase(archive_match[:category]) ]) unless category
       if category.transaction_drafts.pending.exists?
         return validation_result("#{category.name} has pending transaction drafts. Confirm, correct, or ignore those before archiving it.")
@@ -265,10 +275,10 @@ module HouseholdFinance
     end
 
     def create_category_proposal
-      return unless message.match?(/\b(add|create)\b/i)
-      return unless message.match?(/\b(category|line item|budget row|budget category)\b/i)
+      return unless action_text.match?(/\b(add|create)\b/i)
+      return unless action_text.match?(/\b(category|line item|budget row|budget category)\b/i)
 
-      match = message.match(/\b(?:add|create)\s+(?:a\s+|an\s+)?(?:new\s+)?(?<body>.+?)\s*\z/i)
+      match = action_text.match(/\b(?:add|create)\s+(?:a\s+|an\s+)?(?:new\s+)?(?<body>.+?)\s*\z/i)
       return unless match
 
       body = match[:body]
@@ -303,7 +313,8 @@ module HouseholdFinance
       parsed = allocation_amount_request
       return unless parsed
 
-      category = find_active_category(parsed.fetch(:category_phrase))
+      category_phrase = resolved_category_phrase(parsed.fetch(:category_phrase))
+      category = find_active_category(category_phrase)
       return missing_category_result([ clean_category_phrase(parsed.fetch(:category_phrase)) ]) unless category
 
       amount_cents = parsed.fetch(:amount_cents)
@@ -326,20 +337,20 @@ module HouseholdFinance
     end
 
     def allocation_amount_request
-      if (match = message.match(/\b(?:set|change|update|adjust)\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?:budget|allocation|planned(?:\s+amount)?|plan)?\s*(?:to|at|=)\s*(?<amount>#{MONEY_PATTERN})/i))
+      if (match = action_text.match(/\b(?:set|change|update|adjust)\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?:budget|allocation|planned(?:\s+amount)?|plan)?\s*(?:to|at|=)\s*(?<amount>#{MONEY_PATTERN})/i))
         return { category_phrase: match[:category], amount_cents: amount_cents_from(match[:amount]), mode: :set }
       end
 
-      if (match = message.match(/\bmake\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?<amount>#{MONEY_PATTERN})(?:\s*(?:per month|monthly|\/month))?/i))
+      if (match = action_text.match(/\bmake\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?<amount>#{MONEY_PATTERN})(?:\s*(?:per month|monthly|\/month))?/i))
         return { category_phrase: match[:category], amount_cents: amount_cents_from(match[:amount]), mode: :set }
       end
 
-      if (match = message.match(/\b(?:increase|raise|bump\s+up)\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?:(?<modifier>by|to|at)\s+)?(?<amount>#{MONEY_PATTERN})/i))
+      if (match = action_text.match(/\b(?:increase|raise|bump\s+up)\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?:(?<modifier>by|to|at)\s+)?(?<amount>#{MONEY_PATTERN})/i))
         mode = match[:modifier].to_s.downcase.in?(%w[to at]) ? :set : :increase_by
         return { category_phrase: match[:category], amount_cents: amount_cents_from(match[:amount]), mode: mode }
       end
 
-      if (match = message.match(/\b(?:decrease|lower|reduce|cut)\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?:(?<modifier>by|to|at)\s+)?(?<amount>#{MONEY_PATTERN})/i))
+      if (match = action_text.match(/\b(?:decrease|lower|reduce|cut)\s+(?:my|our|the)?\s*(?<category>.+?)\s+(?:(?<modifier>by|to|at)\s+)?(?<amount>#{MONEY_PATTERN})/i))
         mode = match[:modifier].to_s.downcase.in?(%w[to at]) ? :set : :decrease_by
         return { category_phrase: match[:category], amount_cents: amount_cents_from(match[:amount]), mode: mode }
       end
@@ -460,9 +471,9 @@ module HouseholdFinance
     end
 
     def month_numbers_for_message
-      return (1..12).to_a if message.match?(ALL_YEAR_TERMS)
+      return (1..12).to_a if action_text.match?(ALL_YEAR_TERMS)
 
-      lowered = message.downcase
+      lowered = action_text.downcase
       relative_date = if lowered.match?(/\b(this|current) month\b/)
         Date.new(annual_budget_manager.year, selected_month, 1)
       elsif lowered.match?(/\bnext month\b/)
@@ -472,7 +483,7 @@ module HouseholdFinance
       end
       return [ relative_date.month ] if relative_date&.year == annual_budget_manager.year
 
-      explicit_month = MonthTerms.detect_number(message)
+      explicit_month = MonthTerms.detect_number(action_text)
       return [ explicit_month ] if explicit_month
 
       (1..12).to_a
@@ -498,6 +509,31 @@ module HouseholdFinance
 
     def find_active_category(phrase)
       find_category_in_scope(phrase, household.budget_categories.active.ordered.to_a)
+    end
+
+    def resolved_category_phrase(phrase)
+      cleaned = clean_category_phrase(phrase)
+      contextual = contextual_active_category&.name
+      return contextual if contextual.present? && ambiguous_category_phrase?(cleaned)
+
+      cleaned
+    end
+
+    def ambiguous_category_phrase?(phrase)
+      normalized = normalized_label(phrase)
+      return true if normalized.blank?
+
+      normalized.match?(/\A(?:that|this|it|one|same|current|previous|largest|biggest|highest|top)(?:\s+(?:one|category|line|row|amount|budget|plan|down|up))*\z/)
+    end
+
+    def contextual_active_category
+      @contextual_active_category ||= begin
+        context_subjects.filter_map { |subject| find_active_category(subject) }.first
+      end
+    end
+
+    def context_subjects
+      message.scan(/\bSubject:\s*(.+?)(?=\.\s+(?:Prior|Current|Topic:)|\.\z|\z)/i).flatten.map(&:squish)
     end
 
     def find_archived_category(phrase)

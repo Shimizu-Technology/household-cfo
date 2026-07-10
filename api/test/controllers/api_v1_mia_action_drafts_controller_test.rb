@@ -64,6 +64,45 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 50_000, planned_amount_for_month(category, 8)
   end
 
+  test "mia resolves contextual budget category when user says lower that after largest category answer" do
+    user = create_user(email: "mia-action-contextual-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    fixed = manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    manager.create_category!(name: "Rent", stack_key: "non_discretionary", monthly_amount: 1_800)
+    manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "What's our largest category?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    first_body = JSON.parse(response.body)
+    assert_includes first_body.fetch("assistant_message").fetch("content"), "Fixed essentials"
+    assert_equal "Fixed essentials", household.chat_sessions.find_by!(user: user).reload.active_topic.fetch("subject")
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 7, message: "For July can you lower that down to 3000?" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    action_draft_payload = body.fetch("mia_action_draft")
+    assert_equal "pending", action_draft_payload.fetch("status")
+    assert_includes body.fetch("assistant_message").fetch("content"), "Fixed essentials"
+    item = action_draft_payload.fetch("items").first
+    assert_equal "update_allocation", item.fetch("action_type")
+    assert_includes item.fetch("label"), "Fixed essentials"
+    changes = item.fetch("payload").fetch("changes")
+    assert_equal 1, changes.length
+    assert_equal 7, changes.first.fetch("month")
+    assert_equal 400_000, changes.first.fetch("before_cents")
+    assert_equal 300_000, changes.first.fetch("after_cents")
+    assert_equal 400_000, planned_amount_for_month(fixed, 7)
+  end
+
   test "mia chat persists messages even when action draft persistence fails" do
     user = create_user(email: "mia-action-persistence-failure@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

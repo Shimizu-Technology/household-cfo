@@ -61,8 +61,32 @@ module HouseholdFinance
         year: annual_plan_year,
         active_category_count: active_rows.length,
         pending_draft_count: pending.length,
-        top_categories: active_rows.first(6).map { |row| { name: row[:name] || row["name"], stack_key: row[:stack_key] || row["stack_key"] } }
+        top_categories: summarized_categories(active_rows)
       }
+    end
+
+    def summarized_categories(active_rows)
+      month_index = selected_month.to_i.positive? ? selected_month.to_i - 1 : nil
+      rows = month_index ? active_rows.sort_by { |row| -month_amount(row, month_index, :planned) } : active_rows
+      rows.first(8).map do |row|
+        payload = { name: row[:name] || row["name"], stack_key: row[:stack_key] || row["stack_key"] }
+        if month_index
+          payload.merge(
+            planned: month_amount(row, month_index, :planned),
+            actual: month_amount(row, month_index, :actual),
+            remaining: month_amount(row, month_index, :remaining)
+          )
+        else
+          payload
+        end
+      end
+    end
+
+    def month_amount(row, month_index, key)
+      month = Array(row[:months] || row["months"])[month_index]
+      return 0 unless month
+
+      (month[key] || month[key.to_s] || 0).to_f
     end
 
     def active_row?(row)

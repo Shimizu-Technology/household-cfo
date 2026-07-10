@@ -14,7 +14,7 @@ module HouseholdFinance
     DEBT_TERMS = /\b(?:debt|credit card|payday loan|balance transfer|consolidat|minimum payment|highest interest|smallest balance|payoff)\b/i.freeze
     SINKING_TERMS = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|home repair)\b/i.freeze
     PENDING_TERMS = /\b(?:pending drafts?|transaction drafts?|confirm them|ignore them|waiting for review)\b/i.freeze
-    REPORT_TERMS = /\b(?:budget|spending|spent|actuals?|over plan|under plan|categories?|dining out|groceries|report)\b/i.freeze
+    REPORT_TERMS = /\b(?:budget|spending|spent|actuals?|over plan|under plan|categor(?:y|ies)|dining out|groceries|report)\b/i.freeze
     READINESS_TERMS = /\b(?:red|yellow|green|readiness|runway|baseline|next paycheck|30-day reset)\b/i.freeze
     PURCHASE_TERMS = /\b(?:buy|purchase|spend|afford|get|book|order|trip|vacation|staycation|shoes|phone|takeout|hotel)\b/i.freeze
     TRANSACTION_TERMS = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
@@ -138,9 +138,17 @@ module HouseholdFinance
     def report_subject(normalized)
       return "Dining Out" if normalized.include?("dining out")
       return "groceries" if normalized.match?(/grocer/)
+      return "largest planned category" if normalized.match?(/\b(largest|biggest|highest|top)\b/) && normalized.match?(/\b(category|budget|spending|expense|line)\b/)
       return "categories over plan" if normalized.match?(/over plan|over budget/)
 
       "budget report"
+    end
+
+    def budget_report_subject_from_assistant(topic, text)
+      return unless topic["type"] == "budget_report"
+
+      match = text.to_s.match(/largest planned spending category(?:\s+for\s+[^\n.]+?)?\s+is\s+(?<category>[^,.\n]+?)(?:,|\s+under\b|\.|\z)/i)
+      sanitized_text(match&.[](:category), max_length: 80)
     end
 
     def merchant_subject(text)
@@ -174,9 +182,11 @@ module HouseholdFinance
     def merge_topic(topic, latest_user_text, latest_assistant_text)
       topic = topic.deep_stringify_keys
       amount_cents = amount_from_text(latest_user_text) || topic["amount_cents"]
+      budget_subject = budget_report_subject_from_assistant(topic, latest_assistant_text)
       topic.merge(
         "id" => topic["id"].presence || SecureRandom.uuid,
         "status" => topic["status"].presence || "open",
+        "subject" => budget_subject || topic["subject"],
         "amount_cents" => amount_cents,
         "amount_label" => amount_cents ? money(amount_cents) : topic["amount_label"],
         "latest_user_context" => sanitized_text(latest_user_text, max_length: MAX_TEXT_LENGTH),
