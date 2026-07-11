@@ -270,6 +270,52 @@ cases:
         merchant: ""
         splits: []
 
+  - id: explicit_ignore_all_pending_reviews
+    prompt: "Clear every pending transaction review. Do not change actuals."
+    pending_transaction_reviews:
+      - id: 77
+        merchant: Walkthrough Cafe
+        occurred_on: "2026-07-10"
+        amount: 12.34
+        category_id: 44
+        category_name: Dining Out
+      - id: 78
+        merchant: Corner Market
+        occurred_on: "2026-07-09"
+        amount: 24.50
+        category_id: 43
+        category_name: Rent
+    expected_intent: transaction_draft_action
+    expected_action: ignore_transaction_drafts
+    expected_all_pending: true
+    model_resolution:
+      intent: transaction_draft_action
+      confidence: 0.99
+      continuation: false
+      resolved_message: "Ignore every pending transaction review without changing actuals"
+      needs_clarification: false
+      clarification: ""
+      topic:
+        type: transaction_review
+        title: Clear pending reviews
+        subject: all pending reviews
+      action:
+        type: ignore_transaction_drafts
+        category_id: 0
+        category_name: ""
+        target_category_id: 0
+        target_category_name: ""
+        new_name: ""
+        stack_key: ""
+        amount: ""
+        months: []
+        year: 0
+        draft_id: 0
+        occurred_on: ""
+        merchant: ""
+        all_pending: true
+        splits: []
+
   - id: ambiguous_category_requests_clarification
     prompt: "Lower that one"
     recent_messages:

@@ -35,6 +35,7 @@ class HouseholdFinanceMiaIntentEvalTest < ActiveSupport::TestCase
       assert_equal eval_case["expected_draft_id"], result.action.fetch(:draft_id), eval_case.fetch("id") if eval_case.key?("expected_draft_id")
       assert_equal eval_case["expected_occurred_on"], result.action.fetch(:occurred_on), eval_case.fetch("id") if eval_case.key?("expected_occurred_on")
       assert_equal eval_case["expected_merchant"], result.action.fetch(:merchant), eval_case.fetch("id") if eval_case.key?("expected_merchant")
+      assert_equal eval_case["expected_all_pending"], result.action.fetch(:all_pending), eval_case.fetch("id") if eval_case.key?("expected_all_pending")
       assert_equal eval_case["expected_clarification"], result.clarification?, eval_case.fetch("id") if eval_case.key?("expected_clarification")
     end
   end

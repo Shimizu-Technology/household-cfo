@@ -41,6 +41,7 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     assert_equal 4_000, category_context.dig(:selected_month, :planned)
     assert_includes context.fetch(:supported_budget_actions), "set_allocation"
     assert_includes context.fetch(:supported_transaction_draft_actions), "update_transaction_draft"
+    assert_includes context.fetch(:supported_transaction_draft_actions), "ignore_transaction_drafts"
     assert_includes context.fetch(:transaction_draft_editable_fields), "occurred_on"
     pending_transaction = context.fetch(:pending_transaction_reviews).sole
     assert_equal draft.id, pending_transaction.fetch(:id)

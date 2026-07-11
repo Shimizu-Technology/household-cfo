@@ -1709,7 +1709,132 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal "pending", TransactionDraft.find(draft_id).status
   end
 
+  test "bulk ignore resolves selected pending reviews without changing actuals" do
+    user = create_user(email: "bulk-ignore-drafts@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Flexible spending", stack_key: "discretionary", monthly_amount: 500)
+    drafts = [
+      create_pending_draft(household, category, merchant: "Bulk Ignore One", amount_cents: 1_100),
+      create_pending_draft(household, category, merchant: "Bulk Ignore Two", amount_cents: 2_200)
+    ]
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/bulk_ignore",
+        params: { transaction_draft_ids: drafts.map(&:id), year: Date.current.year },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    assert_equal 2, body.fetch("resolved_count")
+    assert_equal %w[ignored ignored], drafts.map { |draft| draft.reload.status }
+    assert_includes body.dig("workspace", "mia", "messages").last.fetch("content"), "Actuals did not change"
+  end
+
+  test "bulk resolution rejects more than five hundred reviews" do
+    user = create_user(email: "bulk-draft-limit@example.com")
+
+    post "/api/v1/transaction_drafts/bulk_ignore",
+      params: { transaction_draft_ids: (1..501).to_a },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Select no more than 500 transaction reviews at once"
+  end
+
+  test "bulk resolution rejects another household review and changes nothing" do
+    user = create_user(email: "bulk-draft-owner@example.com")
+    other_user = create_user(email: "bulk-draft-other@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    other_household = HouseholdFinance::WorkspaceResolver.new(other_user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Owner category", stack_key: "discretionary", monthly_amount: 100)
+    other_category = HouseholdFinance::AnnualBudgetManager.new(other_household).create_category!(name: "Other category", stack_key: "discretionary", monthly_amount: 100)
+    owned = create_pending_draft(household, category, merchant: "Owned Review", amount_cents: 1_000)
+    unowned = create_pending_draft(other_household, other_category, merchant: "Unowned Review", amount_cents: 2_000)
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/bulk_ignore",
+        params: { transaction_draft_ids: [ owned.id, unowned.id ] },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "One or more transaction reviews could not be found"
+    assert_equal "pending", owned.reload.status
+    assert_equal "pending", unowned.reload.status
+  end
+
+  test "bulk confirm requires the exact approval phrase and posts all selected reviews" do
+    user = create_user(email: "bulk-confirm-drafts@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Flexible spending", stack_key: "discretionary", monthly_amount: 500)
+    drafts = [
+      create_pending_draft(household, category, merchant: "Bulk Confirm One", amount_cents: 1_100),
+      create_pending_draft(household, category, merchant: "Bulk Confirm Two", amount_cents: 2_200)
+    ]
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/bulk_confirm",
+        params: { transaction_draft_ids: drafts.map(&:id), year: Date.current.year, confirmation: "CONFIRM" },
+        headers: auth_headers(user),
+        as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal %w[pending pending], drafts.map { |draft| draft.reload.status }
+
+    assert_difference("HouseholdTransaction.count", 2) do
+      post "/api/v1/transaction_drafts/bulk_confirm",
+        params: { transaction_draft_ids: drafts.map(&:id), year: Date.current.year, confirmation: "CONFIRM 2" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal %w[confirmed confirmed], drafts.map { |draft| draft.reload.status }
+  end
+
+  test "bulk confirm rolls every selected review back when one review is invalid" do
+    user = create_user(email: "bulk-confirm-atomic@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Flexible spending", stack_key: "discretionary", monthly_amount: 500)
+    valid = create_pending_draft(household, category, merchant: "Bulk Valid", amount_cents: 1_100)
+    invalid = create_pending_draft(household, category, merchant: "Bulk Invalid", amount_cents: 2_200)
+    invalid.transaction_draft_splits.first.update!(amount_cents: 2_100)
+
+    assert_no_difference("HouseholdTransaction.count") do
+      post "/api/v1/transaction_drafts/bulk_confirm",
+        params: { transaction_draft_ids: [ valid.id, invalid.id ], year: Date.current.year, confirmation: "CONFIRM 2" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal %w[pending pending], [ valid.reload.status, invalid.reload.status ]
+  end
+
   private
+
+  def create_pending_draft(household, category, merchant:, amount_cents:)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: merchant,
+      total_amount_cents: amount_cents,
+      budget_category: category,
+      source_type: "manual_ui",
+      status: "pending",
+      raw_input: "Bulk review test"
+    )
+    draft.transaction_draft_splits.create!(
+      budget_category: category,
+      category_name: category.name,
+      stack_key: category.stack_key,
+      amount_cents: amount_cents
+    )
+    draft
+  end
 
   def create_user(email:)
     User.create!(

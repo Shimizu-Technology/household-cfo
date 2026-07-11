@@ -31,6 +31,10 @@ Rails.application.routes.draw do
         end
       end
       resources :transaction_drafts, only: :update do
+        collection do
+          post :bulk_confirm
+          post :bulk_ignore
+        end
         member do
           post :confirm
           post :ignore

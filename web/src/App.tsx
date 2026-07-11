@@ -5,6 +5,8 @@ import {
   applyDocumentImport,
   applyMiaActionDraft,
   archiveBudgetCategory,
+  bulkConfirmTransactionDrafts,
+  bulkIgnoreTransactionDrafts,
   cancelMiaActionDraft,
   clearMiaMessages,
   confirmTransactionDraft,
@@ -765,7 +767,7 @@ function App() {
       if (response.spending_report) {
         setSpendingReport(response.spending_report)
       }
-      if (attachmentsToSend.length > 0) void refreshDocumentImports({ quiet: true })
+      void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
       if (response.transaction_draft) {
@@ -1086,6 +1088,51 @@ function App() {
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
       setBudgetError(message)
       setDocumentsError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleBulkTransactionDrafts(drafts: TransactionDraft[], resolution: 'confirm' | 'ignore') {
+    if (!isRealWorkspace) return
+
+    const pendingDrafts = drafts.filter((draft) => draft.status === 'pending')
+    if (pendingDrafts.length === 0) return
+    const ids = pendingDrafts.map((draft) => draft.id)
+    const total = pendingDrafts.reduce((sum, draft) => sum + exactMoneyNumber(draft.amount, draft.amount_cents), 0)
+    if (resolution === 'confirm') {
+      const phrase = `CONFIRM ${ids.length}`
+      const entered = window.prompt(
+        `This will post ${ids.length} transactions totaling ${currency.format(total)} to actuals. This is all-or-nothing. Review possible matches first, then type ${phrase} to continue.`,
+      )
+      if (entered?.trim() !== phrase) return
+    } else if (!window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
+      return
+    }
+
+    setBudgetAction(`bulk-${resolution}-drafts`)
+    setBudgetError(null)
+    setDocumentsError(null)
+    setMiaError(null)
+    try {
+      const workspace = resolution === 'confirm'
+        ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`)
+        : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
+        draft_count: ids.length,
+        amount_bucket: transactionBulkAmountBucket(total),
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`
+      setBudgetError(message)
+      setDocumentsError(message)
+      setMiaError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -1786,6 +1833,8 @@ function App() {
                   onConfirm={handleConfirmTransactionDraft}
                   onIgnore={handleIgnoreTransactionDraft}
                   onReopen={handleReopenTransactionDraft}
+                  onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+                  onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                 />
               )}
 
@@ -1919,6 +1968,8 @@ function App() {
             onConfirmDraft={handleConfirmTransactionDraft}
             onIgnoreDraft={handleIgnoreTransactionDraft}
             onReopenDraft={handleReopenTransactionDraft}
+            onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+            onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
             onApply={handleApplyDocumentImport}
             onReprocess={handleReprocessDocumentImport}
             onDeleteSource={handleDeleteDocumentSource}
@@ -1996,6 +2047,8 @@ function App() {
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
               onReopenDraft={handleReopenTransactionDraft}
+              onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+              onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
             />
           ) : (
             <article className="panel coach-panel">
@@ -2392,6 +2445,8 @@ function DocumentImportWorkspace({
   onConfirmDraft,
   onIgnoreDraft,
   onReopenDraft,
+  onBulkConfirmDrafts,
+  onBulkIgnoreDrafts,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -2421,6 +2476,8 @@ function DocumentImportWorkspace({
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
+  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -2517,6 +2574,8 @@ function DocumentImportWorkspace({
           onConfirmDraft={onConfirmDraft}
           onIgnoreDraft={onIgnoreDraft}
           onReopenDraft={onReopenDraft}
+          onBulkConfirmDrafts={onBulkConfirmDrafts}
+          onBulkIgnoreDrafts={onBulkIgnoreDrafts}
           onApply={onApply}
           onReprocess={onReprocess}
           onDeleteSource={onDeleteSource}
@@ -2722,6 +2781,8 @@ function DocumentReviewPanel({
   onConfirmDraft,
   onIgnoreDraft,
   onReopenDraft,
+  onBulkConfirmDrafts,
+  onBulkIgnoreDrafts,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -2743,6 +2804,8 @@ function DocumentReviewPanel({
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
+  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -2870,6 +2933,8 @@ function DocumentReviewPanel({
             onConfirm={onConfirmDraft}
             onIgnore={onIgnoreDraft}
             onReopen={onReopenDraft}
+            onBulkConfirm={onBulkConfirmDrafts}
+            onBulkIgnore={onBulkIgnoreDrafts}
           />
         </section>
       )}
@@ -4675,6 +4740,13 @@ function monthIndexFromIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
 }
 
+function transactionBulkAmountBucket(amount: number) {
+  if (amount < 100) return 'under_100'
+  if (amount < 1_000) return '100_to_999'
+  if (amount < 5_000) return '1000_to_4999'
+  return '5000_plus'
+}
+
 function messageLengthBucket(length: number) {
   if (length < 80) return 'under_80'
   if (length < 250) return '80_249'
@@ -4948,6 +5020,8 @@ function TransactionDraftReviewStack({
   onConfirm,
   onIgnore,
   onReopen,
+  onBulkConfirm,
+  onBulkIgnore,
 }: {
   drafts: TransactionDraft[]
   isRealWorkspace: boolean
@@ -4961,10 +5035,13 @@ function TransactionDraftReviewStack({
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
+  onBulkConfirm?: (drafts: TransactionDraft[]) => void
+  onBulkIgnore?: (drafts: TransactionDraft[]) => void
 }) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [pageSize, setPageSize] = useState(compact ? 5 : 10)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
   const filteredDrafts = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase()
     if (!normalizedQuery) return drafts
@@ -4981,6 +5058,32 @@ function TransactionDraftReviewStack({
   const safePage = Math.min(page, totalPages - 1)
   const pageStart = safePage * pageSize
   const visibleDrafts = filteredDrafts.slice(pageStart, pageStart + pageSize)
+  const filteredPendingDrafts = filteredDrafts.filter((draft) => draft.status === 'pending')
+  const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
+  const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
+  const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
+  const anyActionBusy = Boolean(action)
+  const bulkBusy = action?.startsWith('bulk-') ?? false
+
+  function toggleDraftSelection(draftId: number, selected: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (selected) next.add(draftId)
+      else next.delete(draftId)
+      return next
+    })
+  }
+
+  function toggleVisibleSelection(selected: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      visiblePendingDrafts.forEach((draft) => {
+        if (selected) next.add(draft.id)
+        else next.delete(draft.id)
+      })
+      return next
+    })
+  }
 
   return (
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
@@ -5019,6 +5122,41 @@ function TransactionDraftReviewStack({
         </div>
       )}
 
+      {filteredPendingDrafts.length > 1 && onBulkConfirm && onBulkIgnore && (
+        <div className="transaction-draft-bulk-actions" aria-label="Bulk transaction review actions">
+          <label className="transaction-draft-select-page">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              disabled={anyActionBusy}
+              onChange={(event) => toggleVisibleSelection(event.currentTarget.checked)}
+            />
+            <span>Select this page</span>
+          </label>
+          <span>{selectedDrafts.length} selected</span>
+          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+            Confirm selected
+          </button>
+          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
+            Ignore selected
+          </button>
+          <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set(filteredPendingDrafts.map((draft) => draft.id)))}>
+            Select all {filteredPendingDrafts.length} results
+          </button>
+          {selectedDrafts.length > 0 && (
+            <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set())}>
+              Clear selection
+            </button>
+          )}
+          <button type="button" disabled={anyActionBusy} onClick={() => onBulkConfirm(filteredPendingDrafts)}>
+            Confirm all {filteredPendingDrafts.length}
+          </button>
+          <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
+            Ignore all {filteredPendingDrafts.length}
+          </button>
+        </div>
+      )}
+
       {visibleDrafts.length === 0 ? (
         <div className="transaction-draft-empty-filter">
           <strong>No transaction reviews match that search.</strong>
@@ -5030,13 +5168,15 @@ function TransactionDraftReviewStack({
           draft={draft}
           isRealWorkspace={isRealWorkspace}
           action={action}
-          draftActionsDisabled={draftActionsDisabled}
+          draftActionsDisabled={draftActionsDisabled || bulkBusy}
           categories={categories}
           onUpdate={onUpdate}
           onMatch={onMatch}
           onConfirm={onConfirm}
           onIgnore={onIgnore}
           onReopen={onReopen}
+          selected={draft.status === 'pending' && selectedIds.has(draft.id)}
+          onSelectedChange={(selected) => toggleDraftSelection(draft.id, selected)}
         />
       ))}
 
@@ -5076,6 +5216,8 @@ function TransactionDraftReviewCard({
   onConfirm,
   onIgnore,
   onReopen,
+  selected,
+  onSelectedChange,
 }: {
   draft: TransactionDraft
   isRealWorkspace: boolean
@@ -5087,6 +5229,8 @@ function TransactionDraftReviewCard({
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [merchant, setMerchant] = useState(draft.merchant)
@@ -5170,7 +5314,13 @@ function TransactionDraftReviewCard({
   }
 
   return (
-    <div className="transaction-draft-card">
+    <div className={`transaction-draft-card${selected ? ' is-selected' : ''}`}>
+      {isPending && (
+        <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
+          <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
+          <span className="sr-only">Select {draft.merchant}</span>
+        </label>
+      )}
       <div className="transaction-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.merchant}</strong>
@@ -5623,6 +5773,8 @@ function AnnualBudgetPlanner({
   onConfirmDraft,
   onIgnoreDraft,
   onReopenDraft,
+  onBulkConfirmDrafts,
+  onBulkIgnoreDrafts,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -5646,6 +5798,8 @@ function AnnualBudgetPlanner({
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
+  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
 }) {
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
@@ -5817,6 +5971,8 @@ function AnnualBudgetPlanner({
           onConfirm={onConfirmDraft}
           onIgnore={onIgnoreDraft}
           onReopen={onReopenDraft}
+          onBulkConfirm={onBulkConfirmDrafts}
+          onBulkIgnore={onBulkIgnoreDrafts}
         />
       )}
 

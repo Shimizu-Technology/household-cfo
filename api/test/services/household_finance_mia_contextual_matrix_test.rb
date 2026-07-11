@@ -139,7 +139,6 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "Show waiting review drafts", [ "waiting for review", "Starbucks" ] ],
       [ "How much pending draft money is waiting?", [ "Pending drafts total", "$22" ] ],
       [ "Do pending drafts count as actuals?", [ "No", "not counted" ] ],
-      [ "Ignore all pending drafts from chat", [ "cannot bulk-ignore", "pending" ] ],
       [ "Drafts waiting?", [ "pending transaction", "review" ] ],
       [ "What drafts pending review?", [ "pending", "Next CFO move" ] ]
     ]

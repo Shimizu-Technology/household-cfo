@@ -888,6 +888,16 @@ export async function ignoreTransactionDraft(id: number): Promise<AppData> {
   return payload.workspace
 }
 
+export async function bulkConfirmTransactionDrafts(ids: number[], year: number, confirmation: string): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_confirm', { transaction_draft_ids: ids, year, confirmation })
+  return payload.workspace
+}
+
+export async function bulkIgnoreTransactionDrafts(ids: number[], year: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_ignore', { transaction_draft_ids: ids, year })
+  return payload.workspace
+}
+
 export async function matchTransactionDraft(id: number, matchId?: number): Promise<AppData> {
   const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/match`, matchId ? { match_id: matchId } : {})
   return payload.workspace

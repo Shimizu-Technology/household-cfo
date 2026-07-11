@@ -37,7 +37,7 @@ module HouseholdFinance
           create_category rename_category reclassify_category archive_category
           restore_category review_pending_action
         ],
-        supported_transaction_draft_actions: %w[create_transaction_draft update_transaction_draft],
+        supported_transaction_draft_actions: %w[create_transaction_draft update_transaction_draft ignore_transaction_drafts],
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
       }
     end

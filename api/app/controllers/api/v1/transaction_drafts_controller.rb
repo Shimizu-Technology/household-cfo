@@ -54,6 +54,14 @@ module Api
         render json: { errors: [ e.message ] }, status: :unprocessable_entity
       end
 
+      def bulk_confirm
+        resolve_bulk("confirm")
+      end
+
+      def bulk_ignore
+        resolve_bulk("ignore")
+      end
+
       def match
         result = HouseholdFinance::TransactionDraftMatchAccepter.new(@draft, match_id: params[:match_id]).call
         unless result.success?
@@ -87,6 +95,40 @@ module Api
       end
 
       private
+
+      def resolve_bulk(action)
+        draft_ids = Array(params[:transaction_draft_ids]).map(&:to_i).select(&:positive?).uniq
+        if draft_ids.empty?
+          return render json: { errors: [ "Select at least one pending transaction review" ] }, status: :unprocessable_entity
+        end
+        if action == "confirm" && params[:confirmation].to_s != "CONFIRM #{draft_ids.length}"
+          return render json: { errors: [ "Type CONFIRM #{draft_ids.length} to approve this bulk actuals update" ] }, status: :unprocessable_entity
+        end
+
+        result = HouseholdFinance::TransactionDraftBulkResolver.new(
+          current_household,
+          draft_ids: draft_ids,
+          action: action
+        ).call
+        unless result.success?
+          return render json: { errors: result.errors }, status: :unprocessable_entity
+        end
+
+        count = result.drafts.length
+        total_cents = result.drafts.sum(&:total_amount_cents)
+        status_message = if action == "confirm"
+          "Confirmed #{count} pending transaction #{'review'.pluralize(count)} totaling #{money(total_cents)}. Actuals were updated only after this bulk approval."
+        else
+          "Ignored #{count} pending transaction #{'review'.pluralize(count)} totaling #{money(total_cents)}. Actuals did not change."
+        end
+        append_chat_status_message(status_message)
+
+        render json: {
+          resolved_count: count,
+          resolved_ids: result.drafts.map(&:id),
+          workspace: workspace_payload_for(params[:year])
+        }
+      end
 
       def set_draft
         @draft = current_household.transaction_drafts.find(params[:id])

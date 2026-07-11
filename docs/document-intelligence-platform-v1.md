@@ -31,7 +31,7 @@ Runtime source files are stored in private S3 only. There is no frontend AI call
 - Exact duplicate active uploads are rejected before another private source or duplicate review queue is created. Cropped, overlapping, or missing screenshot pages still cannot provide rows that are not visible, so a full downloaded PDF/CSV statement remains preferred.
 - Yearless statement rows use the statement header/period first, with bounded participant upload context and the server reference date available for genuinely recent statements. Footer/copyright years and authorization dates do not replace the posted transaction date.
 - The review queue is searchable and paginated. Ask Mia and document review default to five cards per page; Budget defaults to ten, with 5/10/25 page-size controls.
-- There is intentionally no bulk confirm: each draft can be edited, matched, confirmed, or ignored, and pending rows never count as actuals.
+- Large queues support page/filter selection plus Confirm selected, Ignore selected, Confirm all results, and Ignore all results. Bulk confirmation requires typing the exact count phrase (for example `CONFIRM 71`) and runs all-or-nothing; any invalid review rolls the entire actuals update back. Bulk ignore never changes actuals.
 
 Statement extraction targets every visible debit, withdrawal, or subtraction row, including fees, outgoing payments, and transfers. Deposits and credits are excluded. Every extracted outflow remains pending so the participant can classify, match, confirm, or ignore transfers without silently losing a bank-ledger row.
 

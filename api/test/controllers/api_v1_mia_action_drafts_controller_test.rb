@@ -812,6 +812,54 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "actuals did not change"
   end
 
+  test "model resolved explicit ignore-all request clears pending reviews without changing actuals" do
+    user = create_user(email: "mia-ignore-all-reviews@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Flexible spending", stack_key: "discretionary", monthly_amount: 300)
+    2.times do |index|
+      draft = household.transaction_drafts.create!(
+        occurred_on: Date.current,
+        merchant: "Ignore All #{index}",
+        total_amount_cents: (index + 1) * 1_000,
+        budget_category: category,
+        source_type: "manual_chat",
+        status: "pending",
+        raw_input: "Ignore all test"
+      )
+      draft.transaction_draft_splits.create!(budget_category: category, category_name: category.name, stack_key: category.stack_key, amount_cents: draft.total_amount_cents)
+    end
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "transaction_draft_action",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Ignore all pending transaction reviews",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "transaction_review", title: "Clear reviews", subject: "all pending reviews" },
+      action: { type: "ignore_transaction_drafts", all_pending: true },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    assert_no_difference("HouseholdTransaction.count") do
+      with_intent_resolver(resolver) do
+        post "/api/v1/mia/messages",
+          params: { message: "Clear all of them and ignore every pending review" },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_includes body.dig("assistant_message", "content"), "Ignored 2 pending transaction reviews"
+    assert_includes body.dig("assistant_message", "content"), "Actuals did not change"
+    assert_empty household.transaction_drafts.pending
+    assert_empty body.dig("budget", "annual_plan", "pending_transaction_drafts")
+  end
+
   test "mia can draft and apply a planned-dollar move between categories" do
     user = create_user(email: "mia-action-move@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

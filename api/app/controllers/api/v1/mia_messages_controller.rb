@@ -377,13 +377,23 @@ module Api
             annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
           when "transaction_draft_action"
             if intent_result.actionable?
-              draft_edit = HouseholdFinance::MiaTransactionDraftEditor.new(current_household, command: intent_result.action).call
-              if draft_edit.success?
-                transaction_draft = draft_edit.draft
-                transaction_draft_answer = draft_edit.response
-                annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager)
+              if intent_result.action.to_h[:type] == "ignore_transaction_drafts"
+                ignored = HouseholdFinance::MiaTransactionDraftIgnorer.new(
+                  current_household,
+                  command: intent_result.action,
+                  raw_input: content
+                ).call
+                direct_answer = ignored.response
+                annual_plan = annual_budget_manager.plan_data if ignored.success?
               else
-                direct_answer = draft_edit.response
+                draft_edit = HouseholdFinance::MiaTransactionDraftEditor.new(current_household, command: intent_result.action).call
+                if draft_edit.success?
+                  transaction_draft = draft_edit.draft
+                  transaction_draft_answer = draft_edit.response
+                  annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager)
+                else
+                  direct_answer = draft_edit.response
+                end
               end
             else
               direct_answer = clarification_answer(intent_result)
@@ -422,6 +432,18 @@ module Api
 
       def route_legacy_message(content, conversation_context:, annual_budget_manager:)
         followup = HouseholdFinance::ConversationFollowupResolver.new(content, conversation_context: conversation_context).call
+        if HouseholdFinance::MiaTransactionDraftIgnorer.explicit_all_request?(content)
+          ignored = HouseholdFinance::MiaTransactionDraftIgnorer.new(
+            current_household,
+            command: { type: "ignore_transaction_drafts", all_pending: true },
+            raw_input: content
+          ).call
+          return legacy_transaction_route_payload(
+            followup,
+            annual_budget_manager: annual_budget_manager,
+            direct_answer: ignored.response
+          )
+        end
         transaction_correction = legacy_transaction_correction_route(content, annual_budget_manager: annual_budget_manager, followup: followup)
         return transaction_correction if transaction_correction
 

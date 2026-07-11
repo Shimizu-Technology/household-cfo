@@ -47,19 +47,18 @@ cases:
       - confirmed this transaction
       - actuals changed
 
-  - id: ignore_followup_no_chat_write
+  - id: ambiguous_ignore_followup_fails_safe_without_model
     route: controller_sequence
     messages:
       - I spent $25 at McDonald's.
       - Actually ignore that.
     expected_phrases:
-      - cannot ignore a draft from chat
-      - no actuals changed
+      - Pending drafts total
       - not counted as actuals
     forbidden_phrases:
       - ignored the draft
       - deleted the draft
-      - I removed it
+      - actuals changed
 
   - id: actuals_guardrail_followup
     route: controller_sequence
@@ -74,17 +73,16 @@ cases:
       - actuals changed
       - confirmed actuals changed
 
-  - id: bulk_ignore_guardrail
+  - id: explicit_bulk_ignore
     route: controller
-    prompt: Ignore all.
+    prompt: Ignore all pending transaction reviews.
     expected_phrases:
-      - cannot bulk-ignore
-      - Pending drafts total
-      - not counted as actuals
+      - Ignored
+      - pending Starbucks review
+      - Actuals did not change
     forbidden_phrases:
-      - I ignored
       - deleted
-      - actuals changed
+      - actuals were updated
 
   - id: budget_status
     route: controller

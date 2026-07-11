@@ -220,6 +220,31 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "pending transaction review"
   end
 
+  test "resolves an explicit ignore-all request without granting confirm authority" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Clear all of them and ignore every pending transaction review",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_draft_action",
+          continuation: false,
+          resolved_message: "Ignore all pending transaction reviews",
+          topic: { type: "transaction_review", title: "Clear pending reviews", subject: "all pending transaction reviews" },
+          action: default_action.merge(type: "ignore_transaction_drafts", all_pending: true)
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert result.transaction_draft_action?
+    assert_equal "ignore_transaction_drafts", result.action.fetch(:type)
+    assert_equal true, result.action.fetch(:all_pending)
+    refute_includes HouseholdFinance::MiaIntentResolver::ACTION_TYPES, "confirm_transaction_drafts"
+  end
+
   test "asks specifically for a destination when a budget move omits it" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Move $100 from Fixed essentials",
@@ -322,6 +347,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       draft_id: 0,
       occurred_on: "",
       merchant: "",
+      all_pending: false,
       splits: []
     }
   end
