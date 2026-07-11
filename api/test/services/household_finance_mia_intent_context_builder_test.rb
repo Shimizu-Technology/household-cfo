@@ -73,4 +73,19 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     assert_nil context.dig(:conversation, :older_summary)
     assert_includes context.dig(:conversation, :recent_messages).first.fetch(:content), "Fixed essentials"
   end
+
+  test "falls back to a canonical selected-period label when month metadata is incomplete" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "partial-intent-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Partial Intent Context Household")
+
+    context = HouseholdFinance::MiaIntentContextBuilder.new(
+      household,
+      annual_plan: { year: 2026, months: [], rows: [], archived_categories: [], pending_mia_action_drafts: [] },
+      conversation_context: {},
+      transcript: [],
+      selected_month: 8
+    ).call
+
+    assert_equal({ year: 2026, month: 8, label: "Aug 2026" }, context.fetch(:budget_view_period))
+  end
 end

@@ -190,7 +190,9 @@ module Demo
     end
 
     def remove_reflexive_cultural_opener(content)
-      content.sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?)[.!]?\s*/i, "")
+      content
+        .sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?|chelu)[.!,:-]?\s*/i, "")
+        .sub(/\A([[:lower:]])/) { |letter| letter.upcase }
     end
 
     def enforce_cultural_restraint(content, history)

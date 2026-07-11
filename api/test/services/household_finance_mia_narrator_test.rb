@@ -71,6 +71,28 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects a model claim that it created a draft when the verified result made no write" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I drafted a new category called Archived Buffer for September. Review the card to add it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create Archived Buffer for September",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "Archived Buffer is archived. Restore it before editing it, or choose a different name for the new category.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "Archived Buffer is archived. Restore it before editing it, or choose a different name for the new category.", answer
+    end
+  end
+
   test "strips reflexive Hafa Adai recall openers" do
     response = ok_response(
       choices: [
@@ -90,6 +112,50 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       ).call
 
       assert_equal "We were discussing the Fixed essentials July review. It is still pending your approval.", answer
+    end
+  end
+
+  test "strips a standalone chelu opener and preserves sentence capitalization" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Chelu, the category already exists. Choose a different name." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create the category",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "The category already exists. Choose a different name.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "The category already exists. Choose a different name.", answer
+    end
+  end
+
+  test "keeps no-write budget validation narration culturally neutral" do
+    response = ok_response(
+      choices: [
+        { message: { content: "That category is archived. Restore it or choose another name. What would you like to do, chelu?" } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create the archived category",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "That category is archived. Restore it or choose another name.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "That category is archived. Restore it or choose another name. What would you like to do?", answer
     end
   end
 

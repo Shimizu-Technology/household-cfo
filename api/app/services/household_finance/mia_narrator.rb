@@ -29,6 +29,10 @@ module HouseholdFinance
       /\b(?:still\s+(?:a\s+)?pending|is\s+(?:still\s+)?(?:a\s+)?pending draft|are\s+(?:still\s+)?pending drafts)\b/i,
       /\b(?:waiting\s+for\s+(?:your\s+)?review|confirm\s+or\s+delete\s+the\s+pending|confirm\s+the\s+pending)\b/i
     ].freeze
+    NEW_DRAFT_CLAIMS = [
+      /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:just\s+)?(?:drafted|prepared|created|made)\b/i,
+      /\b(?:a|the)\s+(?:new\s+)?(?:draft|review card)\s+(?:is|was|has been)\s+(?:ready|created|prepared|waiting|pending)\b/i
+    ].freeze
 
     def initialize(user_message:, answer_packet:, history: [], api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MIA_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL)), persona: ::Mia::Persona.default)
       @user_message = user_message.to_s.squish
@@ -190,7 +194,9 @@ module HouseholdFinance
     end
 
     def remove_reflexive_cultural_opener(content)
-      content.sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?)[.!]?\s*/i, "")
+      content
+        .sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?|chelu)[.!,:-]?\s*/i, "")
+        .sub(/\A([[:lower:]])/) { |letter| letter.upcase }
     end
 
     def enforce_cultural_restraint(content)
@@ -198,10 +204,12 @@ module HouseholdFinance
         .select { |message| message.fetch(:role) == "assistant" }
         .last(4)
         .pluck(:content)
-      return content unless recent_assistant_messages.any? { |message| message.match?(/\b(?:chelu|lanya|umbee|håfa adai)\b/i) }
+      validation_response = answer_packet[:kind] == "budget_action" && answer_packet[:write_state] == "no_write"
+      repeated_local_language = recent_assistant_messages.any? { |message| message.match?(/\b(?:chelu|lanya|umbee|håfa adai)\b/i) }
+      return content unless validation_response || repeated_local_language
 
       content
-        .gsub(/\s*,?\s*chelu\b\s*,?/i, " ")
+        .gsub(/\s*,?\s*(?:chelu|lanya|umbee|håfa adai)\b\s*,?/i, " ")
         .gsub(/\s+([.!?,;:])/, "\\1")
         .squish
     end
@@ -209,6 +217,7 @@ module HouseholdFinance
     def false_write_claim?(content)
       return false if answer_packet[:write_state] == "confirmed_write"
       return false if answer_packet[:write_state] == "draft_updated" && safe_pending_draft_update_claim?(content)
+      return true if answer_packet[:write_state] == "no_write" && NEW_DRAFT_CLAIMS.any? { |pattern| content.match?(pattern) }
 
       DANGEROUS_WRITE_CLAIMS.any? { |pattern| content.match?(pattern) }
     end

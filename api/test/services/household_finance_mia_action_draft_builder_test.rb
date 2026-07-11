@@ -101,6 +101,33 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes result.response, "every month, or only specific months"
   end
 
+  test "explains that an archived category must be restored instead of edited" do
+    @manager.archive_category!(@dining)
+
+    structured = build_command(
+      type: "create_category",
+      new_name: "Dining Out",
+      stack_key: "discretionary",
+      amount: "75",
+      months: [ 8 ],
+      year: 2026
+    )
+    fallback = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Create a budget category called Dining Out with $75 for August 2026",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 8,
+      raw_input: "Create a budget category called Dining Out with $75 for August 2026"
+    ).call
+
+    [ structured, fallback ].each do |result|
+      assert_nil result.proposal
+      assert_includes result.response, "Dining Out is archived"
+      assert_includes result.response, "Restore it"
+    end
+  end
+
   test "legacy category parser keeps an explicit month out of the category name" do
     result = HouseholdFinance::MiaActionDraftBuilder.new(
       @household,

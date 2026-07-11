@@ -95,7 +95,9 @@ module HouseholdFinance
     def structured_create_category_proposal
       name = clean_new_category_name(command[:new_name].presence || command[:category_name])
       return validation_result("Tell me the category name before I draft a new budget row.") if name.blank?
-      return validation_result("#{name} already exists. I can draft edits to the existing category instead.") if household.budget_categories.where("LOWER(name) = ?", name.downcase).exists?
+      if (existing_category = household.budget_categories.find_by("LOWER(name) = ?", name.downcase))
+        return existing_category_name_result(existing_category)
+      end
 
       amount_cents = amount_cents_from(command[:amount].presence || "0")
       return validation_result("I can create a category only with a dollar amount of $0 or more.") if amount_cents.negative?

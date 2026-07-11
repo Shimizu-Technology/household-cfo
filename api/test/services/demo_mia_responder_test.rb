@@ -233,6 +233,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   test "reflexive cultural openers are removed and recent use suppresses repeated chelu" do
     responder = Demo::MiaResponder.new(api_key: nil)
     direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
+    standalone = responder.send(:sanitize_assistant_content, "Chelu, the category already exists.", draft_capable: true)
     recall = responder.send(:sanitize_assistant_content, "Håfa Adai, chelu! We were discussing the July edit.\n\nIt is still pending.", draft_capable: true)
     restrained = responder.send(
       :sanitize_assistant_content,
@@ -242,6 +243,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     )
 
     assert_equal "I drafted the July edit for review.", direct
+    assert_equal "The category already exists.", standalone
     assert_equal "We were discussing the July edit. It is still pending.", recall
     assert_equal "The August plan is ready. Review it before applying.", restrained
   end

@@ -316,7 +316,9 @@ module HouseholdFinance
       name = name.gsub(/\b(?:for|in)\s+(?:#{MonthTerms.pattern})(?:\s+\d{4})?\b/i, " ").squish
       name = name.gsub(/\b(?:budget|category|line item|row|for|called|named|new|#{stack_alias_pattern})\b/i, " ").squish
       return validation_result("Tell me the category name before I draft a new budget row.") if name.blank?
-      return validation_result("#{name} already exists. I can draft edits to the existing category instead.") if household.budget_categories.where("LOWER(name) = ?", name.downcase).exists?
+      if (existing_category = household.budget_categories.find_by("LOWER(name) = ?", name.downcase))
+        return existing_category_name_result(existing_category)
+      end
 
       month_numbers = month_numbers_for_message
       return month_numbers if month_numbers.is_a?(Result)
@@ -369,6 +371,14 @@ module HouseholdFinance
         items: [ item ],
         metadata: { source: "mia_chat", parser: "allocation_amount", month_numbers: month_numbers, mode: parsed.fetch(:mode) }
       )
+    end
+
+    def existing_category_name_result(category)
+      if category.active?
+        validation_result("#{category.name} already exists. I can draft edits to the existing category instead.")
+      else
+        validation_result("#{category.name} is archived. Restore it before editing it, or choose a different name for the new category.")
+      end
     end
 
     def duplicate_pending_action_confirmation?

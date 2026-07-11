@@ -56,11 +56,12 @@ module HouseholdFinance
     end
 
     def selected_period
-      month = annual_plan.fetch(:months).fetch(selected_month - 1)
+      month = Array(annual_plan[:months])[selected_month - 1].to_h
+      year = annual_plan[:year].presence || Date.current.year
       {
-        year: annual_plan.fetch(:year),
+        year: year,
         month: selected_month,
-        label: "#{month.fetch(:label)} #{annual_plan.fetch(:year)}"
+        label: "#{month[:label].presence || AnnualBudgetManager::MONTH_NAMES.fetch(selected_month - 1)} #{year}"
       }
     end
 
