@@ -34,6 +34,24 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     end
   end
 
+  test "keeps the pending-scope snapshot without reloading before the locked update" do
+    editor = HouseholdFinance::MiaTransactionDraftEditor.new(
+      @household,
+      command: { draft_id: @draft.id, occurred_on: "2026-07-09" }
+    )
+    reload_flags = []
+    original_snapshot = editor.method(:snapshot)
+    editor.define_singleton_method(:snapshot) do |draft, reload: true|
+      reload_flags << reload
+      original_snapshot.call(draft, reload: reload)
+    end
+
+    result = editor.call
+
+    assert result.success?
+    assert_equal [ false, true ], reload_flags
+  end
+
   test "updates merchant amount and category while keeping a single split valid" do
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,

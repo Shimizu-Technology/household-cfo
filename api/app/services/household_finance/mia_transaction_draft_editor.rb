@@ -13,7 +13,7 @@ module HouseholdFinance
 
     def call
       draft = household.transaction_drafts.pending.includes(transaction_draft_splits: :budget_category).find(command.fetch(:draft_id).to_i)
-      before = snapshot(draft)
+      before = snapshot(draft, reload: false)
       attributes = update_attributes(draft)
       return failure(draft, "Tell me what to change on that pending transaction review. Nothing changed.") if attributes.empty?
 
@@ -91,8 +91,8 @@ module HouseholdFinance
       category.id
     end
 
-    def snapshot(draft)
-      draft.reload
+    def snapshot(draft, reload: true)
+      draft.reload if reload
       {
         occurred_on: draft.occurred_on,
         merchant: draft.merchant,
