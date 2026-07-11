@@ -32,7 +32,9 @@ for (const rejectedCopy of [
 assert.ok(home.includes('<h2>CFO snapshot</h2>'), 'home copy should keep the section heading simple')
 assert.ok(home.includes('What needs review?'), 'home should lead with pending review work')
 assert.ok(home.includes('Month-to-date inside the annual plan'), 'home should connect the current month to the annual plan')
+assert.ok(home.includes('Your path from Red to Yellow to Green'), 'home should explain the deterministic readiness progression')
 assert.ok(participantTabs.includes('Swipe for more'), 'mobile navigation should disclose that more modules are horizontally available')
+assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')
 
 for (const requiredCopy of [
   'Expense Stack',

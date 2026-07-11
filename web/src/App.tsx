@@ -358,8 +358,8 @@ function App() {
     setMessagesStorageKey(chatStorageKey)
     setMessages(mia.messages)
     setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
-    setOldestServerMessageId(mia.oldest_message_id ?? null)
-    setOlderServerMessageCount(mia.older_message_count ?? 0)
+    setOldestServerMessageId(mia.oldest_message_id)
+    setOlderServerMessageCount(mia.older_message_count)
     historyExpandedRef.current = false
   }, [chatStorageKey])
 
@@ -371,8 +371,8 @@ function App() {
       setMessagesStorageKey(chatStorageKey)
       setMessages((current) => historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages)
       if (!historyExpandedRef.current) {
-        setOldestServerMessageId(mia.oldest_message_id ?? null)
-        setOlderServerMessageCount(mia.older_message_count ?? 0)
+        setOldestServerMessageId(mia.oldest_message_id)
+        setOlderServerMessageCount(mia.older_message_count)
       }
     } catch (caught) {
       if (!quiet) setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be refreshed.')
@@ -422,8 +422,8 @@ function App() {
         setSetupDraft(payload.workspace?.setup_values ?? null)
         setMessages(restoredMessages)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
-        setOldestServerMessageId(realWorkspace ? (payload.mia.oldest_message_id ?? null) : null)
-        setOlderServerMessageCount(realWorkspace ? (payload.mia.older_message_count ?? 0) : 0)
+        setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
+        setOlderServerMessageCount(realWorkspace ? payload.mia.older_message_count : 0)
         historyExpandedRef.current = false
       })
       .catch(() => {
@@ -870,7 +870,7 @@ function App() {
       })
       setVisibleMessageCount((count) => count + page.messages.length)
       setOldestServerMessageId(page.oldest_message_id ?? beforeId)
-      setOlderServerMessageCount(page.older_message_count ?? 0)
+      setOlderServerMessageCount(page.older_message_count)
       requestAnimationFrame(() => {
         if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
       })

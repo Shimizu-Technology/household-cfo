@@ -1,4 +1,4 @@
-import type { BudgetData, DashboardData } from '../api'
+import type { BudgetData, DashboardData, ReadinessMilestone } from '../api'
 import { Metric } from './Metric'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -67,6 +67,26 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
       </div>
 
+      <section className="readiness-path-panel" aria-labelledby="readiness-path-title">
+        <div className="readiness-path-heading">
+          <div>
+            <p className="eyebrow">Annual runway</p>
+            <h3 id="readiness-path-title">Your path from Red to Yellow to Green</h3>
+          </div>
+          <p>Yellow is the halfway runway checkpoint. Green is the full runway target. They are planning signals, not grades.</p>
+        </div>
+        <div className="readiness-current-row">
+          <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
+          <Metric label="Current runway" value={`${dashboard.readiness_path.current_runway_months} months`} />
+          <Metric label="Monthly surplus" value={currency.format(dashboard.readiness_path.monthly_surplus)} />
+          <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
+        </div>
+        <div className="readiness-milestone-grid">
+          <ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} />
+          <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
+        </div>
+      </section>
+
       <div className="metric-row">
         <Metric label="Monthly income" value={currency.format(dashboard.summary.monthly_income)} />
         <Metric label="Runway" value={`${dashboard.summary.runway_months} months`} />
@@ -99,5 +119,28 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         </ol>
       </article>
     </section>
+  )
+}
+
+function ReadinessMilestoneCard({ label, milestone }: { label: string; milestone: ReadinessMilestone }) {
+  return (
+    <article className={`readiness-milestone-card ${milestone.tone} ${milestone.reached ? 'reached' : ''}`}>
+      <div className="readiness-milestone-title">
+        <span>{label}</span>
+        <b>{milestone.reached ? 'Reached' : 'Building'}</b>
+      </div>
+      <strong title={currency.format(milestone.protected_liquid_target)}>{currency.format(milestone.protected_liquid_target)}</strong>
+      <p>Protected liquid runway for {milestone.runway_months} months.</p>
+      <dl>
+        <div>
+          <dt>Still to protect</dt>
+          <dd>{milestone.protected_liquid_gap > 0 ? currency.format(milestone.protected_liquid_gap) : '$0.00 — threshold protected'}</dd>
+        </div>
+        <div>
+          <dt>Cash-flow rule</dt>
+          <dd>{milestone.cash_flow_requirement}</dd>
+        </div>
+      </dl>
+    </article>
   )
 }

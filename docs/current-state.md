@@ -64,6 +64,16 @@ Do not mark these complete from unit tests or local browser checks alone:
 
 Record production evidence against `docs/production-readiness-checklist.md` after each deploy.
 
+## Current readiness rule
+
+The application currently calculates readiness deterministically from monthly cash flow, protected liquid assets, and the household's saved runway target:
+
+- Red: the household has not yet met the Yellow conditions.
+- Yellow: monthly cash flow is nonnegative and protected liquid assets cover at least half of the saved runway target.
+- Green: monthly cash flow is positive and protected liquid assets cover the full saved runway target.
+
+With the default six-month runway target, Yellow begins at three months and Green begins at six months. Home shows both dollar thresholds and remaining gaps. This is the implemented pilot rule; Mrs. Mel still needs to confirm that it is the final coaching-method definition.
+
 ## Product decisions to confirm with Mrs. Mel
 
 These require product approval rather than engineering inference:

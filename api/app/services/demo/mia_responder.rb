@@ -46,7 +46,7 @@ module Demo
     PROMPT
 
     DEMO_CONTEXT = <<~PROMPT.squish
-      Current demo context: monthly income is $8,250, runway is 4.6 months, safe-to-spend is $540,
+      Current demo context: monthly income is $8,250, runway is 3.6 months, safe-to-spend is $540,
       baseline surplus is $1,325, the emergency fund is not fully funded, card payoff is moving,
       and Optionality should stay hybrid-first until recurring income improves.
     PROMPT

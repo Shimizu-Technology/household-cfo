@@ -488,7 +488,148 @@ h3 {
 }
 
 .home-period-metrics .metric-card strong {
-  font-size: clamp(0.98rem, 2vw, 1.3rem);
+  font-size: clamp(0.9rem, 10cqi, 1.3rem);
+}
+
+.readiness-path-panel {
+  display: grid;
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 253, 248, 0.92);
+  box-shadow: 0 16px 36px rgba(47, 38, 28, 0.07);
+}
+
+.readiness-path-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(240px, 1.1fr);
+  gap: 12px 24px;
+  align-items: end;
+}
+
+.readiness-path-heading h3,
+.readiness-path-heading p {
+  margin-bottom: 0;
+}
+
+.readiness-path-heading > p {
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.readiness-current-row,
+.readiness-milestone-grid {
+  display: grid;
+  gap: 10px;
+}
+
+.readiness-current-row {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.readiness-current-row .metric-card {
+  min-height: 88px;
+  padding: 13px;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.readiness-milestone-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.readiness-milestone-card {
+  min-width: 0;
+  padding: 17px;
+  border: 1px solid rgba(47, 38, 28, 0.1);
+  border-left: 5px solid var(--status-yellow);
+  border-radius: 18px;
+  background: #fff9ec;
+}
+
+.readiness-milestone-card.green {
+  border-left-color: var(--status-green);
+  background: #edf5ef;
+}
+
+.readiness-milestone-card.reached {
+  box-shadow: inset 0 0 0 1px rgba(74, 131, 105, 0.12);
+}
+
+.readiness-milestone-title {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.readiness-milestone-title span,
+.readiness-milestone-title b,
+.readiness-milestone-card dt {
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.readiness-milestone-title b {
+  padding: 5px 8px;
+  border-radius: 999px;
+  background: rgba(184, 135, 22, 0.12);
+  color: #70401f;
+}
+
+.readiness-milestone-card.green .readiness-milestone-title b,
+.readiness-milestone-card.reached .readiness-milestone-title b {
+  background: rgba(74, 131, 105, 0.12);
+  color: #285d46;
+}
+
+.readiness-milestone-card > strong {
+  display: block;
+  margin: 8px 0 4px;
+  overflow-wrap: normal;
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-size: clamp(1.35rem, 4vw, 2rem);
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.readiness-milestone-card > p,
+.readiness-milestone-card dl {
+  margin-bottom: 0;
+}
+
+.readiness-milestone-card > p,
+.readiness-milestone-card dd {
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.45;
+}
+
+.readiness-milestone-card dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.readiness-milestone-card dl > div {
+  min-width: 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.readiness-milestone-card dt,
+.readiness-milestone-card dd {
+  margin: 0;
 }
 
 .coach-panel.red {
@@ -548,6 +689,7 @@ h3 {
 .metric-card {
   display: grid;
   align-content: space-between;
+  container-type: inline-size;
   min-height: 104px;
   padding: 18px;
 }
@@ -556,7 +698,7 @@ h3 {
   display: block;
   max-width: 100%;
   margin-top: 9px;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   font-family: var(--number-font);
   font-feature-settings: "tnum" 1, "lnum" 1;
   font-size: clamp(1.24rem, 2.05vw, 1.72rem);
@@ -564,6 +706,16 @@ h3 {
   font-weight: 720;
   letter-spacing: -0.045em;
   line-height: 1.06;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.metric-card strong.metric-value-long {
+  font-size: clamp(0.92rem, 8.5cqi, 1.35rem);
+}
+
+.metric-card strong.metric-value-xlong {
+  font-size: clamp(0.78rem, 7.2cqi, 1.08rem);
 }
 
 .two-column,
@@ -1413,14 +1565,21 @@ h3 {
   display: block;
   max-width: 100%;
   margin: 10px 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
   font-family: var(--number-font);
   font-feature-settings: "tnum" 1, "lnum" 1;
-  font-size: clamp(1.22rem, 2vw, 1.52rem);
+  font-size: clamp(0.95rem, 9cqi, 1.52rem);
   font-variant-numeric: tabular-nums lining-nums;
   font-weight: 720;
   letter-spacing: -0.04em;
   line-height: 1.08;
+  white-space: nowrap;
+  word-break: normal;
+}
+
+.stack-card,
+.decision-card {
+  container-type: inline-size;
 }
 
 .milestone-list {
@@ -1435,6 +1594,13 @@ h3 {
 
 .decision-card p {
   grid-column: 1 / -1;
+}
+
+.decision-card > strong {
+  font-family: var(--number-font);
+  font-size: clamp(0.9rem, 8cqi, 1.25rem);
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
 }
 
 @media (max-width: 900px) {
@@ -1460,6 +1626,14 @@ h3 {
   }
 
   .home-period-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .readiness-path-heading {
+    grid-template-columns: 1fr;
+  }
+
+  .readiness-current-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1649,6 +1823,11 @@ h3 {
     border-radius: 18px;
   }
 
+  .readiness-path-panel {
+    padding: 15px;
+    border-radius: 18px;
+  }
+
   .tabs button {
     min-height: 36px;
     padding: 7px 11px;
@@ -1671,6 +1850,19 @@ h3 {
   .status-ribbon {
     padding: 13px 14px;
     border-radius: 16px;
+  }
+
+  .readiness-milestone-grid,
+  .readiness-milestone-card dl {
+    grid-template-columns: 1fr;
+  }
+
+  .readiness-milestone-card {
+    padding: 14px;
+  }
+
+  .readiness-milestone-card > strong {
+    font-size: clamp(1.25rem, 8vw, 1.7rem);
   }
 
   .metric-row,

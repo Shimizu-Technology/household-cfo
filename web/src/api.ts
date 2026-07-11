@@ -218,6 +218,15 @@ export type ProfileData = {
   sections: ProfileSection[]
 }
 
+export type ReadinessMilestone = {
+  tone: 'yellow' | 'green'
+  runway_months: number
+  protected_liquid_target: number
+  protected_liquid_gap: number
+  cash_flow_requirement: string
+  reached: boolean
+}
+
 export type DashboardData = {
   summary: {
     monthly_income: number
@@ -241,6 +250,14 @@ export type DashboardData = {
   coach_read: {
     title: string
     body: string
+  }
+  readiness_path: {
+    current_runway_months: number
+    target_runway_months: number
+    protected_liquid_amount: number
+    monthly_surplus: number
+    yellow: ReadinessMilestone
+    green: ReadinessMilestone
   }
   accounts: Array<{ name: string; type: string; balance: number }>
   alerts: Array<{ tone: string; title: string; body: string }>
@@ -469,9 +486,9 @@ export type MiaMessage = {
 
 export type MiaMessagesData = {
   messages: MiaMessage[]
-  oldest_message_id?: number | null
-  older_message_count?: number
-  has_older_messages?: boolean
+  oldest_message_id: number | null
+  older_message_count: number
+  has_older_messages: boolean
   quick_prompts: string[]
   disclaimer: string
 }
@@ -803,7 +820,7 @@ export type MiaMessageResponse = {
 
 export async function fetchMiaMessages(realWorkspace = false, beforeId?: number | null): Promise<MiaMessagesData> {
   if (!realWorkspace) {
-    return { messages: [], quick_prompts: [], disclaimer: '' }
+    return { messages: [], oldest_message_id: null, older_message_count: 0, has_older_messages: false, quick_prompts: [], disclaimer: '' }
   }
 
   const query = beforeId ? `?before_id=${encodeURIComponent(beforeId)}&limit=60` : '?limit=60'

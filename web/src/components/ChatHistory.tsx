@@ -36,9 +36,11 @@ export function ChatHistory({
   onOpenImport,
   onOpenImportId,
 }: ChatHistoryProps) {
+  const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
+
   return (
     <div className="chat-card-wrap">
-      <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading} onScroll={onScroll}>
+      <article className="chat-card" ref={chatCardRef} aria-label="Mia conversation history" aria-live="polite" aria-busy={miaLoading || historyLoading} onScroll={onScroll}>
         {totalMessageCount === 0 && !miaLoading && (
           <div className="empty-chat-state">
             <span className="message-avatar" aria-hidden="true">M</span>
@@ -46,9 +48,9 @@ export function ChatHistory({
             <p>Ask what you need to decide next. Mia will use the approved household context already loaded here.</p>
           </div>
         )}
-        {(hiddenMessageCount > 0 || olderMessageCount > 0) && (
+        {remainingMessageCount > 0 && (
           <button type="button" className="chat-history-load" disabled={historyLoading} onClick={onLoadEarlier}>
-            {historyLoading ? 'Loading earlier messages' : `Load earlier messages (${hiddenMessageCount + olderMessageCount} remaining)`}
+            {historyLoading ? 'Loading earlier messages' : `Load earlier messages (${remainingMessageCount} remaining)`}
           </button>
         )}
         {messages.map((message, index) => (

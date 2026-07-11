@@ -66,6 +66,7 @@ module HouseholdFinance
         },
         action_center: action_center,
         coach_read: coach_read,
+        readiness_path: readiness_path,
         accounts: account_rows,
         alerts: alerts,
         next_steps: next_steps
@@ -359,6 +360,47 @@ module HouseholdFinance
           body: "The household is Red because essential stability or runway is not protected yet. Pause new wants, review pending activity, cover expected expenses, and direct available surplus toward the Yellow runway threshold."
         }
       end
+    end
+
+    def readiness_path
+      target_months = snapshot.fetch(:target_runway_months).to_f
+      yellow_months = target_months / 2.0
+      monthly_outflow_cents = snapshot.fetch(:total_outflow_cents)
+      liquid_assets_cents = snapshot.fetch(:liquid_assets_cents)
+      monthly_surplus_cents = snapshot.fetch(:baseline_surplus_cents)
+
+      {
+        current_runway_months: snapshot.fetch(:runway_months),
+        target_runway_months: target_months,
+        protected_liquid_amount: dollars(liquid_assets_cents),
+        monthly_surplus: dollars(monthly_surplus_cents),
+        yellow: readiness_milestone(
+          tone: "yellow",
+          runway_months: yellow_months,
+          target_cents: monthly_outflow_cents * yellow_months,
+          liquid_assets_cents: liquid_assets_cents,
+          cash_flow_ready: monthly_surplus_cents >= 0
+        ),
+        green: readiness_milestone(
+          tone: "green",
+          runway_months: target_months,
+          target_cents: monthly_outflow_cents * target_months,
+          liquid_assets_cents: liquid_assets_cents,
+          cash_flow_ready: monthly_surplus_cents.positive?
+        )
+      }
+    end
+
+    def readiness_milestone(tone:, runway_months:, target_cents:, liquid_assets_cents:, cash_flow_ready:)
+      rounded_target_cents = target_cents.round
+      {
+        tone: tone,
+        runway_months: runway_months.round(1),
+        protected_liquid_target: dollars(rounded_target_cents),
+        protected_liquid_gap: dollars([ rounded_target_cents - liquid_assets_cents, 0 ].max),
+        cash_flow_requirement: tone == "green" ? "Positive monthly cash flow" : "Nonnegative monthly cash flow",
+        reached: cash_flow_ready && rounded_target_cents.positive? && liquid_assets_cents >= rounded_target_cents
+      }
     end
 
     def quick_prompts

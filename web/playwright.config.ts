@@ -22,6 +22,16 @@ export default defineConfig({
         isMobile: true,
       },
     },
+    {
+      name: 'compact-mobile-chrome',
+      use: {
+        channel: 'chrome',
+        viewport: { width: 320, height: 568 },
+        deviceScaleFactor: 2,
+        hasTouch: true,
+        isMobile: true,
+      },
+    },
   ],
   webServer: {
     command: 'npm run dev -- --host 127.0.0.1 --port 4173',
