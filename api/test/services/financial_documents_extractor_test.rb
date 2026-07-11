@@ -62,17 +62,36 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     result = extractor.send(:batched_pdf_result, document_import, file.path)
 
     assert result.success?
-    assert_equal [ 4, 4, 1 ], batches.pluck(:pages)
-    assert_equal [ "pages 1-4 of 9", "pages 5-8 of 9", "pages 9-9 of 9" ], batches.pluck(:label)
-    assert_equal 3, result.data.fetch(:transaction_drafts).length
-    assert_equal "Mia found 3 transaction drafts across 9 statement pages for review.", result.data.fetch(:summary)
+    assert_equal [ 2, 2, 2, 2, 1 ], batches.pluck(:pages)
+    assert_equal [ "pages 1-2 of 9", "pages 3-4 of 9", "pages 5-6 of 9", "pages 7-8 of 9", "pages 9-9 of 9" ], batches.pluck(:label)
+    assert_equal 5, result.data.fetch(:transaction_drafts).length
+    assert_equal "Mia found 5 transaction drafts across 9 statement pages for review.", result.data.fetch(:summary)
     assert_equal "pdf_batches", result.metadata.fetch(:extraction_mode)
     assert_equal 9, result.metadata.fetch(:page_count)
-    assert_equal 3, result.metadata.fetch(:batch_count)
-    assert_equal 300, result.metadata.dig(:usage, "total_tokens")
-    assert_includes result.data.fetch(:warnings), "Processed all 9 PDF pages in 3 extraction batches."
+    assert_equal 5, result.metadata.fetch(:batch_count)
+    assert_equal 500, result.metadata.dig(:usage, "total_tokens")
+    assert_includes result.data.fetch(:warnings), "Processed all 9 PDF pages in 5 extraction batches."
   ensure
     file&.close!
+  end
+
+  test "fails explicitly when document extraction reaches the provider output limit" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    extractor.define_singleton_method(:build_payload) { |_import, _path, batch_label: nil| { batch_label: batch_label } }
+    extractor.define_singleton_method(:perform_openrouter_request) do |_payload|
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: { content: '{"transaction_drafts":[]}' },
+        error: nil,
+        metadata: { finish_reason: "length", provider: "test-provider" }
+      )
+    end
+
+    result = extractor.send(:extract_openrouter_document, nil, "/tmp/not-read.pdf", batch_label: "pages 1-2 of 8")
+
+    refute result.success?
+    assert_match(/output limit/i, result.error)
+    assert_equal "length", result.metadata.fetch(:finish_reason)
   end
 
   test "rejects PDFs above the bounded page limit before starting model batches" do

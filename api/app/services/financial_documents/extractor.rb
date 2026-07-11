@@ -16,8 +16,9 @@ module FinancialDocuments
     MAX_ITEMS = 60
     MAX_WARNINGS = 12
     PDF_BATCH_PAGES = 4
+    STATEMENT_PDF_BATCH_PAGES = 2
     MAX_PDF_PAGES = 60
-    MAX_OUTPUT_TOKENS = 12_000
+    MAX_OUTPUT_TOKENS = 24_000
     TRANSACTION_CONFIDENCE_DECIMALS = {
       "high" => BigDecimal("0.90"),
       "medium" => BigDecimal("0.65"),
@@ -99,12 +100,14 @@ module FinancialDocuments
       source = CombinePDF.load(file_path)
       page_count = source.pages.count
       return failure("This PDF has more than #{MAX_PDF_PAGES} pages. Split it into smaller date ranges so every page can be processed and reviewed.") if page_count > MAX_PDF_PAGES
-      return if page_count <= PDF_BATCH_PAGES
+
+      pages_per_batch = pdf_batch_pages(document_import)
+      return if page_count <= pages_per_batch
 
       batch_data = []
       batch_metadata = []
-      source.pages.each_slice(PDF_BATCH_PAGES).with_index do |pages, index|
-        first_page = index * PDF_BATCH_PAGES + 1
+      source.pages.each_slice(pages_per_batch).with_index do |pages, index|
+        first_page = index * pages_per_batch + 1
         last_page = first_page + pages.length - 1
         chunk = Tempfile.new([ "financial_document_import_#{document_import.id}_pages_#{first_page}_#{last_page}", ".pdf" ])
         chunk.close
@@ -135,6 +138,10 @@ module FinancialDocuments
       nil
     end
 
+    def pdf_batch_pages(document_import)
+      document_import.document_kind == "statement" ? STATEMENT_PDF_BATCH_PAGES : PDF_BATCH_PAGES
+    end
+
     def write_pdf_chunk(_source, pages, path)
       chunk = CombinePDF.new
       pages.each { |page| chunk << page }
@@ -145,6 +152,12 @@ module FinancialDocuments
       payload = build_payload(document_import, file_path, batch_label: batch_label)
       response = perform_openrouter_request(payload)
       return response unless response.success?
+      if response.metadata[:finish_reason].to_s == "length"
+        return failure(
+          "OpenRouter reached its output limit before extraction finished. Split the statement into smaller date ranges so every transaction can be reviewed.",
+          metadata: response.metadata
+        )
+      end
 
       parsed = parse_json_content(response.data.fetch(:content))
       return parsed unless parsed.success?
@@ -269,11 +282,12 @@ module FinancialDocuments
         Use items for durable household setup facts like income, debts, accounts, monthly budget values, and profile notes.
         Use transaction_drafts for receipt/photo/statement/screenshot transaction rows that should become actuals only after the participant confirms them.
         Each item must include: target_type, label, amount, balance, payment, cadence, source_type, stack_key, account_type, debt_type, confidence, evidence, metadata.
-        Each transaction_draft must include: occurred_on, merchant, total_amount, source_type, category_name, stack_key, confidence, evidence, raw_description, external_id, warnings, splits.
-        Each transaction split must include: category_name, stack_key, amount, notes, confidence.
+        Each transaction_draft must include occurred_on, merchant, total_amount, and splits. It may include source_type, category_name, stack_key, confidence, evidence, raw_description, external_id, and warnings when known; omit unknown optional fields to keep large statements compact.
+        Each transaction split must include amount. It may include category_name, stack_key, notes, and confidence when known.
         For receipts/photos, create one transaction_draft and split it when line items clearly belong in different categories, for example groceries plus cigarettes.
-        For statements or transaction screenshots, create one transaction_draft per visible debit/spend row. Ignore payments/transfers/deposits unless clearly useful as income/account/debt items.
-        Transaction amounts and split amounts must be positive spending magnitudes. Split amounts must sum exactly to total_amount.
+        For statements or transaction screenshots, create one transaction_draft per visible debit/spend row. Ignore deposits, credits, and clear self-transfers unless useful as income/account/debt items. Do not mistake a running balance, statement total, or summary amount for a transaction.
+        For bank statements, use the posted date in the transaction table's Date column as occurred_on. Keep a different authorization date in raw_description or evidence instead of replacing the posted date.
+        Transaction amounts and split amounts must be positive spending magnitudes. Use the debit/withdrawal amount for a spend row, never its ending daily balance. Split amounts must sum exactly to total_amount.
         Use null for unknown fields and {"goal_type": null} for metadata when no goal type applies.
         Valid target_type values: #{FinancialDocumentImportItem::TARGET_TYPES.join(', ')}.
         Map expenses to one of: #{ExpenseItem::STACK_KEYS.join(', ')}.

@@ -16,8 +16,8 @@ class HouseholdFinanceMiaConversationReviewStatusUpdaterTest < ActiveSupport::Te
     unrelated = {
       id: "readiness-thread",
       type: "readiness_plan",
-      title: "Readiness plan",
-      subject: "runway",
+      title: "<Readiness> plan`",
+      subject: "runway\t check",
       status: "open"
     }
     session = household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: active, open_topics: [ active, unrelated ])
@@ -27,7 +27,7 @@ class HouseholdFinanceMiaConversationReviewStatusUpdaterTest < ActiveSupport::Te
       reference_key: "mia_action_draft_id",
       reference_id: 91,
       status: "applied",
-      summary: "Applied the July Fixed essentials edit."
+      summary: "Applied the <July> Fixed essentials edit.`"
     ).call
 
     assert result
@@ -37,5 +37,8 @@ class HouseholdFinanceMiaConversationReviewStatusUpdaterTest < ActiveSupport::Te
     assert_equal "open", session.open_topics.second.fetch("status")
     assert_includes session.rolling_summary, "applied"
     assert_includes session.rolling_summary, "Readiness plan"
+    assert_includes session.open_topics.first.fetch("latest_mia_summary"), "Applied the July"
+    refute_match(/[<>`\t]/, session.rolling_summary)
+    refute_match(/[<>`\t]/, session.open_topics.first.fetch("latest_mia_summary"))
   end
 end

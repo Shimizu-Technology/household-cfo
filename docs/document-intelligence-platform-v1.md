@@ -24,7 +24,7 @@ Runtime source files are stored in private S3 only. There is no frontend AI call
 ## Full-statement processing and review scale
 
 - Monthly statement CSV/XLS/XLSX uploads are parsed deterministically for up to 500 transaction rows; the old 80-row sample limit no longer truncates the review set.
-- Multi-page statement PDFs are split server-side into four-page private temporary batches. Every batch must succeed before Rails persists any extracted rows, so a partial PDF extraction cannot masquerade as a complete statement.
+- Multi-page statement PDFs are split server-side into two-page private temporary batches (other PDFs use up to four pages per batch). Every batch must succeed before Rails persists any extracted rows, and provider output-limit responses fail explicitly, so a technically truncated PDF extraction cannot masquerade as a complete statement.
 - PDF batch coverage, page count, batch count, and staged transaction count are visible in the import review metadata.
 - A single import supports up to 500 transaction drafts, 60 PDF pages, and 20 MB. Files above those limits are rejected with instructions to split the statement into smaller date ranges rather than silently dropping rows.
 - Screenshots stage every visible debit/spend row the model can read. Full downloaded PDF/CSV statements are preferred when transactions continue beyond the screenshot.

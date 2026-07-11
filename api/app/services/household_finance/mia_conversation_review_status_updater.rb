@@ -6,8 +6,8 @@ module HouseholdFinance
       @chat_session = chat_session
       @reference_key = reference_key.to_s
       @reference_id = reference_id.to_i
-      @status = status.to_s
-      @summary = summary.to_s.squish.truncate(240, omission: "…")
+      @status = sanitized_text(status, max_length: 80).to_s
+      @summary = sanitized_text(summary, max_length: 240).to_s
     end
 
     def call
@@ -42,12 +42,24 @@ module HouseholdFinance
     end
 
     def build_summary(topics)
-      lines = topics.first(6).map do |topic|
-        [ topic["title"], topic["subject"], topic["status"], topic["latest_mia_summary"] ].compact_blank.join(" — ")
+      lines = topics.first(6).filter_map do |topic|
+        values = [ topic["title"], topic["subject"], topic["status"], topic["latest_mia_summary"] ]
+          .filter_map { |value| sanitized_text(value, max_length: 240) }
+        values.join(" — ").presence
       end
       return if lines.empty?
 
-      "Open conversation threads: #{lines.join(' | ')}".truncate(1_500, omission: "…")
+      sanitized_text("Open conversation threads: #{lines.join(' | ')}", max_length: 1_500)
+    end
+
+    def sanitized_text(value, max_length:)
+      value.to_s
+        .unicode_normalize(:nfkc)
+        .gsub(/[[:cntrl:]]/, " ")
+        .gsub(/[<>`]/, "")
+        .squish
+        .truncate(max_length, omission: "…")
+        .presence
     end
   end
 end

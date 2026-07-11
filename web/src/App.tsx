@@ -89,6 +89,7 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
+const DEMO_MIA_STORAGE_MAX_MESSAGES = 100
 const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
 const MAX_CHAT_ATTACHMENTS = 5
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
@@ -5956,7 +5957,7 @@ function loadStoredMiaMessages(storageKey: string) {
       && typeof message.author === 'string'
       && typeof message.content === 'string'
       && message.content.trim().length > 0
-    ))
+    )).slice(-DEMO_MIA_STORAGE_MAX_MESSAGES)
   } catch {
     return []
   }
@@ -5969,7 +5970,8 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
       return
     }
 
-    window.localStorage.setItem(storageKey, JSON.stringify(messages))
+    const boundedMessages = messages.slice(-DEMO_MIA_STORAGE_MAX_MESSAGES)
+    window.localStorage.setItem(storageKey, JSON.stringify(boundedMessages))
   } catch {
     // Ignore private browsing/storage quota issues. Chat still works in memory.
   }
