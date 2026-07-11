@@ -277,11 +277,13 @@ module HouseholdFinance
     end
 
     def annual_outlook_payload(periods, rows, monthly_income)
+      active_rows = rows.select { |row| row[:active] }
+      expected_rows = active_rows.select { |row| row[:stack_key] == "sinking_expected" }
+
       month_data = periods.map do |period|
         index = period.starts_on.month - 1
-        cells = rows.filter_map { |row| row[:months][index] if row[:active] }
+        cells = active_rows.map { |row| row[:months][index] }
         planned = cells.sum { |cell| cell[:planned] }
-        expected_rows = rows.select { |row| row[:active] && row[:stack_key] == "sinking_expected" }
         expected = expected_rows.sum { |row| row[:months][index][:planned] }
         contributors = expected_rows
           .filter_map { |row| [ row[:name], row[:months][index][:planned] ] if row[:months][index][:planned].positive? }

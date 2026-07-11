@@ -5769,6 +5769,10 @@ function AnnualIncomePlanner({
     setDraft(blankIncomeScheduleDraft(plan))
   }
 
+  function updateIncomeDraft(values: Partial<IncomeScheduleDraft>) {
+    setDraft((current) => ({ ...current, ...values }))
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!draft.income_source_id || !draft.amount || !draft.effective_on) {
@@ -5847,29 +5851,32 @@ function AnnualIncomePlanner({
             <form className="income-schedule-form" onSubmit={(event) => void submit(event)}>
               <label>
                 <span>Income source</span>
-                <select value={draft.income_source_id} onChange={(event) => setDraft((current) => ({ ...current, income_source_id: event.currentTarget.value }))}>
+                <select value={draft.income_source_id} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
                   {plan.income_sources.map((source) => <option value={source.id} key={source.id}>{source.label}</option>)}
                 </select>
               </label>
               <label>
                 <span>Change type</span>
-                <select value={draft.entry_type} onChange={(event) => setDraft((current) => ({ ...current, entry_type: event.currentTarget.value as IncomeScheduleDraft['entry_type'], cadence: event.currentTarget.value === 'one_time' ? 'one_time' : 'monthly' }))}>
+                <select value={draft.entry_type} onChange={(event) => {
+                  const entryType = event.currentTarget.value as IncomeScheduleDraft['entry_type']
+                  updateIncomeDraft({ entry_type: entryType, cadence: entryType === 'one_time' ? 'one_time' : 'monthly' })
+                }}>
                   <option value="recurring_change">Recurring change</option>
                   <option value="one_time">One-time income</option>
                 </select>
               </label>
               <label>
                 <span>{draft.entry_type === 'one_time' ? 'Payment month' : 'Starting month'}</span>
-                <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => setDraft((current) => ({ ...current, effective_on: `${event.currentTarget.value}-01` }))} />
+                <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => updateIncomeDraft({ effective_on: `${event.currentTarget.value}-01` })} />
               </label>
               <label>
                 <span>Amount</span>
-                <input type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => setDraft((current) => ({ ...current, amount: event.currentTarget.value }))} />
+                <input type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
               </label>
               {draft.entry_type === 'recurring_change' && (
                 <label>
                   <span>Cadence</span>
-                  <select value={draft.cadence} onChange={(event) => setDraft((current) => ({ ...current, cadence: event.currentTarget.value }))}>
+                  <select value={draft.cadence} onChange={(event) => updateIncomeDraft({ cadence: event.currentTarget.value })}>
                     {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
                   </select>
                 </label>
@@ -5877,7 +5884,7 @@ function AnnualIncomePlanner({
               {draft.entry_type === 'one_time' && (
                 <label>
                   <span>Label</span>
-                  <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => setDraft((current) => ({ ...current, label: event.currentTarget.value }))} />
+                  <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
                 </label>
               )}
               <div className="income-schedule-form-actions">

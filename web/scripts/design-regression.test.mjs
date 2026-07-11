@@ -79,5 +79,10 @@ assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending re
 assert.ok(app.includes('const phrase = `CONFIRM ${ids.length}`'), 'bulk actuals updates should require the exact typed count phrase')
 assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review queue controls should have intentional responsive styling')
 assert.ok(css.includes('.transaction-draft-bulk-actions'), 'bulk transaction controls should have intentional styling')
+assert.ok(app.includes('function updateIncomeDraft(values: Partial<IncomeScheduleDraft>)'), 'annual income edits should copy input values before React releases the event')
+assert.ok(
+  !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app),
+  'React event values must not be read from a deferred annual-income state updater',
+)
 
 console.log('design regression checks passed')
