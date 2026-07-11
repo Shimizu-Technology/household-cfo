@@ -134,8 +134,8 @@ module FinancialDocuments
       Rails.logger.warn("[FinancialDocuments::Extractor] encrypted PDF import #{document_import.id}: #{e.class}: #{e.message}")
       failure("This PDF is password-protected. Download an unlocked copy from the bank or export the transactions as CSV, then upload it again.")
     rescue CombinePDF::ParsingError => e
-      Rails.logger.warn("[FinancialDocuments::Extractor] could not batch PDF import #{document_import.id}: #{e.class}: #{e.message}")
-      nil
+      Rails.logger.warn("[FinancialDocuments::Extractor] could not safely parse PDF import #{document_import.id}: #{e.class}: #{e.message}")
+      failure("This PDF could not be safely split into complete extraction batches. Download a fresh PDF from the bank or export the transactions as CSV, then upload it again.")
     end
 
     def pdf_batch_pages(document_import)

@@ -121,6 +121,40 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     file&.close!
   end
 
+  test "fails safely when a PDF cannot be parsed for bounded batching" do
+    user = User.create!(clerk_id: "clerk_extractor_pdf_parse_user", email: "extractor-pdf-parse@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Extractor PDF Parse Household")
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "uploaded",
+      filename: "unparseable-statement.pdf",
+      content_type: "application/pdf",
+      byte_size: 20,
+      s3_key: "household-cfo/test/unparseable-statement.pdf"
+    )
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    extractor.define_singleton_method(:extract_openrouter_document) do |*_args, **_kwargs|
+      raise "full unsliced PDF extraction must not run"
+    end
+    original_load = CombinePDF.method(:load)
+    CombinePDF.define_singleton_method(:load) { |_path| raise CombinePDF::ParsingError, "invalid cross-reference table" }
+
+    with_s3_stubs(
+      configured?: true,
+      download_to_io: ->(_key, io) { io.write("unparseable-pdf-source"); true }
+    ) do
+      result = extractor.call(document_import)
+
+      refute result.success?
+      assert_match(/could not be safely split/i, result.error)
+      assert_match(/export the transactions as CSV/i, result.error)
+    end
+  ensure
+    CombinePDF.define_singleton_method(:load, original_load) if original_load
+  end
+
   test "uses OpenRouter json_object response format for default Gemini model" do
     user = User.create!(clerk_id: "clerk_extractor_format_user", email: "extractor-format@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Extractor Format Household")
@@ -247,10 +281,10 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
       uploaded_by_user: user,
       document_kind: "statement",
       status: "uploaded",
-      filename: "large-statement.pdf",
-      content_type: "application/pdf",
+      filename: "large-statement.png",
+      content_type: "image/png",
       byte_size: 20,
-      s3_key: "household-cfo/test/large-statement.pdf"
+      s3_key: "household-cfo/test/large-statement.png"
     )
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
 
