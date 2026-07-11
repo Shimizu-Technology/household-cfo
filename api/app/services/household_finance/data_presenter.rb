@@ -229,9 +229,9 @@ module HouseholdFinance
 
     def uploads
       [
-        { label: "Upload spreadsheet", kind: "spreadsheet", status: "Coming after privacy/OCR scope", accepts: ".xlsx, .xls, .csv" },
-        { label: "Upload statement", kind: "statement", status: "Coming after privacy/OCR scope", accepts: ".pdf, .csv, .png, .jpg" },
-        { label: "Upload pay stub", kind: "paystub", status: "Coming after privacy/OCR scope", accepts: ".pdf, .png, .jpg" }
+        { label: "Upload spreadsheet", kind: "spreadsheet", status: "Private extraction with review before apply", accepts: ".xlsx, .xls, .csv" },
+        { label: "Upload statement", kind: "statement", status: "Transactions draft into the correct months for review", accepts: ".pdf, .csv, .png, .jpg" },
+        { label: "Upload pay stub", kind: "paystub", status: "Income facts stay pending until you approve them", accepts: ".pdf, .png, .jpg" }
       ]
     end
 

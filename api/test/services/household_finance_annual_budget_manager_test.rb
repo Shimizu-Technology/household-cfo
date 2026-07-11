@@ -1,6 +1,30 @@
 require "test_helper"
 
 class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
+  include ActiveSupport::Testing::TimeHelpers
+
+  test "annual outlook identifies a future expense spike and its expected sinking-fund driver" do
+    travel_to Date.new(2026, 7, 12) do
+      household = create_household
+      household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 500_000, cadence: "monthly")
+      household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 100_000, cadence: "monthly")
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+      category = manager.create_category!(name: "Holiday travel", stack_key: "sinking_expected", monthly_amount: 0)
+      december = manager.ensure_plan!.budget_periods.find_by!(starts_on: Date.new(2026, 12, 1))
+      allocation = BudgetAllocation.find_by!(budget_category: category, budget_period: december)
+      manager.update_allocation!(allocation, 3_000)
+
+      plan = manager.plan_data
+      outlook = plan.fetch(:annual_outlook)
+
+      assert_equal 1_000, outlook.fetch(:typical_monthly_outflow)
+      assert_equal [ "Dec" ], outlook.fetch(:upcoming_spikes).map { |month| month.fetch(:label) }
+      assert_equal 3_000, outlook.fetch(:upcoming_spikes).first.fetch(:amount_above_typical)
+      assert_equal "Dec", outlook.fetch(:next_irregular_month).fetch(:label)
+      assert_equal [ { name: "Holiday travel", amount: 3_000.0 } ], outlook.fetch(:next_irregular_month).fetch(:expected_contributors)
+    end
+  end
+
   test "plan data scopes pending transaction drafts to the viewed budget year" do
     household = create_household
     household.transaction_drafts.create!(

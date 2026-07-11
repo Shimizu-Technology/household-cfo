@@ -168,7 +168,92 @@ module Demo
             examples: [ "car repair", "clinic visit", "appliance replacement" ]
           }
         ],
-        custom_categories_note: "Defaults are a starting point. Users should be able to rename categories into the language of their household."
+        custom_categories_note: "Defaults are a starting point. Users should be able to rename categories into the language of their household.",
+        annual_plan: annual_plan
+      }
+    end
+
+    def self.annual_plan
+      year = Date.current.year
+      months = (1..12).map do |month|
+        starts_on = Date.new(year, month, 1)
+        {
+          id: month,
+          label: starts_on.strftime("%b"),
+          starts_on: starts_on.iso8601,
+          ends_on: starts_on.end_of_month.iso8601,
+          status: "open"
+        }
+      end
+      rows = [
+        demo_budget_row(1, "Fixed essentials", "non_discretionary", "Non-discretionary", 4_625, months),
+        demo_budget_row(2, "Flexible spending", "discretionary", "Discretionary", 1_380, months),
+        demo_budget_row(3, "Expected sinking funds", "sinking_expected", "Sinking Fund — Expected", 560, months, december_amount: 2_560),
+        demo_budget_row(4, "Unexpected sinking fund", "sinking_unexpected", "Sinking Fund — Unexpected", 360, months)
+      ]
+      income = months.to_h { |month| [ month[:id], month[:id] >= 8 ? 8_500 : 8_250 ] }
+      income[12] += 1_000
+      outlook_months = months.map do |month|
+        planned = rows.sum { |row| row[:months][month[:id] - 1][:planned] }
+        expected = rows[2][:months][month[:id] - 1][:planned]
+        {
+          period_id: month[:id],
+          label: month[:label],
+          starts_on: month[:starts_on],
+          income: income.fetch(month[:id]),
+          planned_outflow: planned,
+          baseline_surplus: income.fetch(month[:id]) - planned,
+          expected_irregular: expected,
+          expected_contributors: [ { name: "Expected sinking funds", amount: expected } ]
+        }
+      end
+      december = outlook_months.last.merge(amount_above_typical: 2_000)
+
+      {
+        year: year,
+        months: months,
+        rows: rows,
+        monthly_income: income,
+        income_sources: [
+          {
+            id: 1,
+            label: "Primary income",
+            source_type: "job",
+            base_amount: 8_250,
+            base_cadence: "monthly",
+            schedule_entries: [
+              { id: 1, entry_type: "recurring_change", label: nil, amount: 8_500, cadence: "monthly", effective_on: Date.new(year, 8, 1).iso8601 },
+              { id: 2, entry_type: "one_time", label: "Year-end bonus", amount: 1_000, cadence: "one_time", effective_on: Date.new(year, 12, 1).iso8601 }
+            ]
+          }
+        ],
+        annual_outlook: {
+          typical_monthly_outflow: 6_925,
+          months: outlook_months,
+          upcoming_spikes: [ december ],
+          next_irregular_month: outlook_months.find { |month| Date.iso8601(month[:starts_on]) >= Date.current.beginning_of_month }
+        },
+        pending_transaction_drafts: [],
+        pending_mia_action_drafts: [],
+        recent_transactions: [],
+        archived_categories: []
+      }
+    end
+
+    def self.demo_budget_row(id, name, stack_key, stack_label, monthly_amount, months, december_amount: monthly_amount)
+      cells = months.map do |month|
+        planned = month[:id] == 12 ? december_amount : monthly_amount
+        { period_id: month[:id], allocation_id: id * 100 + month[:id], planned: planned, actual: 0, remaining: planned }
+      end
+      {
+        id: id,
+        name: name,
+        stack_key: stack_key,
+        stack_label: stack_label,
+        active: true,
+        months: cells,
+        planned_total: cells.sum { |cell| cell[:planned] },
+        actual_total: 0
       }
     end
 

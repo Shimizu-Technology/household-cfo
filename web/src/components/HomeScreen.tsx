@@ -27,6 +27,8 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
   const monthActual = currentPlan?.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0) ?? 0
   const annualPlanned = currentPlan?.rows.reduce((sum, row) => sum + row.months.reduce((monthSum, month) => monthSum + month.planned, 0), 0) ?? 0
   const annualActual = currentPlan?.rows.reduce((sum, row) => sum + row.months.reduce((monthSum, month) => monthSum + month.actual, 0), 0) ?? 0
+  const upcomingSpike = currentPlan?.annual_outlook?.upcoming_spikes[0]
+  const nextIrregular = currentPlan?.annual_outlook?.next_irregular_month
 
   return (
     <section className="screen-grid home-screen">
@@ -58,6 +60,29 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           </div>
         </article>
       </section>
+
+      {(upcomingSpike || nextIrregular) && (
+        <section className="home-look-ahead" aria-label="Annual plan look ahead">
+          <div>
+            <span>Look ahead</span>
+            <h3>The next annual-plan pressure is visible now.</h3>
+          </div>
+          {upcomingSpike && (
+            <article>
+              <span>{upcomingSpike.label} spending spike</span>
+              <strong>{currency.format(upcomingSpike.planned_outflow)} planned</strong>
+              <p>{currency.format(upcomingSpike.amount_above_typical ?? 0)} above a typical planned month.</p>
+            </article>
+          )}
+          {nextIrregular && (
+            <article>
+              <span>{nextIrregular.label} expected irregular plan</span>
+              <strong>{currency.format(nextIrregular.expected_irregular)}</strong>
+              <p>{nextIrregular.expected_contributors.map((item) => item.name).join(' · ') || 'Expected sinking funds'}</p>
+            </article>
+          )}
+        </section>
+      )}
 
       <div className={`status-ribbon ${dashboard.summary.readiness_tone}`}>
         <div>

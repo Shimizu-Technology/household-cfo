@@ -98,10 +98,9 @@ Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-t
 
 PR #32 merged supervised Mia action drafts. The current sequence is:
 
-1. Pilot-harden financial truth, review-first Home UX, mobile performance, and rendered browser coverage.
-2. Production smoke test the merged voice/document/transaction/action loop with demo-safe fixtures.
-3. Discuss Mia Memory trust, visibility, and controls with Mrs. Mel.
-4. Build a visible/user-controlled Memory MVP only after that discovery.
+1. Production smoke test the voice/document/transaction/action and annual-planning loops with demo-safe fixtures.
+2. Discuss Mia Memory trust, visibility, and controls with Mrs. Mel.
+3. Build a visible/user-controlled Memory MVP only after that discovery.
 
 ## Deferred until after the real-mode MVP
 

@@ -36,13 +36,18 @@ module HouseholdFinance
         .index_by { |allocation| [ allocation.budget_category_id, allocation.budget_period_id ] }
       actuals = actuals_by_category_and_period(categories.map(&:id), periods)
 
+      rows = categories.map do |category|
+        category_payload(category, periods, allocations_by_category_and_period, actuals)
+      end
+      monthly_income = monthly_income_by_period(periods)
+
       {
         year: budget_year.year,
         months: periods.map { |period| period_payload(period) },
-        rows: categories.map do |category|
-          category_payload(category, periods, allocations_by_category_and_period, actuals)
-        end,
-        monthly_income: monthly_income_by_period(periods),
+        rows: rows,
+        monthly_income: monthly_income,
+        income_sources: income_sources_payload,
+        annual_outlook: annual_outlook_payload(periods, rows, monthly_income),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
@@ -235,9 +240,89 @@ module HouseholdFinance
     end
 
     def monthly_income_by_period(periods)
-      monthly_income_cents = household.income_sources.where(active: true).sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
-      monthly_income = Money.dollars(monthly_income_cents)
-      periods.index_with { monthly_income }.transform_keys(&:id)
+      sources = scheduled_income_sources
+      periods.index_with do |period|
+        Money.dollars(sources.sum { |source| income_source_cents_for_period(source, period) })
+      end.transform_keys(&:id)
+    end
+
+    def scheduled_income_sources
+      @scheduled_income_sources ||= household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).to_a
+    end
+
+    def income_source_cents_for_period(source, period)
+      IncomeTimeline.period_cents(source, starts_on: period.starts_on, ends_on: period.ends_on)
+    end
+
+    def income_sources_payload
+      scheduled_income_sources.map do |source|
+        {
+          id: source.id,
+          label: source.label,
+          source_type: source.source_type,
+          base_amount: Money.dollars(source.amount_cents),
+          base_cadence: source.cadence,
+          schedule_entries: source.income_schedule_entries.sort_by(&:effective_on).map do |entry|
+            {
+              id: entry.id,
+              entry_type: entry.entry_type,
+              label: entry.label,
+              amount: Money.dollars(entry.amount_cents),
+              cadence: entry.cadence,
+              effective_on: entry.effective_on.iso8601
+            }
+          end
+        }
+      end
+    end
+
+    def annual_outlook_payload(periods, rows, monthly_income)
+      month_data = periods.map do |period|
+        index = period.starts_on.month - 1
+        cells = rows.filter_map { |row| row[:months][index] if row[:active] }
+        planned = cells.sum { |cell| cell[:planned] }
+        expected_rows = rows.select { |row| row[:active] && row[:stack_key] == "sinking_expected" }
+        expected = expected_rows.sum { |row| row[:months][index][:planned] }
+        contributors = expected_rows
+          .filter_map { |row| [ row[:name], row[:months][index][:planned] ] if row[:months][index][:planned].positive? }
+          .sort_by { |(_, amount)| -amount }
+          .first(3)
+          .map { |name, amount| { name: name, amount: amount } }
+
+        {
+          period_id: period.id,
+          label: MONTH_NAMES[index],
+          starts_on: period.starts_on.iso8601,
+          income: monthly_income.fetch(period.id),
+          planned_outflow: planned,
+          baseline_surplus: monthly_income.fetch(period.id) - planned,
+          expected_irregular: expected,
+          expected_contributors: contributors
+        }
+      end
+      typical = median(month_data.map { |month| month[:planned_outflow] })
+      threshold = [ 100.0, typical * 0.1 ].max
+      eligible = month_data.select { |month| Date.iso8601(month[:starts_on]) >= outlook_start_date }
+      spikes = eligible
+        .select { |month| month[:planned_outflow] >= typical + threshold }
+        .map { |month| month.merge(amount_above_typical: month[:planned_outflow] - typical) }
+
+      {
+        typical_monthly_outflow: typical,
+        months: month_data,
+        upcoming_spikes: spikes.first(3),
+        next_irregular_month: eligible.find { |month| month[:expected_irregular].positive? }
+      }
+    end
+
+    def median(values)
+      sorted = values.sort
+      midpoint = sorted.length / 2
+      sorted.length.odd? ? sorted[midpoint] : (sorted[midpoint - 1] + sorted[midpoint]) / 2.0
+    end
+
+    def outlook_start_date
+      year == Date.current.year ? Date.current.beginning_of_month : Date.new(year, 1, 1)
     end
 
     def category_payload(category, periods, allocations, actuals)

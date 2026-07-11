@@ -394,10 +394,60 @@ export type AnnualBudgetPlan = {
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
   monthly_income: Record<number, number>
+  income_sources: IncomeTimelineSource[]
+  annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
   pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
+}
+
+export type IncomeScheduleEntryType = 'recurring_change' | 'one_time'
+
+export type IncomeScheduleEntry = {
+  id: number
+  entry_type: IncomeScheduleEntryType
+  label: string | null
+  amount: number
+  cadence: string
+  effective_on: string
+}
+
+export type IncomeTimelineSource = {
+  id: number
+  label: string
+  source_type: string
+  base_amount: number
+  base_cadence: string
+  schedule_entries: IncomeScheduleEntry[]
+}
+
+export type AnnualOutlookMonth = {
+  period_id: number
+  label: string
+  starts_on: string
+  income: number
+  planned_outflow: number
+  baseline_surplus: number
+  expected_irregular: number
+  expected_contributors: Array<{ name: string; amount: number }>
+  amount_above_typical?: number
+}
+
+export type AnnualOutlook = {
+  typical_monthly_outflow: number
+  months: AnnualOutlookMonth[]
+  upcoming_spikes: AnnualOutlookMonth[]
+  next_irregular_month: AnnualOutlookMonth | null
+}
+
+export type IncomeScheduleEntryInput = {
+  income_source_id: number
+  entry_type: IncomeScheduleEntryType
+  label?: string
+  amount: number | string
+  cadence?: string
+  effective_on: string
 }
 
 export type BudgetStackKey = 'non_discretionary' | 'discretionary' | 'sinking_expected' | 'sinking_unexpected'
@@ -887,6 +937,25 @@ export async function updateBudgetAllocation(id: number, plannedAmount: number |
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ allocation: { planned_amount: plannedAmount } }),
   })
+  return payload.budget
+}
+
+export async function createIncomeScheduleEntry(values: IncomeScheduleEntryInput, year?: number): Promise<BudgetData> {
+  const payload = await postJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries${yearQuery(year)}`, { income_schedule_entry: values })
+  return payload.budget
+}
+
+export async function updateIncomeScheduleEntry(id: number, values: IncomeScheduleEntryInput, year?: number): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries/${id}${yearQuery(year)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ income_schedule_entry: values }),
+  })
+  return payload.budget
+}
+
+export async function deleteIncomeScheduleEntry(id: number, year?: number): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries/${id}${yearQuery(year)}`, { method: 'DELETE' })
   return payload.budget
 }
 
