@@ -75,7 +75,20 @@ module Demo
           savings_rate_percent: 14,
           runway_months: 4.6,
           next_safe_to_spend_amount: 540,
+          readiness_tone: "yellow",
           readiness_label: "Yellow — close, but protect runway"
+        },
+        action_center: {
+          transaction_review_count: 0,
+          mia_action_review_count: 0,
+          total_review_count: 0,
+          current_month_label: Date.current.strftime("%B"),
+          current_month_index: Date.current.month - 1,
+          current_year: Date.current.year
+        },
+        coach_read: {
+          title: "Close the remaining runway gap.",
+          body: "Your monthly cash flow is holding, but the household still needs more protected runway. Keep expected expenses funded and direct planned surplus toward the runway target before expanding wants."
         },
         accounts: [
           { name: "Checking", type: "cash", balance: 6840 },
@@ -242,7 +255,7 @@ module Demo
           }
         ],
         quick_prompts: [
-          "Why is my baseline yellow?",
+          "Why is my readiness Yellow?",
           "Can I leave my job?",
           "Emergency fund or debt first?",
           "What should I do with a bonus?"

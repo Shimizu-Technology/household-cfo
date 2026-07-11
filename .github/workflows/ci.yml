@@ -130,6 +130,9 @@ jobs:
       - name: Run design regression checks
         run: npm test
 
+      - name: Run rendered desktop and mobile browser checks
+        run: npm run test:browser
+
       - name: Build web app
         run: npm run build
 

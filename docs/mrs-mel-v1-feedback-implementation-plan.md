@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-30
 **Product:** Household CFO Method powered by VERA
-**Status:** implementation guide with PR #20 status update
+**Status:** historical implementation guide through PR #32; see `docs/current-state.md` for canonical status
 
 ## Source notes reviewed
 
@@ -38,12 +38,11 @@ docs/post-pr29-roadmap.md
 docs/mia-memory-and-supervised-actions.md
 ```
 
-Working sequence:
+PR #32 subsequently completed supervised Mia action drafts. Current sequence:
 
-1. Production smoke the merged document/transaction/voice loop.
-2. Add supervised Mia action drafts so Mia can propose budget/category edits for review before Rails applies them.
+1. Pilot-harden truth, review-first Home UX, mobile performance, and browser coverage.
+2. Production smoke the merged document/transaction/voice/action loop.
 3. Discuss Mia Memory with Mrs. Mel, then build a visible/user-controlled Memory MVP.
-4. Polish the annual budget UX and pilot-ready review flows.
 
 The product boundary remains unchanged: Mia proposes and coaches; Rails validates and writes; the Household CFO confirms.
 

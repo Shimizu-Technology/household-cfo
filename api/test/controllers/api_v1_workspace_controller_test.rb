@@ -790,7 +790,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty session.chat_messages
   end
 
-  test "mia chat returns every persisted message since the last clear" do
+  test "mia chat returns the complete persisted history when it fits on one page" do
     user = create_user(email: "full-chat-history@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     session = household.chat_sessions.create!(user: user, title: "Ask Mia")
@@ -805,6 +805,35 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 30, messages.length
     assert_equal "Persisted message 1", messages.first.fetch("content")
     assert_equal "Persisted message 30", messages.last.fetch("content")
+    assert_equal 0, JSON.parse(response.body).fetch("older_message_count")
+  end
+
+  test "mia chat paginates older history without returning every attachment on each poll" do
+    user = create_user(email: "paginated-chat-history@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    125.times do |index|
+      session.chat_messages.create!(role: index.even? ? "user" : "assistant", content: "Persisted message #{index + 1}")
+    end
+
+    get "/api/v1/mia/messages", params: { limit: 60 }, headers: auth_headers(user)
+
+    assert_response :success
+    first_page = JSON.parse(response.body)
+    assert_equal 60, first_page.fetch("messages").length
+    assert_equal "Persisted message 66", first_page.fetch("messages").first.fetch("content")
+    assert_equal "Persisted message 125", first_page.fetch("messages").last.fetch("content")
+    assert_equal 65, first_page.fetch("older_message_count")
+    assert_equal true, first_page.fetch("has_older_messages")
+
+    get "/api/v1/mia/messages", params: { before_id: first_page.fetch("oldest_message_id"), limit: 60 }, headers: auth_headers(user)
+
+    assert_response :success
+    second_page = JSON.parse(response.body)
+    assert_equal 60, second_page.fetch("messages").length
+    assert_equal "Persisted message 6", second_page.fetch("messages").first.fetch("content")
+    assert_equal "Persisted message 65", second_page.fetch("messages").last.fetch("content")
+    assert_equal 5, second_page.fetch("older_message_count")
   end
 
   test "mia chat history can be cleared" do

@@ -114,10 +114,24 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 
 ## Full production smoke test
 
+For each deploy, record the date, deployed commit, tester, account/cohort, desktop browser, real phone/browser, and links to screenshots/log evidence. A checked item without that evidence is not considered production-proven.
+
+```text
+Deploy date:
+Commit:
+Tester:
+Participant account/cohort:
+Desktop browser:
+Phone/browser:
+Evidence location:
+```
+
 - Clerk sign-in/sign-out.
 - Invited participant lands in the real workspace.
 - Uninvited account is denied.
 - Home/Budget/Wealth/CFO Filter/Optionality render from saved data.
+- Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
+- Home shows pending transaction/action review counts and the current month inside the annual plan.
 - My Profile manual setup saves and refreshes Mia context.
 - Excel budget template downloads.
 - Private document upload → review → edit → apply.

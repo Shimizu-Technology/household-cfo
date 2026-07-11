@@ -227,7 +227,20 @@ export type DashboardData = {
     savings_rate_percent: number
     runway_months: number
     next_safe_to_spend_amount: number
+    readiness_tone: 'red' | 'yellow' | 'green'
     readiness_label: string
+  }
+  action_center: {
+    transaction_review_count: number
+    mia_action_review_count: number
+    total_review_count: number
+    current_month_label: string
+    current_month_index: number
+    current_year: number
+  }
+  coach_read: {
+    title: string
+    body: string
   }
   accounts: Array<{ name: string; type: string; balance: number }>
   alerts: Array<{ tone: string; title: string; body: string }>
@@ -456,6 +469,9 @@ export type MiaMessage = {
 
 export type MiaMessagesData = {
   messages: MiaMessage[]
+  oldest_message_id?: number | null
+  older_message_count?: number
+  has_older_messages?: boolean
   quick_prompts: string[]
   disclaimer: string
 }
@@ -785,12 +801,13 @@ export type MiaMessageResponse = {
   spending_report?: SpendingReport | null
 }
 
-export async function fetchMiaMessages(realWorkspace = false): Promise<MiaMessagesData> {
+export async function fetchMiaMessages(realWorkspace = false, beforeId?: number | null): Promise<MiaMessagesData> {
   if (!realWorkspace) {
     return { messages: [], quick_prompts: [], disclaimer: '' }
   }
 
-  return fetchJson<MiaMessagesData>('/api/v1/mia/messages')
+  const query = beforeId ? `?before_id=${encodeURIComponent(beforeId)}&limit=60` : '?limit=60'
+  return fetchJson<MiaMessagesData>(`/api/v1/mia/messages${query}`)
 }
 
 export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = []): Promise<MiaMessageResponse> {

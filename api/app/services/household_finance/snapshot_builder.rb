@@ -171,6 +171,7 @@ module HouseholdFinance
 
     def safe_to_spend_cents
       return 0 if baseline_surplus_cents <= 0
+      return 0 if readiness_tone == "red"
 
       (baseline_surplus_cents * 0.4).round
     end

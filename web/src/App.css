@@ -195,6 +195,18 @@ h3 {
   box-shadow: 0 16px 36px rgba(47, 38, 28, 0.07);
 }
 
+.chat-history-load {
+  justify-self: center;
+  min-height: 36px;
+  padding: 8px 13px;
+  border: 1px solid rgba(123, 74, 88, 0.18);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.84);
+  color: var(--emerald);
+  font-size: 0.76rem;
+  font-weight: 850;
+}
+
 .mia-status-card {
   display: grid;
   align-self: center;
@@ -337,6 +349,14 @@ h3 {
   box-shadow: 0 10px 22px rgba(123, 74, 88, 0.18);
 }
 
+.tabs-shell {
+  position: relative;
+}
+
+.tabs-scroll-cue {
+  display: none;
+}
+
 .screen-grid {
   display: grid;
   gap: 18px;
@@ -357,6 +377,130 @@ h3 {
   border-radius: 20px;
   background: #fff1dd;
   color: #70401f;
+}
+
+.status-ribbon.red {
+  border-color: rgba(174, 75, 69, 0.24);
+  background: #f9e7e1;
+  color: #7c332f;
+}
+
+.status-ribbon.red p {
+  color: rgba(124, 51, 47, 0.78);
+}
+
+.status-ribbon.green {
+  border-color: rgba(74, 131, 105, 0.24);
+  background: #e7f1e9;
+  color: #285d46;
+}
+
+.status-ribbon.green p {
+  color: rgba(40, 93, 70, 0.78);
+}
+
+.home-action-center {
+  display: grid;
+  grid-template-columns: minmax(0, 0.82fr) minmax(0, 1.18fr);
+  gap: 14px;
+}
+
+.home-review-card,
+.home-period-card {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 253, 248, 0.9);
+  box-shadow: 0 16px 36px rgba(47, 38, 28, 0.07);
+}
+
+.home-review-card.has-reviews {
+  border-left: 5px solid var(--status-yellow);
+}
+
+.home-review-card.is-clear {
+  border-left: 5px solid var(--status-green);
+}
+
+.home-review-card > span,
+.home-period-card > span,
+.home-period-metrics .metric-card span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.home-review-card > strong {
+  display: block;
+  margin: 4px 0;
+  font-family: var(--number-font);
+  font-size: clamp(2.6rem, 6vw, 4.5rem);
+  line-height: 1;
+}
+
+.home-review-card p,
+.home-period-card p {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.home-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.home-review-actions button {
+  min-height: 38px;
+  padding: 8px 13px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.home-review-actions button.subtle {
+  border: 1px solid rgba(123, 74, 88, 0.2);
+  background: white;
+  color: var(--emerald);
+}
+
+.home-period-card h3 {
+  margin-top: 5px;
+}
+
+.home-period-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.home-period-metrics .metric-card {
+  min-height: 82px;
+  padding: 12px;
+  border-radius: 16px;
+  box-shadow: none;
+}
+
+.home-period-metrics .metric-card strong {
+  font-size: clamp(0.98rem, 2vw, 1.3rem);
+}
+
+.coach-panel.red {
+  border-left: 5px solid var(--status-red);
+}
+
+.coach-panel.yellow {
+  border-left: 5px solid var(--status-yellow);
+}
+
+.coach-panel.green {
+  border-left: 5px solid var(--status-green);
 }
 
 .status-ribbon span,
@@ -1311,6 +1455,14 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .home-action-center {
+    grid-template-columns: 1fr;
+  }
+
+  .home-period-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .metric-row,
   .lever-row,
   .profile-section-grid,
@@ -1396,14 +1548,17 @@ h3 {
 
   .mia-status-card strong,
   .mia-status-card p {
+    grid-column: 2;
     margin: 0;
   }
 
   .mia-status-card strong {
+    grid-row: 1;
     font-size: 0.86rem;
   }
 
   .mia-status-card p {
+    grid-row: 2;
     font-size: 0.76rem;
     line-height: 1.35;
   }
@@ -1464,6 +1619,34 @@ h3 {
     padding: 4px;
     border-radius: 18px;
     background: rgba(255, 253, 248, 0.94);
+  }
+
+  .tabs-shell {
+    margin-bottom: 12px;
+  }
+
+  .tabs-shell .tabs {
+    margin-bottom: 3px;
+  }
+
+  .tabs-scroll-cue {
+    display: block;
+    padding-right: 5px;
+    color: var(--muted);
+    font-size: 0.64rem;
+    font-weight: 800;
+    letter-spacing: 0.04em;
+    text-align: right;
+  }
+
+  .home-action-center {
+    gap: 10px;
+  }
+
+  .home-review-card,
+  .home-period-card {
+    padding: 15px;
+    border-radius: 18px;
   }
 
   .tabs button {

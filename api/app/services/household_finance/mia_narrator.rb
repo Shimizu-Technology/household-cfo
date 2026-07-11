@@ -52,6 +52,7 @@ module HouseholdFinance
       return fallback_response if sanitized.blank?
       return fallback_response if false_write_claim?(sanitized)
       return fallback_response if contradicts_no_pending_drafts?(sanitized)
+      return fallback_response if contradicts_readiness_status?(sanitized)
       return fallback_response if invented_currency_amount?(sanitized)
 
       sanitized
@@ -239,6 +240,41 @@ module HouseholdFinance
     def known_pending_draft_count_zero?
       summaries = [ answer_packet[:spending_report_summary], answer_packet[:annual_plan_summary] ].compact
       summaries.any? { |summary| summary.key?(:pending_draft_count) && summary[:pending_draft_count].to_i.zero? }
+    end
+
+    def contradicts_readiness_status?(content)
+      approved_tone = approved_readiness_tone
+      return false if approved_tone.blank?
+
+      claimed_tones = content.scan(/\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i).flatten.map(&:downcase)
+      claimed_tones.any? { |tone| tone != approved_tone }
+    end
+
+    def approved_readiness_tone
+      readiness_values = collect_values_for_keys(answer_packet, /readiness(?:_label|_tone)?\z/i)
+      readiness_values.each do |value|
+        match = value.to_s.match(/\b(red|yellow|green)\b/i)
+        return match[1].downcase if match
+      end
+
+      fallback_match = fallback_response.match(/\breadiness(?:\s+status)?\s+(?:is|:)\s+["“]?(red|yellow|green)\b/i)
+      return fallback_match[1].downcase if fallback_match
+
+      nil
+    end
+
+    def collect_values_for_keys(value, key_pattern)
+      case value
+      when Hash
+        value.flat_map do |key, nested_value|
+          direct = key.to_s.match?(key_pattern) ? [ nested_value ] : []
+          direct + collect_values_for_keys(nested_value, key_pattern)
+        end
+      when Array
+        value.flat_map { |nested_value| collect_values_for_keys(nested_value, key_pattern) }
+      else
+        []
+      end
     end
 
     def invented_currency_amount?(content)
