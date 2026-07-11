@@ -35,8 +35,8 @@ gem "resend", "~> 0.16.0"
 
 # Private S3 storage and spreadsheet parsing for financial document imports
 gem "aws-sdk-s3", "~> 1.0"
-gem "roo", "~> 2.10"
-gem "roo-xls", "~> 1.2"
+gem "roo", "~> 3.0"
+gem "roo-xls", "~> 2.0"
 gem "combine_pdf", "~> 1.0"
 
 # Use Rack CORS for handling Cross-Origin Resource Sharing (CORS), making cross-origin Ajax possible
