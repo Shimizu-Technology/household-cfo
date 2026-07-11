@@ -38,6 +38,32 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied Mia’s budget edit"
   end
 
+  test "malformed persisted action payload fails safely without changing the budget" do
+    user = create_user(email: "mia-action-incomplete-payload@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+
+    post "/api/v1/mia/messages",
+      params: { message: "Set Groceries budget to $800 per month" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft = MiaActionDraft.find(JSON.parse(response.body).dig("mia_action_draft", "id"))
+    draft.mia_action_items.first.update_column(:payload, {})
+
+    assert_no_difference("HouseholdAuditEvent.count") do
+      post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), HouseholdFinance::MiaActionDraftApplier::INCOMPLETE_DRAFT_MESSAGE
+    assert_equal "pending", draft.reload.status
+    assert_equal [ 50_000 ], planned_amounts_for(category)
+  end
+
   test "model resolved budget intent creates a Rails validated review card and structured conversation thread" do
     user = create_user(email: "mia-model-intent-action@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

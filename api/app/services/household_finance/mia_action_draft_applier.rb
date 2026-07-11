@@ -2,6 +2,7 @@ module HouseholdFinance
   class MiaActionDraftApplier
     Result = Struct.new(:success?, :draft, :errors, keyword_init: true)
     StaleDraftError = Class.new(StandardError)
+    INCOMPLETE_DRAFT_MESSAGE = "Mia’s review card is incomplete. Ask Mia to draft a fresh edit. Nothing changed."
 
     def initialize(draft, user:)
       @draft = draft
@@ -28,6 +29,8 @@ module HouseholdFinance
       Result.new(success?: false, draft: draft, errors: [ stale_category_name_message ])
     rescue ActiveRecord::RecordInvalid => e
       Result.new(success?: false, draft: draft, errors: e.record.errors.full_messages)
+    rescue KeyError
+      Result.new(success?: false, draft: draft, errors: [ INCOMPLETE_DRAFT_MESSAGE ])
     rescue ArgumentError, ActiveRecord::RecordNotFound, StaleDraftError => e
       Result.new(success?: false, draft: draft, errors: [ e.message ])
     end
