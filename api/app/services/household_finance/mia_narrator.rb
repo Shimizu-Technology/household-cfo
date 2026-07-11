@@ -180,11 +180,30 @@ module HouseholdFinance
       content.to_s
         .sub(/\AMia:\s*/i, "")
         .sub(BANNED_OPENERS, "")
+        .then { |value| remove_reflexive_cultural_opener(value) }
+        .then { |value| enforce_cultural_restraint(value) }
         .gsub(/Mia, your household CFO\.?/i, "Mia, your coach")
         .gsub(/Plan, don[’']t gamble\.?/i, "Protect the household baseline.")
         .gsub(/[\r\n]+/, " ")
         .squish
         .presence
+    end
+
+    def remove_reflexive_cultural_opener(content)
+      content.sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?)[.!]?\s*/i, "")
+    end
+
+    def enforce_cultural_restraint(content)
+      recent_assistant_messages = conversation_history
+        .select { |message| message.fetch(:role) == "assistant" }
+        .last(4)
+        .pluck(:content)
+      return content unless recent_assistant_messages.any? { |message| message.match?(/\b(?:chelu|lanya|umbee|håfa adai)\b/i) }
+
+      content
+        .gsub(/\s*,?\s*chelu\b\s*,?/i, " ")
+        .gsub(/\s+([.!?,;:])/, "\\1")
+        .squish
     end
 
     def false_write_claim?(content)

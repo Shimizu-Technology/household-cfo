@@ -313,26 +313,31 @@ module HouseholdFinance
       amount_cents = amount_match ? amount_cents_from(amount_match[:amount]) : 0
       stack_key = stack_key_from_text(body) || "discretionary"
       name = clean_new_category_name(body.sub(amount_match.to_s, ""))
+      name = name.gsub(/\b(?:for|in)\s+(?:#{MonthTerms.pattern})(?:\s+\d{4})?\b/i, " ").squish
       name = name.gsub(/\b(?:budget|category|line item|row|for|called|named|new|#{stack_alias_pattern})\b/i, " ").squish
       return validation_result("Tell me the category name before I draft a new budget row.") if name.blank?
       return validation_result("#{name} already exists. I can draft edits to the existing category instead.") if household.budget_categories.where("LOWER(name) = ?", name.downcase).exists?
 
+      month_numbers = month_numbers_for_message
+      return month_numbers if month_numbers.is_a?(Result)
+
+      scope = scope_label(month_numbers)
       item = Item.new(
         action_type: "create_category",
-        label: "Create #{name} at #{money(amount_cents)} per month",
-        description: "Adds a new #{stack_label(stack_key)} category with #{money(amount_cents)} planned for every month in #{annual_budget_manager.year}.",
+        label: "Create #{name} at #{money(amount_cents)} for #{scope}",
+        description: "Adds a new #{stack_label(stack_key)} category with #{money(amount_cents)} planned for #{scope}.",
         target_record_type: "BudgetCategory",
         target_record_id: nil,
-        payload: { name: name, stack_key: stack_key, monthly_amount_cents: amount_cents, year: annual_budget_manager.year },
+        payload: { name: name, stack_key: stack_key, monthly_amount_cents: amount_cents, month_numbers: month_numbers, year: annual_budget_manager.year },
         before_snapshot: {},
-        after_snapshot: { name: name, stack_key: stack_key, stack_label: stack_label(stack_key), monthly_amount_cents: amount_cents }
+        after_snapshot: { name: name, stack_key: stack_key, stack_label: stack_label(stack_key), monthly_amount_cents: amount_cents, month_numbers: month_numbers }
       )
       proposal_result(
         title: "Create budget category",
-        summary: "I drafted a new #{stack_label(stack_key)} category named #{name} at #{money(amount_cents)} per month.",
+        summary: "I drafted a new #{stack_label(stack_key)} category named #{name} at #{money(amount_cents)} for #{scope}.",
         rationale: "This adds planned dollars only after you apply the draft.",
         items: [ item ],
-        metadata: { source: "mia_chat", parser: "create_category" }
+        metadata: { source: "mia_chat", parser: "create_category", month_numbers: month_numbers }
       )
     end
 

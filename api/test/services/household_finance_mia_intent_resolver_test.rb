@@ -276,6 +276,44 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "Which active category should receive the money?", result.clarification
   end
 
+  test "requires exact month scope for a new category amount" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Create School Supplies with $75",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Create School Supplies with $75",
+          topic: { type: "budget_edit", title: "Create School Supplies", subject: "School Supplies" },
+          action: default_action.merge(
+            type: "create_category",
+            new_name: "School Supplies",
+            stack_key: "sinking_expected",
+            amount: "75",
+            months: [],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "Should that amount apply every month, or only specific months?", result.clarification
+  end
+
+  test "resolver contract tells the model to preserve create-category month scope" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "Create School Supplies with $75 for August", context: intent_context, api_key: "test-key")
+    contract = resolver.send(:payload).fetch(:messages).first.fetch(:content)
+
+    assert_includes contract, "must preserve its exact month scope"
+    assert_includes contract, '"with $75 for August"'
+  end
+
   test "allows setting an allocation to zero but rejects zero-dollar increases and decreases" do
     resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "Adjust it", context: intent_context, api_key: "")
     base_action = default_action.merge(category_id: 42, amount: "0", months: [ 7 ], year: 2026)

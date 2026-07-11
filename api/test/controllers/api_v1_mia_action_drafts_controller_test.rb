@@ -613,6 +613,60 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ 90_000 ], planned_amounts_for(category)
   end
 
+  test "mia creates a new category only in the explicitly requested month" do
+    user = create_user(email: "mia-action-create-category-single-month@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).ensure_plan!
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Create School Supplies with $75 for August 2026",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_action", title: "Create School Supplies", subject: "School Supplies" },
+      action: {
+        type: "create_category",
+        category_id: 0,
+        category_name: "",
+        target_category_id: 0,
+        target_category_name: "",
+        new_name: "School Supplies",
+        stack_key: "sinking_expected",
+        amount: "75",
+        months: [ 8 ],
+        year: 2026,
+        draft_id: 0
+      },
+      source: "model"
+    )
+    resolver = Object.new
+    resolver.define_singleton_method(:call) { intent }
+
+    with_intent_resolver(resolver) do
+      post "/api/v1/mia/messages",
+        params: { year: 2026, month: 8, message: "Create School Supplies with $75 for August 2026" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    item = body.fetch("mia_action_draft").fetch("items").first
+    assert_equal [ 8 ], item.fetch("payload").fetch("month_numbers")
+    assert_includes item.fetch("description"), "Aug 2026"
+
+    post "/api/v1/mia_action_drafts/#{body.fetch('mia_action_draft').fetch('id')}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    category = household.budget_categories.find_by!(name: "School Supplies")
+    assert_equal 7_500, planned_amount_for_month(category, 8)
+    assert_equal 0, planned_amount_for_month(category, 7)
+    assert_equal 0, planned_amount_for_month(category, 9)
+  end
+
   test "applying a create-category draft rejects a name that was created after proposal" do
     user = create_user(email: "mia-action-create-category-stale@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

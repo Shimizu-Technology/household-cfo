@@ -62,11 +62,28 @@ module HouseholdFinance
       conflicting_category = household.budget_categories.lock.find_by("LOWER(name) = ?", name.downcase)
       raise StaleDraftError, stale_category_name_message(name) if conflicting_category
 
-      manager.create_category!(
+      amount_cents = payload.fetch(:monthly_amount_cents).to_i
+      month_numbers = Array(payload[:month_numbers]).map(&:to_i).select { |month| month.between?(1, 12) }.uniq.sort
+      month_numbers = (1..12).to_a if month_numbers.empty? # Backward compatibility for pending drafts created before month scoping.
+      full_year = month_numbers == (1..12).to_a
+      category = manager.create_category!(
         name: name,
         stack_key: payload.fetch(:stack_key),
-        monthly_amount: Money.dollars(payload.fetch(:monthly_amount_cents).to_i)
+        monthly_amount: Money.dollars(full_year ? amount_cents : 0)
       )
+      apply_created_category_months!(category, month_numbers, amount_cents) unless full_year || amount_cents.zero?
+    end
+
+    def apply_created_category_months!(category, month_numbers, amount_cents)
+      starts_on = month_numbers.map { |month| Date.new(draft.year, month, 1) }
+      allocations = category.budget_allocations
+        .joins(:budget_period)
+        .where(budget_periods: { starts_on: starts_on })
+        .lock
+        .to_a
+      raise ActiveRecord::RecordNotFound, "Budget allocation not found" unless allocations.length == month_numbers.length
+
+      allocations.each { |allocation| manager.update_allocation!(allocation, Money.dollars(amount_cents)) }
     end
 
     def apply_update_category!(item)

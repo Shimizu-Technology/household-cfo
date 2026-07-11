@@ -102,7 +102,13 @@ module Demo
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message, context: context) unless content
 
-      sanitized = sanitize_assistant_content(content, user_message: message, draft_capable: draft_capable)
+      sanitized = sanitize_assistant_content(
+        content,
+        user_message: message,
+        draft_capable: draft_capable,
+        history: history,
+        conversation_resolution: conversation_resolution
+      )
       sanitized.presence || fallback_response(message, context: context)
     end
 
@@ -140,15 +146,19 @@ module Demo
       end.last(32)
     end
 
-    def sanitize_assistant_content(content, user_message: nil, draft_capable: false)
+    def sanitize_assistant_content(content, user_message: nil, draft_capable: false, history: [], conversation_resolution: nil)
       sanitized = content.to_s
         .sub(/\AMia:\s*/i, "")
         .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")
         .then { |value| remove_banned_branding(value) }
+        .then { |value| remove_reflexive_cultural_opener(value) }
+        .then { |value| enforce_cultural_restraint(value, history) }
+        .gsub(/[\r\n]+/, " ")
         .sub(/\A[\s,;:.-]+/, "")
+        .squish
         .strip
       unless transaction_report_message?(user_message)
-        if !draft_capable && unsupported_current_draft_claim?(sanitized)
+        if !draft_capable && unsupported_current_draft_claim?(sanitized) && !existing_budget_review_recall?(conversation_resolution)
           return "I did not create a new transaction review from that message. Restate the merchant, amount, and date so I can prepare it safely. Nothing changed."
         end
         return sanitized
@@ -166,6 +176,35 @@ module Demo
     def unsupported_current_draft_claim?(content)
       content.match?(/\b(?:i(?:['’]ve| have| did)?|mia)\s+(?:already\s+|just\s+)?(?:draft(?:ed)?|created|prepared)\b/i) ||
         content.match?(/\bi(?:['’]ll| will)\s+draft\b/i)
+    end
+
+    def existing_budget_review_recall?(resolution)
+      payload = resolution.respond_to?(:deep_symbolize_keys) ? resolution.deep_symbolize_keys : {}
+      return false unless payload[:intent].to_s == "recall"
+
+      payload.dig(:action, :type).to_s.in?(%w[
+        set_allocation increase_allocation decrease_allocation move_allocation
+        create_category rename_category reclassify_category archive_category
+        restore_category review_pending_action
+      ])
+    end
+
+    def remove_reflexive_cultural_opener(content)
+      content.sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?)[.!]?\s*/i, "")
+    end
+
+    def enforce_cultural_restraint(content, history)
+      recent_assistant_messages = Array(history).filter_map do |message|
+        role = message[:role] || message["role"]
+        value = message[:content] || message["content"]
+        value.to_s if role.to_s == "assistant"
+      end.last(4)
+      return content unless recent_assistant_messages.any? { |message| message.match?(/\b(?:chelu|lanya|umbee|håfa adai)\b/i) }
+
+      content
+        .gsub(/\s*,?\s*chelu\b\s*,?/i, " ")
+        .gsub(/\s+([.!?,;:])/, "\\1")
+        .squish
     end
 
     def remove_banned_branding(content)

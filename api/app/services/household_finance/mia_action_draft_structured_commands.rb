@@ -99,23 +99,27 @@ module HouseholdFinance
 
       amount_cents = amount_cents_from(command[:amount].presence || "0")
       return validation_result("I can create a category only with a dollar amount of $0 or more.") if amount_cents.negative?
+      month_numbers = structured_month_numbers
+      return validation_result("Should this new category amount apply every month, or only specific months? Nothing changed.") if month_numbers.empty?
+
       stack_key = valid_stack_key(command[:stack_key]) || "discretionary"
+      scope = scope_label(month_numbers)
       item = MiaActionDraftBuilder::Item.new(
         action_type: "create_category",
-        label: "Create #{name} at #{money(amount_cents)} per month",
-        description: "Adds a new #{stack_label(stack_key)} category with #{money(amount_cents)} planned for every month in #{annual_budget_manager.year}.",
+        label: "Create #{name} at #{money(amount_cents)} for #{scope}",
+        description: "Adds a new #{stack_label(stack_key)} category with #{money(amount_cents)} planned for #{scope}.",
         target_record_type: "BudgetCategory",
         target_record_id: nil,
-        payload: { name: name, stack_key: stack_key, monthly_amount_cents: amount_cents, year: annual_budget_manager.year },
+        payload: { name: name, stack_key: stack_key, monthly_amount_cents: amount_cents, month_numbers: month_numbers, year: annual_budget_manager.year },
         before_snapshot: {},
-        after_snapshot: { name: name, stack_key: stack_key, stack_label: stack_label(stack_key), monthly_amount_cents: amount_cents }
+        after_snapshot: { name: name, stack_key: stack_key, stack_label: stack_label(stack_key), monthly_amount_cents: amount_cents, month_numbers: month_numbers }
       )
       proposal_result(
         title: "Create budget category",
-        summary: "I drafted a new #{stack_label(stack_key)} category named #{name} at #{money(amount_cents)} per month.",
+        summary: "I drafted a new #{stack_label(stack_key)} category named #{name} at #{money(amount_cents)} for #{scope}.",
         rationale: "This adds planned dollars only after you apply the draft.",
         items: [ item ],
-        metadata: { source: "mia_chat", parser: "model_intent" }
+        metadata: { source: "mia_chat", parser: "model_intent", month_numbers: month_numbers }
       )
     end
 

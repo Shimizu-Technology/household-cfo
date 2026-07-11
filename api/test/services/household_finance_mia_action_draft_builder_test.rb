@@ -65,9 +65,55 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
 
     assert_equal "create_category", create_result.proposal.items.first.action_type
     assert_equal "sinking_expected", create_result.proposal.items.first.payload.fetch(:stack_key)
+    assert_equal (1..12).to_a, create_result.proposal.items.first.payload.fetch(:month_numbers)
     assert_equal "update_category", rename_result.proposal.items.first.action_type
     assert_equal "Household Groceries", rename_result.proposal.items.first.payload.fetch(:name)
     assert_equal "non_discretionary", reclassify_result.proposal.items.first.payload.fetch(:stack_key)
+  end
+
+  test "preserves a single-month scope when creating a category" do
+    result = build_command(
+      type: "create_category",
+      new_name: "School Supplies",
+      stack_key: "sinking_expected",
+      amount: "75",
+      months: [ 8 ],
+      year: 2026
+    )
+
+    item = result.proposal.items.first
+    assert_equal [ 8 ], item.payload.fetch(:month_numbers)
+    assert_includes item.label, "Aug 2026"
+    refute_includes item.description, "every month"
+  end
+
+  test "asks for month scope instead of widening a structured category amount" do
+    result = build_command(
+      type: "create_category",
+      new_name: "School Supplies",
+      stack_key: "sinking_expected",
+      amount: "75",
+      months: [],
+      year: 2026
+    )
+
+    assert_nil result.proposal
+    assert_includes result.response, "every month, or only specific months"
+  end
+
+  test "legacy category parser keeps an explicit month out of the category name" do
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Create a new sinking expected category called School Supplies with $75 for August 2026",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 8,
+      raw_input: "Create a new sinking expected category called School Supplies with $75 for August 2026"
+    ).call
+
+    item = result.proposal.items.first
+    assert_equal "School Supplies", item.payload.fetch(:name)
+    assert_equal [ 8 ], item.payload.fetch(:month_numbers)
   end
 
   test "builds structured category archive and restore proposals in the correct scope" do

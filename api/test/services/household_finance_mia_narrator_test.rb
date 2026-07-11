@@ -49,6 +49,73 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_includes system_prompts, "stale chat history cannot override ANSWER_PACKET_JSON"
   end
 
+  test "strips reflexive cultural openers from model narration" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Okay, chelu. I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Lower that to $3,950 for July",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it.", answer
+    end
+  end
+
+  test "strips reflexive Hafa Adai recall openers" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Håfa Adai, chelu! We were discussing the Fixed essentials July review. It is still pending your approval." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "What were we discussing?",
+        answer_packet: {
+          kind: "recall",
+          fallback_response: "We were discussing the Fixed essentials July review. It is still pending your approval.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "We were discussing the Fixed essentials July review. It is still pending your approval.", answer
+    end
+  end
+
+  test "suppresses repeated chelu when recent Mia history already used local phrasing" do
+    response = ok_response(
+      choices: [
+        { message: { content: "The August review is ready, chelu. Check the month and amount before applying it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create the August category",
+        history: [ { role: "assistant", content: "Lanya chelu, that was a real surprise." } ],
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "The August review is ready. Check the month and amount before applying it.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "The August review is ready. Check the month and amount before applying it.", answer
+    end
+  end
+
   test "bounds narrator history by message count and aggregate characters" do
     history = 40.times.map do |index|
       { role: index.even? ? "user" : "assistant", content: "message-#{index} " + ("x" * 3_990) }

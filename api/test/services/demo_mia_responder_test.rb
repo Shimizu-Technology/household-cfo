@@ -213,6 +213,39 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
+  test "recall may describe an existing supervised budget review without becoming a transaction error" do
+    response = Demo::MiaResponder.new(api_key: nil).send(
+      :sanitize_assistant_content,
+      "We were discussing the Fixed essentials budget edit I drafted for July.",
+      user_message: "What were we discussing?",
+      draft_capable: false,
+      conversation_resolution: {
+        intent: "recall",
+        action: { type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "3950", months: [ 7 ], year: 2026 }
+      }
+    )
+
+    assert_includes response, "Fixed essentials"
+    assert_includes response, "I drafted"
+    refute_includes response, "transaction review"
+  end
+
+  test "reflexive cultural openers are removed and recent use suppresses repeated chelu" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
+    recall = responder.send(:sanitize_assistant_content, "Håfa Adai, chelu! We were discussing the July edit.\n\nIt is still pending.", draft_capable: true)
+    restrained = responder.send(
+      :sanitize_assistant_content,
+      "The August plan is ready, chelu. Review it before applying.",
+      draft_capable: true,
+      history: [ { role: "assistant", content: "Lanya chelu, that is a real surprise." } ]
+    )
+
+    assert_equal "I drafted the July edit for review.", direct
+    assert_equal "We were discussing the July edit. It is still pending.", recall
+    assert_equal "The August plan is ready. Review it before applying.", restrained
+  end
+
   test "demo mode does not tell users to confirm unavailable drafts" do
     response = Demo::MiaResponder.new(api_key: nil).send(
       :sanitize_assistant_content,
