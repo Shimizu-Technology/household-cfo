@@ -73,10 +73,18 @@ module HouseholdFinance
     attr_reader :household
 
     def active_income_sources
-      @active_income_sources ||= if association_loaded?(:income_sources)
-        household.income_sources.select(&:active?)
-      else
-        household.income_sources.where(active: true).includes(:income_schedule_entries).to_a
+      @active_income_sources ||= begin
+        sources = if association_loaded?(:income_sources)
+          household.income_sources.select(&:active?)
+        else
+          household.income_sources.where(active: true).to_a
+        end
+
+        ActiveRecord::Associations::Preloader.new(
+          records: sources,
+          associations: :income_schedule_entries
+        ).call
+        sources
       end
     end
 
