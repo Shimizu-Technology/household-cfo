@@ -409,7 +409,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 400_000, planned_amount_for_month(fixed, 7)
   end
 
-  test "mia chat persists messages even when action draft persistence fails" do
+  test "mia chat persists messages even when action draft persistence raises a non-Active Record error" do
     user = create_user(email: "mia-action-persistence-failure@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
@@ -417,7 +417,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     original_create_draft = HouseholdFinance::MiaActionDraftBuilder::Proposal.instance_method(:create_draft!)
     begin
       HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!) do |**|
-        raise ActiveRecord::StatementInvalid, "simulated draft persistence failure"
+        raise RuntimeError, "simulated non-Active Record draft persistence failure"
       end
 
       assert_no_difference("MiaActionDraft.count") do

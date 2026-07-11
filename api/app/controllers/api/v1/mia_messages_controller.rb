@@ -181,8 +181,8 @@ module Api
         return unless action_result&.proposal
 
         action_result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
-      rescue ActiveRecord::ActiveRecordError => e
-        Rails.logger.warn("Mia action draft could not be persisted chat_message_id=#{assistant_message&.id}: #{e.class}: #{e.message}")
+      rescue StandardError => e
+        Rails.logger.error("Mia action draft could not be persisted chat_message_id=#{assistant_message&.id}: #{e.class}: #{e.message}")
         nil
       end
 

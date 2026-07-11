@@ -56,7 +56,7 @@ Model intent and narration after PR #32:
 
 - `ConversationTranscriptBuilder` sends a token/character-bounded recent transcript of up to 32 messages instead of a fixed 12-message slice. Older context remains available through the lower-priority persisted summary.
 - `MiaIntentContextBuilder` assembles the current calendar date, separately labelled budget view period, recent raw turns, active/open threads, allowed category catalog, and pending review cards without exposing raw private documents. Relative words such as today, yesterday, last month, and next month use the calendar date, not whichever month happens to be open in the UI.
-- `MiaIntentResolver` lets Claude resolve intent, conversational references, corrections, and supported budget commands into a strict JSON schema before routing. Model-returned category/review ids are checked against the allowed Rails context and cannot write records directly.
+- `MiaIntentResolver` lets Claude resolve intent, conversational references, corrections, and supported budget commands into a strict JSON schema before routing. The current message and context are encoded together inside one untrusted `REQUEST_JSON` envelope so delimiter-like text cannot create a second prompt structure. Model-returned category/review ids are checked against the allowed Rails context and cannot write records directly.
 - `MiaConversationStateUpdater` persists the validated active thread, resolved request, action parameters, and pending review id across reloads/devices.
 - `mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, pending drafts, and conversation state.
 - `mia_narrator.rb` receives the recent transcript and verified answer packet, then answers naturally in Mia's live persona. The verified reference answer is a safety/factual fallback, not a required script.
@@ -77,7 +77,7 @@ Supervised action drafts:
 - Mia may prepare narrow budget/category action drafts, but she must not silently mutate financial records. Profile/debt/asset action drafts require separate specialized review flows.
 - The safe agentic pattern is: Mia proposes, the Household CFO reviews/approves, Rails validates/applies, and the audit log records what changed.
 - Before approval, Mia should say she prepared or suggested a change, not that she updated the budget.
-- Action drafts must use explicit schemas and Rails validations, never arbitrary model-generated patches or frontend-only writes.
+- Action drafts must use explicit schemas and Rails validations, never arbitrary model-generated patches or frontend-only writes. Draft creation is transactional; any proposal-layer persistence exception rolls back the draft and produces the safe review-card failure response while retaining the already-persisted conversation.
 - The detailed plan lives in `docs/mia-memory-and-supervised-actions.md`.
 
 Conversation continuity:
