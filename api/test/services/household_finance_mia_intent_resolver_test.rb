@@ -225,6 +225,16 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "Which active category should receive the money?", result.clarification
   end
 
+  test "allows setting an allocation to zero but rejects zero-dollar increases and decreases" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(user_message: "Adjust it", context: intent_context, api_key: "")
+    base_action = default_action.merge(category_id: 42, amount: "0", months: [ 7 ], year: 2026)
+
+    assert resolver.send(:action_complete?, base_action.merge(type: "set_allocation"))
+    refute resolver.send(:action_complete?, base_action.merge(type: "increase_allocation"))
+    refute resolver.send(:action_complete?, base_action.merge(type: "decrease_allocation"))
+    refute resolver.send(:action_complete?, base_action.merge(type: "move_allocation", target_category_id: 43))
+  end
+
   test "returns nil when the provider response is invalid so deterministic fallback can run" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Tell me about my budget",

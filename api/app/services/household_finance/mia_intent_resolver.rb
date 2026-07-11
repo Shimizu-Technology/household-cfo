@@ -269,10 +269,12 @@ module HouseholdFinance
     def action_complete?(action)
       type = action.fetch(:type)
       case type
-      when "set_allocation", "increase_allocation", "decrease_allocation"
+      when "set_allocation"
         category_reference_present?(action) && valid_amount?(action[:amount]) && action[:months].any? && action[:year].positive?
+      when "increase_allocation", "decrease_allocation"
+        category_reference_present?(action) && valid_positive_amount?(action[:amount]) && action[:months].any? && action[:year].positive?
       when "move_allocation"
-        category_reference_present?(action) && target_category_reference_present?(action) && valid_amount?(action[:amount]) && action[:months].any? && action[:year].positive?
+        category_reference_present?(action) && target_category_reference_present?(action) && valid_positive_amount?(action[:amount]) && action[:months].any? && action[:year].positive?
       when "create_category"
         (action[:new_name].present? || action[:category_name].present?) && valid_amount?(action[:amount]) && action[:year].positive?
       when "rename_category"
@@ -405,12 +407,17 @@ module HouseholdFinance
       when "move_allocation"
         return "Which active category should the money come from?" unless category_reference_present?(action)
         return "Which active category should receive the money?" unless target_category_reference_present?(action)
-        return "How much should I move?" unless valid_amount?(action[:amount])
+        return "How much above $0 should I move?" unless valid_positive_amount?(action[:amount])
 
         "Which month or months should this budget move affect?"
-      when "set_allocation", "increase_allocation", "decrease_allocation"
+      when "set_allocation"
         return "Which active budget category should I change?" unless category_reference_present?(action)
         return "What amount should I use?" unless valid_amount?(action[:amount])
+
+        "Which month or months should this budget edit affect?"
+      when "increase_allocation", "decrease_allocation"
+        return "Which active budget category should I change?" unless category_reference_present?(action)
+        return "Use an amount above $0 for an increase or decrease." unless valid_positive_amount?(action[:amount])
 
         "Which month or months should this budget edit affect?"
       when "create_transaction_draft"

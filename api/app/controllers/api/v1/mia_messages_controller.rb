@@ -241,7 +241,41 @@ module Api
       end
 
       def attached_document_message(_content, attached_imports)
-        attached_imports.map { |document_import| attached_document_result_message(document_import) }.join("\n\n")
+        return attached_document_result_message(attached_imports.first) if attached_imports.one? && attached_imports.first.document_kind != "statement"
+
+        processing = attached_imports.select { |document_import| document_import.status.in?(%w[uploaded processing]) }
+        if processing.any?
+          completed_count = attached_imports.length - processing.length
+          return "I’m still reading all #{attached_imports.length} uploads. #{completed_count} finished and #{processing.length} remain, so I’m not reporting partial findings as complete. The review queue will be prepared after every upload finishes."
+        end
+
+        failed = attached_imports.select(&:failed?)
+        drafts = attached_imports.flat_map do |document_import|
+          document_import.transaction_drafts.pending.includes(:budget_category, :transaction_draft_splits).order(:occurred_on, :id).to_a
+        end
+        items = attached_imports.flat_map { |document_import| document_import.items.where(ignored: false).order(:id).to_a }
+        completion_line = attached_imports.one? ? "Finished reading the statement upload." : "Finished reading all #{attached_imports.length} uploads."
+        parts = [ completion_line ]
+        if drafts.any?
+          dates = drafts.map(&:occurred_on).compact
+          date_range = if dates.any?
+            " covering #{dates.min.strftime('%b %-d, %Y')} through #{dates.max.strftime('%b %-d, %Y')}"
+          else
+            ""
+          end
+          parts << "I created #{drafts.length} pending transaction reviews#{date_range}. Every drafted row is available in the review queue below and in My Profile → Import history; use search and pagination to inspect all of them."
+        end
+        parts << "I also found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review in Import history." if items.any?
+        if failed.any?
+          failure_details = failed.map { |document_import| "#{evidence_label(document_import)}: #{document_import.extraction_error.presence || 'extraction failed'}" }.to_sentence
+          parts << "#{failed.length} upload#{'s' unless failed.length == 1} failed, so those files produced no drafts: #{failure_details}."
+        end
+        if drafts.empty? && items.empty? && failed.empty?
+          parts << "I did not find clear money details to draft. No household numbers changed."
+        else
+          parts << "Everything remains pending until you confirm or match each transaction; actuals have not changed."
+        end
+        parts.join(" ")
       end
 
       def attached_document_result_message(document_import)

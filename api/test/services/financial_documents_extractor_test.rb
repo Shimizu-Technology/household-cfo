@@ -147,6 +147,37 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     file&.close!
   end
 
+  test "statement extraction uses upload context and explicit posted-date year rules" do
+    user = User.create!(clerk_id: "clerk_extractor_statement_context_user", email: "statement-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Statement Context Household")
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "uploaded",
+      filename: "statement-page.png",
+      content_type: "image/png",
+      byte_size: 20,
+      s3_key: "household-cfo/test/statement-page.png",
+      metadata: { "upload_context" => "My bank statement from the past month" }
+    )
+    file = Tempfile.new([ "statement-page", ".png" ])
+    file.binmode
+    file.write("image-source")
+    file.flush
+
+    content = FinancialDocuments::Extractor.new(api_key: "test-key").send(:user_content, document_import, file.path)
+    instruction = content.first.fetch(:text)
+
+    assert_includes instruction, Date.current.iso8601
+    assert_includes instruction, "My bank statement from the past month"
+    assert_includes instruction, "infer it from the statement date"
+    assert_includes instruction, "copyright years"
+    assert_includes instruction, "one transaction_draft per visible debit, withdrawal, or subtraction row"
+  ensure
+    file&.close!
+  end
+
   test "normalizes LLM item metadata to bounded allowlisted keys" do
     item = FinancialDocuments::Extractor.new(api_key: "test-key").send(
       :normalize_item,

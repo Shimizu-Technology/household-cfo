@@ -49,6 +49,24 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_includes system_prompts, "stale chat history cannot override ANSWER_PACKET_JSON"
   end
 
+  test "bounds narrator history by message count and aggregate characters" do
+    history = 40.times.map do |index|
+      { role: index.even? ? "user" : "assistant", content: "message-#{index} " + ("x" * 3_990) }
+    end
+    narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Continue",
+      history: history,
+      answer_packet: { kind: "coaching", fallback_response: "Continue safely.", write_state: "no_write" },
+      api_key: nil
+    )
+
+    bounded_history = narrator.send(:conversation_history)
+
+    assert_operator bounded_history.length, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_MESSAGES
+    assert_operator bounded_history.sum { |message| message.fetch(:content).length }, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_CHARACTERS
+    assert_includes bounded_history.last.fetch(:content), "message-39"
+  end
+
   test "allows historical transaction lookup narration without treating recorded language as a write claim" do
     response = ok_response(
       choices: [

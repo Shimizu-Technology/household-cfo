@@ -9,6 +9,9 @@ module HouseholdFinance
     OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
     DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
     MAX_PACKET_BYTES = 12_000
+    MAX_HISTORY_MESSAGES = 32
+    MAX_HISTORY_CHARACTERS = 24_000
+    MAX_HISTORY_MESSAGE_CHARACTERS = 4_000
     MAX_OUTPUT_TOKENS = 512
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
@@ -130,13 +133,25 @@ module HouseholdFinance
     end
 
     def conversation_history
-      Array(history).filter_map do |message|
+      candidates = Array(history).filter_map do |message|
         role = message[:role] || message["role"]
         content = message[:content] || message["content"]
         next unless role.to_s.in?(%w[user assistant]) && content.to_s.squish.present?
 
-        { role: role.to_s, content: content.to_s.squish.truncate(4_000, omission: "…") }
-      end.last(32)
+        { role: role.to_s, content: content.to_s.squish.truncate(MAX_HISTORY_MESSAGE_CHARACTERS, omission: "…") }
+      end.last(MAX_HISTORY_MESSAGES)
+
+      selected = []
+      used_characters = 0
+      candidates.reverse_each do |message|
+        remaining = MAX_HISTORY_CHARACTERS - used_characters
+        break if remaining <= 0
+
+        content = message.fetch(:content).truncate(remaining, omission: "…")
+        selected.unshift(message.merge(content: content))
+        used_characters += content.length
+      end
+      selected
     end
 
     def normalized_packet(packet)

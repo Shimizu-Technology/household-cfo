@@ -92,6 +92,7 @@ const MIA_MESSAGE_MAX_LENGTH = 2_000
 const DEMO_MIA_STORAGE_MAX_MESSAGES = 100
 const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
 const MAX_CHAT_ATTACHMENTS = 5
+const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
@@ -206,6 +207,7 @@ function App() {
   const [miaClearing, setMiaClearing] = useState(false)
   const [confirmClearChat, setConfirmClearChat] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
+  const [miaAttachmentNotice, setMiaAttachmentNotice] = useState<string | null>(null)
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
@@ -734,7 +736,7 @@ function App() {
     let preparedAttachmentsForRetry = attachmentsToSend
 
     try {
-      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend)
+      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend, messageContent)
       preparedAttachmentsForRetry = uploadResult.attachments
       const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
       preparedAttachmentsForRetry = readyAttachments
@@ -785,10 +787,12 @@ function App() {
         attachment_count: attachmentsToSend.length,
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
+      setQuestion(messageContent)
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
+      setMiaAttachmentNotice(null)
       setMiaLoading(false)
       requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
     }
@@ -1209,7 +1213,7 @@ function App() {
     })
   }
 
-  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[]) {
+  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string) {
     const preparedAttachments = [...attachments]
 
     for (const [index, attachment] of attachments.entries()) {
@@ -1218,7 +1222,7 @@ function App() {
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
-        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia')
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext)
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
@@ -1247,7 +1251,9 @@ function App() {
       .map((attachment) => attachment.document_import_id!)
     if (pendingIds.length === 0) return currentAttachments
 
-    const deadline = Date.now() + 20_000
+    const totalCount = currentAttachments.length
+    const deadline = Date.now() + MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS
+    setMiaAttachmentNotice(`Reading all ${totalCount} attachment${totalCount === 1 ? '' : 's'} before Mia summarizes anything.`)
     while (pendingIds.length > 0 && Date.now() < deadline) {
       await sleep(1_800)
       const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
@@ -1259,6 +1265,17 @@ function App() {
       pendingIds = currentAttachments
         .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
         .map((attachment) => attachment.document_import_id!)
+      const completedCount = totalCount - pendingIds.length
+      setMiaAttachmentNotice(pendingIds.length > 0
+        ? `Mia finished ${completedCount} of ${totalCount} attachments. Waiting for the rest before reporting findings.`
+        : `Mia finished all ${totalCount} attachments. Preparing the complete review queue.`)
+    }
+
+    if (pendingIds.length > 0) {
+      throw new MiaAttachmentProcessingError(
+        `Mia is still reading ${pendingIds.length} of ${totalCount} attachments. The uploads are saved; send the restored message again after processing finishes so Mia can report the complete result.`,
+        currentAttachments,
+      )
     }
 
     return currentAttachments
@@ -1773,6 +1790,7 @@ function App() {
               )}
 
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
+              {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
 
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
@@ -3360,6 +3378,13 @@ class MiaAttachmentError extends Error {
   }
 }
 
+class MiaAttachmentProcessingError extends MiaAttachmentError {
+  constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
+    super(message, attachments, options)
+    this.name = 'MiaAttachmentProcessingError'
+  }
+}
+
 class MiaAttachmentUploadError extends MiaAttachmentError {
   constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
     super(message, attachments, options)
@@ -3382,9 +3407,16 @@ function attachmentWithMessageContext(attachment: PendingMiaAttachment, message:
 }
 
 function documentKindForMessageContext(file: File, currentKind: DocumentImportKind, message: string): DocumentImportKind {
-  if (!budgetSetupSignal(`${file.name} ${message}`)) return currentKind
+  const context = `${file.name} ${message}`
+  if (statementUploadSignal(context) && currentKind !== 'spreadsheet' && currentKind !== 'pay_stub') return 'statement'
+  if (!budgetSetupSignal(context)) return currentKind
   if (currentKind === 'spreadsheet' || currentKind === 'pay_stub') return currentKind
   return 'other'
+}
+
+function statementUploadSignal(text: string) {
+  const normalized = text.toLowerCase().replace(/[^a-z0-9&]+/g, ' ')
+  return /\b(bank|checking|savings|credit card|card|account)\s+statement\b|\bstatement\s+(page|pages|screenshot|screenshots|pdf|file)\b|\btransaction\s+history\b/i.test(normalized)
 }
 
 function budgetSetupSignal(text: string) {

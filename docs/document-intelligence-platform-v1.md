@@ -27,11 +27,13 @@ Runtime source files are stored in private S3 only. There is no frontend AI call
 - Multi-page statement PDFs are split server-side into two-page private temporary batches (other PDFs use up to four pages per batch). Every batch must succeed before Rails persists any extracted rows, and provider output-limit responses fail explicitly, so a technically truncated PDF extraction cannot masquerade as a complete statement.
 - PDF batch coverage, page count, batch count, and staged transaction count are visible in the import review metadata.
 - A single import supports up to 500 transaction drafts, 60 PDF pages, and 20 MB. Files above those limits are rejected with instructions to split the statement into smaller date ranges rather than silently dropping rows.
-- Screenshots stage every visible debit/spend row the model can read. Full downloaded PDF/CSV statements are preferred when transactions continue beyond the screenshot.
+- Screenshots stage every visible debit/withdrawal row the model can read. Ask Mia classifies bank-statement screenshots from the participant's message, waits for every attached extraction to finish, and then reports one consolidated draft count; it never presents early attachment findings as the complete result.
+- Exact duplicate active uploads are rejected before another private source or duplicate review queue is created. Cropped, overlapping, or missing screenshot pages still cannot provide rows that are not visible, so a full downloaded PDF/CSV statement remains preferred.
+- Yearless statement rows use the statement header/period first, with bounded participant upload context and the server reference date available for genuinely recent statements. Footer/copyright years and authorization dates do not replace the posted transaction date.
 - The review queue is searchable and paginated. Ask Mia and document review default to five cards per page; Budget defaults to ten, with 5/10/25 page-size controls.
 - There is intentionally no bulk confirm: each draft can be edited, matched, confirmed, or ignored, and pending rows never count as actuals.
 
-Statement extraction targets debit/spend rows. Payments, transfers, deposits, and credits are excluded from expense actuals unless they clearly represent a supported income/account/debt fact.
+Statement extraction targets every visible debit, withdrawal, or subtraction row, including fees, outgoing payments, and transfers. Deposits and credits are excluded. Every extracted outflow remains pending so the participant can classify, match, confirm, or ignore transfers without silently losing a bank-ledger row.
 
 ## Data model additions
 

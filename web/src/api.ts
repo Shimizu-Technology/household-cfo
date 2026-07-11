@@ -939,11 +939,12 @@ export async function fetchDocumentImport(id: number): Promise<FinancialDocument
   return payload.document_import
 }
 
-export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile'): Promise<FinancialDocumentImport> {
+export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = ''): Promise<FinancialDocumentImport> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('document_kind', documentKind)
   formData.append('upload_origin', origin)
+  if (uploadContext.trim()) formData.append('upload_context', uploadContext.trim())
   formData.append('upload_request_id', clientRequestId())
 
   let response: Response

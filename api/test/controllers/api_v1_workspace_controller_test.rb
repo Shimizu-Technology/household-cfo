@@ -426,6 +426,42 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Resend", document_import.transaction_drafts.first.merchant
   end
 
+  test "mia chat summarizes a completed statement with its full pending review count" do
+    user = create_user(email: "mia-statement-sync@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "statement.pdf",
+      content_type: "application/pdf",
+      byte_size: 128,
+      s3_key: "household-cfo/test/statement.pdf"
+    )
+    3.times do |index|
+      document_import.transaction_drafts.create!(
+        household: household,
+        occurred_on: Date.new(2026, 7, index + 1),
+        merchant: "Statement merchant #{index}",
+        total_amount_cents: (index + 1) * 100,
+        source_type: "statement",
+        status: "pending",
+        raw_input: "Statement row"
+      )
+    end
+
+    post "/api/v1/mia/messages",
+         params: { message: "Review every transaction", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes assistant_content, "Finished reading the statement upload"
+    assert_includes assistant_content, "3 pending transaction reviews"
+    assert_includes assistant_content, "Jul 1, 2026 through Jul 3, 2026"
+  end
+
   test "mia chat persists attached document imports with a single contextual reply" do
     user = create_user(email: "mia-attachments@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -471,6 +507,90 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     user_message = JSON.parse(response.body).fetch("messages").find { |message| message.fetch("role") == "user" }
     assert_equal document_import.id, user_message.fetch("attachments").first.fetch("document_import_id")
+  end
+
+  test "mia chat reports one complete transaction total after every attached statement finishes" do
+    user = create_user(email: "mia-complete-statements@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Flexible spending", stack_key: "discretionary", sort_order: 1)
+    imports = 2.times.map do |index|
+      document_import = household.financial_document_imports.create!(
+        uploaded_by_user: user,
+        document_kind: "statement",
+        status: "needs_review",
+        filename: "statement-page-#{index + 1}.png",
+        content_type: "image/png",
+        byte_size: 128,
+        s3_key: "household-cfo/test/statement-page-#{index + 1}.png"
+      )
+      2.times do |row|
+        document_import.transaction_drafts.create!(
+          household: household,
+          occurred_on: Date.new(2026, 7, index * 2 + row + 1),
+          merchant: "Statement merchant #{index}-#{row}",
+          total_amount_cents: (index + row + 1) * 100,
+          budget_category: category,
+          source_type: "statement",
+          status: "pending",
+          raw_input: "Statement row"
+        )
+      end
+      document_import
+    end
+
+    post "/api/v1/mia/messages",
+         params: { message: "Review every statement row", document_import_ids: imports.map(&:id) },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes assistant_content, "Finished reading all 2 uploads"
+    assert_includes assistant_content, "4 pending transaction reviews"
+    assert_includes assistant_content, "Every drafted row is available"
+    assert_includes assistant_content, "actuals have not changed"
+  end
+
+  test "mia chat does not present partial attachment findings as complete" do
+    user = create_user(email: "mia-processing-statements@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    completed = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "complete-page.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/complete-page.png"
+    )
+    completed.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 1),
+      merchant: "Completed merchant",
+      total_amount_cents: 500,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Completed row"
+    )
+    processing = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "processing",
+      filename: "processing-page.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/processing-page.png"
+    )
+
+    post "/api/v1/mia/messages",
+         params: { message: "Review every statement row", document_import_ids: [ completed.id, processing.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes assistant_content, "not reporting partial findings as complete"
+    assert_not_includes assistant_content, "I created 1 pending transaction review"
   end
 
   test "mia chat explains budget uploads as review before apply setup values" do
