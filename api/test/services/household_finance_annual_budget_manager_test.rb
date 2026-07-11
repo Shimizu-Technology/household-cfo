@@ -27,6 +27,25 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal [ "Prior Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
   end
 
+  test "plan data returns more than twenty pending statement drafts for paginated review" do
+    household = create_household
+    25.times do |index|
+      household.transaction_drafts.create!(
+        occurred_on: Date.new(2026, 7, (index % 28) + 1),
+        merchant: "Statement Merchant #{index + 1}",
+        total_amount_cents: (index + 1) * 100,
+        source_type: "statement",
+        status: "pending",
+        raw_input: "Statement row #{index + 1}"
+      )
+    end
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data
+
+    assert_equal 25, plan.fetch(:pending_transaction_drafts).length
+    assert_equal "Statement Merchant 25", plan.fetch(:pending_transaction_drafts).first.fetch(:merchant)
+  end
+
   test "budget allocation upsert recovers from uniqueness races" do
     household = create_household
     manager = HouseholdFinance::AnnualBudgetManager.new(household)

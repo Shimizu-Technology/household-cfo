@@ -1,8 +1,10 @@
-# Post-PR #29 roadmap: Mia quality, voice, and memory
+# Post-PR #31 roadmap: supervised actions, memory discovery, and pilot polish
 
-Updated: 2026-07-08
+Updated: 2026-07-09
 
-PR #29 merged the Document Intelligence Platform v1. The app now has the core document-to-draft-to-confirmation loop Mrs. Mel asked for: private uploads, receipt/photo/statement/spreadsheet extraction, split transaction drafts, matching/reconciliation, source lineage, review-before-apply, undo/reopen, and server-backed Mia chat with attachments.
+PR #29 delivered the Document Intelligence Platform v1. PR #30 added the Mia Coaching Quality / Model Narrator layer. PR #31 added voice input through backend-only OpenRouter STT and a YAML-backed real-world eval harness.
+
+The app now has the real Household CFO MVP foundation Mrs. Mel asked for: annual budgets, confirmed actuals, pending transaction drafts, receipt/statement/document extraction, review-before-apply flows, persisted Mia chat, safer model narration, and editable voice transcripts.
 
 ## Current product state
 
@@ -12,18 +14,11 @@ PR #29 merged the Document Intelligence Platform v1. The app now has the core do
 - Clerk/Postgres real workspaces, admin/cohort management, invite flow, persisted Mia chat.
 - Annual budget model: budget years, months, categories, allocations, actuals, pending drafts.
 - Text transaction loop: Mia can draft spend entries; user confirms/edits/ignores before actuals change.
-- Document Intelligence Platform v1:
-  - private S3 source storage through Rails only,
-  - extraction attempt history and safe errors,
-  - reviewable profile/budget facts,
-  - receipt/photo transaction drafts,
-  - split receipt drafts,
-  - statement/screenshot row extraction,
-  - draft matching/reconciliation,
-  - merchant/category learning from confirmed corrections,
-  - reopen/undo for wrong submissions,
-  - mobile-first review cards and import history.
-- Mia chat attachments are staged before send and can process receipt screenshots into reviewable drafts.
+- Document Intelligence Platform v1 with private S3, extraction history, reviewable budget/profile facts, transaction drafts, split drafts, statement rows, matching, lineage, reopen/undo, and import history.
+- Mia chat attachments can process receipt screenshots into reviewable drafts.
+- Mia narration uses Rails-approved answer packets and falls back safely.
+- Voice input uploads browser audio to Rails, transcribes through backend-only OpenRouter STT, inserts editable transcript into the composer, and never auto-sends or auto-confirms.
+- YAML eval harness covers real-world prompts for spending reports, manual spend drafts, pending-vs-actual guardrails, budgeting, and coaching boundaries.
 - Rails remains the source of truth. Pending drafts never count as actuals.
 
 ### Immediate validation still needed
@@ -32,112 +27,128 @@ PR #29 merged the Document Intelligence Platform v1. The app now has the core do
 - Confirm production envs: Clerk, Render CORS, S3, OpenRouter, Resend, PostHog.
 - Phone receipt screenshot upload -> Mia reply -> review card -> confirm -> budget actuals update.
 - Statement screenshot/file upload -> rows land in correct months -> match/dedupe works.
+- Ask Mia voice input -> editable transcript -> pending draft only -> confirm/ignore.
 - Desktop/mobile Mia convergence and private source preview/download work.
 
 ## Next build priority
 
-Mrs. Mel's strongest remaining product feedback is that the transaction loop and conversation loop are the core. Now that Rails owns the money truth, the next phase is making Mia feel like the Household CFO Method coach instead of a service-generated calculator.
+Mrs. Mel's strongest remaining product feedback is that the transaction loop and conversation loop are the core. Now that Rails owns the money truth, the next phase is making Mia feel like a supervised Household CFO Method assistant instead of a service-generated calculator.
 
 Recommended order:
 
-1. **PR #30 — Mia Coaching Quality / Model Narrator**
-2. **PR #31 — Voice Input + Mia Eval Harness Foundation**
-3. **PR #32 — Mia Memory MVP**
+1. **Production/staging smoke test after PR #31 merge**
+2. **PR #32 — Mia Action Drafts / supervised budget editing**
+3. **Mrs. Mel discovery conversation for Mia Memory**
+4. **PR #33 — Mia Memory MVP, after scope/trust/visibility are confirmed**
+5. **PR #34 — UX/product polish + annual budget table improvements**
+6. **Later — FinCon coach-skin / white-label foundation**
 
-## PR #30 — Mia Coaching Quality / Model Narrator
-
-Goal: keep Rails deterministic for financial truth, but let Mia/Claude narrate approved facts in the real persona.
-
-### Architecture
-
-Use a two-layer answer path:
+The detailed memory/action plan lives in:
 
 ```text
-User asks question
--> Rails classifies intent and gathers approved data
--> Rails computes a structured answer packet
--> Claude narrates the packet in Mia's persona
--> Rails falls back to the deterministic answer if model narration fails
+docs/mia-memory-and-supervised-actions.md
 ```
 
-### Non-negotiables
+## PR #32 — Mia Action Drafts / supervised budget editing
 
-- Rails still owns calculations, writes, validations, actuals, pending drafts, matching, and source lineage.
-- Claude may explain/coach/narrate, but must not invent facts, categories, balances, merchants, dates, due dates, or transactions.
-- Pending drafts stay visibly separate from confirmed actuals.
-- Validation errors, crisis/safety responses, auth errors, and confirmation writes remain deterministic.
-- No frontend AI calls; OpenRouter/Claude stays backend-only.
+Goal: Mia can help operate the household plan by preparing reviewable changes, while Rails validates and applies only after user approval.
 
-### Implementation scope
+Product rule:
 
-- Add a backend Mia narrator service.
-- Build structured answer packets for:
-  - safe-to-spend / readiness / debt-vs-savings coaching,
-  - budget questions,
-  - spending reports,
-  - pending draft / transaction lookup answers,
-  - transaction draft presentation.
-- Inject the Mia persona and response contract into narration calls.
-- Add sanitation/guardrails for banned openers and false write claims.
-- Add tests proving fallback behavior and prompt/packet guardrails.
+```text
+Mia proposes.
+The Household CFO approves.
+Rails validates and applies.
+The audit log records what happened.
+```
 
-### Acceptance criteria
+Initial scope:
 
-- With OpenRouter unavailable, deterministic responses still work.
-- With narration enabled, Mia replies in 3-5 plain-text sentences, direct and culturally grounded.
-- Mia preserves Rails facts and clearly separates planned, actual, and pending values.
-- Mia does not say a transaction was added/recorded unless Rails already confirmed it.
-- Generic opener such as `That's a good question` does not appear.
+- Add `mia_action_drafts` and `mia_action_items` for reviewable proposed changes.
+- Add `household_audit_events` for proposed/applied/canceled records.
+- Support first budget/category actions:
+  - update planned budget allocation for one month or the annual plan,
+  - move planned dollars between categories,
+  - create a category,
+  - rename a category,
+  - reclassify a category's Expense Stack key,
+  - archive/restore a category when Rails validations allow it.
+- Render review cards with before/after values and clear apply/cancel controls.
+- Apply only after explicit user confirmation.
+- Revalidate inside Rails transaction before applying.
 
-## PR #31 — Voice Input + Mia Eval Harness Foundation
+Non-goals for first action-draft PR:
 
-Goal: mobile users can talk to Mia and land in the same safe review-before-apply flow, while real-world prompts protect Mia behavior from regressions.
-
-Scope:
-
-- Add microphone affordance in Ask Mia.
-- Capture audio in the browser with clear recording state.
-- Upload audio to Rails.
-- Transcribe server-side through backend-only OpenRouter STT credentials.
-- Feed transcript into the same Mia message / transaction draft path as typed chat.
-- Never auto-confirm transactions from voice.
-- Add `HouseholdFinance::MiaEvalHarness` and `api/test/evals/mia_eval_cases.yml` for practical regression prompts.
+- Do not confirm actuals through this path.
+- Do not apply document extraction values through this path.
+- Do not delete source files.
+- Do not change debts/assets/profile facts without a separate specialized review flow.
+- Do not allow arbitrary model-generated JSON patches or SQL-like operations.
 
 Acceptance criteria:
 
-- User can say: `I spent twenty five at McDonald's today.`
-- Transcript is visible/editable before send.
-- Mia drafts the transaction for review; actuals do not change until confirm.
-- Failed transcription gives a useful retry message and does not create bad records.
-- Eval cases cover concert tickets, spending reports, June follow-up, manual spend draft, ignore/count-as-actuals guardrails, budget status, job transition, bill overwhelm, and pending drafts.
+- User can ask Mia to prepare a budget change.
+- UI shows the proposed diff before applying.
+- Canceling does not mutate anything.
+- Applying writes through Rails validations only.
+- Audit log records who proposed, who approved/canceled, and what changed.
+- Mia does not claim a change was applied before confirmation.
 
-## PR #32 — Mia Memory MVP
+## PR #33 — Mia Memory MVP, after Mrs. Mel discovery
 
 Goal: Mia feels continuous and personal without treating raw chat as financial truth.
 
-Scope:
+Memory should be discussed with Mrs. Mel before implementation so the product lands as helpful, visible personalization instead of hidden surveillance.
 
-- Add structured `mia_memories` / `household_memories` table.
-- Memory categories: goal, preference, constraint, habit, coaching_style, follow_up.
-- Statuses: inferred, user_confirmed, coach_confirmed, rejected, expired.
+Discovery questions:
+
+- What should Mia remember automatically, if anything?
+- Which memories require explicit permission?
+- What can a future coach/admin see?
+- How should users edit, forget, or pause memory?
+- Which sensitive facts should never be remembered unless the user asks?
+
+Likely scope:
+
+- Add structured `household_memories` / `mia_memories` table.
+- Memory categories: goal, preference, constraint, habit, coaching_style, follow_up, coach_note.
+- Statuses: inferred, pending_confirmation, user_confirmed, coach_confirmed, rejected, expired.
+- Sensitivity/visibility fields so sensitive memories require confirmation and future coach-visible notes can be controlled.
 - User-facing UI: `What Mia remembers`.
-- Controls: edit, forget, do not remember this, pause personalization.
-- Ask before saving sensitive memories.
+- Controls: edit, forget, do not remember this, remember this for next time, pause personalization.
 - Include confirmed, relevant memories in Mia context.
+- Keep raw chat separate from curated memory.
 
 Acceptance criteria:
 
-- User can inspect and remove memories.
+- User can inspect, edit, and remove memories.
+- User can pause personalization.
 - Mia can remember low-risk preferences like Friday check-ins.
 - Mia asks before saving sensitive goals/constraints.
-- Raw chat stays separate from curated memory.
+- Confirmed memories can influence Mia's coaching tone/context.
+- Memory never changes budget, actuals, profile facts, document facts, or transactions by itself.
+- Tests prove memory is household-scoped and user-controlled.
 
-## Later / FinCon foundation
+## PR #34 — UX/product polish + annual budget table improvements
+
+Goal: make the new supervised-action and future-memory capabilities understandable for non-technical pilot users.
+
+Scope:
+
+- Annual budget table/list view with expandable year/month structure.
+- Clear fixed/discretionary/sinking fund education in the Budget UI.
+- Warm neutral palette pass away from heavy green.
+- Ask Mia review cards for transaction drafts, memory suggestions, and action drafts.
+- Better category setup/editing flow.
+- Mobile-first review/apply polish.
+
+## Later / FinCon coach-skin foundation
 
 - Coach/program skin model: logo, colors, theme, assistant persona, content repository.
 - Optional modules: retirement calculator, biblical finance, youth finance, etc.
 - Coach/admin intelligence dashboard.
 - Pricing/subscription foundation.
+- Founding coach testing flow with Mrs. Mel/Bethany.
 
 ## Production rule
 

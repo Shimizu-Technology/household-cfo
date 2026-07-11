@@ -140,6 +140,9 @@ export type FinancialDocumentImport = {
     original_filename?: string
     upload_request_id?: string
     extraction_model?: string
+    extraction_mode?: string
+    extraction_page_count?: number
+    extraction_batch_count?: number
     last_extracted_at?: string
     last_applied_count?: number
     last_applied_at?: string
@@ -329,12 +332,40 @@ export type SpendingReport = {
   }>
 }
 
+export type MiaActionItem = {
+  id: number
+  action_type: 'create_category' | 'update_category' | 'update_allocation' | 'archive_category' | 'restore_category'
+  target_record_type: string | null
+  target_record_id: number | null
+  label: string
+  description: string | null
+  payload: Record<string, unknown>
+  before_snapshot: Record<string, unknown>
+  after_snapshot: Record<string, unknown>
+}
+
+export type MiaActionDraft = {
+  id: number
+  status: 'pending' | 'applied' | 'canceled'
+  draft_type: 'budget_edit'
+  year: number
+  title: string
+  summary: string
+  rationale: string | null
+  source_prompt: string | null
+  created_at: string | null
+  applied_at: string | null
+  canceled_at: string | null
+  items: MiaActionItem[]
+}
+
 export type AnnualBudgetPlan = {
   year: number
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
   monthly_income: Record<number, number>
   pending_transaction_drafts: TransactionDraft[]
+  pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
 }
@@ -749,6 +780,7 @@ export type MiaMessageResponse = {
   user_message: MiaMessage
   assistant_message: MiaMessage
   transaction_draft?: TransactionDraft | null
+  mia_action_draft?: MiaActionDraft | null
   budget?: BudgetData | null
   spending_report?: SpendingReport | null
 }
@@ -767,7 +799,7 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
     ...(realWorkspace && year ? { year } : {}),
     ...(realWorkspace && month ? { month } : {}),
     ...(realWorkspace && documentImportIds.length > 0 ? { document_import_ids: documentImportIds } : {}),
-    messages: history.slice(-12).map((entry) => ({
+    messages: history.slice(-32).map((entry) => ({
       role: entry.role,
       content: entry.content,
     })),
@@ -824,6 +856,16 @@ export async function updateBudgetAllocation(id: number, plannedAmount: number |
   return payload.budget
 }
 
+export async function applyMiaActionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/apply`, {})
+  return payload.workspace
+}
+
+export async function cancelMiaActionDraft(id: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/cancel`, {})
+  return payload.workspace
+}
+
 export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
   splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null; confidence: number | string | null }>>
 }
@@ -843,6 +885,16 @@ export async function confirmTransactionDraft(id: number, values: TransactionDra
 
 export async function ignoreTransactionDraft(id: number): Promise<AppData> {
   const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/ignore`, {})
+  return payload.workspace
+}
+
+export async function bulkConfirmTransactionDrafts(ids: number[], year: number, confirmation: string): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_confirm', { transaction_draft_ids: ids, year, confirmation })
+  return payload.workspace
+}
+
+export async function bulkIgnoreTransactionDrafts(ids: number[], year: number): Promise<AppData> {
+  const payload = await postJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_ignore', { transaction_draft_ids: ids, year })
   return payload.workspace
 }
 
@@ -897,11 +949,12 @@ export async function fetchDocumentImport(id: number): Promise<FinancialDocument
   return payload.document_import
 }
 
-export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile'): Promise<FinancialDocumentImport> {
+export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = ''): Promise<FinancialDocumentImport> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('document_kind', documentKind)
   formData.append('upload_origin', origin)
+  if (uploadContext.trim()) formData.append('upload_context', uploadContext.trim())
   formData.append('upload_request_id', clientRequestId())
 
   let response: Response

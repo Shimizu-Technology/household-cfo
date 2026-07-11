@@ -3,7 +3,11 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent,
 import './App.css'
 import {
   applyDocumentImport,
+  applyMiaActionDraft,
   archiveBudgetCategory,
+  bulkConfirmTransactionDrafts,
+  bulkIgnoreTransactionDrafts,
+  cancelMiaActionDraft,
   clearMiaMessages,
   confirmTransactionDraft,
   createAdminCohort,
@@ -60,6 +64,8 @@ import type {
   DocumentSourceUrl,
   FinancialDocumentImport,
   InvitationStatus,
+  MiaActionDraft,
+  MiaActionItem,
   MiaMessage,
   MiaMessageAttachment,
   RecentTransaction,
@@ -85,8 +91,10 @@ const ADMIN_SECTION = 'Admin'
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
+const DEMO_MIA_STORAGE_MAX_MESSAGES = 100
 const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
 const MAX_CHAT_ATTACHMENTS = 5
+const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
@@ -201,6 +209,7 @@ function App() {
   const [miaClearing, setMiaClearing] = useState(false)
   const [confirmClearChat, setConfirmClearChat] = useState(false)
   const [miaError, setMiaError] = useState<string | null>(null)
+  const [miaAttachmentNotice, setMiaAttachmentNotice] = useState<string | null>(null)
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
@@ -265,6 +274,7 @@ function App() {
     [documentImports],
   )
   const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = data?.budget.annual_plan
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
   const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
@@ -728,7 +738,7 @@ function App() {
     let preparedAttachmentsForRetry = attachmentsToSend
 
     try {
-      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend)
+      const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend, messageContent)
       preparedAttachmentsForRetry = uploadResult.attachments
       const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
       preparedAttachmentsForRetry = readyAttachments
@@ -757,12 +767,18 @@ function App() {
       if (response.spending_report) {
         setSpendingReport(response.spending_report)
       }
-      if (attachmentsToSend.length > 0) void refreshDocumentImports({ quiet: true })
+      void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
       setMessages((current) => [...current.slice(0, -1), userMessageWithPreviews, response.assistant_message])
       if (response.transaction_draft) {
         captureAnalyticsEvent('transaction_draft_presented_in_chat', {
           source_type: response.transaction_draft.source_type ?? 'manual_chat',
+        })
+      }
+      if (response.mia_action_draft) {
+        captureAnalyticsEvent('mia_action_draft_presented', {
+          draft_type: response.mia_action_draft.draft_type,
+          item_count: response.mia_action_draft.items.length,
         })
       }
     } catch (caught) {
@@ -773,10 +789,12 @@ function App() {
         attachment_count: attachmentsToSend.length,
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
+      setQuestion(messageContent)
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
     } finally {
+      setMiaAttachmentNotice(null)
       setMiaLoading(false)
       requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
     }
@@ -946,6 +964,58 @@ function App() {
     }
   }
 
+  async function handleApplyMiaActionDraft(draft: MiaActionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`apply-mia-action:${draft.id}`)
+    setBudgetError(null)
+    setMiaError(null)
+    try {
+      const workspace = await applyMiaActionDraft(draft.id)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('mia_action_draft_applied', {
+        draft_type: draft.draft_type,
+        item_count: draft.items.length,
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Mia action draft could not be applied.'
+      setBudgetError(message)
+      setMiaError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleCancelMiaActionDraft(draft: MiaActionDraft) {
+    if (!isRealWorkspace) return
+
+    setBudgetAction(`cancel-mia-action:${draft.id}`)
+    setBudgetError(null)
+    setMiaError(null)
+    try {
+      const workspace = await cancelMiaActionDraft(draft.id)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent('mia_action_draft_canceled', {
+        draft_type: draft.draft_type,
+        item_count: draft.items.length,
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Mia action draft could not be canceled.'
+      setBudgetError(message)
+      setMiaError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
   async function handleUpdateTransactionDraft(draft: TransactionDraft, values: TransactionDraftUpdateInput) {
     if (!isRealWorkspace) return
 
@@ -1018,6 +1088,51 @@ function App() {
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
       setBudgetError(message)
       setDocumentsError(message)
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleBulkTransactionDrafts(drafts: TransactionDraft[], resolution: 'confirm' | 'ignore') {
+    if (!isRealWorkspace) return
+
+    const pendingDrafts = drafts.filter((draft) => draft.status === 'pending')
+    if (pendingDrafts.length === 0) return
+    const ids = pendingDrafts.map((draft) => draft.id)
+    const total = pendingDrafts.reduce((sum, draft) => sum + exactMoneyNumber(draft.amount, draft.amount_cents), 0)
+    if (resolution === 'confirm') {
+      const phrase = `CONFIRM ${ids.length}`
+      const entered = window.prompt(
+        `This will post ${ids.length} transactions totaling ${currency.format(total)} to actuals. This is all-or-nothing. Review possible matches first, then type ${phrase} to continue.`,
+      )
+      if (entered?.trim() !== phrase) return
+    } else if (!window.confirm(`Ignore ${ids.length} pending transaction reviews totaling ${currency.format(total)}? Actuals will not change.`)) {
+      return
+    }
+
+    setBudgetAction(`bulk-${resolution}-drafts`)
+    setBudgetError(null)
+    setDocumentsError(null)
+    setMiaError(null)
+    try {
+      const workspace = resolution === 'confirm'
+        ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`)
+        : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear)
+      setData(workspace)
+      if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
+      refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
+      void refreshDocumentImports({ quiet: true })
+      setMessages(workspace.mia.messages)
+      setMessagesStorageKey(chatStorageKey)
+      captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
+        draft_count: ids.length,
+        amount_bucket: transactionBulkAmountBucket(total),
+      })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`
+      setBudgetError(message)
+      setDocumentsError(message)
+      setMiaError(message)
     } finally {
       setBudgetAction(null)
     }
@@ -1145,7 +1260,7 @@ function App() {
     })
   }
 
-  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[]) {
+  async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string) {
     const preparedAttachments = [...attachments]
 
     for (const [index, attachment] of attachments.entries()) {
@@ -1154,7 +1269,7 @@ function App() {
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
-        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia')
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext)
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
@@ -1183,7 +1298,9 @@ function App() {
       .map((attachment) => attachment.document_import_id!)
     if (pendingIds.length === 0) return currentAttachments
 
-    const deadline = Date.now() + 75_000
+    const totalCount = currentAttachments.length
+    const deadline = Date.now() + MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS
+    setMiaAttachmentNotice(`Reading all ${totalCount} attachment${totalCount === 1 ? '' : 's'} before Mia summarizes anything.`)
     while (pendingIds.length > 0 && Date.now() < deadline) {
       await sleep(1_800)
       const refreshedImports = await Promise.all(pendingIds.map((id) => fetchDocumentImport(id)))
@@ -1195,11 +1312,15 @@ function App() {
       pendingIds = currentAttachments
         .filter((attachment) => attachment.document_import_id && PROCESSING_IMPORT_STATUSES.has(attachment.status ?? 'uploaded'))
         .map((attachment) => attachment.document_import_id!)
+      const completedCount = totalCount - pendingIds.length
+      setMiaAttachmentNotice(pendingIds.length > 0
+        ? `Mia finished ${completedCount} of ${totalCount} attachments. Waiting for the rest before reporting findings.`
+        : `Mia finished all ${totalCount} attachments. Preparing the complete review queue.`)
     }
 
     if (pendingIds.length > 0) {
-      throw new MiaAttachmentProcessingTimeoutError(
-        'Mia is still reading the upload. Please try sending again in a moment; the saved upload will not be duplicated.',
+      throw new MiaAttachmentProcessingError(
+        `Mia is still reading ${pendingIds.length} of ${totalCount} attachments. The uploads are saved; send the restored message again after processing finishes so Mia can report the complete result.`,
         currentAttachments,
       )
     }
@@ -1689,6 +1810,17 @@ function App() {
                 )}
               </div>
 
+              {pendingMiaActionDrafts.length > 0 && (
+                <MiaActionDraftReviewStack
+                  drafts={pendingMiaActionDrafts}
+                  isRealWorkspace={Boolean(isRealWorkspace)}
+                  action={budgetAction}
+                  compact
+                  onApply={handleApplyMiaActionDraft}
+                  onCancel={handleCancelMiaActionDraft}
+                />
+              )}
+
               {pendingTransactionDrafts.length > 0 && (
                 <TransactionDraftReviewStack
                   drafts={pendingTransactionDrafts}
@@ -1701,10 +1833,13 @@ function App() {
                   onConfirm={handleConfirmTransactionDraft}
                   onIgnore={handleIgnoreTransactionDraft}
                   onReopen={handleReopenTransactionDraft}
+                  onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+                  onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                 />
               )}
 
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
+              {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
               {voiceNotice && <p className={`voice-status${voiceRecording ? ' is-recording' : ''}`} role="status">{voiceNotice}</p>}
 
               <form className="ask-row" onSubmit={handleAskMiaSubmit}>
@@ -1833,6 +1968,8 @@ function App() {
             onConfirmDraft={handleConfirmTransactionDraft}
             onIgnoreDraft={handleIgnoreTransactionDraft}
             onReopenDraft={handleReopenTransactionDraft}
+            onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+            onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
             onApply={handleApplyDocumentImport}
             onReprocess={handleReprocessDocumentImport}
             onDeleteSource={handleDeleteDocumentSource}
@@ -1903,11 +2040,15 @@ function App() {
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
+              onApplyMiaActionDraft={handleApplyMiaActionDraft}
+              onCancelMiaActionDraft={handleCancelMiaActionDraft}
               onUpdateDraft={handleUpdateTransactionDraft}
               onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
               onIgnoreDraft={handleIgnoreTransactionDraft}
               onReopenDraft={handleReopenTransactionDraft}
+              onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+              onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
             />
           ) : (
             <article className="panel coach-panel">
@@ -2304,6 +2445,8 @@ function DocumentImportWorkspace({
   onConfirmDraft,
   onIgnoreDraft,
   onReopenDraft,
+  onBulkConfirmDrafts,
+  onBulkIgnoreDrafts,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -2333,6 +2476,8 @@ function DocumentImportWorkspace({
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
+  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -2429,6 +2574,8 @@ function DocumentImportWorkspace({
           onConfirmDraft={onConfirmDraft}
           onIgnoreDraft={onIgnoreDraft}
           onReopenDraft={onReopenDraft}
+          onBulkConfirmDrafts={onBulkConfirmDrafts}
+          onBulkIgnoreDrafts={onBulkIgnoreDrafts}
           onApply={onApply}
           onReprocess={onReprocess}
           onDeleteSource={onDeleteSource}
@@ -2634,6 +2781,8 @@ function DocumentReviewPanel({
   onConfirmDraft,
   onIgnoreDraft,
   onReopenDraft,
+  onBulkConfirmDrafts,
+  onBulkIgnoreDrafts,
   onApply,
   onReprocess,
   onDeleteSource,
@@ -2655,6 +2804,8 @@ function DocumentReviewPanel({
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
+  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
   onApply: (documentImport: FinancialDocumentImport) => void
   onReprocess: (documentImport: FinancialDocumentImport) => void
   onDeleteSource: (documentImport: FinancialDocumentImport) => void
@@ -2742,6 +2893,13 @@ function DocumentReviewPanel({
       <div className="document-summary-box">
         <strong>Mia read</strong>
         <p>{documentImport.extracted_summary || statusExplainer(documentImport)}</p>
+        {(documentImport.metadata.extraction_page_count || documentImport.metadata.transaction_draft_count) && (
+          <div className="document-extraction-coverage" aria-label="Statement extraction coverage">
+            {documentImport.metadata.extraction_page_count && <span>{documentImport.metadata.extraction_page_count} PDF pages processed</span>}
+            {documentImport.metadata.extraction_batch_count && <span>{documentImport.metadata.extraction_batch_count} extraction batches completed</span>}
+            {typeof documentImport.metadata.transaction_draft_count === 'number' && <span>{documentImport.metadata.transaction_draft_count} transaction reviews created</span>}
+          </div>
+        )}
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
       </div>
 
@@ -2775,6 +2933,8 @@ function DocumentReviewPanel({
             onConfirm={onConfirmDraft}
             onIgnore={onIgnoreDraft}
             onReopen={onReopenDraft}
+            onBulkConfirm={onBulkConfirmDrafts}
+            onBulkIgnore={onBulkIgnoreDrafts}
           />
         </section>
       )}
@@ -3283,17 +3443,17 @@ class MiaAttachmentError extends Error {
   }
 }
 
+class MiaAttachmentProcessingError extends MiaAttachmentError {
+  constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
+    super(message, attachments, options)
+    this.name = 'MiaAttachmentProcessingError'
+  }
+}
+
 class MiaAttachmentUploadError extends MiaAttachmentError {
   constructor(message: string, attachments: PendingMiaAttachment[], options?: ErrorOptions) {
     super(message, attachments, options)
     this.name = 'MiaAttachmentUploadError'
-  }
-}
-
-class MiaAttachmentProcessingTimeoutError extends MiaAttachmentError {
-  constructor(message: string, attachments: PendingMiaAttachment[]) {
-    super(message, attachments)
-    this.name = 'MiaAttachmentProcessingTimeoutError'
   }
 }
 
@@ -3312,9 +3472,16 @@ function attachmentWithMessageContext(attachment: PendingMiaAttachment, message:
 }
 
 function documentKindForMessageContext(file: File, currentKind: DocumentImportKind, message: string): DocumentImportKind {
-  if (!budgetSetupSignal(`${file.name} ${message}`)) return currentKind
+  const context = `${file.name} ${message}`
+  if (statementUploadSignal(context) && currentKind !== 'spreadsheet' && currentKind !== 'pay_stub') return 'statement'
+  if (!budgetSetupSignal(context)) return currentKind
   if (currentKind === 'spreadsheet' || currentKind === 'pay_stub') return currentKind
   return 'other'
+}
+
+function statementUploadSignal(text: string) {
+  const normalized = text.toLowerCase().replace(/[^a-z0-9&]+/g, ' ')
+  return /\b(bank|checking|savings|credit card|card|account)\s+statement\b|\bstatement\s+(page|pages|screenshot|screenshots|pdf|file)\b|\btransaction\s+history\b/i.test(normalized)
 }
 
 function budgetSetupSignal(text: string) {
@@ -4573,6 +4740,13 @@ function monthIndexFromIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
 }
 
+function transactionBulkAmountBucket(amount: number) {
+  if (amount < 100) return 'under_100'
+  if (amount < 1_000) return '100_to_999'
+  if (amount < 5_000) return '1000_to_4999'
+  return '5000_plus'
+}
+
 function messageLengthBucket(length: number) {
   if (length < 80) return 'under_80'
   if (length < 250) return '80_249'
@@ -4722,6 +4896,117 @@ function budgetCategoryChanges(rows: BudgetCategoryRow[], categoryDrafts: Record
   })
 }
 
+function MiaActionDraftReviewStack({
+  drafts,
+  isRealWorkspace,
+  action,
+  compact = false,
+  draftActionsDisabled = false,
+  disabledReason,
+  onApply,
+  onCancel,
+}: {
+  drafts: MiaActionDraft[]
+  isRealWorkspace: boolean
+  action: string | null
+  compact?: boolean
+  draftActionsDisabled?: boolean
+  disabledReason?: string
+  onApply: (draft: MiaActionDraft) => void
+  onCancel: (draft: MiaActionDraft) => void
+}) {
+  return (
+    <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
+      <div>
+        <p className="eyebrow">Review before applying</p>
+        <h4>Mia drafted budget edits for your approval</h4>
+        {compact && <p>Apply only if the planned-dollar changes are right. Actual spending does not change from these drafts.</p>}
+        {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+      </div>
+      {drafts.map((draft) => (
+        <MiaActionDraftReviewCard
+          key={miaActionDraftRenderKey(draft)}
+          draft={draft}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          draftActionsDisabled={draftActionsDisabled}
+          onApply={onApply}
+          onCancel={onCancel}
+        />
+      ))}
+    </div>
+  )
+}
+
+function MiaActionDraftReviewCard({
+  draft,
+  isRealWorkspace,
+  action,
+  draftActionsDisabled,
+  onApply,
+  onCancel,
+}: {
+  draft: MiaActionDraft
+  isRealWorkspace: boolean
+  action: string | null
+  draftActionsDisabled: boolean
+  onApply: (draft: MiaActionDraft) => void
+  onCancel: (draft: MiaActionDraft) => void
+}) {
+  const isPending = draft.status === 'pending'
+  const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+
+  return (
+    <div className="mia-action-draft-card">
+      <div className="mia-action-draft-main">
+        <div className="transaction-draft-title-row">
+          <strong>{draft.title}</strong>
+          <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+        </div>
+        <p>{draft.summary}</p>
+        {draft.rationale && <p>{draft.rationale}</p>}
+        <div className="mia-action-item-list">
+          {draft.items.map((item) => (
+            <div className="mia-action-item" key={item.id}>
+              <strong>{item.label}</strong>
+              {item.description && <span>{item.description}</span>}
+              {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
+            </div>
+          ))}
+        </div>
+        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft again when you apply it, save a record of the change, and leave actual spending untouched.</small>
+      </div>
+      {isPending ? (
+        <div className="mia-action-draft-actions">
+          <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply budget edit'}
+          </button>
+          <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
+            {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
+          </button>
+        </div>
+      ) : (
+        <div className="mia-action-draft-actions terminal">
+          <span>{draft.status === 'applied' ? 'Applied to planned budget. Actuals did not change.' : 'Canceled. No budget numbers changed.'}</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function miaActionDraftRenderKey(draft: MiaActionDraft) {
+  return [draft.id, draft.status, draft.items.map((item) => `${item.id}:${item.label}`).join(',')].join('|')
+}
+
+function miaActionItemFinePrint(item: MiaActionItem) {
+  if (item.action_type !== 'update_allocation') return null
+
+  const changes = Array.isArray(item.payload.changes) ? item.payload.changes : []
+  if (changes.length === 0) return null
+  if (changes.length === 12) return 'Applies to every month in the selected budget year.'
+  return `Applies to ${changes.length} month${changes.length === 1 ? '' : 's'}.`
+}
+
 function TransactionDraftReviewStack({
   drafts,
   isRealWorkspace,
@@ -4735,6 +5020,8 @@ function TransactionDraftReviewStack({
   onConfirm,
   onIgnore,
   onReopen,
+  onBulkConfirm,
+  onBulkIgnore,
 }: {
   drafts: TransactionDraft[]
   isRealWorkspace: boolean
@@ -4748,30 +5035,163 @@ function TransactionDraftReviewStack({
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
+  onBulkConfirm?: (drafts: TransactionDraft[]) => void
+  onBulkIgnore?: (drafts: TransactionDraft[]) => void
 }) {
+  const [query, setQuery] = useState('')
+  const [page, setPage] = useState(0)
+  const [pageSize, setPageSize] = useState(compact ? 5 : 10)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set())
+  const filteredDrafts = useMemo(() => {
+    const normalizedQuery = query.trim().toLowerCase()
+    if (!normalizedQuery) return drafts
+
+    return drafts.filter((draft) => [
+      draft.merchant,
+      draft.occurred_on,
+      draft.category_name ?? '',
+      ...(draft.splits ?? []).map((split) => split.category_name ?? ''),
+      exactMoneyNumber(draft.amount, draft.amount_cents).toFixed(2),
+    ].join(' ').toLowerCase().includes(normalizedQuery))
+  }, [drafts, query])
+  const totalPages = Math.max(1, Math.ceil(filteredDrafts.length / pageSize))
+  const safePage = Math.min(page, totalPages - 1)
+  const pageStart = safePage * pageSize
+  const visibleDrafts = filteredDrafts.slice(pageStart, pageStart + pageSize)
+  const filteredPendingDrafts = filteredDrafts.filter((draft) => draft.status === 'pending')
+  const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
+  const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
+  const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
+  const anyActionBusy = Boolean(action)
+  const bulkBusy = action?.startsWith('bulk-') ?? false
+
+  function toggleDraftSelection(draftId: number, selected: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (selected) next.add(draftId)
+      else next.delete(draftId)
+      return next
+    })
+  }
+
+  function toggleVisibleSelection(selected: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      visiblePendingDrafts.forEach((draft) => {
+        if (selected) next.add(draft.id)
+        else next.delete(draft.id)
+      })
+      return next
+    })
+  }
+
   return (
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
-      <div>
-        <p className="eyebrow">Review before applying</p>
-        <h4>Mia drafted transactions for your approval</h4>
-        {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
-        {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+      <div className="transaction-draft-stack-heading">
+        <div>
+          <p className="eyebrow">Review before applying</p>
+          <h4>Mia drafted transactions for your approval</h4>
+          {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
+          {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
+        </div>
+        <strong>{drafts.length} review{drafts.length === 1 ? '' : 's'}</strong>
       </div>
-      {drafts.map((draft) => (
+
+      {drafts.length > 5 && (
+        <div className="transaction-draft-queue-controls" aria-label="Transaction review queue controls">
+          <label>
+            <span className="sr-only">Search transaction reviews</span>
+            <input
+              type="search"
+              value={query}
+              placeholder="Search merchant, category, date, or amount"
+              onChange={(event) => {
+                setQuery(event.currentTarget.value)
+                setPage(0)
+              }}
+            />
+          </label>
+          <label>
+            <span>Show</span>
+            <select value={pageSize} onChange={(event) => { setPageSize(Number(event.currentTarget.value)); setPage(0) }}>
+              <option value={5}>5</option>
+              <option value={10}>10</option>
+              <option value={25}>25</option>
+            </select>
+          </label>
+        </div>
+      )}
+
+      {filteredPendingDrafts.length > 1 && onBulkConfirm && onBulkIgnore && (
+        <div className="transaction-draft-bulk-actions" aria-label="Bulk transaction review actions">
+          <label className="transaction-draft-select-page">
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              disabled={anyActionBusy}
+              onChange={(event) => toggleVisibleSelection(event.currentTarget.checked)}
+            />
+            <span>Select this page</span>
+          </label>
+          <span>{selectedDrafts.length} selected</span>
+          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+            Confirm selected
+          </button>
+          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
+            Ignore selected
+          </button>
+          <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set(filteredPendingDrafts.map((draft) => draft.id)))}>
+            Select all {filteredPendingDrafts.length} results
+          </button>
+          {selectedDrafts.length > 0 && (
+            <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set())}>
+              Clear selection
+            </button>
+          )}
+          <button type="button" disabled={anyActionBusy} onClick={() => onBulkConfirm(filteredPendingDrafts)}>
+            Confirm all {filteredPendingDrafts.length}
+          </button>
+          <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
+            Ignore all {filteredPendingDrafts.length}
+          </button>
+        </div>
+      )}
+
+      {visibleDrafts.length === 0 ? (
+        <div className="transaction-draft-empty-filter">
+          <strong>No transaction reviews match that search.</strong>
+          <button type="button" className="secondary-button" onClick={() => { setQuery(''); setPage(0) }}>Clear search</button>
+        </div>
+      ) : visibleDrafts.map((draft) => (
         <TransactionDraftReviewCard
           key={transactionDraftRenderKey(draft)}
           draft={draft}
           isRealWorkspace={isRealWorkspace}
           action={action}
-          draftActionsDisabled={draftActionsDisabled}
+          draftActionsDisabled={draftActionsDisabled || bulkBusy}
           categories={categories}
           onUpdate={onUpdate}
           onMatch={onMatch}
           onConfirm={onConfirm}
           onIgnore={onIgnore}
           onReopen={onReopen}
+          selected={draft.status === 'pending' && selectedIds.has(draft.id)}
+          onSelectedChange={(selected) => toggleDraftSelection(draft.id, selected)}
         />
       ))}
+
+      {filteredDrafts.length > pageSize && (
+        <nav className="transaction-draft-pagination" aria-label="Transaction review pages">
+          <span>
+            {pageStart + 1}–{Math.min(pageStart + pageSize, filteredDrafts.length)} of {filteredDrafts.length}
+          </span>
+          <div>
+            <button type="button" className="secondary-button" disabled={safePage === 0} onClick={() => setPage(Math.max(0, safePage - 1))}>Previous</button>
+            <span aria-live="polite">Page {safePage + 1} of {totalPages}</span>
+            <button type="button" className="secondary-button" disabled={safePage >= totalPages - 1} onClick={() => setPage(Math.min(totalPages - 1, safePage + 1))}>Next</button>
+          </div>
+        </nav>
+      )}
     </div>
   )
 }
@@ -4796,6 +5216,8 @@ function TransactionDraftReviewCard({
   onConfirm,
   onIgnore,
   onReopen,
+  selected,
+  onSelectedChange,
 }: {
   draft: TransactionDraft
   isRealWorkspace: boolean
@@ -4807,6 +5229,8 @@ function TransactionDraftReviewCard({
   onConfirm: (draft: TransactionDraft) => void
   onIgnore: (draft: TransactionDraft) => void
   onReopen: (draft: TransactionDraft) => void
+  selected: boolean
+  onSelectedChange: (selected: boolean) => void
 }) {
   const [editing, setEditing] = useState(false)
   const [merchant, setMerchant] = useState(draft.merchant)
@@ -4890,7 +5314,13 @@ function TransactionDraftReviewCard({
   }
 
   return (
-    <div className="transaction-draft-card">
+    <div className={`transaction-draft-card${selected ? ' is-selected' : ''}`}>
+      {isPending && (
+        <label className="transaction-draft-select" aria-label={`Select ${draft.merchant} for a bulk action`}>
+          <input type="checkbox" checked={selected} disabled={!isRealWorkspace || draftActionsDisabled || Boolean(action)} onChange={(event) => onSelectedChange(event.currentTarget.checked)} />
+          <span className="sr-only">Select {draft.merchant}</span>
+        </label>
+      )}
       <div className="transaction-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.merchant}</strong>
@@ -5336,11 +5766,15 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits,
   onArchiveCategory,
   onRestoreCategory,
+  onApplyMiaActionDraft,
+  onCancelMiaActionDraft,
   onUpdateDraft,
   onMatchDraft,
   onConfirmDraft,
   onIgnoreDraft,
   onReopenDraft,
+  onBulkConfirmDrafts,
+  onBulkIgnoreDrafts,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -5357,11 +5791,15 @@ function AnnualBudgetPlanner({
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
+  onApplyMiaActionDraft: (draft: MiaActionDraft) => void
+  onCancelMiaActionDraft: (draft: MiaActionDraft) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
   onIgnoreDraft: (draft: TransactionDraft) => void
   onReopenDraft: (draft: TransactionDraft) => void
+  onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
+  onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
 }) {
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
@@ -5494,7 +5932,8 @@ function AnnualBudgetPlanner({
         </div>
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
-          <span>{plan.pending_transaction_drafts.length} pending drafts</span>
+          <span>{plan.pending_transaction_drafts.length} pending transaction drafts</span>
+          {(plan.pending_mia_action_drafts ?? []).length > 0 && <span>{(plan.pending_mia_action_drafts ?? []).length} Mia action drafts</span>}
           {renderBudgetEditActions()}
         </div>
       </div>
@@ -5506,6 +5945,18 @@ function AnnualBudgetPlanner({
         <Metric label="Annual planned" value={currency.format(annualPlanned)} />
         <Metric label="Annual actual" value={currency.format(annualActual)} />
       </div>
+
+      {(plan.pending_mia_action_drafts ?? []).length > 0 && (
+        <MiaActionDraftReviewStack
+          drafts={plan.pending_mia_action_drafts ?? []}
+          isRealWorkspace={isRealWorkspace}
+          action={action}
+          disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before applying Mia action drafts.' : undefined}
+          draftActionsDisabled={isEditingBudget}
+          onApply={onApplyMiaActionDraft}
+          onCancel={onCancelMiaActionDraft}
+        />
+      )}
 
       {plan.pending_transaction_drafts.length > 0 && (
         <TransactionDraftReviewStack
@@ -5520,6 +5971,8 @@ function AnnualBudgetPlanner({
           onConfirm={onConfirmDraft}
           onIgnore={onIgnoreDraft}
           onReopen={onReopenDraft}
+          onBulkConfirm={onBulkConfirmDrafts}
+          onBulkIgnore={onBulkIgnoreDrafts}
         />
       )}
 
@@ -5692,7 +6145,7 @@ function loadStoredMiaMessages(storageKey: string) {
       && typeof message.author === 'string'
       && typeof message.content === 'string'
       && message.content.trim().length > 0
-    )).slice(-24)
+    )).slice(-DEMO_MIA_STORAGE_MAX_MESSAGES)
   } catch {
     return []
   }
@@ -5705,7 +6158,8 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
       return
     }
 
-    window.localStorage.setItem(storageKey, JSON.stringify(messages.slice(-24)))
+    const boundedMessages = messages.slice(-DEMO_MIA_STORAGE_MAX_MESSAGES)
+    window.localStorage.setItem(storageKey, JSON.stringify(boundedMessages))
   } catch {
     // Ignore private browsing/storage quota issues. Chat still works in memory.
   }

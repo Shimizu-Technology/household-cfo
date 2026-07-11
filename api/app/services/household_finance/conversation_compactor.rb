@@ -6,6 +6,7 @@ module HouseholdFinance
     MAX_TEXT_LENGTH = 240
     AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     FOLLOW_UP_PATTERN = /\b(?:what if|does that change|what about|how about|and if|then what|should i|should we|can i|can we|it|they|them|that|this|those|remind me|pick up|continue|same thing|from earlier|we were talking)\b/i.freeze
+    RECALL_PATTERN = /\b(?:remind me|what were we(?: just)? talking about|what did we(?: just)? talk about|what were we(?: just)? doing|what did we(?: just)? do|what was the plan|pick up where we left off|continue where we left off|from earlier|earlier plan)\b/i.freeze
     FAMILY_TERMS = /\b(?:cousin|family|auntie|aunty|uncle|sibling|brother|sister|parent|mom|dad|friend|off-island)\b/i.freeze
     FAMILY_ACTION_TERMS = /\b(?:asked|asking|ask|borrow|lend|loan|help|support|give|send)\b/i.freeze
     CAR_REPAIR_TERMS = /\b(?:car|vehicle|auto)\s+repair\b|\brepair\b.*\b(?:car|vehicle|auto)\b/i.freeze
@@ -14,7 +15,7 @@ module HouseholdFinance
     DEBT_TERMS = /\b(?:debt|credit card|payday loan|balance transfer|consolidat|minimum payment|highest interest|smallest balance|payoff)\b/i.freeze
     SINKING_TERMS = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|home repair)\b/i.freeze
     PENDING_TERMS = /\b(?:pending drafts?|transaction drafts?|confirm them|ignore them|waiting for review)\b/i.freeze
-    REPORT_TERMS = /\b(?:budget|spending|spent|actuals?|over plan|under plan|categories?|dining out|groceries|report)\b/i.freeze
+    REPORT_TERMS = /\b(?:budget|spending|spent|actuals?|over plan|under plan|categor(?:y|ies)|dining out|groceries|report)\b/i.freeze
     READINESS_TERMS = /\b(?:red|yellow|green|readiness|runway|baseline|next paycheck|30-day reset)\b/i.freeze
     PURCHASE_TERMS = /\b(?:buy|purchase|spend|afford|get|book|order|trip|vacation|staycation|shoes|phone|takeout|hotel)\b/i.freeze
     TRANSACTION_TERMS = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
@@ -34,7 +35,7 @@ module HouseholdFinance
         topics = normalized_topics(chat_session.open_topics)
         active_topic = normalized_topic(chat_session.active_topic)
         extracted_topic = extract_topic(user_message.content)
-        topic = topic_to_update(extracted_topic, active_topic)
+        topic = topic_to_update(extracted_topic, active_topic, topics)
 
         if topic
           topic = merge_topic(topic, user_message.content, assistant_message.content)
@@ -64,12 +65,17 @@ module HouseholdFinance
       @follow_up
     end
 
-    def topic_to_update(extracted_topic, active_topic)
+    def topic_to_update(extracted_topic, active_topic, topics)
+      return recalled_topic(topics, active_topic) if recall_request?
       return active_topic if follow_up? && active_topic.present?
       return extracted_topic if extracted_topic.present?
       return active_topic if text_looks_like_follow_up?(user_message.content) && active_topic.present?
 
       nil
+    end
+
+    def recalled_topic(topics, active_topic)
+      topics.first || active_topic
     end
 
     def extract_topic(text)
@@ -138,9 +144,17 @@ module HouseholdFinance
     def report_subject(normalized)
       return "Dining Out" if normalized.include?("dining out")
       return "groceries" if normalized.match?(/grocer/)
+      return "largest planned category" if normalized.match?(/\b(largest|biggest|highest|top)\b/) && normalized.match?(/\b(category|budget|spending|expense|line)\b/)
       return "categories over plan" if normalized.match?(/over plan|over budget/)
 
       "budget report"
+    end
+
+    def budget_report_subject_from_assistant(topic, text)
+      return unless topic["type"] == "budget_report"
+
+      match = text.to_s.match(/largest planned spending category(?:\s+for\s+[^\n.]+?)?\s+is\s+(?<category>[^,.\n]+?)(?:,|\s+under\b|\.|\z)/i)
+      sanitized_text(match&.[](:category), max_length: 80)
     end
 
     def merchant_subject(text)
@@ -174,17 +188,37 @@ module HouseholdFinance
     def merge_topic(topic, latest_user_text, latest_assistant_text)
       topic = topic.deep_stringify_keys
       amount_cents = amount_from_text(latest_user_text) || topic["amount_cents"]
+      budget_subject = budget_report_subject_from_assistant(topic, latest_assistant_text)
       topic.merge(
         "id" => topic["id"].presence || SecureRandom.uuid,
         "status" => topic["status"].presence || "open",
+        "subject" => budget_subject || topic["subject"],
         "amount_cents" => amount_cents,
         "amount_label" => amount_cents ? money(amount_cents) : topic["amount_label"],
-        "latest_user_context" => sanitized_text(latest_user_text, max_length: MAX_TEXT_LENGTH),
-        "latest_mia_summary" => assistant_summary(latest_assistant_text),
-        "next_move" => next_move(latest_assistant_text) || topic["next_move"],
+        "latest_user_context" => latest_user_context_for(topic, latest_user_text),
+        "latest_mia_summary" => latest_mia_summary_for(topic, latest_assistant_text),
+        "next_move" => next_move_for(topic, latest_assistant_text),
         "updated_at" => now.iso8601,
         "turn_count" => topic["turn_count"].to_i + 1
       ).compact
+    end
+
+    def latest_user_context_for(topic, latest_user_text)
+      return topic["latest_user_context"] if recall_request?
+
+      sanitized_text(latest_user_text, max_length: MAX_TEXT_LENGTH)
+    end
+
+    def latest_mia_summary_for(topic, latest_assistant_text)
+      return topic["latest_mia_summary"] if recall_request?
+
+      assistant_summary(latest_assistant_text)
+    end
+
+    def next_move_for(topic, latest_assistant_text)
+      return topic["next_move"] if recall_request?
+
+      next_move(latest_assistant_text) || topic["next_move"]
     end
 
     def upsert_topic(topics, topic)
@@ -226,6 +260,10 @@ module HouseholdFinance
 
     def text_looks_like_follow_up?(text)
       normalize(text).match?(FOLLOW_UP_PATTERN)
+    end
+
+    def recall_request?
+      user_message.content.to_s.match?(RECALL_PATTERN)
     end
 
     def transaction_report?(normalized)

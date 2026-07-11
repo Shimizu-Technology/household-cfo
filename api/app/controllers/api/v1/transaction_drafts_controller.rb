@@ -22,7 +22,9 @@ module Api
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
-        append_chat_status_message(confirmed_message(result.draft))
+        status_message = confirmed_message(result.draft)
+        append_chat_status_message(status_message)
+        update_conversation_draft_status("confirmed", status_message)
 
         render json: {
           transaction_draft: serialize_draft(result.draft),
@@ -40,7 +42,9 @@ module Api
           end
           HouseholdFinance::DocumentImportStatusReconciler.new(@draft.financial_document_import).call if @draft.financial_document_import
         end
-        append_chat_status_message(ignored_message(@draft))
+        status_message = ignored_message(@draft)
+        append_chat_status_message(status_message)
+        update_conversation_draft_status("ignored", status_message)
 
         render json: {
           transaction_draft: serialize_draft(@draft.reload),
@@ -50,13 +54,23 @@ module Api
         render json: { errors: [ e.message ] }, status: :unprocessable_entity
       end
 
+      def bulk_confirm
+        resolve_bulk("confirm")
+      end
+
+      def bulk_ignore
+        resolve_bulk("ignore")
+      end
+
       def match
         result = HouseholdFinance::TransactionDraftMatchAccepter.new(@draft, match_id: params[:match_id]).call
         unless result.success?
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
-        append_chat_status_message(matched_message(result.draft, result.match))
+        status_message = matched_message(result.draft, result.match)
+        append_chat_status_message(status_message)
+        update_conversation_draft_status("matched", status_message)
 
         render json: {
           transaction_draft: serialize_draft(result.draft),
@@ -70,7 +84,9 @@ module Api
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
-        append_chat_status_message(reopened_message(result.draft))
+        status_message = reopened_message(result.draft)
+        append_chat_status_message(status_message)
+        update_conversation_draft_status("pending_review", status_message)
 
         render json: {
           transaction_draft: serialize_draft(result.draft),
@@ -79,6 +95,40 @@ module Api
       end
 
       private
+
+      def resolve_bulk(action)
+        draft_ids = Array(params[:transaction_draft_ids]).map(&:to_i).select(&:positive?).uniq
+        if draft_ids.empty?
+          return render json: { errors: [ "Select at least one pending transaction review" ] }, status: :unprocessable_entity
+        end
+        if action == "confirm" && params[:confirmation].to_s != "CONFIRM #{draft_ids.length}"
+          return render json: { errors: [ "Type CONFIRM #{draft_ids.length} to approve this bulk actuals update" ] }, status: :unprocessable_entity
+        end
+
+        result = HouseholdFinance::TransactionDraftBulkResolver.new(
+          current_household,
+          draft_ids: draft_ids,
+          action: action
+        ).call
+        unless result.success?
+          return render json: { errors: result.errors }, status: :unprocessable_entity
+        end
+
+        count = result.drafts.length
+        total_cents = result.drafts.sum(&:total_amount_cents)
+        status_message = if action == "confirm"
+          "Confirmed #{count} pending transaction #{'review'.pluralize(count)} totaling #{money(total_cents)}. Actuals were updated only after this bulk approval."
+        else
+          "Ignored #{count} pending transaction #{'review'.pluralize(count)} totaling #{money(total_cents)}. Actuals did not change."
+        end
+        append_chat_status_message(status_message)
+
+        render json: {
+          resolved_count: count,
+          resolved_ids: result.drafts.map(&:id),
+          workspace: workspace_payload_for(params[:year])
+        }
+      end
 
       def set_draft
         @draft = current_household.transaction_drafts.find(params[:id])
@@ -102,6 +152,19 @@ module Api
         current_chat_session.chat_messages.create!(role: "assistant", content: content)
       rescue StandardError => e
         Rails.logger.warn("Transaction draft status message was not saved draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
+        false
+      end
+
+      def update_conversation_draft_status(status, content)
+        HouseholdFinance::MiaConversationReviewStatusUpdater.new(
+          current_chat_session,
+          reference_key: "transaction_draft_id",
+          reference_id: @draft.id,
+          status: status,
+          summary: content
+        ).call
+      rescue StandardError => e
+        Rails.logger.warn("Transaction conversation status was not updated draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
         false
       end
 

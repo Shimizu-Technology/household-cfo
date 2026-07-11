@@ -2,7 +2,7 @@
 
 module HouseholdFinance
   class MiaAnswerPacketBuilder
-    def initialize(kind:, fallback_response:, write_state:, selected_month: nil, annual_plan: nil, spending_report: nil, transaction_draft: nil, conversation_context: nil)
+    def initialize(kind:, fallback_response:, write_state:, selected_month: nil, annual_plan: nil, spending_report: nil, transaction_draft: nil, conversation_context: nil, mia_action_result: nil)
       @kind = kind.to_s
       @fallback_response = fallback_response.to_s
       @write_state = write_state.presence || "no_write"
@@ -11,6 +11,7 @@ module HouseholdFinance
       @spending_report = spending_report
       @transaction_draft = transaction_draft
       @conversation_context = conversation_context
+      @mia_action_result = mia_action_result
     end
 
     def call
@@ -24,13 +25,15 @@ module HouseholdFinance
         annual_plan_summary: annual_plan_summary,
         spending_report_summary: spending_report_summary,
         transaction_draft: transaction_draft_packet,
+        budget_action: budget_action_packet,
+        conversation_state: conversation_state,
         guardrails: guardrails
       }.compact
     end
 
     private
 
-    attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft
+    attr_reader :kind, :fallback_response, :write_state, :selected_month, :annual_plan, :spending_report, :transaction_draft, :conversation_context, :mia_action_result
 
     def answer_basis
       case kind
@@ -38,7 +41,7 @@ module HouseholdFinance
         "active annual plan, confirmed actuals, and pending drafts"
       when "spending_report", "transaction_lookup"
         "confirmed household transactions"
-      when "pending_drafts", "transaction_draft"
+      when "pending_drafts", "transaction_draft", "transaction_draft_update"
         "pending transaction drafts awaiting Household CFO review"
       else
         "approved household profile, active annual plan, confirmed actuals, and pending drafts"
@@ -61,8 +64,32 @@ module HouseholdFinance
         year: annual_plan_year,
         active_category_count: active_rows.length,
         pending_draft_count: pending.length,
-        top_categories: active_rows.first(6).map { |row| { name: row[:name] || row["name"], stack_key: row[:stack_key] || row["stack_key"] } }
+        top_categories: summarized_categories(active_rows)
       }
+    end
+
+    def summarized_categories(active_rows)
+      month_index = selected_month.to_i.positive? ? selected_month.to_i - 1 : nil
+      rows = month_index ? active_rows.sort_by { |row| -month_amount(row, month_index, :planned) } : active_rows
+      rows.first(8).map do |row|
+        payload = { name: row[:name] || row["name"], stack_key: row[:stack_key] || row["stack_key"] }
+        if month_index
+          payload.merge(
+            planned: month_amount(row, month_index, :planned),
+            actual: month_amount(row, month_index, :actual),
+            remaining: month_amount(row, month_index, :remaining)
+          )
+        else
+          payload
+        end
+      end
+    end
+
+    def month_amount(row, month_index, key)
+      month = Array(row[:months] || row["months"])[month_index]
+      return 0 unless month
+
+      (month[key] || month[key.to_s] || 0).to_f
     end
 
     def active_row?(row)
@@ -105,11 +132,53 @@ module HouseholdFinance
       }.compact
     end
 
+    def budget_action_packet
+      return unless mia_action_result
+
+      if (proposal = mia_action_result.proposal)
+        return {
+          status: "proposed",
+          title: proposal.title,
+          summary: proposal.summary,
+          rationale: proposal.rationale,
+          items: proposal.items.map do |item|
+            {
+              action_type: item.action_type,
+              label: item.label,
+              description: item.description,
+              before: item.before_snapshot,
+              after: item.after_snapshot
+            }
+          end
+        }
+      end
+
+      draft = mia_action_result.existing_draft
+      return unless draft
+
+      {
+        id: draft.id,
+        status: draft.status,
+        title: draft.title,
+        summary: draft.summary
+      }
+    end
+
+    def conversation_state
+      context = conversation_context.respond_to?(:deep_symbolize_keys) ? conversation_context.deep_symbolize_keys : {}
+      {
+        active_thread: context[:active_topic],
+        open_threads: Array(context[:open_topics]).first(4),
+        older_summary: context[:rolling_summary]
+      }.compact
+    end
+
     def guardrails
       [
         "Use approved structured facts as source of truth.",
         "Separate planned budget, confirmed actuals, and pending drafts.",
-        "Do not claim writes happened unless write_state is confirmed_write.",
+        "Do not claim official budget or actual writes happened unless write_state is confirmed_write.",
+        "When write_state is draft_updated, the pending review fields changed but actuals did not.",
         "End with one concrete Household CFO next move."
       ]
     end

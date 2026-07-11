@@ -24,7 +24,7 @@ module Api
         ".heic" => %w[image/heic image/heif],
         ".heif" => %w[image/heif image/heic]
       }.freeze
-      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count].freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count].freeze
 
       def index
         imports = current_household.financial_document_imports
@@ -47,6 +47,11 @@ module Api
         return render json: { errors: [ validation_error ] }, status: :unprocessable_entity if validation_error
 
         document_import = build_document_import(file)
+        if duplicate_active_import?(document_import)
+          return render json: {
+            errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ]
+          }, status: :unprocessable_entity
+        end
         document_import.save!
 
         s3_key = s3_key_for(document_import, file)
@@ -268,9 +273,32 @@ module Api
           checksum_sha256: Digest::SHA256.file(file.tempfile.path).hexdigest,
           metadata: {
             "original_filename" => file.original_filename.to_s,
-            "upload_request_id" => params[:upload_request_id].to_s.presence
+            "upload_request_id" => params[:upload_request_id].to_s.presence,
+            "upload_origin" => params[:upload_origin].to_s.presence_in(%w[profile mia]),
+            "upload_context" => sanitized_upload_context
           }.compact
         )
+      end
+
+      def duplicate_active_import?(document_import)
+        current_household.financial_document_imports
+          .where(
+            checksum_sha256: document_import.checksum_sha256,
+            document_kind: document_import.document_kind,
+            status: %w[uploaded processing needs_review]
+          )
+          .where(source_deleted_at: nil)
+          .exists?
+      end
+
+      def sanitized_upload_context
+        params[:upload_context].to_s
+          .unicode_normalize(:nfkc)
+          .gsub(/[[:cntrl:]]/, " ")
+          .gsub(/[<>`]/, "")
+          .squish
+          .truncate(500, omission: "…")
+          .presence
       end
 
       def requested_document_kind(file)
@@ -537,7 +565,7 @@ module Api
       end
 
       def safe_import_metadata(metadata)
-        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count")
+        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "extraction_model", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count")
       end
 
       def safe_draft_payload(payload)

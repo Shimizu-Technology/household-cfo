@@ -16,6 +16,8 @@ class Household < ApplicationRecord
   has_many :budget_years, dependent: :destroy
   has_many :budget_categories, dependent: :destroy
   has_many :financial_document_imports, dependent: :destroy
+  has_many :mia_action_drafts, dependent: :destroy
+  has_many :household_audit_events, dependent: :destroy
 
   validates :name, presence: true, length: { maximum: 120 }
   validates :primary_goal, length: { maximum: 500 }, allow_blank: true

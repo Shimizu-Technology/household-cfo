@@ -64,6 +64,32 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_not body.key?("s3_key")
   end
 
+  test "create rejects an exact duplicate while the first import is still active" do
+    upload_count = 0
+    with_s3_stubs(
+      configured?: true,
+      upload: lambda do |key, _io, content_type:|
+        upload_count += 1
+        content_type && key
+      end
+    ) do
+      post "/api/v1/document_imports",
+        params: { file: uploaded_csv, document_kind: "spreadsheet" },
+        headers: auth_headers(@user)
+      assert_response :created
+
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports",
+          params: { file: uploaded_csv, document_kind: "spreadsheet" },
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal 1, upload_count
+    assert_includes JSON.parse(response.body).fetch("errors").join, "exact file is already uploaded"
+  end
+
   test "create enqueues Mia chat attachment extraction immediately" do
     with_s3_stubs(
       configured?: true,
@@ -72,14 +98,22 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       assert_difference("FinancialDocumentImport.count", 1) do
         assert_enqueued_with(job: FinancialDocumentExtractionJob) do
           post "/api/v1/document_imports",
-            params: { file: uploaded_csv, document_kind: "spreadsheet", upload_origin: "mia" },
+            params: {
+              file: uploaded_csv,
+              document_kind: "spreadsheet",
+              upload_origin: "mia",
+              upload_context: "Here is my <bank> statement from the past month.`\nPlease review it."
+            },
             headers: auth_headers(@user)
         end
       end
     end
 
     assert_response :created
-    assert_equal "uploaded", FinancialDocumentImport.last.status
+    document_import = FinancialDocumentImport.last
+    assert_equal "uploaded", document_import.status
+    assert_equal "mia", document_import.metadata.fetch("upload_origin")
+    assert_equal "Here is my bank statement from the past month. Please review it.", document_import.metadata.fetch("upload_context")
   end
 
   test "create rejects mismatched file contents before upload" do

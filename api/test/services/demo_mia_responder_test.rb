@@ -139,6 +139,29 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes prompt, "say so plainly instead of guessing"
   end
 
+  test "verified conversation resolution tells the narrator not to repeat a rejected prerequisite" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    messages = responder.send(
+      :verified_conversation_resolution_messages,
+      {
+        intent: "recall",
+        action: {
+          type: "set_allocation",
+          category_id: 42,
+          category_name: "Fixed essentials",
+          amount: "3000",
+          months: [ 7 ],
+          year: 2026
+        }
+      }
+    )
+
+    assert_equal [ "system" ], messages.pluck(:role)
+    assert_includes messages.first.fetch(:content), "VERIFIED_CURRENT_CONVERSATION_RESOLUTION_JSON"
+    assert_includes messages.first.fetch(:content), "do not repeat an older assistant request for underlying items"
+    assert_includes messages.first.fetch(:content), '"category_id":42'
+  end
+
   test "model responses have generic opener stripped" do
     responder = Demo::MiaResponder.new(api_key: nil)
 
@@ -170,6 +193,61 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     refute_includes response, "added"
   end
 
+  test "generic replies cannot claim a current draft was created when the route created no review card" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+
+    [
+      "Okay, I'll draft that under Dining Out.",
+      "Yes, I did draft it under Dining Out.",
+      "I have prepared the transaction review."
+    ].each do |claim|
+      response = responder.send(
+        :sanitize_assistant_content,
+        claim,
+        user_message: "Yes",
+        draft_capable: false
+      )
+
+      assert_includes response, "did not create a new transaction review", claim
+      assert_includes response, "Nothing changed", claim
+    end
+  end
+
+  test "recall may describe an existing supervised budget review without becoming a transaction error" do
+    response = Demo::MiaResponder.new(api_key: nil).send(
+      :sanitize_assistant_content,
+      "We were discussing the Fixed essentials budget edit I drafted for July.",
+      user_message: "What were we discussing?",
+      draft_capable: false,
+      conversation_resolution: {
+        intent: "recall",
+        action: { type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "3950", months: [ 7 ], year: 2026 }
+      }
+    )
+
+    assert_includes response, "Fixed essentials"
+    assert_includes response, "I drafted"
+    refute_includes response, "transaction review"
+  end
+
+  test "reflexive cultural openers are removed and recent use suppresses repeated chelu" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    direct = responder.send(:sanitize_assistant_content, "Okay, chelu. I drafted the July edit for review.", draft_capable: true)
+    standalone = responder.send(:sanitize_assistant_content, "Chelu, the category already exists.", draft_capable: true)
+    recall = responder.send(:sanitize_assistant_content, "Håfa Adai, chelu! We were discussing the July edit.\n\nIt is still pending.", draft_capable: true)
+    restrained = responder.send(
+      :sanitize_assistant_content,
+      "The August plan is ready, chelu. Review it before applying.",
+      draft_capable: true,
+      history: [ { role: "assistant", content: "Lanya chelu, that is a real surprise." } ]
+    )
+
+    assert_equal "I drafted the July edit for review.", direct
+    assert_equal "The category already exists.", standalone
+    assert_equal "We were discussing the July edit. It is still pending.", recall
+    assert_equal "The August plan is ready. Review it before applying.", restrained
+  end
+
   test "demo mode does not tell users to confirm unavailable drafts" do
     response = Demo::MiaResponder.new(api_key: nil).send(
       :sanitize_assistant_content,
@@ -196,7 +274,7 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
   def stubbed_model_responder(response)
     Demo::MiaResponder.new(api_key: "test-key").tap do |responder|
-      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false|
+      responder.define_singleton_method(:openrouter_response) do |_message, _history, context:, draft_capable: false, conversation_resolution: nil|
         raise "expected household context" if context.blank?
 
         response

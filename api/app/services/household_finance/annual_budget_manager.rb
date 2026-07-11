@@ -2,6 +2,7 @@ module HouseholdFinance
   class AnnualBudgetManager
     MONTH_NAMES = %w[Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec].freeze
     SUPPORTED_YEARS = 2000..2100
+    MAX_PENDING_TRANSACTION_DRAFTS = 500
 
     def self.supported_year?(value)
       SUPPORTED_YEARS.cover?(value.to_i)
@@ -43,6 +44,7 @@ module HouseholdFinance
         end,
         monthly_income: monthly_income_by_period(periods),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
+        pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
       }
@@ -294,8 +296,16 @@ module HouseholdFinance
       household.transaction_drafts.pending.includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
         .recent_first
-        .limit(20)
+        .limit(MAX_PENDING_TRANSACTION_DRAFTS)
         .map { |draft| draft_payload(draft) }
+    end
+
+    def pending_mia_action_drafts_payload(budget_year)
+      household.mia_action_drafts.pending.includes(:mia_action_items)
+        .where(year: budget_year.year, draft_type: "budget_edit")
+        .recent_first
+        .limit(10)
+        .map { |draft| MiaActionDraftPresenter.new(draft).call }
     end
 
     def recent_transactions_payload(periods)

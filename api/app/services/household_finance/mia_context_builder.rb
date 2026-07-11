@@ -90,7 +90,7 @@ module HouseholdFinance
 
     def selected_month_budget_rows(plan, reference_month)
       month_index = plan.fetch(:months).index { |month| month.fetch(:id) == reference_month.fetch(:id) } || (@reference_month - 1)
-      plan.fetch(:rows).first(8).map do |row|
+      plan.fetch(:rows).first(24).map do |row|
         month = row.fetch(:months).fetch(month_index)
         {
           category: sanitized_text(row.fetch(:name), max_length: 80),

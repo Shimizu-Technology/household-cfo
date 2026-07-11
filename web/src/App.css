@@ -2043,6 +2043,23 @@ h3 {
   background: rgba(123, 74, 88, 0.06);
 }
 
+.document-extraction-coverage {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 3px;
+}
+
+.document-extraction-coverage span {
+  padding: 6px 9px;
+  border: 1px solid rgba(23, 96, 87, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--emerald);
+  font-size: 0.72rem;
+  font-weight: 900;
+}
+
 .document-applied-summary {
   display: grid;
   grid-template-columns: minmax(0, 1.05fr) minmax(260px, 0.95fr) auto;
@@ -3621,6 +3638,8 @@ h3 {
 .annual-budget-editor-toolbar,
 .transaction-draft-card,
 .transaction-draft-actions,
+.mia-action-draft-card,
+.mia-action-draft-actions,
 .transaction-ledger-heading,
 .transaction-ledger-pagination,
 .recent-transaction-row {
@@ -3675,6 +3694,7 @@ h3 {
 
 .annual-budget-actions span,
 .transaction-draft-card p,
+.mia-action-draft-card p,
 .recent-transaction-row span,
 .annual-budget-table small,
 .annual-category-form span {
@@ -3697,7 +3717,8 @@ h3 {
   gap: 10px;
 }
 
-.transaction-draft-stack {
+.transaction-draft-stack,
+.mia-action-draft-stack {
   display: grid;
   gap: 10px;
   padding: 14px;
@@ -3706,13 +3727,171 @@ h3 {
   background: #fff7ed;
 }
 
-.transaction-draft-stack.compact {
+.mia-action-draft-stack {
+  border-color: rgba(23, 96, 87, 0.2);
+  background: linear-gradient(180deg, #f4fbf7, #fffaf2);
+}
+
+.transaction-draft-stack-heading,
+.transaction-draft-queue-controls,
+.transaction-draft-pagination,
+.transaction-draft-pagination > div,
+.transaction-draft-empty-filter {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.transaction-draft-stack-heading {
+  justify-content: space-between;
+  align-items: flex-start;
+}
+
+.transaction-draft-stack-heading > div {
+  min-width: 0;
+}
+
+.transaction-draft-stack-heading > strong {
+  flex: 0 0 auto;
+  padding: 8px 11px;
+  border: 1px solid rgba(143, 74, 95, 0.15);
+  border-radius: 999px;
+  background: white;
+  color: var(--mauve);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.transaction-draft-queue-controls {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  padding: 10px;
+  border: 1px solid rgba(143, 74, 95, 0.12);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.transaction-draft-queue-controls label:last-child {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.transaction-draft-queue-controls input,
+.transaction-draft-queue-controls select {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 0 12px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 700;
+}
+
+.transaction-draft-queue-controls select {
+  width: auto;
+  min-width: 70px;
+}
+
+.transaction-draft-bulk-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(143, 74, 95, 0.16);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.transaction-draft-bulk-actions > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.transaction-draft-bulk-actions button {
+  min-height: 40px;
+  padding: 8px 12px;
+}
+
+.transaction-draft-select-page,
+.transaction-draft-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 850;
+  cursor: pointer;
+}
+
+.transaction-draft-select input,
+.transaction-draft-select-page input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--mauve);
+}
+
+.transaction-draft-card.is-selected {
+  border-color: rgba(143, 74, 95, 0.46);
+  box-shadow: inset 0 0 0 1px rgba(143, 74, 95, 0.12);
+}
+
+.transaction-draft-select {
+  flex: 0 0 auto;
+  padding-top: 3px;
+}
+
+.transaction-draft-pagination {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 850;
+}
+
+.transaction-draft-pagination > div {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.transaction-draft-pagination button,
+.transaction-draft-empty-filter button {
+  min-height: 42px;
+  padding: 8px 13px;
+}
+
+.transaction-draft-empty-filter {
+  justify-content: space-between;
+  flex-wrap: wrap;
+  min-height: 80px;
+  padding: 14px;
+  border: 1px dashed rgba(143, 74, 95, 0.22);
+  border-radius: 16px;
+  color: var(--muted);
+}
+
+.transaction-draft-stack.compact,
+.mia-action-draft-stack.compact {
   margin: 0 18px 16px;
   border-radius: 18px;
   background: #fffaf2;
 }
 
+.mia-action-draft-stack.compact {
+  background: linear-gradient(180deg, #f7fbf8, #fffaf2);
+}
+
 .transaction-draft-stack.compact > div:first-child p:not(.eyebrow),
+.mia-action-draft-stack.compact > div:first-child p:not(.eyebrow),
 .transaction-draft-disabled-reason {
   margin: 4px 0 0;
   color: var(--muted);
@@ -3729,11 +3908,14 @@ h3 {
 }
 
 .transaction-draft-stack h4,
-.transaction-draft-card p {
+.mia-action-draft-stack h4,
+.transaction-draft-card p,
+.mia-action-draft-card p {
   margin: 0;
 }
 
-.transaction-draft-card {
+.transaction-draft-card,
+.mia-action-draft-card {
   flex-wrap: wrap;
   align-items: flex-start;
   padding: 16px;
@@ -3742,11 +3924,42 @@ h3 {
   background: white;
 }
 
-.transaction-draft-main {
+.transaction-draft-main,
+.mia-action-draft-main {
   min-width: 0;
   flex: 1 1 280px;
   display: grid;
   gap: 6px;
+}
+
+.mia-action-item-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.mia-action-item {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid rgba(23, 96, 87, 0.12);
+  border-radius: 14px;
+  background: #fbf8f2;
+}
+
+.mia-action-item span,
+.mia-action-item small,
+.mia-action-safety-copy {
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.mia-action-safety-copy {
+  display: block;
+  margin-top: 4px;
+  color: var(--emerald);
 }
 
 .transaction-draft-title-row {
@@ -3892,6 +4105,7 @@ h3 {
 }
 
 .transaction-draft-actions button,
+.mia-action-draft-actions button,
 .annual-category-form button,
 .annual-plan-edit-actions button {
   min-height: 42px;
@@ -3903,11 +4117,13 @@ h3 {
   font-weight: 900;
 }
 
-.transaction-draft-actions.terminal {
+.transaction-draft-actions.terminal,
+.mia-action-draft-actions.terminal {
   justify-content: flex-start;
 }
 
-.transaction-draft-actions.terminal span {
+.transaction-draft-actions.terminal span,
+.mia-action-draft-actions.terminal span {
   display: inline-flex;
   max-width: 100%;
   padding: 9px 11px;
@@ -3928,6 +4144,7 @@ h3 {
 }
 
 .transaction-draft-actions .secondary-button,
+.mia-action-draft-actions .secondary-button,
 .annual-plan-edit-actions .secondary-button {
   border: 1px solid var(--line);
   background: white;
@@ -4331,6 +4548,7 @@ h3 {
   .annual-budget-heading,
   .annual-budget-editor-toolbar,
   .transaction-draft-card,
+  .mia-action-draft-card,
   .current-month-activity-heading,
   .month-activity-row,
   .archived-category-row,
@@ -4341,6 +4559,7 @@ h3 {
   .annual-budget-actions,
   .setup-form-actions,
   .transaction-draft-actions,
+  .mia-action-draft-actions,
   .annual-plan-edit-actions,
   .transaction-ledger-controls,
   .transaction-ledger-pagination {
@@ -4365,18 +4584,21 @@ h3 {
   }
 
   .transaction-draft-stack,
+  .mia-action-draft-stack,
   .document-transaction-drafts {
     padding: 10px;
     border-radius: 16px;
   }
 
-  .transaction-draft-card {
+  .transaction-draft-card,
+  .mia-action-draft-card {
     grid-template-columns: minmax(0, 1fr);
     width: 100%;
     padding: 14px;
   }
 
   .transaction-draft-main,
+  .mia-action-draft-main,
   .transaction-draft-editor {
     width: 100%;
   }
@@ -4386,6 +4608,7 @@ h3 {
   }
 
   .transaction-draft-actions,
+  .mia-action-draft-actions,
   .transaction-draft-edit-actions,
   .transaction-match-suggestions > div {
     display: grid;
@@ -4394,11 +4617,13 @@ h3 {
     justify-content: stretch;
   }
 
-  .transaction-draft-actions.terminal {
+  .transaction-draft-actions.terminal,
+  .mia-action-draft-actions.terminal {
     grid-template-columns: 1fr;
   }
 
   .transaction-draft-actions button,
+  .mia-action-draft-actions button,
   .transaction-draft-edit-actions button,
   .transaction-match-suggestions .secondary-button {
     width: 100%;

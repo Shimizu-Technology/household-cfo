@@ -90,6 +90,43 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "extracts a full monthly CSV beyond the old eighty-row sample" do
+    file = Tempfile.new([ "large-statement", ".csv" ])
+    file.write("date,description,amount,category,notes\n")
+    150.times do |index|
+      date = Date.new(2026, 7, 1) + (index % 28).days
+      file.write("#{date.iso8601},Merchant #{index + 1},#{format('%.2f', index + 1.25)},Dining Out,Statement row #{index + 1}\n")
+    end
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "large-statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    drafts = result.data.fetch(:transaction_drafts)
+    assert_equal 150, drafts.length
+    assert_equal "Merchant 1", drafts.first.fetch(:merchant)
+    assert_equal "Merchant 150", drafts.last.fetch(:merchant)
+  ensure
+    file&.close!
+  end
+
+  test "rejects oversized statement CSVs instead of silently truncating transaction rows" do
+    file = Tempfile.new([ "oversized-statement", ".csv" ])
+    file.write("date,description,amount,category,notes\n")
+    501.times do |index|
+      file.write("2026-07-10,Merchant #{index + 1},1.25,Dining Out,Statement row #{index + 1}\n")
+    end
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "oversized-statement.csv", document_kind: "statement").call
+
+    refute result.success?
+    assert_includes result.error, "more than 500 rows"
+    assert_includes result.error, "without silently truncating"
+  ensure
+    file&.close!
+  end
+
   test "does not import transaction-like combined rows as budget setup items" do
     file = Tempfile.new([ "combined", ".csv" ])
     file.write(<<~CSV)

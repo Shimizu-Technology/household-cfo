@@ -436,7 +436,7 @@ module HouseholdFinance
       return [] unless user
       return [] unless chat_session
 
-      messages = chat_session.chat_messages.order(:created_at).last(24)
+      messages = chat_session.chat_messages.order(:created_at, :id).to_a
       imports_by_id = attachment_imports_by_id(messages)
       messages.map { |message| serialize_chat_message(message, imports_by_id: imports_by_id) }
     end

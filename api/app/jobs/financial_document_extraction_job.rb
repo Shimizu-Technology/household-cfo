@@ -5,7 +5,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   ATTEMPT_METADATA_STRING_LENGTH = 120
   ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
-  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model last_extracted_at transaction_draft_count transaction_match_count].freeze
+  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at transaction_draft_count transaction_match_count].freeze
   STALE_PROCESSING_AFTER = 15.minutes
 
   def perform(financial_document_import_id)
@@ -67,6 +67,9 @@ class FinancialDocumentExtractionJob < ApplicationJob
         "confidence" => data[:confidence],
         "warnings" => warnings.first(FinancialDocuments::Extractor::MAX_WARNINGS),
         "extraction_model" => attempt.model,
+        "extraction_mode" => result.metadata[:extraction_mode],
+        "extraction_page_count" => result.metadata[:page_count],
+        "extraction_batch_count" => result.metadata[:batch_count],
         "last_extracted_at" => Time.current.iso8601,
         "transaction_draft_count" => draft_result.fetch(:created_count),
         "transaction_match_count" => draft_result.fetch(:match_count)

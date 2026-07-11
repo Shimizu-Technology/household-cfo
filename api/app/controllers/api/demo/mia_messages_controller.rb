@@ -30,7 +30,7 @@ module Api
       private
 
       def conversation_history
-        Array(params[:messages]).filter_map do |message|
+        messages = Array(params[:messages]).filter_map do |message|
           permitted = history_message_attributes(message)
           next unless permitted
 
@@ -39,8 +39,19 @@ module Api
 
           next unless role.in?([ "assistant", "user" ]) && content.present?
 
-          { role: role, content: content }
-        end.last(12)
+          { role: role, content: content.truncate(2_000, omission: "…") }
+        end
+
+        selected = []
+        used_characters = 0
+        messages.reverse_each do |message|
+          break if selected.length >= 8 && used_characters + message.fetch(:content).length > 24_000
+
+          selected << message
+          used_characters += message.fetch(:content).length
+          break if selected.length >= 32
+        end
+        selected.reverse
       end
 
       def history_message_attributes(message)

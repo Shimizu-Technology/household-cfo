@@ -55,6 +55,8 @@ AWS_S3_BUCKET=household-cfo-private-dev
 AWS_S3_PREFIX=household-cfo/development
 OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=~anthropic/claude-sonnet-latest
+# Optional: must support OpenRouter strict structured outputs.
+OPENROUTER_MIA_INTENT_MODEL=~anthropic/claude-sonnet-latest
 OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
 OPENROUTER_PDF_ENGINE=mistral-ocr
 OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3
@@ -92,8 +94,8 @@ bundle exec bundler-audit check --update
 - `GET /api/v1/workspace` — returns the authenticated user's real Household CFO workspace from Postgres.
 - `PATCH /api/v1/workspace/setup` — saves the first real-mode manual-entry numbers for a participant household.
 - `GET /api/v1/profile`, `/dashboard`, `/budget`, `/wealth`, `/cfo-filter`, `/optionality` — real calculated workspace views.
-- `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context.
-- `GET/POST /api/v1/document_imports`, `GET /api/v1/document_imports/:id`, `POST /api/v1/document_imports/:id/apply`, `POST /api/v1/document_imports/:id/reprocess`, `GET /api/v1/document_imports/:id/source_url`, `DELETE /api/v1/document_imports/:id/source` — private S3 document upload, extraction, review, and apply workflow.
+- `GET/POST/DELETE /api/v1/mia/messages` — server-persisted Mia chat using the user's household context. GET returns the full conversation since the last clear; model calls independently use bounded recent context. POST can safely update validated fields on an existing pending transaction review without confirming actuals.
+- `GET/POST /api/v1/document_imports`, `GET /api/v1/document_imports/:id`, `POST /api/v1/document_imports/:id/apply`, `POST /api/v1/document_imports/:id/reprocess`, `GET /api/v1/document_imports/:id/source_url`, `DELETE /api/v1/document_imports/:id/source` — private S3 document upload, extraction, review, and apply workflow. Multi-page PDFs are extracted only after every private batch succeeds. Dense statement PDFs use two-page batches (other PDFs use up to four pages per batch), and provider output-limit responses fail explicitly; structured statement files and review queues support up to 500 transaction rows without silent truncation. Ask Mia waits for every attached import before returning one consolidated result, preserves bounded upload context for yearless statement dates, and rejects exact duplicate active files before creating duplicate queues.
 - `GET/POST/PATCH /api/v1/admin/users` and `POST /api/v1/admin/users/:id/resend_invitation` — staff/admin invite records, Resend delivery status, role/status management, and cohort assignment.
 - `GET/POST/PATCH /api/v1/admin/cohorts` — admin-only cohort creation and cohort metadata management.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.

@@ -12,9 +12,10 @@ module HouseholdFinance
     SQL
     Result = Struct.new(:success?, :draft, :transaction, :errors, keyword_init: true)
 
-    def initialize(draft, attributes = {})
+    def initialize(draft, attributes = {}, reconcile_import: true)
       @draft = draft
       @attributes = attributes.to_h.symbolize_keys
+      @reconcile_import = reconcile_import
     end
 
     def call
@@ -26,7 +27,9 @@ module HouseholdFinance
             transaction = create_transaction!
             clear_unaccepted_match_suggestions!
             draft.update!(status: corrected ? "corrected" : "confirmed", confirmed_transaction: transaction)
-            HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call if draft.financial_document_import
+            if reconcile_import && draft.financial_document_import
+              HouseholdFinance::DocumentImportStatusReconciler.new(draft.financial_document_import).call
+            end
           end
         end
       end
@@ -42,7 +45,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :draft, :attributes
+    attr_reader :draft, :attributes, :reconcile_import
 
     def apply_corrections!
       original_signature = correction_signature

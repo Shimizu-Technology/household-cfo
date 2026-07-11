@@ -40,11 +40,164 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     user_prompt = payload.fetch("messages").last.fetch("content")
     assert_equal HouseholdFinance::MiaNarrator::MAX_OUTPUT_TOKENS, payload.fetch("max_tokens")
     assert_equal HouseholdFinance::MiaNarrator::READ_TIMEOUT_SECONDS, start_options.first.fetch(:read_timeout)
-    assert_includes system_prompts, "Rails has already computed the financial truth"
+    assert_includes system_prompts, "app has already verified the financial facts"
     assert_includes system_prompts, "The participant is the Household CFO"
     assert_includes user_prompt, "ANSWER_PACKET_JSON"
     assert_includes user_prompt, "pending_review"
-    refute_includes payload.fetch("messages").to_json, "Old stale fact"
+    history_message = payload.fetch("messages").find { |message| message["role"] == "assistant" && message["content"].include?("Old stale fact") }
+    assert history_message
+    assert_includes system_prompts, "stale chat history cannot override ANSWER_PACKET_JSON"
+  end
+
+  test "strips reflexive cultural openers from model narration" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Okay, chelu. I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Lower that to $3,950 for July",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I drafted setting Fixed essentials to $3,950 for July 2026. Review the card before applying it.", answer
+    end
+  end
+
+  test "rejects a model claim that it created a draft when the verified result made no write" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I drafted a new category called Archived Buffer for September. Review the card to add it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create Archived Buffer for September",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "Archived Buffer is archived. Restore it before editing it, or choose a different name for the new category.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "Archived Buffer is archived. Restore it before editing it, or choose a different name for the new category.", answer
+    end
+  end
+
+  test "strips reflexive Hafa Adai recall openers" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Håfa Adai, chelu! We were discussing the Fixed essentials July review. It is still pending your approval." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "What were we discussing?",
+        answer_packet: {
+          kind: "recall",
+          fallback_response: "We were discussing the Fixed essentials July review. It is still pending your approval.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "We were discussing the Fixed essentials July review. It is still pending your approval.", answer
+    end
+  end
+
+  test "strips a standalone chelu opener and preserves sentence capitalization" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Chelu, the category already exists. Choose a different name." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create the category",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "The category already exists. Choose a different name.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "The category already exists. Choose a different name.", answer
+    end
+  end
+
+  test "keeps no-write budget validation narration culturally neutral" do
+    response = ok_response(
+      choices: [
+        { message: { content: "That category is archived. Restore it or choose another name. What would you like to do, chelu?" } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create the archived category",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "That category is archived. Restore it or choose another name.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "That category is archived. Restore it or choose another name. What would you like to do?", answer
+    end
+  end
+
+  test "suppresses repeated chelu when recent Mia history already used local phrasing" do
+    response = ok_response(
+      choices: [
+        { message: { content: "The August review is ready, chelu. Check the month and amount before applying it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Create the August category",
+        history: [ { role: "assistant", content: "Lanya chelu, that was a real surprise." } ],
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "The August review is ready. Check the month and amount before applying it.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "The August review is ready. Check the month and amount before applying it.", answer
+    end
+  end
+
+  test "bounds narrator history by message count and aggregate characters" do
+    history = 40.times.map do |index|
+      { role: index.even? ? "user" : "assistant", content: "message-#{index} " + ("x" * 3_990) }
+    end
+    narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Continue",
+      history: history,
+      answer_packet: { kind: "coaching", fallback_response: "Continue safely.", write_state: "no_write" },
+      api_key: nil
+    )
+
+    bounded_history = narrator.send(:conversation_history)
+
+    assert_operator bounded_history.length, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_MESSAGES
+    assert_operator bounded_history.sum { |message| message.fetch(:content).length }, :<=, HouseholdFinance::MiaNarrator::MAX_HISTORY_CHARACTERS
+    assert_includes bounded_history.last.fetch(:content), "message-39"
   end
 
   test "allows historical transaction lookup narration without treating recorded language as a write claim" do
@@ -133,6 +286,50 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
       ).call
 
       assert_equal "I drafted this for review: McDonald's for $25. Month-to-date actuals will not change until you approve it.", answer
+    end
+  end
+
+  test "allows a verified pending draft update while preserving actuals" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I updated the pending Walkthrough Cafe review from July 10 to July 9. It still needs your confirmation, and actuals did not change." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Actually it was yesterday",
+        answer_packet: {
+          kind: "transaction_draft_update",
+          fallback_response: "I updated the pending Walkthrough Cafe review date to July 9. It is still pending, and actuals did not change.",
+          write_state: "draft_updated"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I updated the pending Walkthrough Cafe review from July 10 to July 9. It still needs your confirmation, and actuals did not change.", answer
+    end
+  end
+
+  test "rejects an actuals update claim from a pending draft edit" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I updated the pending Walkthrough Cafe review, and your actuals are now updated for July 9." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Actually it was yesterday",
+        answer_packet: {
+          kind: "transaction_draft_update",
+          fallback_response: "I updated the pending Walkthrough Cafe review date to July 9. It is still pending, and actuals did not change.",
+          write_state: "draft_updated"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I updated the pending Walkthrough Cafe review date to July 9. It is still pending, and actuals did not change.", answer
     end
   end
 

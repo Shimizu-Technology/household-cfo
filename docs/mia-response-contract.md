@@ -18,10 +18,11 @@ Every real Mia response should be governed in this order:
 2. Mrs. Mel Section 7 persona seed, loaded verbatim from `api/config/mia_personas.yml`.
 3. The Mia Response Contract v1.
 4. Approved structured household facts from Postgres.
-5. Current annual plan, selected month, confirmed transactions, and pending drafts.
+5. Current annual plan, selected month, confirmed transactions, pending transaction drafts, and pending Mia action drafts.
 6. Approved document source/freshness summaries.
-7. Recent chat history.
-8. General model knowledge only when app data does not answer the question.
+7. Confirmed relevant memories, once personalization is implemented and enabled.
+8. Recent chat history.
+9. General model knowledge only when app data does not answer the question.
 
 ## The contract
 
@@ -51,25 +52,45 @@ Persona and model-guided answers:
 - `api/app/services/mia/persona.rb` injects the response contract into Mia's system prompt.
 - `api/app/services/demo/mia_responder.rb` also includes the critical answer-contract rules in the non-overridable safety prompt so future coach skins cannot remove them.
 
-Model narration after PR #29:
+Model intent and narration after PR #32:
 
-- `api/app/services/household_finance/mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, and pending drafts.
-- `api/app/services/household_finance/mia_narrator.rb` lets Claude/Mia narrate those packets in the live persona so responses feel warm, Chamorro-grounded, CFO-minded, and less robotic.
+- `ConversationTranscriptBuilder` sends a token/character-bounded recent transcript of up to 32 messages instead of a fixed 12-message slice. Older context remains available through the lower-priority persisted summary.
+- `MiaIntentContextBuilder` assembles the current calendar date, separately labelled budget view period, recent raw turns, active/open threads, allowed category catalog, and pending review cards without exposing raw private documents. Relative words such as today, yesterday, last month, and next month use the calendar date, not whichever month happens to be open in the UI.
+- `MiaIntentResolver` lets Claude resolve intent, conversational references, corrections, and supported budget commands into a strict JSON schema before routing. The current message and context are encoded together inside one untrusted `REQUEST_JSON` envelope so delimiter-like text cannot create a second prompt structure. Model-returned category/review ids are checked against the allowed Rails context and cannot write records directly.
+- `MiaConversationStateUpdater` persists the validated active thread, resolved request, action parameters, and pending review id across reloads/devices.
+- `mia_answer_packet_builder.rb` builds structured answer packets from approved household data, active annual plans, confirmed transactions, pending drafts, and conversation state.
+- `mia_narrator.rb` receives the recent transcript and verified answer packet, then answers naturally in Mia's live persona. The verified reference answer is a safety/factual fallback, not a required script.
 - The model may not change facts, invent missing data, imply pending drafts are actuals, or claim writes happened.
-- If model narration fails or violates guardrails, Rails falls back to the deterministic answer.
+- If model intent resolution is unavailable, explicit deterministic commands still work; ambiguous confirmations ask for a precise restatement instead of guessing. If narration fails or violates guardrails, Rails returns the verified fallback.
 
 Deterministic financial answers:
 
 - Rails still computes money truth for reports, budget Q&A, transaction lookup, transaction drafts, and common coaching branches such as discretionary purchase checks, readiness planning, and expected sinking-fund bills like car registration.
 - Deterministic services still calculate the answer packet and provide the safe fallback.
 - Actuals change only when a pending `TransactionDraft` is confirmed by the Household CFO.
+- A reported past expense with a clear merchant, amount, and date immediately creates a pending transaction review. Category is not required to stage the review: Rails may suggest one from merchant/category rules and the active budget, and the participant can edit it before confirmation.
+- Mia may edit the date, merchant, amount, category, or validated splits of an existing pending transaction review when the participant clearly asks for a correction. Rails scopes and validates the draft and every category/split; the draft remains pending and actuals remain unchanged.
+- Mia may ignore one uniquely identified pending review or all pending reviews only when the participant explicitly says ignore/clear. Rails resolves and locks the reviews, ambiguous merchant matches fail safely, ignored reviews remain reopenable, and actuals never change. Mia still cannot conversationally confirm or match reviews; bulk confirmation requires the explicit UI approval phrase.
+- Mia may never claim a review card was created unless the current Rails response includes the persisted draft. Generic conversation turns cannot promise or retroactively invent a draft.
+
+Supervised action drafts:
+
+- Mia may prepare narrow budget/category action drafts, but she must not silently mutate financial records. Profile/debt/asset action drafts require separate specialized review flows.
+- The safe agentic pattern is: Mia proposes, the Household CFO reviews/approves, Rails validates/applies, and the audit log records what changed.
+- Before approval, Mia should say she prepared or suggested a change, not that she updated the budget.
+- Action drafts must use explicit schemas and Rails validations, never arbitrary model-generated patches or frontend-only writes. Draft creation is transactional; any proposal-layer persistence exception rolls back the draft and produces the safe review-card failure response while retaining the already-persisted conversation.
+- The detailed plan lives in `docs/mia-memory-and-supervised-actions.md`.
 
 Conversation continuity:
 
-- Mia keeps a server-side compacted summary on each chat session, including active/open topics, amounts discussed, latest recommendation, and next move.
-- The compacted conversation state travels across devices for the same signed-in user because it is stored in Postgres with the chat session.
+- For conversational reference resolution, precedence is: current message, pending review state, recent raw transcript and explicit user corrections, version-2 validated active thread, then older/legacy summaries. A rejected assistant interpretation never outranks the participant's prior unresolved request. Current database records remain authoritative for every financial fact regardless of conversation order.
+- The signed-in chat interface displays every persisted message since the participant last cleared the conversation. Display history is intentionally separate from model context: Mia still receives only up to 32 recent role-preserving messages within a 24,000-character budget, plus validated thread state and an older compact summary.
+- Versioned active-thread state stores the validated intent, subject, resolved message, structured action, review id, and lifecycle status. Apply/Cancel and transaction confirmation flows update that status.
+- The response narrator receives the server-validated current-turn resolution. For recall turns, it composes from that resolution instead of re-reading rejected assistant guesses from the raw transcript; structured financial records still supply the amounts and plan truth.
+- The compacted older summary remains useful across long chats, but it is not the primary router and cannot override newer raw turns.
+- Conversation state travels across devices for the same signed-in user because it is stored in Postgres with the chat session.
 - Conversation continuity is context only, not financial truth. Confirmed actuals, balances, plans, transactions, due dates, and approved document facts still come from structured records.
-- Clearing Mia chat also clears the compacted conversation summary and open-topic state.
+- Clearing Mia chat also clears the transcript, compacted summary, and active/open thread state.
 
 Voice input:
 
@@ -85,8 +106,9 @@ Document context:
 
 Eval harness:
 
-- Real-world prompts live in `api/test/evals/mia_eval_cases.yml`.
-- `HouseholdFinance::MiaEvalHarness` checks expected and forbidden response phrases against deterministic Rails routes so narrator/persona work does not regress pending-vs-actual, month, draft, or coaching guardrails.
+- Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`.
+- Multi-turn intent/reference cases live in `api/test/evals/mia_intent_cases.yml`, including pronouns, confirmations, recall, pending-card reuse, and clarification.
+- `HouseholdFinance::MiaEvalHarness` and intent resolver tests protect pending-vs-actual, month, draft, coaching, context, and structured-action guardrails without requiring frontend AI calls.
 
 ## What this means in practice
 
@@ -123,3 +145,4 @@ docs/mia-browser-research-post-v1.md
 - Persona brief implementation: `docs/mia-persona-template.md`
 - Mrs. Mel v1 implementation plan: `docs/mrs-mel-v1-feedback-implementation-plan.md`
 - Memory/coaching vision: `/Users/leonshimizu/Desktop/ShimizuTechnology/Brain-Dump/work/shimizu-tech/Mel-Mendiola-ASC-Trust/23) Mia Memory and self-learning coaching vision - 2026-06-23.md`
+- Mia Memory and supervised action plan: `docs/mia-memory-and-supervised-actions.md`

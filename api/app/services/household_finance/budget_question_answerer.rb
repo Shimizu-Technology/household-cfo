@@ -5,9 +5,24 @@ module HouseholdFinance
     ACTUAL_REPORT_TERMS = /\b(actuals?|transactions?|report|how was|how were|how did|did i spend|did we spend|spent)\b/i
     FOOD_TERMS = /\b(food|grocer(?:y|ies)?|dining|restaurant|coffee|takeout|lunch|dinner|breakfast)\b/i
     FOOD_CATEGORY_TERMS = /\b(food|grocer(?:y|ies)?|dining|restaurant|coffee|takeout)\b/i
+    BROAD_BUDGET_PATTERNS = [
+      /\b(?:tell me about|explain|overview|summary)\b.*\b(?:budget|plan)\b/i,
+      /\b(?:budget|plan)\b.*\b(?:overview|summary|breakdown|break down|categor(?:y|ies)|line items?)\b/i,
+      /\b(?:what are all|all the|each)\b.*\b(?:breakdowns?|categor(?:y|ies)|line items?)\b/i,
+      /\b(?:largest|biggest|highest|top|smallest|lowest)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i,
+      /\bfollow up to previous budget report topic\b/i,
+      /\bbudget report\b/i
+    ].freeze
+    BUDGET_HEALTH_PATTERN = /\b(?:how are we looking|where are we at|how do we look|are we on track|on track|off track|budget status)\b/i
+    CATEGORY_BREAKDOWN_PATTERN = /\b(?:breakdowns?|break down|by category|each category|all categories|line items?)\b/i
+    LARGEST_CATEGORY_PATTERN = /\b(?:largest|biggest|highest|top)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i
+    SMALLEST_CATEGORY_PATTERN = /\b(?:smallest|lowest)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i
 
     def self.budget_question?(message)
       text = message.to_s.squish
+      normalized_text = normalized(text)
+      return true if BROAD_BUDGET_PATTERNS.any? { |pattern| normalized_text.match?(pattern) }
+      return true if normalized_text.match?(BUDGET_HEALTH_PATTERN) && normalized_text.match?(/\b(?:budget|plan|category|spending|actual|budget report)\b/i)
       return false unless text.match?(BUDGET_TERMS) && text.match?(SPENDING_TERMS)
       return false if text.match?(ACTUAL_REPORT_TERMS) && !text.match?(/set aside|budget(?:ed)?|planned|available|left|remaining/i)
 
@@ -40,6 +55,12 @@ module HouseholdFinance
       return nil unless budget_question?
       return nil if month_index.nil?
 
+      return largest_category_answer if largest_category_question?
+      return smallest_category_answer if smallest_category_question?
+      return category_breakdown_answer if category_breakdown_question?
+      return budget_health_answer if budget_health_question?
+      return budget_overview_answer if budget_overview_question?
+
       discretionary_rows = rows.select { |row| row.fetch(:stack_key) == "discretionary" }
       explicit_rows = rows.select { |row| normalized(row.fetch(:name)).present? && normalized(message).include?(normalized(row.fetch(:name))) }
       food_rows = rows.select { |row| normalized(row.fetch(:name)).match?(FOOD_CATEGORY_TERMS) }
@@ -61,6 +82,85 @@ module HouseholdFinance
       self.class.budget_question?(message)
     end
 
+    def budget_overview_question?
+      normalized_message.match?(/\b(?:tell me about|overview|summary|explain)\b.*\b(?:budget|plan)\b/) ||
+        normalized_message.match?(/\b(?:budget|plan)\b.*\b(?:overview|summary)\b/)
+    end
+
+    def category_breakdown_question?
+      normalized_message.match?(CATEGORY_BREAKDOWN_PATTERN)
+    end
+
+    def largest_category_question?
+      normalized_message.match?(LARGEST_CATEGORY_PATTERN)
+    end
+
+    def smallest_category_question?
+      normalized_message.match?(SMALLEST_CATEGORY_PATTERN)
+    end
+
+    def budget_health_question?
+      normalized_message.match?(BUDGET_HEALTH_PATTERN)
+    end
+
+    def budget_overview_answer
+      planned = sum_for(rows, :planned)
+      actual = sum_for(rows, :actual)
+      remaining = sum_for(rows, :remaining)
+      pending = pending_for(rows)
+      surplus = monthly_income_cents - planned
+      largest = largest_planned_row
+      largest_line = largest ? " Your largest planned category is #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
+
+      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(planned)}, leaving a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before pending drafts. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any pending drafts before changing the plan."
+    end
+
+    def category_breakdown_answer
+      return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the core household categories first, then ask me for the breakdown again." if rows.empty?
+
+      sections = rows.group_by { |row| row.fetch(:stack_label) }.map do |stack_label, stack_rows|
+        planned = sum_for(stack_rows, :planned)
+        actual = sum_for(stack_rows, :actual)
+        remaining = sum_for(stack_rows, :remaining)
+        details = stack_rows.map { |row| row_detail(row) }.to_sentence
+        "#{stack_label}: #{money(planned)} planned, #{money(actual)} actual, #{money(remaining)} remaining — #{details}"
+      end
+
+      pending = pending_for(rows)
+      "Here is the active #{month_label} budget by category, separating planned dollars from confirmed actuals: #{sections.join('. ')}. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. Next CFO move: compare the largest remaining category against what still needs to happen this month before approving new wants."
+    end
+
+    def largest_category_answer
+      row = largest_planned_row
+      return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the household’s core categories, then ask me for the largest line again." unless row
+
+      "Your largest planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Pending drafts are not counted in that actual number. Next CFO move: review what makes up #{row.fetch(:name)} before reducing it; if you want to change it, I can draft the edit for your approval."
+    end
+
+    def smallest_category_answer
+      row = smallest_planned_row
+      return "I do not see active budget categories for #{month_label} yet. Next CFO move: add the household’s core categories, then ask me for the smallest line again." unless row
+
+      "Your smallest active planned spending category for #{month_label} is #{row.fetch(:name)}, under #{row.fetch(:stack_label)}, with #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} confirmed actuals, and #{money(row_month_cents(row, :remaining))} remaining. Pending drafts are not counted in that actual number."
+    end
+
+    def budget_health_answer
+      planned = sum_for(rows, :planned)
+      actual = sum_for(rows, :actual)
+      remaining = sum_for(rows, :remaining)
+      pending = pending_for(rows)
+      largest = largest_planned_row
+      over_plan_rows = rows.select { |row| row_month_cents(row, :remaining).negative? }.sort_by { |row| row_month_cents(row, :remaining) }
+      over_line = if over_plan_rows.any?
+        " Categories over plan: #{over_plan_rows.first(3).map { |row| "#{row.fetch(:name)} by #{money(row_month_cents(row, :remaining).abs)}" }.to_sentence}."
+      else
+        " No active category is over plan on confirmed actuals yet."
+      end
+      largest_line = largest ? " Largest planned line: #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
+
+      "For #{month_label}, confirmed actuals are #{money(actual)} against #{money(planned)} planned, so #{remaining_phrase(remaining)}. Pending transaction drafts total #{money(pending)} and are waiting for approval, not counted as actuals.#{over_line}#{largest_line} Next CFO move: review pending drafts first, then decide whether the largest planned line needs a one-month adjustment."
+    end
+
     def summary_line(discretionary_rows, selected_rows, focused: false)
       target_rows = focused ? selected_rows : discretionary_rows.presence || selected_rows
       planned = sum_for(target_rows, :planned)
@@ -76,8 +176,7 @@ module HouseholdFinance
 
       label = message.match?(FOOD_TERMS) ? "Food-like active categories I can see" : "Active discretionary categories"
       details = visible_rows.map do |row|
-        month = row_month(row)
-        "#{row.fetch(:name)} #{money(month.fetch(:planned))} planned, #{money(month.fetch(:actual))} actual, #{money(month.fetch(:remaining))} remaining"
+        "#{row.fetch(:name)} #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} actual, #{money(row_month_cents(row, :remaining))} remaining"
       end.to_sentence
       "#{label}: #{details}."
     end
@@ -88,6 +187,32 @@ module HouseholdFinance
       return base if pending.zero?
 
       "#{money(pending)} is still pending review for these categories; I am not counting pending drafts as actuals until you confirm them. #{base}"
+    end
+
+    def stack_totals_sentence
+      return "No active category breakdown is available yet" if rows.empty?
+
+      rows.group_by { |row| row.fetch(:stack_label) }.map do |stack_label, stack_rows|
+        "#{stack_label} #{money(sum_for(stack_rows, :planned))} planned"
+      end.to_sentence
+    end
+
+    def row_detail(row)
+      "#{row.fetch(:name)} #{money(row_month_cents(row, :planned))} planned, #{money(row_month_cents(row, :actual))} actual, #{money(row_month_cents(row, :remaining))} remaining"
+    end
+
+    def largest_planned_row
+      rows.max_by { |row| row_month_cents(row, :planned) }
+    end
+
+    def smallest_planned_row
+      rows.min_by { |row| row_month_cents(row, :planned) }
+    end
+
+    def remaining_phrase(remaining_cents)
+      return "you have #{money(remaining_cents)} left on confirmed actuals" if remaining_cents >= 0
+
+      "confirmed actuals are #{money(remaining_cents.abs)} over plan"
     end
 
     def rows
@@ -138,8 +263,12 @@ module HouseholdFinance
       row.fetch(:months).fetch(month_index)
     end
 
+    def row_month_cents(row, key)
+      dollars_to_cents(row_month(row).fetch(key))
+    end
+
     def sum_for(target_rows, key)
-      target_rows.sum { |row| row_month(row).fetch(key).to_f }
+      target_rows.sum { |row| row_month_cents(row, key) }
     end
 
     def pending_for(target_rows)
@@ -147,7 +276,7 @@ module HouseholdFinance
       annual_plan.fetch(:pending_transaction_drafts).sum do |draft|
         next 0 unless target_ids.include?(draft.fetch(:category_id)) && draft_occurs_in_month?(draft)
 
-        draft.fetch(:amount).to_f
+        dollars_to_cents(draft.fetch(:amount))
       end
     end
 
@@ -160,13 +289,28 @@ module HouseholdFinance
       false
     end
 
+    def monthly_income_cents
+      income_by_period = annual_plan.fetch(:monthly_income, {})
+      dollars_to_cents(income_by_period[month.fetch(:id)] || income_by_period[month.fetch(:id).to_s] || 0)
+    end
+
+    def normalized_message
+      @normalized_message ||= normalized(message)
+    end
+
     def normalized(value)
       self.class.normalized(value)
     end
 
-    def money(value)
-      cents = (value.to_f * 100).round
-      ActiveSupport::NumberHelper.number_to_currency(value, precision: cents % 100 == 0 ? 0 : 2)
+    def dollars_to_cents(value)
+      (value.to_f * 100).round
+    end
+
+    def money(cents)
+      ActiveSupport::NumberHelper.number_to_currency(
+        Money.dollars(cents),
+        precision: cents.to_i % 100 == 0 ? 0 : 2
+      )
     end
   end
 end

@@ -7,7 +7,7 @@ require "roo-xls"
 module FinancialDocuments
   class SpreadsheetSummarizer
     MAX_SHEETS = 5
-    MAX_ROWS_PER_SHEET = 80
+    MAX_ROWS_PER_SHEET = HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS + 1
     MAX_COLUMNS = 20
     MAX_CELL_LENGTH = 120
     MAX_SHEET_NAME_LENGTH = 80
