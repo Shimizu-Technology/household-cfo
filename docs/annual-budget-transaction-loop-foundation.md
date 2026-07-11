@@ -1,5 +1,7 @@
 # Annual budget and transaction loop foundation
 
+> Historical implementation snapshot. Receipt/statement extraction, matching, merchant learning, and supervised Mia actions described here as future work have since merged. See `docs/current-state.md`.
+
 This PR adds the first persisted foundation for the Household CFO annual budget loop.
 
 ## What exists now

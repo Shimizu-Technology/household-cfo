@@ -73,9 +73,44 @@ module Demo
           flexible_spend: 1380,
           debt_payments: 920,
           savings_rate_percent: 14,
-          runway_months: 4.6,
+          runway_months: 3.6,
           next_safe_to_spend_amount: 540,
+          readiness_tone: "yellow",
           readiness_label: "Yellow — close, but protect runway"
+        },
+        action_center: {
+          transaction_review_count: 0,
+          mia_action_review_count: 0,
+          total_review_count: 0,
+          current_month_label: Date.current.strftime("%B"),
+          current_month_index: Date.current.month - 1,
+          current_year: Date.current.year
+        },
+        coach_read: {
+          title: "Close the remaining runway gap.",
+          body: "Your monthly cash flow is holding, but the household still needs more protected runway. Keep expected expenses funded and direct planned surplus toward the runway target before expanding wants."
+        },
+        readiness_path: {
+          current_runway_months: 3.6,
+          target_runway_months: 6,
+          protected_liquid_amount: 25_090,
+          monthly_surplus: 1_325,
+          yellow: {
+            tone: "yellow",
+            runway_months: 3,
+            protected_liquid_target: 20_775,
+            protected_liquid_gap: 0,
+            cash_flow_requirement: "Nonnegative monthly cash flow",
+            reached: true
+          },
+          green: {
+            tone: "green",
+            runway_months: 6,
+            protected_liquid_target: 41_550,
+            protected_liquid_gap: 16_460,
+            cash_flow_requirement: "Positive monthly cash flow",
+            reached: false
+          }
         },
         accounts: [
           { name: "Checking", type: "cash", balance: 6840 },
@@ -146,7 +181,7 @@ module Demo
           monthly_wealth_building: 900
         },
         milestones: [
-          { label: "Six-month runway", current: 4.6, target: 6, unit: "months", status: "yellow" },
+          { label: "Six-month runway", current: 3.6, target: 6, unit: "months", status: "yellow" },
           { label: "Credit card paid off", current: 2650, target: 7350, unit: "dollars paid", status: "yellow" },
           { label: "Founder transition reserve", current: 18_250, target: 24_000, unit: "dollars", status: "green" }
         ],
@@ -159,7 +194,7 @@ module Demo
         scenario: "Founder transition",
         question: "What would it take to safely move from stable employment into the business full-time?",
         target_runway_months: 6,
-        current_runway_months: 4.6,
+        current_runway_months: 3.6,
         monthly_gap: 1350,
         choices: [
           {
@@ -241,8 +276,11 @@ module Demo
             content: "You can move toward it, but the clean path is hybrid first. Your runway is strong enough to make a measured CFO move, not a leap-of-faith move. One next move: close one more monthly retainer or add $5,750 to runway before you cut stable income."
           }
         ],
+        oldest_message_id: nil,
+        older_message_count: 0,
+        has_older_messages: false,
         quick_prompts: [
-          "Why is my baseline yellow?",
+          "Why is my readiness Yellow?",
           "Can I leave my job?",
           "Emergency fund or debt first?",
           "What should I do with a bonus?"

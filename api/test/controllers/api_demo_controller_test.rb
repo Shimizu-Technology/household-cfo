@@ -25,6 +25,11 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = JSON.parse(response.body)
     assert_operator body.fetch("summary").fetch("monthly_income"), :>, 0
+    assert_equal 3.6, body.fetch("summary").fetch("runway_months")
+    assert_equal body.fetch("summary").fetch("runway_months"), body.fetch("readiness_path").fetch("current_runway_months")
+    assert_equal 25_090, body.fetch("readiness_path").fetch("protected_liquid_amount")
+    assert_equal true, body.fetch("readiness_path").fetch("yellow").fetch("reached")
+    assert_equal false, body.fetch("readiness_path").fetch("green").fetch("reached")
     assert body.fetch("accounts").any?
     assert body.fetch("alerts").any?
   end

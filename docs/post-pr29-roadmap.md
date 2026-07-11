@@ -1,5 +1,7 @@
 # Post-PR #31 roadmap: supervised actions, memory discovery, and pilot polish
 
+> Historical roadmap. PR #32 supervised actions have merged. See `docs/current-state.md` for canonical status and the active sequence.
+
 Updated: 2026-07-09
 
 PR #29 delivered the Document Intelligence Platform v1. PR #30 added the Mia Coaching Quality / Model Narrator layer. PR #31 added voice input through backend-only OpenRouter STT and a YAML-backed real-world eval harness.

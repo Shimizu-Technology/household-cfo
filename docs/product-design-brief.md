@@ -1,5 +1,7 @@
 # Household CFO product/design brief
 
+> Product/design source document. Implementation-status and deferred-scope statements in this brief are historical; see `docs/current-state.md` for what is currently built and proven.
+
 Updated: 2026-06-30
 
 V1 feedback update: Mrs. Mel clarified that the participant is the Household CFO and Mia is the AI coach/assistant. The visual direction should move away from heavy green toward warmer neutrals, dusty rose/deep mauve, terracotta, and sage while keeping red/yellow/green primarily for status.

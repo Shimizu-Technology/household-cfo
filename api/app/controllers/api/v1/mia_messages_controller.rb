@@ -4,7 +4,10 @@ module Api
       before_action :authenticate_user!
 
       def index
-        render json: HouseholdFinance::DataPresenter.new(current_household, user: current_user).mia
+        render json: HouseholdFinance::DataPresenter.new(current_household, user: current_user).mia(
+          before_id: params[:before_id],
+          limit: params[:limit]
+        )
       end
 
       def create
@@ -351,6 +354,16 @@ module Api
             budget_manager = budget_answer_manager_for(resolved_content, annual_budget_manager)
             annual_plan = budget_manager.plan_data
             budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(resolved_content, annual_plan: annual_plan).call
+            if budget_answer.blank?
+              coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
+                current_household,
+                resolved_content,
+                annual_budget_manager: budget_manager,
+                reference_month: budget_month_param
+              )
+              coach_answer = coach_answerer.call
+              annual_plan = coach_answerer.prepared_annual_plan || annual_plan
+            end
           when "spending_report"
             spending_report = spending_report_for(resolved_content)
           when "transaction_report"
@@ -402,7 +415,7 @@ module Api
             transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, resolved_content).call
           when "pending_drafts"
             pending_draft_answer = HouseholdFinance::PendingDraftAnswerer.new(current_household, resolved_content).call
-          when "coaching"
+          when "coaching", "general"
             coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
               current_household,
               resolved_content,

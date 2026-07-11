@@ -72,17 +72,21 @@ Local preview works without Clerk. For hosted/cohort environments:
 
 Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, statements, pay stubs, or private documents. Runtime document uploads use private S3 storage; never place real financial documents in git.
 
-## Next phase
+## Current state and supporting plans
 
-The active real-mode build plan, Mia persona template, admin plan, production checklist, and post-PR #31 roadmap live at:
+The canonical implementation status is:
 
 ```text
-docs/real-mode-build-plan.md
+docs/current-state.md
+```
+
+Supporting persona, admin, architecture, and production references live at:
+
+```text
 docs/mia-persona-template.md
 docs/admin-cohort-management.md
 docs/private-document-imports-and-mia-context.md
 docs/production-readiness-checklist.md
-docs/post-pr29-roadmap.md
 docs/mia-memory-and-supervised-actions.md
 ```
 
@@ -92,12 +96,12 @@ Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-t
 
 ## Next product direction
 
-After PR #31, the next planned build tracks are:
+PR #32 merged supervised Mia action drafts. The current sequence is:
 
-1. Production smoke test the merged voice/document/transaction loop.
-2. Add supervised Mia action drafts so Mia can propose budget/category edits for review before Rails applies them.
-3. Discuss Mia Memory with Mrs. Mel, then build a visible/user-controlled Memory MVP.
-4. Polish the annual budget UX, warm neutral visual system, and pilot-ready review flows.
+1. Pilot-harden financial truth, review-first Home UX, mobile performance, and rendered browser coverage.
+2. Production smoke test the merged voice/document/transaction/action loop with demo-safe fixtures.
+3. Discuss Mia Memory trust, visibility, and controls with Mrs. Mel.
+4. Build a visible/user-controlled Memory MVP only after that discovery.
 
 ## Deferred until after the real-mode MVP
 

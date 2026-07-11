@@ -1,5 +1,7 @@
 # Household CFO real-mode build plan
 
+> Historical build plan. Private uploads, extraction, review-before-apply, voice, and supervised Mia actions have since merged. See `docs/current-state.md` for canonical status.
+
 Updated: 2026-06-21
 
 ## Why this exists

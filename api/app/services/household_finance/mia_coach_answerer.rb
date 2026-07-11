@@ -8,7 +8,8 @@ module HouseholdFinance
       /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
-    READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b/i.freeze
+    READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:out of\s+)?(?:the\s+)?red\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b|\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(?:red|yellow|green)\b/i.freeze
+    READINESS_STATUS_PATTERN = /\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(red|yellow|green)\b/i.freeze
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
@@ -43,7 +44,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -228,6 +229,48 @@ module HouseholdFinance
       return green_readiness_plan(surplus_cents, transfer_cents, green_gap) if normalized_message.match?(/\bgreen\b/i) && !normalized_message.match?(/\b(?:red|yellow)\b/i)
 
       red_to_yellow_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+    end
+
+    def readiness_status_answer
+      match = normalized_message.match(READINESS_STATUS_PATTERN)
+      return unless match
+
+      facts = snapshot
+      actual_tone = facts.fetch(:readiness_tone)
+      claimed_tone = match[1].downcase
+      status_line = if claimed_tone == actual_tone
+        "Your approved readiness is #{actual_tone.capitalize}."
+      else
+        "Your approved readiness is #{actual_tone.capitalize}, not #{claimed_tone.capitalize}."
+      end
+
+      surplus = facts.fetch(:baseline_surplus_cents)
+      runway = facts.fetch(:runway_months)
+      if actual_tone == "red"
+        yellow_gap = runway_gap_cents(yellow_runway_target_cents)
+        cash_flow_read = if surplus.positive?
+          "positive by #{money(surplus)}"
+        elsif surplus.negative?
+          "short by #{money(surplus.abs)}"
+        else
+          "at breakeven"
+        end
+        stability_read = if surplus.positive?
+          "mainly a runway problem"
+        elsif surplus.negative?
+          "a cash-flow and runway problem"
+        else
+          "a cash-flow margin and runway problem"
+        end
+        return "#{status_line} Monthly cash flow is #{cash_flow_read}, but runway is #{runway} months and Yellow requires about #{yellow_runway_months.round(1)} months. That makes this #{stability_read}, with #{money(yellow_gap)} still needed for the Yellow threshold. Next CFO move: pause new wants, review pending activity, and protect available surplus for essential bills, expected expenses, and runway."
+      end
+
+      if actual_tone == "yellow"
+        green_gap = runway_gap_cents(green_runway_target_cents)
+        return "#{status_line} Monthly cash flow is nonnegative and runway is #{runway} months, which covers the Yellow threshold without yet reaching the #{target_runway_months.round(1)}-month Green target. The remaining Green runway gap is #{money(green_gap)}. Next CFO move: keep expected expenses funded and route planned surplus toward that runway gap before expanding wants."
+      end
+
+      "#{status_line} Monthly cash flow is positive and runway is #{runway} months, meeting the saved #{target_runway_months.round(1)}-month target. Green means protect the result rather than treating it as permission for a permanent spending increase. Next CFO move: reconcile current actuals and keep expected expenses funded before adding a new commitment."
     end
 
     def readiness_follow_up?

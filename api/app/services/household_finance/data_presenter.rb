@@ -1,12 +1,5 @@
 module HouseholdFinance
   class DataPresenter
-    QUICK_PROMPTS = [
-      "Can I buy the purse?",
-      "Why is my baseline yellow?",
-      "Emergency fund or debt first?",
-      "Can I leave my job?"
-    ].freeze
-
     def initialize(household, user: nil, annual_plan: nil)
       @household = household
       @user = user
@@ -68,8 +61,12 @@ module HouseholdFinance
           savings_rate_percent: savings_rate_percent,
           runway_months: snapshot.fetch(:runway_months),
           next_safe_to_spend_amount: dollars(snapshot.fetch(:safe_to_spend_cents)),
+          readiness_tone: snapshot.fetch(:readiness_tone),
           readiness_label: snapshot.fetch(:readiness_label)
         },
+        action_center: action_center,
+        coach_read: coach_read,
+        readiness_path: readiness_path,
         accounts: account_rows,
         alerts: alerts,
         next_steps: next_steps
@@ -135,10 +132,14 @@ module HouseholdFinance
       }
     end
 
-    def mia
+    def mia(before_id: nil, limit: 60)
+      page = chat_message_page(before_id: before_id, limit: limit)
       {
-        messages: chat_messages,
-        quick_prompts: QUICK_PROMPTS,
+        messages: page.fetch(:messages),
+        oldest_message_id: page[:oldest_message_id],
+        older_message_count: page.fetch(:older_message_count),
+        has_older_messages: page.fetch(:older_message_count).positive?,
+        quick_prompts: quick_prompts,
         disclaimer: persona.disclaimer
       }
     end
@@ -311,9 +312,106 @@ module HouseholdFinance
       steps = []
       steps << "Add income and Expense Stack numbers." if snapshot.fetch(:monthly_income_cents).zero? || snapshot.fetch(:total_expenses_cents).zero?
       steps << "Protect fixed bills and minimum debt payments first."
-      steps << (snapshot.fetch(:safe_to_spend_cents).positive? ? "Keep wants under #{ActiveSupport::NumberHelper.number_to_currency(dollars(snapshot.fetch(:safe_to_spend_cents)), precision: 0)} until the next check-in." : "Pause new wants until baseline surplus is positive.")
+      steps << spending_step
       steps << "Ask Mia to pressure-test one decision before money leaves the household."
       steps.first(3)
+    end
+
+    def spending_step
+      if snapshot.fetch(:readiness_tone) == "red"
+        return "Pause new wants and direct available surplus to essential bills, expected expenses, and runway until the household reaches Yellow."
+      end
+
+      safe_to_spend = snapshot.fetch(:safe_to_spend_cents)
+      return "Pause new wants until baseline surplus is positive." unless safe_to_spend.positive?
+
+      "Keep wants under #{ActiveSupport::NumberHelper.number_to_currency(dollars(safe_to_spend), precision: 0)} until the next check-in."
+    end
+
+    def action_center
+      transaction_reviews = household.transaction_drafts.pending.count
+      action_reviews = household.mia_action_drafts.pending.count
+
+      {
+        transaction_review_count: transaction_reviews,
+        mia_action_review_count: action_reviews,
+        total_review_count: transaction_reviews + action_reviews,
+        current_month_label: Date.current.strftime("%B"),
+        current_month_index: Date.current.month - 1,
+        current_year: Date.current.year
+      }
+    end
+
+    def coach_read
+      case snapshot.fetch(:readiness_tone)
+      when "green"
+        {
+          title: "Keep the household plan steady.",
+          body: "Your target runway and positive monthly cash flow are both in place. Protect expected expenses, review actuals, and avoid turning a Green month into permission for a permanent spending increase."
+        }
+      when "yellow"
+        {
+          title: "Close the remaining runway gap.",
+          body: "Your monthly cash flow is holding, but the household still needs more protected runway. Keep expected expenses funded and direct planned surplus toward the runway target before expanding wants."
+        }
+      else
+        {
+          title: "Protect the baseline and build runway.",
+          body: "The household is Red because essential stability or runway is not protected yet. Pause new wants, review pending activity, cover expected expenses, and direct available surplus toward the Yellow runway threshold."
+        }
+      end
+    end
+
+    def readiness_path
+      target_months = snapshot.fetch(:target_runway_months).to_f
+      yellow_months = target_months / 2.0
+      monthly_outflow_cents = snapshot.fetch(:total_outflow_cents)
+      liquid_assets_cents = snapshot.fetch(:liquid_assets_cents)
+      monthly_surplus_cents = snapshot.fetch(:baseline_surplus_cents)
+
+      {
+        current_runway_months: snapshot.fetch(:runway_months),
+        target_runway_months: target_months,
+        protected_liquid_amount: dollars(liquid_assets_cents),
+        monthly_surplus: dollars(monthly_surplus_cents),
+        yellow: readiness_milestone(
+          tone: "yellow",
+          runway_months: yellow_months,
+          target_cents: monthly_outflow_cents * yellow_months,
+          liquid_assets_cents: liquid_assets_cents,
+          cash_flow_ready: monthly_surplus_cents >= 0
+        ),
+        green: readiness_milestone(
+          tone: "green",
+          runway_months: target_months,
+          target_cents: monthly_outflow_cents * target_months,
+          liquid_assets_cents: liquid_assets_cents,
+          cash_flow_ready: monthly_surplus_cents.positive?
+        )
+      }
+    end
+
+    def readiness_milestone(tone:, runway_months:, target_cents:, liquid_assets_cents:, cash_flow_ready:)
+      rounded_target_cents = target_cents.round
+      {
+        tone: tone,
+        runway_months: runway_months.round(1),
+        protected_liquid_target: dollars(rounded_target_cents),
+        protected_liquid_gap: dollars([ rounded_target_cents - liquid_assets_cents, 0 ].max),
+        cash_flow_requirement: tone == "green" ? "Positive monthly cash flow" : "Nonnegative monthly cash flow",
+        reached: cash_flow_ready && rounded_target_cents.positive? && liquid_assets_cents >= rounded_target_cents
+      }
+    end
+
+    def quick_prompts
+      status = snapshot.fetch(:readiness_tone).capitalize
+
+      [
+        "Can I buy the purse?",
+        "Why is my readiness #{status}?",
+        "Emergency fund or debt first?",
+        "Can I leave my job?"
+      ]
     end
 
     def retirement_projection_cents
@@ -388,6 +486,7 @@ module HouseholdFinance
       debt_entered = snapshot.fetch(:total_debt_cents).positive?
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       runway_met = snapshot.fetch(:runway_months) >= target_runway_months
+      extra_debt_ready = debt_entered && baseline_positive && snapshot.fetch(:readiness_tone) != "red"
       [
         {
           item: "Non-essential purchase",
@@ -397,8 +496,8 @@ module HouseholdFinance
         },
         {
           item: "Extra debt payment",
-          amount: debt_entered && baseline_positive ? [ safe, 250 ].max : 0,
-          recommendation: debt_entered && baseline_positive ? "Approve" : "Wait",
+          amount: extra_debt_ready ? [ safe, 250 ].max : 0,
+          recommendation: extra_debt_ready ? "Approve" : "Wait",
           reason: debt_entered ? "Debt payoff helps breathing room, but only after fixed bills and runway are protected." : "No debt entered yet. Add debts before Mia can prioritize payoff."
         },
         {
@@ -432,13 +531,22 @@ module HouseholdFinance
       ]
     end
 
-    def chat_messages
-      return [] unless user
-      return [] unless chat_session
+    def chat_message_page(before_id:, limit:)
+      return { messages: [], oldest_message_id: nil, older_message_count: 0 } unless user
+      return { messages: [], oldest_message_id: nil, older_message_count: 0 } unless chat_session
 
-      messages = chat_session.chat_messages.order(:created_at, :id).to_a
+      page_limit = (limit.presence || 60).to_i.clamp(1, 100)
+      relation = chat_session.chat_messages
+      relation = relation.where("id < ?", before_id.to_i) if before_id.to_i.positive?
+      messages = relation.order(id: :desc).limit(page_limit).to_a.reverse
       imports_by_id = attachment_imports_by_id(messages)
-      messages.map { |message| serialize_chat_message(message, imports_by_id: imports_by_id) }
+      oldest_message_id = messages.first&.id
+      older_message_count = oldest_message_id ? chat_session.chat_messages.where("id < ?", oldest_message_id).count : 0
+      {
+        messages: messages.map { |message| serialize_chat_message(message, imports_by_id: imports_by_id) },
+        oldest_message_id: oldest_message_id,
+        older_message_count: older_message_count
+      }
     end
 
     def attachment_imports_by_id(messages)

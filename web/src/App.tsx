@@ -1,6 +1,10 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
+import { HomeScreen } from './components/HomeScreen'
+import { ParticipantTabs } from './components/ParticipantTabs'
+import { ChatHistory } from './components/ChatHistory'
+import { Metric } from './components/Metric'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -68,6 +72,7 @@ import type {
   MiaActionItem,
   MiaMessage,
   MiaMessageAttachment,
+  MiaMessagesData,
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
@@ -88,6 +93,7 @@ const currency = new Intl.NumberFormat('en-US', {
 
 const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
 const ADMIN_SECTION = 'Admin'
+const CHAT_HISTORY_PAGE_SIZE = 60
 const allSections = [...sections, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
@@ -98,6 +104,14 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+
+function mergeLatestMiaMessages(current: MiaMessage[], latestPage: MiaMessage[]) {
+  const firstLatestServerId = latestPage.find((message) => message.id)?.id
+  if (!firstLatestServerId) return latestPage
+
+  const olderLoadedMessages = current.filter((message) => message.id && message.id < firstLatestServerId)
+  return [...olderLoadedMessages, ...latestPage]
+}
 
 function preferredVoiceMimeType() {
   if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return undefined
@@ -183,14 +197,6 @@ const sourceDerivedCopy = [
   'Approved data loaded',
 ]
 
-const statusCopy = {
-  green: 'steady',
-  yellow: 'watch',
-  red: 'pause',
-  blue: 'context',
-  gold: 'build',
-} as Record<string, string>
-
 function App() {
   const auth = useAuthContext()
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
@@ -204,6 +210,10 @@ function App() {
     return allSections.includes(hashSection) ? hashSection : sections[0]
   })
   const [messages, setMessages] = useState<MiaMessage[]>([])
+  const [visibleMessageCount, setVisibleMessageCount] = useState(CHAT_HISTORY_PAGE_SIZE)
+  const [oldestServerMessageId, setOldestServerMessageId] = useState<number | null>(null)
+  const [olderServerMessageCount, setOlderServerMessageCount] = useState(0)
+  const [olderMessagesLoading, setOlderMessagesLoading] = useState(false)
   const [question, setQuestion] = useState('')
   const [miaLoading, setMiaLoading] = useState(false)
   const [miaClearing, setMiaClearing] = useState(false)
@@ -249,6 +259,7 @@ function App() {
   }, [auth.currentUser?.id])
   const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
   const chatCardRef = useRef<HTMLElement | null>(null)
+  const historyExpandedRef = useRef(false)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const voiceStreamRef = useRef<MediaStream | null>(null)
@@ -256,6 +267,8 @@ function App() {
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
+  const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
+  const visibleMessages = currentMessages.slice(hiddenMessageCount)
   const shouldUseRealWorkspace = auth.isClerkEnabled
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
@@ -341,13 +354,26 @@ function App() {
     }
   }, [isRealWorkspace])
 
+  const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
+    setMessagesStorageKey(chatStorageKey)
+    setMessages(mia.messages)
+    setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
+    setOldestServerMessageId(mia.oldest_message_id)
+    setOlderServerMessageCount(mia.older_message_count)
+    historyExpandedRef.current = false
+  }, [chatStorageKey])
+
   const refreshMiaMessages = useCallback(async ({ quiet = true }: { quiet?: boolean } = {}) => {
     if (!isRealWorkspace || miaLoading) return
 
     try {
       const mia = await fetchMiaMessages(true)
       setMessagesStorageKey(chatStorageKey)
-      setMessages(mia.messages)
+      setMessages((current) => historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages)
+      if (!historyExpandedRef.current) {
+        setOldestServerMessageId(mia.oldest_message_id)
+        setOlderServerMessageCount(mia.older_message_count)
+      }
     } catch (caught) {
       if (!quiet) setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be refreshed.')
     }
@@ -395,6 +421,10 @@ function App() {
         setData(payload)
         setSetupDraft(payload.workspace?.setup_values ?? null)
         setMessages(restoredMessages)
+        setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
+        setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
+        setOlderServerMessageCount(realWorkspace ? payload.mia.older_message_count : 0)
+        historyExpandedRef.current = false
       })
       .catch(() => {
         if (cancelled) return
@@ -479,8 +509,7 @@ function App() {
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
         setSetupDraft((current) => payload.workspace?.setup_values ?? current)
-        setMessagesStorageKey(chatStorageKey)
-        setMessages(payload.mia.messages)
+        replaceMiaHistory(payload.mia)
       })
       .catch(() => {
         // Polling will retry; document review cards remain available from import summaries.
@@ -489,7 +518,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading])
+  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading, replaceMiaHistory])
 
   useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
@@ -515,11 +544,6 @@ function App() {
       cancelled = true
     }
   }, [isRealWorkspace, selectedBudgetMonthStartsOn, selectedBudgetMonthEndsOn])
-
-  const surplus = useMemo(() => {
-    if (!data) return 0
-    return data.budget.monthly_income - data.budget.total_monthly_outflow
-  }, [data])
 
   useEffect(() => {
     if (!data || isRealWorkspace) return
@@ -818,6 +842,46 @@ function App() {
     setConfirmClearChat(true)
   }
 
+  async function handleLoadEarlierMessages() {
+    const chatCard = chatCardRef.current
+    const previousHeight = chatCard?.scrollHeight ?? 0
+    const previousTop = chatCard?.scrollTop ?? 0
+
+    if (hiddenMessageCount > 0) {
+      setVisibleMessageCount((count) => count + CHAT_HISTORY_PAGE_SIZE)
+      requestAnimationFrame(() => {
+        if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
+      })
+      return
+    }
+
+    const beforeId = oldestServerMessageId ?? currentMessages.find((message) => message.id)?.id ?? null
+    if (!isRealWorkspace || !beforeId || olderMessagesLoading || olderServerMessageCount <= 0) return
+
+    setOlderMessagesLoading(true)
+    const historyWasExpanded = historyExpandedRef.current
+    historyExpandedRef.current = true
+    try {
+      const page = await fetchMiaMessages(true, beforeId)
+      setMessages((current) => {
+        const existingIds = new Set(current.map((message) => message.id).filter(Boolean))
+        const olderMessages = page.messages.filter((message) => !message.id || !existingIds.has(message.id))
+        return [...olderMessages, ...current]
+      })
+      setVisibleMessageCount((count) => count + page.messages.length)
+      setOldestServerMessageId(page.oldest_message_id ?? beforeId)
+      setOlderServerMessageCount(page.older_message_count)
+      requestAnimationFrame(() => {
+        if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
+      })
+    } catch (caught) {
+      historyExpandedRef.current = historyWasExpanded
+      setMiaError(caught instanceof Error ? caught.message : 'Earlier Mia messages could not be loaded.')
+    } finally {
+      setOlderMessagesLoading(false)
+    }
+  }
+
   async function handleClearMessages() {
     if (miaClearing) return
 
@@ -827,6 +891,10 @@ function App() {
     try {
       if (isRealWorkspace) await clearMiaMessages(true)
       setMessages([])
+      setOldestServerMessageId(null)
+      setOlderServerMessageCount(0)
+      setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
+      historyExpandedRef.current = false
       captureAnalyticsEvent('mia_chat_cleared', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
       })
@@ -975,8 +1043,7 @@ function App() {
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('mia_action_draft_applied', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -1001,8 +1068,7 @@ function App() {
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('mia_action_draft_canceled', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -1052,8 +1118,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -1079,8 +1144,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_ignored', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -1122,8 +1186,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
         draft_count: ids.length,
         amount_bucket: transactionBulkAmountBucket(total),
@@ -1151,8 +1214,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_matched', {
         source_type: draft.source_type ?? 'statement',
       })
@@ -1181,8 +1243,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_reopened', {
         previous_status: draft.status,
         source_type: draft.source_type ?? 'manual_chat',
@@ -1347,8 +1408,7 @@ function App() {
           const refreshed = await fetchAppData(isRealWorkspace)
           setData(refreshed)
           setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
-          setMessages(refreshed.mia.messages)
-          setMessagesStorageKey(chatStorageKey)
+          replaceMiaHistory(refreshed.mia)
           setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
         } catch {
           setDocumentsNotice('Applied value saved. Refresh the page if the dashboard does not update immediately.')
@@ -1380,8 +1440,7 @@ function App() {
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData(response.workspace)
       setSetupDraft(response.workspace.workspace?.setup_values ?? setupDraft)
-      setMessages(response.workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(response.workspace.mia)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
         document_kind: documentImport.document_kind,
@@ -1488,8 +1547,7 @@ function App() {
         return { year: responseYear, monthIndex: current?.monthIndex ?? selectedBudgetMonthIndex }
       })
       setIsProfileEditing(false)
-      setMessages(payload.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(payload.mia)
       captureAnalyticsEvent('workspace_setup_saved', {
         setup_complete: payload.workspace?.setup_complete ?? false,
         workspace_mode: payload.workspace?.mode ?? 'real',
@@ -1601,70 +1659,16 @@ function App() {
         </aside>
       </header>
 
-      <nav className="tabs" aria-label="Household CFO participant sections">
-        {visibleSections.map((section) => (
-          <button
-            key={section}
-            type="button"
-            className={activeSection === section ? 'active' : ''}
-            onClick={() => switchSection(section)}
-          >
-            {section}
-          </button>
-        ))}
-      </nav>
+      <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
 
       {activeSection === 'Home' && (
-        <section className="screen-grid home-screen">
-          <ScreenHeading
-            eyebrow="Home"
-            title="CFO snapshot"
-            copy="Check the baseline, runway, safe-to-spend, and next move before a money decision leaves the household."
-          />
-
-          <div className="status-ribbon">
-            <div>
-              <span>Readiness</span>
-              <strong>{data.dashboard.summary.readiness_label}</strong>
-            </div>
-            <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
-          </div>
-
-          <div className="metric-row">
-            <Metric label="Monthly income" value={currency.format(data.dashboard.summary.monthly_income)} />
-            <Metric label="Runway" value={`${data.dashboard.summary.runway_months} months`} />
-            <Metric label="Safe to spend" value={currency.format(data.dashboard.summary.next_safe_to_spend_amount)} />
-            <Metric label="Baseline surplus" value={currency.format(surplus)} />
-          </div>
-
-          <div className="two-column">
-            <article className="panel coach-panel">
-              <p className="eyebrow">Mia’s coach read</p>
-              <h3>Make the measured CFO move.</h3>
-              <p>
-                You have enough stability to move with intention, but the annual plan still needs runway protection.
-                The next 90 days should protect cash reserves, cover irregular expenses, and prove recurring income.
-              </p>
-              <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia for my next move</button>
-            </article>
-            <div className="card-list">
-              {data.dashboard.alerts.map((alert) => (
-                <article className={`insight-card ${alert.tone}`} key={alert.title}>
-                  <span>{statusCopy[alert.tone] ?? 'note'}</span>
-                  <h3>{alert.title}</h3>
-                  <p>{alert.body}</p>
-                </article>
-              ))}
-            </div>
-          </div>
-
-          <article className="panel next-steps">
-            <h3>This week’s household CFO rhythm</h3>
-            <ol>
-              {data.dashboard.next_steps.map((step) => <li key={step}>{step}</li>)}
-            </ol>
-          </article>
-        </section>
+        <HomeScreen
+          dashboard={data.dashboard}
+          budget={data.budget}
+          onAskMia={() => switchSection('Ask Mia')}
+          onReviewTransactions={() => switchSection('Budget')}
+          onReviewMiaActions={() => switchSection('Ask Mia')}
+        />
       )}
 
       {activeSection === 'Ask Mia' && (
@@ -1744,71 +1748,33 @@ function App() {
                 ))}
               </div>
 
-              <div className="chat-card-wrap">
-                <article className="chat-card" ref={chatCardRef} aria-live="polite" aria-busy={miaLoading} onScroll={updateChatScrollAffordance}>
-                  {currentMessages.length === 0 && !miaLoading && (
-                    <div className="empty-chat-state">
-                      <span className="message-avatar" aria-hidden="true">M</span>
-                      <h3>Mia is ready when you are.</h3>
-                      <p>Ask what you need to decide next. Mia will use the approved household context already loaded here.</p>
-                    </div>
-                  )}
-                  {currentMessages.map((message, index) => (
-                    <div className={`message-row ${message.role}`} key={messageKey(message, index)}>
-                      {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
-                      <div className={`message ${message.role}`}>
-                        <strong>{message.author}</strong>
-                        {messageParagraphs(message).map((paragraph, paragraphIndex) => (
-                          <p key={`${message.author}-${index}-${paragraphIndex}`}>{paragraph}</p>
-                        ))}
-                        {(message.attachments ?? []).length > 0 && (
-                          <MessageAttachmentList
-                            attachments={message.attachments ?? []}
-                            imports={documentImports}
-                            onOpenLocal={(attachment) => {
-                              if (!attachment.preview_url) return
-                              setPreviewAttachment({
-                                id: `message-${attachment.filename}`,
-                                file: new File([], attachment.filename, { type: attachment.content_type }),
-                                filename: attachment.filename,
-                                content_type: attachment.content_type,
-                                document_kind: attachment.document_kind,
-                                previewUrl: attachment.preview_url,
-                              })
-                            }}
-                            onOpenImport={handleOpenDocumentSource}
-                            onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
-                          />
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                  {miaLoading && (
-                    <div className="message-row assistant typing-row">
-                      <span className="message-avatar" aria-hidden="true">M</span>
-                      <div className="message assistant">
-                        <strong>Mia</strong>
-                        <div className="typing-dots" aria-label="Mia is thinking">
-                          <span />
-                          <span />
-                          <span />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </article>
-                {showChatScrollButton && currentMessages.length > 0 && (
-                  <button
-                    type="button"
-                    className="chat-scroll-bottom-button"
-                    aria-label="Scroll to latest Mia message"
-                    onClick={() => scrollMiaChatToBottom()}
-                  >
-                    <ScrollDownIcon />
-                    <span>Latest</span>
-                  </button>
-                )}
-              </div>
+              <ChatHistory
+                messages={visibleMessages}
+                totalMessageCount={currentMessages.length}
+                hiddenMessageCount={hiddenMessageCount}
+                olderMessageCount={olderServerMessageCount}
+                historyLoading={olderMessagesLoading}
+                miaLoading={miaLoading}
+                showScrollButton={showChatScrollButton}
+                chatCardRef={chatCardRef}
+                onScroll={updateChatScrollAffordance}
+                onLoadEarlier={() => void handleLoadEarlierMessages()}
+                onScrollLatest={scrollMiaChatToBottom}
+                imports={documentImports}
+                onOpenLocal={(attachment) => {
+                  if (!attachment.preview_url) return
+                  setPreviewAttachment({
+                    id: `message-${attachment.filename}`,
+                    file: new File([], attachment.filename, { type: attachment.content_type }),
+                    filename: attachment.filename,
+                    content_type: attachment.content_type,
+                    document_kind: attachment.document_kind,
+                    previewUrl: attachment.preview_url,
+                  })
+                }}
+                onOpenImport={handleOpenDocumentSource}
+                onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
+              />
 
               {pendingMiaActionDrafts.length > 0 && (
                 <MiaActionDraftReviewStack
@@ -2205,47 +2171,6 @@ function PendingAttachmentTray({
   )
 }
 
-function MessageAttachmentList({
-  attachments,
-  imports,
-  onOpenLocal,
-  onOpenImport,
-  onOpenImportId,
-}: {
-  attachments: MiaMessageAttachment[]
-  imports: FinancialDocumentImport[]
-  onOpenLocal: (attachment: MiaMessageAttachment) => void
-  onOpenImport: (documentImport: FinancialDocumentImport) => void
-  onOpenImportId: (documentImportId: number) => void
-}) {
-  return (
-    <div className="message-attachment-list" aria-label="Message attachments">
-      {attachments.map((attachment) => {
-        const documentImport = attachment.document_import_id ? imports.find((candidate) => candidate.id === attachment.document_import_id) : null
-        const hasImagePreview = Boolean(attachment.preview_url && browserPreviewableImage(attachment.content_type))
-        const canOpen = Boolean(attachment.document_import_id || attachment.preview_url || documentImport?.source_available)
-        return (
-          <button
-            type="button"
-            className={`message-attachment-card ${hasImagePreview ? 'is-image' : ''}`}
-            key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}
-            disabled={!canOpen}
-            aria-label={`Open ${messageAttachmentDisplayName(attachment)}`}
-            onClick={() => {
-              if (documentImport) onOpenImport(documentImport)
-              else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
-              else if (attachment.preview_url) onOpenLocal(attachment)
-            }}
-          >
-            {hasImagePreview ? <img src={attachment.preview_url} alt={messageAttachmentDisplayName(attachment)} /> : <AttachmentIcon />}
-            {!hasImagePreview && <span>{messageAttachmentDisplayName(attachment)}</span>}
-          </button>
-        )
-      })}
-    </div>
-  )
-}
-
 function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
   const isImage = browserPreviewableImage(attachment.content_type)
 
@@ -2361,15 +2286,6 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
       <h2>{title}</h2>
       <p>{copy}</p>
     </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
   )
 }
 
@@ -3391,14 +3307,6 @@ const stackKeyOptions = [
 ]
 
 function attachmentDisplayName(attachment: PendingMiaAttachment) {
-  if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
-  if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
-  if (attachment.content_type.startsWith('image/')) return 'Screenshot'
-
-  return documentKindLabel(attachment.document_kind)
-}
-
-function messageAttachmentDisplayName(attachment: MiaMessageAttachment) {
   if (attachment.document_kind === 'receipt' && attachment.content_type.startsWith('image/')) return 'Receipt screenshot'
   if (attachment.document_kind === 'statement' && attachment.content_type.startsWith('image/')) return 'Statement screenshot'
   if (attachment.content_type.startsWith('image/')) return 'Screenshot'
@@ -6165,23 +6073,6 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
   }
 }
 
-function messageKey(message: MiaMessage, index: number) {
-  return message.id ? `server-${message.id}` : message.client_id ?? `${message.author}-${index}`
-}
-
-function messageParagraphs(message: MiaMessage) {
-  const speakerlessContent = message.role === 'assistant'
-    ? message.content.replace(/^Mia:\s*/i, '')
-    : message.content
-
-  return speakerlessContent
-    .replace(/\*\*(.*?)\*\*/g, '$1')
-    .replace(/^\s*[-*]\s+/gm, '')
-    .split(/\n{2,}/)
-    .map((paragraph) => paragraph.trim())
-    .filter(Boolean)
-}
-
 function MiaMark() {
   return (
     <svg viewBox="0 0 24 24" role="img" aria-label="Mia mark">
@@ -6243,15 +6134,6 @@ function CollapseIcon() {
       <path d="M4 10 10 4" className="icon-stroke" />
       <path d="M14 20v-6h6" className="icon-stroke" />
       <path d="m20 14-6 6" className="icon-stroke" />
-    </svg>
-  )
-}
-
-function ScrollDownIcon() {
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true">
-      <path d="M12 5v13" className="icon-stroke" />
-      <path d="m7 13 5 5 5-5" className="icon-stroke" />
     </svg>
   )
 }

@@ -159,6 +159,29 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "falls back when narration contradicts the approved readiness status" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Your baseline is yellow because your current readiness is Red — pause and stabilize basics. Build runway next." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      fallback = "Your approved readiness is Red — pause and stabilize basics. Positive cash flow is not Yellow yet because runway is below the protected threshold."
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Why is my baseline yellow?",
+        answer_packet: {
+          kind: "coaching",
+          fallback_response: fallback,
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
   test "suppresses repeated chelu when recent Mia history already used local phrasing" do
     response = ok_response(
       choices: [

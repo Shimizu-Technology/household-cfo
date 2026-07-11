@@ -20,6 +20,25 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     assert_equal "green", snapshot.fetch(:readiness_tone)
   end
 
+  test "red readiness reserves positive surplus for stability instead of calling it safe to spend" do
+    household = household_with_runway(runway_months: 1, target_months: 6)
+
+    snapshot = HouseholdFinance::SnapshotBuilder.new(household).call
+
+    assert_equal "red", snapshot.fetch(:readiness_tone)
+    assert_operator snapshot.fetch(:baseline_surplus_cents), :>, 0
+    assert_equal 0, snapshot.fetch(:safe_to_spend_cents)
+  end
+
+  test "yellow readiness can expose a bounded discretionary amount" do
+    household = household_with_runway(runway_months: 3, target_months: 6)
+
+    snapshot = HouseholdFinance::SnapshotBuilder.new(household).call
+
+    assert_equal "yellow", snapshot.fetch(:readiness_tone)
+    assert_equal (snapshot.fetch(:baseline_surplus_cents) * 0.4).round, snapshot.fetch(:safe_to_spend_cents)
+  end
+
   private
 
   def household_with_runway(runway_months:, target_months:)

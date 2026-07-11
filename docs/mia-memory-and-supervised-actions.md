@@ -2,7 +2,7 @@
 
 Updated: 2026-07-09
 
-This document defines the next product direction after PR #31: make Mia feel more continuous and helpful like Hermes/OpenClaw-style assistants, while keeping Household CFO safe for non-technical users and financial workflows.
+PR #32 has now merged the supervised action-draft scope in this document. The remaining next direction is the Mia Memory discovery and visible/user-controlled MVP described below. See `docs/current-state.md` for canonical implementation status.
 
 ## Why this exists
 
@@ -148,7 +148,7 @@ Action drafts make Mia useful as an assistant that can help operate the plan. Me
 
 ---
 
-# PR #32 — Mia Action Drafts / supervised budget editing
+# PR #32 — Mia Action Drafts / supervised budget editing (merged)
 
 This is the first implementation track after PR #31. It also establishes the structured intent/context layer required for action drafts to behave like a coherent assistant instead of a regex command parser.
 

@@ -130,6 +130,38 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 300_000, planned_amount_for_month(fixed, 7)
   end
 
+  test "model general question still routes recognized readiness language through approved coaching facts" do
+    user = create_user(email: "mia-model-readiness-question@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
+    household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "general",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Why is my baseline yellow?",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "readiness", title: "Readiness status", subject: "baseline" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages",
+        params: { message: "Why is my baseline yellow?" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "readiness is Red"
+    refute_match(/your baseline is yellow/i, content)
+  end
+
   test "model resolved recall composes from verified resolution instead of rejected assistant history" do
     user = create_user(email: "mia-model-intent-recall@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
