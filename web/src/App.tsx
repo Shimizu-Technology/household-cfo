@@ -4,6 +4,7 @@ import './App.css'
 import { HomeScreen } from './components/HomeScreen'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
+import { Metric } from './components/Metric'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -71,6 +72,7 @@ import type {
   MiaActionItem,
   MiaMessage,
   MiaMessageAttachment,
+  MiaMessagesData,
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
@@ -102,6 +104,14 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+
+function mergeLatestMiaMessages(current: MiaMessage[], latestPage: MiaMessage[]) {
+  const firstLatestServerId = latestPage.find((message) => message.id)?.id
+  if (!firstLatestServerId) return latestPage
+
+  const olderLoadedMessages = current.filter((message) => message.id && message.id < firstLatestServerId)
+  return [...olderLoadedMessages, ...latestPage]
+}
 
 function preferredVoiceMimeType() {
   if (typeof MediaRecorder === 'undefined' || typeof MediaRecorder.isTypeSupported !== 'function') return undefined
@@ -249,7 +259,7 @@ function App() {
   }, [auth.currentUser?.id])
   const [messagesStorageKey, setMessagesStorageKey] = useState(chatStorageKey)
   const chatCardRef = useRef<HTMLElement | null>(null)
-  const historyPagingActiveRef = useRef(false)
+  const historyExpandedRef = useRef(false)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const voiceStreamRef = useRef<MediaStream | null>(null)
@@ -344,15 +354,26 @@ function App() {
     }
   }, [isRealWorkspace])
 
+  const replaceMiaHistory = useCallback((mia: MiaMessagesData) => {
+    setMessagesStorageKey(chatStorageKey)
+    setMessages(mia.messages)
+    setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
+    setOldestServerMessageId(mia.oldest_message_id ?? null)
+    setOlderServerMessageCount(mia.older_message_count ?? 0)
+    historyExpandedRef.current = false
+  }, [chatStorageKey])
+
   const refreshMiaMessages = useCallback(async ({ quiet = true }: { quiet?: boolean } = {}) => {
-    if (!isRealWorkspace || miaLoading || historyPagingActiveRef.current) return
+    if (!isRealWorkspace || miaLoading) return
 
     try {
       const mia = await fetchMiaMessages(true)
       setMessagesStorageKey(chatStorageKey)
-      setMessages(mia.messages)
-      setOldestServerMessageId(mia.oldest_message_id ?? null)
-      setOlderServerMessageCount(mia.older_message_count ?? 0)
+      setMessages((current) => historyExpandedRef.current ? mergeLatestMiaMessages(current, mia.messages) : mia.messages)
+      if (!historyExpandedRef.current) {
+        setOldestServerMessageId(mia.oldest_message_id ?? null)
+        setOlderServerMessageCount(mia.older_message_count ?? 0)
+      }
     } catch (caught) {
       if (!quiet) setMiaError(caught instanceof Error ? caught.message : 'Mia chat could not be refreshed.')
     }
@@ -400,9 +421,10 @@ function App() {
         setData(payload)
         setSetupDraft(payload.workspace?.setup_values ?? null)
         setMessages(restoredMessages)
+        setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? (payload.mia.oldest_message_id ?? null) : null)
         setOlderServerMessageCount(realWorkspace ? (payload.mia.older_message_count ?? 0) : 0)
-        historyPagingActiveRef.current = false
+        historyExpandedRef.current = false
       })
       .catch(() => {
         if (cancelled) return
@@ -487,8 +509,7 @@ function App() {
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
         setSetupDraft((current) => payload.workspace?.setup_values ?? current)
-        setMessagesStorageKey(chatStorageKey)
-        setMessages(payload.mia.messages)
+        replaceMiaHistory(payload.mia)
       })
       .catch(() => {
         // Polling will retry; document review cards remain available from import summaries.
@@ -497,7 +518,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading])
+  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading, replaceMiaHistory])
 
   useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
@@ -838,7 +859,8 @@ function App() {
     if (!isRealWorkspace || !beforeId || olderMessagesLoading || olderServerMessageCount <= 0) return
 
     setOlderMessagesLoading(true)
-    historyPagingActiveRef.current = true
+    const historyWasExpanded = historyExpandedRef.current
+    historyExpandedRef.current = true
     try {
       const page = await fetchMiaMessages(true, beforeId)
       setMessages((current) => {
@@ -853,7 +875,7 @@ function App() {
         if (chatCard) chatCard.scrollTop = previousTop + (chatCard.scrollHeight - previousHeight)
       })
     } catch (caught) {
-      historyPagingActiveRef.current = false
+      historyExpandedRef.current = historyWasExpanded
       setMiaError(caught instanceof Error ? caught.message : 'Earlier Mia messages could not be loaded.')
     } finally {
       setOlderMessagesLoading(false)
@@ -872,7 +894,7 @@ function App() {
       setOldestServerMessageId(null)
       setOlderServerMessageCount(0)
       setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
-      historyPagingActiveRef.current = false
+      historyExpandedRef.current = false
       captureAnalyticsEvent('mia_chat_cleared', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
       })
@@ -1021,8 +1043,7 @@ function App() {
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('mia_action_draft_applied', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -1047,8 +1068,7 @@ function App() {
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('mia_action_draft_canceled', {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
@@ -1098,8 +1118,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -1125,8 +1144,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_ignored', {
         source_type: draft.source_type ?? 'manual_chat',
       })
@@ -1168,8 +1186,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
         draft_count: ids.length,
         amount_bucket: transactionBulkAmountBucket(total),
@@ -1197,8 +1214,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_matched', {
         source_type: draft.source_type ?? 'statement',
       })
@@ -1227,8 +1243,7 @@ function App() {
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
-      setMessages(workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent('transaction_draft_reopened', {
         previous_status: draft.status,
         source_type: draft.source_type ?? 'manual_chat',
@@ -1393,8 +1408,7 @@ function App() {
           const refreshed = await fetchAppData(isRealWorkspace)
           setData(refreshed)
           setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
-          setMessages(refreshed.mia.messages)
-          setMessagesStorageKey(chatStorageKey)
+          replaceMiaHistory(refreshed.mia)
           setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
         } catch {
           setDocumentsNotice('Applied value saved. Refresh the page if the dashboard does not update immediately.')
@@ -1426,8 +1440,7 @@ function App() {
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData(response.workspace)
       setSetupDraft(response.workspace.workspace?.setup_values ?? setupDraft)
-      setMessages(response.workspace.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(response.workspace.mia)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
         document_kind: documentImport.document_kind,
@@ -1534,8 +1547,7 @@ function App() {
         return { year: responseYear, monthIndex: current?.monthIndex ?? selectedBudgetMonthIndex }
       })
       setIsProfileEditing(false)
-      setMessages(payload.mia.messages)
-      setMessagesStorageKey(chatStorageKey)
+      replaceMiaHistory(payload.mia)
       captureAnalyticsEvent('workspace_setup_saved', {
         setup_complete: payload.workspace?.setup_complete ?? false,
         workspace_mode: payload.workspace?.mode ?? 'real',
@@ -2274,15 +2286,6 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
       <h2>{title}</h2>
       <p>{copy}</p>
     </div>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
   )
 }
 

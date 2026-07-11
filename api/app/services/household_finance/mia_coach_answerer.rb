@@ -248,7 +248,21 @@ module HouseholdFinance
       runway = facts.fetch(:runway_months)
       if actual_tone == "red"
         yellow_gap = runway_gap_cents(yellow_runway_target_cents)
-        return "#{status_line} Monthly cash flow is #{surplus.positive? ? "positive by #{money(surplus)}" : "short by #{money(surplus.abs)}"}, but runway is #{runway} months and Yellow requires about #{yellow_runway_months.round(1)} months. That makes this #{surplus.positive? ? "mainly a runway problem" : "a cash-flow and runway problem"}, with #{money(yellow_gap)} still needed for the Yellow threshold. Next CFO move: pause new wants, review pending activity, and protect available surplus for essential bills, expected expenses, and runway."
+        cash_flow_read = if surplus.positive?
+          "positive by #{money(surplus)}"
+        elsif surplus.negative?
+          "short by #{money(surplus.abs)}"
+        else
+          "at breakeven"
+        end
+        stability_read = if surplus.positive?
+          "mainly a runway problem"
+        elsif surplus.negative?
+          "a cash-flow and runway problem"
+        else
+          "a cash-flow margin and runway problem"
+        end
+        return "#{status_line} Monthly cash flow is #{cash_flow_read}, but runway is #{runway} months and Yellow requires about #{yellow_runway_months.round(1)} months. That makes this #{stability_read}, with #{money(yellow_gap)} still needed for the Yellow threshold. Next CFO move: pause new wants, review pending activity, and protect available surplus for essential bills, expected expenses, and runway."
       end
 
       if actual_tone == "yellow"

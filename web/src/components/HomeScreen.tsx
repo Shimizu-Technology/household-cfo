@@ -1,4 +1,5 @@
 import type { BudgetData, DashboardData } from '../api'
+import { Metric } from './Metric'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
@@ -98,14 +99,5 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         </ol>
       </article>
     </section>
-  )
-}
-
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <article className="metric-card">
-      <span>{label}</span>
-      <strong>{value}</strong>
-    </article>
   )
 }
