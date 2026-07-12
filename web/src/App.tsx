@@ -2097,7 +2097,7 @@ function App() {
             {data.wealth.milestones.map((milestone) => (
               <article className={`milestone-card ${milestone.status}`} key={milestone.label}>
                 <h3>{milestone.label}</h3>
-                {milestone.target > 0 && (
+                {milestone.kind === 'progress' && milestone.target > 0 && (
                   <div className="progress-track">
                     <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
                   </div>
@@ -2346,8 +2346,8 @@ function milestoneProgressWidth(current: number, target: number) {
 }
 
 function milestoneSummary(milestone: WealthData['milestones'][number]) {
-  if (milestone.target > 0) return `${milestone.current.toLocaleString()} / ${milestone.target.toLocaleString()} ${milestone.unit}`
-  if (milestone.unit === 'dollars remaining') return `${currency.format(milestone.current)} remaining`
+  if (milestone.kind === 'progress') return `${milestone.current.toLocaleString()} / ${milestone.target.toLocaleString()} ${milestone.unit}`
+  if (milestone.kind === 'debt_remaining') return `${currency.format(milestone.current)} remaining`
 
   return milestone.unit
 }

@@ -11,6 +11,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal 0, debt_milestone.fetch(:current)
     assert_equal 0, debt_milestone.fetch(:target)
     assert_equal "Add debt balances to track payoff", debt_milestone.fetch(:unit)
+    assert_equal "status", debt_milestone.fetch(:kind)
     assert_equal "yellow", debt_milestone.fetch(:status)
     assert_equal [ 0, 0, 0 ], decisions.values.map { |decision| decision.fetch(:amount) }
     assert_equal [ "Wait", "Wait", "Wait" ], decisions.values.map { |decision| decision.fetch(:recommendation) }
@@ -28,6 +29,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal 0, debt_milestone(payload).fetch(:current)
     assert_equal 0, debt_milestone(payload).fetch(:target)
     assert_equal "Debt free", debt_milestone(payload).fetch(:unit)
+    assert_equal "status", debt_milestone(payload).fetch(:kind)
     assert_equal "green", debt_milestone(payload).fetch(:status)
   end
 
@@ -40,7 +42,8 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
     assert_equal 5_400, milestone.fetch(:current)
     assert_equal 0, milestone.fetch(:target)
-    assert_equal "dollars remaining", milestone.fetch(:unit)
+    assert_equal "dollars", milestone.fetch(:unit)
+    assert_equal "debt_remaining", milestone.fetch(:kind)
     assert_equal "yellow", milestone.fetch(:status)
   end
 
@@ -79,6 +82,18 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal [ "Stabilize first", "red" ], choices.fetch("Stay the course").values_at(:fit_label, :fit_tone)
     assert_equal [ "Stabilize first", "red" ], choices.fetch("Hybrid transition").values_at(:fit_label, :fit_tone)
     assert_equal [ "Not ready yet", "red" ], choices.fetch("Leap now").values_at(:fit_label, :fit_tone)
+  end
+
+  test "optionality uses a red tone when cash flow is exactly break-even" do
+    household, user = create_household
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 300_000, cadence: "monthly")
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 900_000)
+    household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 6, priority: 1)
+
+    hybrid = HouseholdFinance::DataPresenter.new(household, user: user).optionality.fetch(:choices).find { |choice| choice.fetch(:label) == "Hybrid transition" }
+
+    assert_equal [ "Stabilize first", "red" ], hybrid.values_at(:fit_label, :fit_tone)
   end
 
   test "deficit household does not show a negative non-essential purchase amount" do

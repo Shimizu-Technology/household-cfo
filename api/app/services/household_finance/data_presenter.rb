@@ -427,17 +427,17 @@ module HouseholdFinance
       runway_target = target_runway_months
       debt_total = dollars(snapshot.fetch(:total_debt_cents))
       [
-        { label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
+        { kind: "progress", label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
         debt_milestone(debt_total),
-        { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
+        { kind: "progress", label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
       ]
     end
 
     def debt_milestone(debt_total)
-      return { label: "Debt payoff", current: debt_total, target: 0, unit: "dollars remaining", status: "yellow" } if debt_total.positive?
-      return { label: "Debt payoff", current: 0, target: 0, unit: "Debt free", status: "green" } if financial_inputs_present?
+      return { kind: "debt_remaining", label: "Debt payoff", current: debt_total, target: 0, unit: "dollars", status: "yellow" } if debt_total.positive?
+      return { kind: "status", label: "Debt payoff", current: 0, target: 0, unit: "Debt free", status: "green" } if financial_inputs_present?
 
-      { label: "Debt payoff", current: 0, target: 0, unit: "Add debt balances to track payoff", status: "yellow" }
+      { kind: "status", label: "Debt payoff", current: 0, target: 0, unit: "Add debt balances to track payoff", status: "yellow" }
     end
 
     def transition_goal
@@ -470,7 +470,7 @@ module HouseholdFinance
         {
           label: "Hybrid transition",
           fit_label: hybrid_fit_label(readiness_tone, surplus_positive: surplus_positive),
-          fit_tone: readiness_tone,
+          fit_tone: surplus_positive ? readiness_tone : "red",
           upside: "Creates room for the dream while keeping stable income in the picture.",
           tradeoff: "Requires cleaner limits on discretionary spending."
         },

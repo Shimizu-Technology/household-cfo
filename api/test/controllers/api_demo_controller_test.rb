@@ -59,6 +59,7 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_operator body.fetch("summary").fetch("net_worth"), :>, 0
     assert body.fetch("milestones").any?
+    assert body.fetch("milestones").all? { |milestone| milestone.fetch("kind") == "progress" }
   end
 
   test "optionality returns choices with transparent fit guidance" do

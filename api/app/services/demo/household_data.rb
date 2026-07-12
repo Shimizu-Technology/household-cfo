@@ -266,9 +266,9 @@ module Demo
           monthly_wealth_building: 900
         },
         milestones: [
-          { label: "Six-month runway", current: 3.6, target: 6, unit: "months", status: "yellow" },
-          { label: "Credit card paid off", current: 2650, target: 7350, unit: "dollars paid", status: "yellow" },
-          { label: "Founder transition reserve", current: 18_250, target: 24_000, unit: "dollars", status: "green" }
+          { kind: "progress", label: "Six-month runway", current: 3.6, target: 6, unit: "months", status: "yellow" },
+          { kind: "progress", label: "Credit card paid off", current: 2650, target: 7350, unit: "dollars paid", status: "yellow" },
+          { kind: "progress", label: "Founder transition reserve", current: 18_250, target: 24_000, unit: "dollars", status: "green" }
         ],
         guidance: "Wealth here is not about looking rich. It is about buying back options, lowering panic, and making the next right move visible."
       }

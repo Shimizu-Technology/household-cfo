@@ -80,7 +80,7 @@ const budget = {
 
 const wealth = {
   summary: { net_worth: 12_345_678.9, liquid_net_worth: 1_234_567.89, retirement_projection: 98_765_432.1, monthly_wealth_building: 12_345.67 },
-  milestones: [{ label: 'Debt payoff', current: 5_400, target: 0, unit: 'dollars remaining', status: 'yellow' }],
+  milestones: [{ kind: 'debt_remaining', label: 'Debt payoff', current: 5_400, target: 0, unit: 'dollars', status: 'yellow' }],
   guidance: 'Protect options.',
 }
 const optionality = {

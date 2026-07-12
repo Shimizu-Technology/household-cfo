@@ -477,6 +477,7 @@ export type WealthData = {
     monthly_wealth_building: number
   }
   milestones: Array<{
+    kind: 'progress' | 'debt_remaining' | 'status'
     label: string
     current: number
     target: number
