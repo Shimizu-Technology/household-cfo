@@ -76,6 +76,8 @@ The application currently calculates readiness deterministically from monthly ca
 
 With the default six-month runway target, Yellow begins at three months and Green begins at six months. Home shows both dollar thresholds and remaining gaps. This is the implemented pilot rule; Mrs. Mel still needs to confirm that it is the final coaching-method definition.
 
+Optionality uses this same approved readiness status for plain-language fit guidance rather than presenting a separate, arbitrary 0–100 score. Wealth reports the current debt balance as dollars remaining; it does not display payoff progress because the product does not yet store an original payoff baseline.
+
 ## Product decisions to confirm with Mrs. Mel
 
 These require product approval rather than engineering inference:

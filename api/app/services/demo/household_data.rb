@@ -266,9 +266,9 @@ module Demo
           monthly_wealth_building: 900
         },
         milestones: [
-          { label: "Six-month runway", current: 3.6, target: 6, unit: "months", status: "yellow" },
-          { label: "Credit card paid off", current: 2650, target: 7350, unit: "dollars paid", status: "yellow" },
-          { label: "Founder transition reserve", current: 18_250, target: 24_000, unit: "dollars", status: "green" }
+          { kind: "progress", label: "Six-month runway", current: 3.6, target: 6, unit: "months", status: "yellow" },
+          { kind: "progress", label: "Credit card paid off", current: 2650, target: 7350, unit: "dollars paid", status: "yellow" },
+          { kind: "progress", label: "Founder transition reserve", current: 18_250, target: 24_000, unit: "dollars", status: "green" }
         ],
         guidance: "Wealth here is not about looking rich. It is about buying back options, lowering panic, and making the next right move visible."
       }
@@ -284,19 +284,22 @@ module Demo
         choices: [
           {
             label: "Stay the course",
-            readiness_score: 72,
+            fit_label: "Best fit now",
+            fit_tone: "green",
             upside: "Lowest stress and keeps debt payoff consistent.",
             tradeoff: "Slower path to full-time founder mode."
           },
           {
             label: "Hybrid transition",
-            readiness_score: 84,
+            fit_label: "Plan carefully",
+            fit_tone: "yellow",
             upside: "Protects household stability while opening 15 focused hours per week.",
             tradeoff: "Requires tighter discretionary spending for 90 days."
           },
           {
             label: "Leap now",
-            readiness_score: 58,
+            fit_label: "Not ready yet",
+            fit_tone: "red",
             upside: "Maximum business focus immediately.",
             tradeoff: "Runway is short unless one new retainer is signed first."
           }

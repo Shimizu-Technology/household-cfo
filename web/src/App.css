@@ -1023,6 +1023,7 @@ h3 {
 .insight-card.green,
 .stack-card.green,
 .milestone-card.green,
+.choice-card.green,
 .decision-card.approve {
   border-left: 5px solid var(--status-green);
 }
@@ -1030,12 +1031,36 @@ h3 {
 .insight-card.yellow,
 .stack-card.yellow,
 .milestone-card.yellow,
+.choice-card.yellow,
 .decision-card.wait {
   border-left: 5px solid var(--status-yellow);
 }
 
-.stack-card.red {
+.stack-card.red,
+.choice-card.red {
   border-left: 5px solid var(--status-red);
+}
+
+.choice-card > span {
+  display: inline-flex;
+  margin-bottom: 10px;
+  border-radius: 999px;
+  font-size: 0.72rem;
+  font-weight: 850;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.choice-card.green > span {
+  color: var(--status-green);
+}
+
+.choice-card.yellow > span {
+  color: var(--status-yellow);
+}
+
+.choice-card.red > span {
+  color: var(--status-red);
 }
 
 .insight-card.blue,

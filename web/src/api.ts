@@ -477,6 +477,7 @@ export type WealthData = {
     monthly_wealth_building: number
   }
   milestones: Array<{
+    kind: 'progress' | 'debt_remaining' | 'status'
     label: string
     current: number
     target: number
@@ -494,7 +495,8 @@ export type OptionalityData = {
   monthly_gap: number
   choices: Array<{
     label: string
-    readiness_score: number
+    fit_label: string
+    fit_tone: 'red' | 'yellow' | 'green'
     upside: string
     tradeoff: string
   }>
