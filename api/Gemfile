@@ -31,7 +31,7 @@ gem "httparty", "~> 0.24.2"
 gem "jwt", "~> 3.2"
 
 # Transactional email delivery for cohort invitations
-gem "resend", "~> 0.16.0"
+gem "resend", "~> 1.6.0"
 
 # Private S3 storage and spreadsheet parsing for financial document imports
 gem "aws-sdk-s3", "~> 1.0"
