@@ -284,19 +284,22 @@ module Demo
         choices: [
           {
             label: "Stay the course",
-            readiness_score: 72,
+            fit_label: "Best fit now",
+            fit_tone: "green",
             upside: "Lowest stress and keeps debt payoff consistent.",
             tradeoff: "Slower path to full-time founder mode."
           },
           {
             label: "Hybrid transition",
-            readiness_score: 84,
+            fit_label: "Plan carefully",
+            fit_tone: "yellow",
             upside: "Protects household stability while opening 15 focused hours per week.",
             tradeoff: "Requires tighter discretionary spending for 90 days."
           },
           {
             label: "Leap now",
-            readiness_score: 58,
+            fit_label: "Not ready yet",
+            fit_tone: "red",
             upside: "Maximum business focus immediately.",
             tradeoff: "Runway is short unless one new retainer is signed first."
           }

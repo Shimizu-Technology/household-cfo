@@ -434,10 +434,10 @@ module HouseholdFinance
     end
 
     def debt_milestone(debt_total)
-      return { label: "Debt entered", current: 0, target: debt_total, unit: "dollars to payoff", status: "yellow" } if debt_total.positive?
-      return { label: "Debt entered", current: 1, target: 1, unit: "clear", status: "green" } if financial_inputs_present?
+      return { label: "Debt payoff", current: debt_total, target: 0, unit: "dollars remaining", status: "yellow" } if debt_total.positive?
+      return { label: "Debt payoff", current: 0, target: 0, unit: "Debt free", status: "green" } if financial_inputs_present?
 
-      { label: "Debt entered", current: 0, target: 0, unit: "dollars entered", status: "yellow" }
+      { label: "Debt payoff", current: 0, target: 0, unit: "Add debt balances to track payoff", status: "yellow" }
     end
 
     def transition_goal
@@ -457,28 +457,41 @@ module HouseholdFinance
     end
 
     def optionality_choices(runway_gap_cents)
-      runway = snapshot.fetch(:runway_months)
       surplus_positive = snapshot.fetch(:baseline_surplus_cents).positive?
+      readiness_tone = snapshot.fetch(:readiness_tone)
       [
         {
           label: "Stay the course",
-          readiness_score: surplus_positive ? 78 : 55,
+          fit_label: surplus_positive ? "Best fit now" : "Stabilize first",
+          fit_tone: surplus_positive ? "green" : "red",
           upside: "Lowest stress and keeps the household baseline protected.",
           tradeoff: "Slower path to the dream move."
         },
         {
           label: "Hybrid transition",
-          readiness_score: [ (runway / target_runway_months * 100).round, 95 ].min,
+          fit_label: hybrid_fit_label(readiness_tone, surplus_positive: surplus_positive),
+          fit_tone: readiness_tone,
           upside: "Creates room for the dream while keeping stable income in the picture.",
           tradeoff: "Requires cleaner limits on discretionary spending."
         },
         {
           label: "Leap now",
-          readiness_score: runway_gap_cents.zero? && surplus_positive ? 72 : 42,
+          fit_label: runway_gap_cents.zero? && surplus_positive ? "Possible with safeguards" : "Not ready yet",
+          fit_tone: runway_gap_cents.zero? && surplus_positive ? "yellow" : "red",
           upside: "Maximum focus immediately.",
           tradeoff: runway_gap_cents.zero? ? "Still needs a written runway plan." : "Runway gap should close before cutting stable income."
         }
       ]
+    end
+
+    def hybrid_fit_label(readiness_tone, surplus_positive:)
+      return "Stabilize first" unless surplus_positive
+
+      case readiness_tone
+      when "green" then "Ready to plan"
+      when "yellow" then "Plan carefully"
+      else "Build runway first"
+      end
     end
 
     def decisions

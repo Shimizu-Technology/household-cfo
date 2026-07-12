@@ -78,8 +78,20 @@ const budget = {
   },
 }
 
-const wealth = { summary: { net_worth: 12_345_678.9, liquid_net_worth: 1_234_567.89, retirement_projection: 98_765_432.1, monthly_wealth_building: 12_345.67 }, milestones: [], guidance: 'Protect options.' }
-const optionality = { scenario: 'Founder transition', question: 'Can I leave my job?', target_runway_months: 6, current_runway_months: 0.5, monthly_gap: 4_795, choices: [], levers: [{ label: 'Green runway gap', amount: 51_430 }, { label: 'Annual income protected', amount: 170_400 }] }
+const wealth = {
+  summary: { net_worth: 12_345_678.9, liquid_net_worth: 1_234_567.89, retirement_projection: 98_765_432.1, monthly_wealth_building: 12_345.67 },
+  milestones: [{ label: 'Debt payoff', current: 5_400, target: 0, unit: 'dollars remaining', status: 'yellow' }],
+  guidance: 'Protect options.',
+}
+const optionality = {
+  scenario: 'Founder transition', question: 'Can I leave my job?', target_runway_months: 6, current_runway_months: 0.5, monthly_gap: 4_795,
+  choices: [
+    { label: 'Stay the course', fit_label: 'Best fit now', fit_tone: 'green', upside: 'Protects the baseline.', tradeoff: 'The transition takes longer.' },
+    { label: 'Hybrid transition', fit_label: 'Build runway first', fit_tone: 'red', upside: 'Keeps stable income.', tradeoff: 'Runway is not ready yet.' },
+    { label: 'Leap now', fit_label: 'Not ready yet', fit_tone: 'red', upside: 'Maximum focus.', tradeoff: 'Close the runway gap first.' },
+  ],
+  levers: [{ label: 'Green runway gap', amount: 51_430 }, { label: 'Annual income protected', amount: 170_400 }],
+}
 const cfoFilter = { framework: 'CFO Filter', prompt: 'Pressure-test the move.', decisions: [{ item: 'Large planned purchase', amount: 1_234_567.89, recommendation: 'Wait', reason: 'Protect runway first.' }], targets: [], priority_stack: ['Essential bills', 'Expected expenses', 'Runway'] }
 
 function chatMessages(count = 125) {
@@ -184,6 +196,20 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await expect(page.getByRole('heading', { name: 'See the expensive months before they arrive.' })).toBeVisible()
   await expect(page.getByText('Dec spending spike')).toBeVisible()
   await expect(page.getByText('Holiday travel')).toBeVisible()
+})
+
+test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
+  await page.getByRole('button', { name: 'Wealth', exact: true }).click()
+  const debtCard = page.getByRole('heading', { name: 'Debt payoff' }).locator('..')
+  await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
+  await expect(debtCard.locator('.progress-track')).toHaveCount(0)
+  await expect(debtCard).not.toContainText('0 / 5,400')
+
+  await page.getByRole('button', { name: 'Optionality', exact: true }).click()
+  await expect(page.getByText('Best fit now')).toBeVisible()
+  await expect(page.getByText('Build runway first')).toBeVisible()
+  await expect(page.getByText('Not ready yet', { exact: true })).toBeVisible()
+  await expect(page.getByText(/\/100 readiness/)).toHaveCount(0)
 })
 
 test('compact phone layouts keep the status card legible and expose horizontal navigation', async ({ page }, testInfo) => {

@@ -61,13 +61,14 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert body.fetch("milestones").any?
   end
 
-  test "optionality returns choices with readiness scores" do
+  test "optionality returns choices with transparent fit guidance" do
     get "/api/demo/optionality"
 
     assert_response :success
     body = JSON.parse(response.body)
     assert_equal "Founder transition", body.fetch("scenario")
-    assert body.fetch("choices").all? { |choice| choice.key?("readiness_score") }
+    assert body.fetch("choices").all? { |choice| choice.key?("fit_label") && choice.key?("fit_tone") }
+    refute body.fetch("choices").any? { |choice| choice.key?("readiness_score") }
   end
 
   test "cfo filter returns strategic spending recommendations" do

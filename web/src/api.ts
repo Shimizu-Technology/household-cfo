@@ -494,7 +494,8 @@ export type OptionalityData = {
   monthly_gap: number
   choices: Array<{
     label: string
-    readiness_score: number
+    fit_label: string
+    fit_tone: 'red' | 'yellow' | 'green'
     upside: string
     tradeoff: string
   }>

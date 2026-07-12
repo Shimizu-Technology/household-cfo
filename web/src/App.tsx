@@ -83,6 +83,7 @@ import type {
   TransactionDraft,
   TransactionDraftUpdateInput,
   UserRole,
+  WealthData,
   WorkspaceSetupValues,
 } from './api'
 import { SeoManager } from './components/SeoManager'
@@ -2096,10 +2097,12 @@ function App() {
             {data.wealth.milestones.map((milestone) => (
               <article className={`milestone-card ${milestone.status}`} key={milestone.label}>
                 <h3>{milestone.label}</h3>
-                <div className="progress-track">
-                  <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
-                </div>
-                <p>{milestone.current.toLocaleString()} / {milestone.target.toLocaleString()} {milestone.unit}</p>
+                {milestone.target > 0 && (
+                  <div className="progress-track">
+                    <span style={{ width: milestoneProgressWidth(milestone.current, milestone.target) }} />
+                  </div>
+                )}
+                <p>{milestoneSummary(milestone)}</p>
               </article>
             ))}
           </div>
@@ -2152,8 +2155,8 @@ function App() {
 
           <div className="choice-grid">
             {data.optionality.choices.map((choice) => (
-              <article className="choice-card" key={choice.label}>
-                <span>{choice.readiness_score}/100 readiness</span>
+              <article className={`choice-card ${choice.fit_tone}`} key={choice.label}>
+                <span>{choice.fit_label}</span>
                 <h3>{choice.label}</h3>
                 <p>{choice.upside}</p>
                 <small>{choice.tradeoff}</small>
@@ -2340,6 +2343,13 @@ function milestoneProgressWidth(current: number, target: number) {
   if (target <= 0) return current > 0 ? '100%' : '0%'
 
   return `${Math.min((current / target) * 100, 100)}%`
+}
+
+function milestoneSummary(milestone: WealthData['milestones'][number]) {
+  if (milestone.target > 0) return `${milestone.current.toLocaleString()} / ${milestone.target.toLocaleString()} ${milestone.unit}`
+  if (milestone.unit === 'dollars remaining') return `${currency.format(milestone.current)} remaining`
+
+  return milestone.unit
 }
 
 function DocumentContextCard({
