@@ -44,6 +44,12 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes labels, "Non-discretionary"
     assert_includes labels, "Sinking Fund — Expected"
     assert_includes labels, "Sinking Fund — Unexpected"
+    plan = body.fetch("annual_plan")
+    assert_equal 12, plan.fetch("months").length
+    assert_equal 8_250, plan.fetch("monthly_income").fetch("7")
+    assert_equal 8_500, plan.fetch("monthly_income").fetch("8")
+    assert_equal 9_500, plan.fetch("monthly_income").fetch("12")
+    assert_equal "Dec", plan.fetch("annual_outlook").fetch("upcoming_spikes").first.fetch("label")
   end
 
   test "wealth returns simplified net worth snapshot" do

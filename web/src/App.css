@@ -20,6 +20,279 @@
   background: var(--cream);
 }
 
+.annual-income-planner,
+.annual-outlook {
+  display: grid;
+  gap: 18px;
+  margin-top: 22px;
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: color-mix(in srgb, var(--paper) 90%, var(--emerald-soft));
+}
+
+.home-look-ahead {
+  display: grid;
+  grid-template-columns: minmax(200px, 1.3fr) repeat(2, minmax(190px, 1fr));
+  gap: 12px;
+  padding: 18px;
+  border: 1px solid color-mix(in srgb, var(--gold) 45%, var(--line));
+  border-radius: 22px;
+  background: color-mix(in srgb, var(--paper) 90%, var(--gold));
+}
+
+.home-look-ahead > div,
+.home-look-ahead article {
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.home-look-ahead h3,
+.home-look-ahead p {
+  margin: 0;
+}
+
+.home-look-ahead span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.home-look-ahead article {
+  padding: 13px;
+  border-radius: 15px;
+  background: var(--paper);
+}
+
+.home-look-ahead article strong {
+  font-size: 1.05rem;
+}
+
+.annual-income-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.annual-income-heading h4 {
+  margin: 4px 0 6px;
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.45rem, 3vw, 2rem);
+  line-height: 1.05;
+}
+
+.annual-income-heading p:not(.eyebrow) {
+  margin: 0;
+  color: var(--muted);
+}
+
+.annual-income-heading > span {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: var(--emerald-soft);
+  color: var(--plum);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.income-source-list,
+.annual-outlook-callouts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+}
+
+.income-source-card,
+.outlook-callout {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+}
+
+.income-source-card > div:first-child,
+.income-schedule-row > div:first-child {
+  display: grid;
+  gap: 3px;
+}
+
+.income-source-card span,
+.outlook-callout span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.income-source-card small,
+.income-schedule-row span {
+  color: var(--muted);
+}
+
+.income-source-card > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.income-schedule-list {
+  display: grid;
+  gap: 8px;
+}
+
+.income-schedule-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+.income-schedule-row > div:last-child,
+.income-schedule-form-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.income-schedule-row button {
+  padding: 7px 10px;
+  font-size: 0.76rem;
+}
+
+.income-schedule-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  align-items: end;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+}
+
+.income-schedule-form label {
+  display: grid;
+  gap: 6px;
+}
+
+.income-schedule-form label > span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.income-schedule-form .setup-error {
+  grid-column: 1 / -1;
+  margin: 0;
+}
+
+.outlook-callout.spike {
+  border-left: 4px solid var(--gold);
+}
+
+.outlook-callout.irregular {
+  border-left: 4px solid var(--gold);
+}
+
+.outlook-callout strong {
+  font-size: 1.25rem;
+}
+
+.outlook-callout p {
+  margin: 0;
+  color: var(--muted);
+}
+
+.annual-outlook-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.outlook-month {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  padding: 12px 10px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper);
+}
+
+.outlook-month span,
+.outlook-month b {
+  overflow: hidden;
+  font-size: clamp(0.68rem, 1.2vw, 0.8rem);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.outlook-month span {
+  color: var(--muted);
+}
+
+.outlook-month b {
+  color: var(--status-green);
+}
+
+.outlook-month.negative b {
+  color: var(--status-red);
+}
+
+@media (max-width: 800px) {
+  .annual-income-heading,
+  .income-schedule-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .annual-income-heading > span {
+    align-self: flex-start;
+  }
+
+  .annual-outlook-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .home-look-ahead {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .annual-outlook-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .income-schedule-form,
+  .income-source-list,
+  .annual-outlook-callouts {
+    grid-template-columns: 1fr;
+  }
+
+  .income-schedule-row > div:last-child,
+  .income-schedule-form-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 360px) {
+  .annual-outlook-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

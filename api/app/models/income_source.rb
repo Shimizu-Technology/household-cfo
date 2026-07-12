@@ -3,6 +3,7 @@ class IncomeSource < ApplicationRecord
   SOURCE_TYPES = %w[job business rental passive bonus other].freeze
 
   belongs_to :household
+  has_many :income_schedule_entries, dependent: :destroy
 
   validates :label, presence: true, uniqueness: { scope: [ :household_id, :source_type ] }
   validates :cadence, inclusion: { in: CADENCES }

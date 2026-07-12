@@ -39,6 +39,40 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     assert_equal (snapshot.fetch(:baseline_surplus_cents) * 0.4).round, snapshot.fetch(:safe_to_spend_cents)
   end
 
+  test "preloaded income sources load all schedule entries in one query" do
+    household = household_with_runway(runway_months: 3, target_months: 6)
+    second_source = household.income_sources.create!(
+      label: "Secondary income",
+      source_type: "job",
+      amount_cents: 200_000,
+      cadence: "monthly"
+    )
+    household.income_sources.first.income_schedule_entries.create!(
+      entry_type: "recurring_change",
+      amount_cents: 1_100_000,
+      cadence: "monthly",
+      effective_on: Date.current.beginning_of_month
+    )
+    second_source.income_schedule_entries.create!(
+      entry_type: "one_time",
+      amount_cents: 50_000,
+      cadence: "one_time",
+      effective_on: Date.current.beginning_of_month
+    )
+    household.income_sources.load
+
+    schedule_queries = []
+    subscriber = lambda do |_name, _start, _finish, _id, payload|
+      schedule_queries << payload[:sql] if payload[:sql].include?("income_schedule_entries")
+    end
+
+    ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      HouseholdFinance::SnapshotBuilder.new(household).call
+    end
+
+    assert_equal 1, schedule_queries.length
+  end
+
   private
 
   def household_with_runway(runway_months:, target_months:)

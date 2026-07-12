@@ -3,6 +3,111 @@ require "test_helper"
 class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   include ActiveSupport::Testing::TimeHelpers
 
+  test "participant can schedule a future raise, a one-time bonus, and an income end without rewriting prior months" do
+    travel_to Date.new(2026, 7, 12) do
+      user = create_user(email: "income-timeline@example.com")
+      patch "/api/v1/workspace/setup",
+        params: { workspace: { primary_income: 1_000 } },
+        headers: auth_headers(user),
+        as: :json
+      source_id = user.households.first.income_sources.find_by!(source_type: "job").id
+
+      post "/api/v1/income_schedule_entries?year=2026",
+        params: { income_schedule_entry: { income_source_id: source_id, entry_type: "recurring_change", amount: 1_200, cadence: "monthly", effective_on: "2026-08-20" } },
+        headers: auth_headers(user),
+        as: :json
+      assert_response :created
+      plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
+      assert_equal [ 1_000 ] * 7 + [ 1_200 ] * 5, monthly_income_values(plan)
+      assert_equal "2026-08-01", plan.fetch("income_sources").first.fetch("schedule_entries").first.fetch("effective_on")
+
+      post "/api/v1/income_schedule_entries?year=2026",
+        params: { income_schedule_entry: { income_source_id: source_id, entry_type: "one_time", label: "Year-end bonus", amount: 500, effective_on: "2026-12-01" } },
+        headers: auth_headers(user),
+        as: :json
+      assert_response :created
+      plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
+      assert_equal 1_700, monthly_income_values(plan).last
+      assert_equal 13_500, monthly_income_values(plan).sum
+
+      post "/api/v1/income_schedule_entries?year=2026",
+        params: { income_schedule_entry: { income_source_id: source_id, entry_type: "recurring_change", amount: 0, cadence: "monthly", effective_on: "2026-10-01" } },
+        headers: auth_headers(user),
+        as: :json
+      assert_response :created
+      plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
+      assert_equal [ 1_000 ] * 7 + [ 1_200, 1_200, 0, 0, 500 ], monthly_income_values(plan)
+
+      prior_plan = HouseholdFinance::AnnualBudgetManager.new(user.households.first, year: 2025).plan_data
+      assert_equal [ 1_000 ] * 12, prior_plan.fetch(:monthly_income).values
+    end
+  end
+
+  test "income schedule entries are household scoped and duplicate month changes are rejected" do
+    user = create_user(email: "income-owner@example.com")
+    other = create_user(email: "income-other@example.com")
+    own_source = HouseholdFinance::WorkspaceResolver.new(user).household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+    other_source = HouseholdFinance::WorkspaceResolver.new(other).household.income_sources.create!(label: "Other", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+
+    post "/api/v1/income_schedule_entries",
+      params: { income_schedule_entry: { income_source_id: other_source.id, entry_type: "recurring_change", amount: 2_000, cadence: "monthly", effective_on: "2026-08-01" } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :not_found
+
+    2.times do |index|
+      post "/api/v1/income_schedule_entries",
+        params: { income_schedule_entry: { income_source_id: own_source.id, entry_type: "recurring_change", amount: 1_200 + index, cadence: "monthly", effective_on: "2026-08-01" } },
+        headers: auth_headers(user),
+        as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Effective on has already been taken"
+  end
+
+  test "participant can edit and remove a scheduled income change" do
+    user = create_user(email: "income-edit@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    source = household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+    entry = source.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 120_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+
+    patch "/api/v1/income_schedule_entries/#{entry.id}?year=2026",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: 1_300, cadence: "monthly", effective_on: "2026-09-17" } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+    plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
+    assert_equal [ 1_000 ] * 8 + [ 1_300 ] * 4, monthly_income_values(plan)
+    assert_equal Date.new(2026, 9, 1), entry.reload.effective_on
+
+    delete "/api/v1/income_schedule_entries/#{entry.id}?year=2026",
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+    plan = JSON.parse(response.body).fetch("budget").fetch("annual_plan")
+    assert_equal [ 1_000 ] * 12, monthly_income_values(plan)
+    assert_empty plan.fetch("income_sources").first.fetch("schedule_entries")
+  end
+
+  test "income schedule rejects invalid dates and amounts" do
+    user = create_user(email: "income-invalid@example.com")
+    source = HouseholdFinance::WorkspaceResolver.new(user).household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+
+    post "/api/v1/income_schedule_entries",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: "many", cadence: "monthly", effective_on: "not-a-date" } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Income schedule date must be a valid date"
+
+    post "/api/v1/income_schedule_entries",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: "many", cadence: "monthly", effective_on: "2026-08-01" } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Income amount must be a number"
+  end
+
   test "workspace setup seeds the annual budget from expense stack values" do
     user = create_user(email: "annual-seed@example.com")
 
@@ -1847,5 +1952,11 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  private
+
+  def monthly_income_values(plan)
+    plan.fetch("months").map { |month| plan.fetch("monthly_income").fetch(month.fetch("id").to_s) }
   end
 end

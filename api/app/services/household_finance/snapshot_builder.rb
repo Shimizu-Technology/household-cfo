@@ -73,10 +73,18 @@ module HouseholdFinance
     attr_reader :household
 
     def active_income_sources
-      @active_income_sources ||= if association_loaded?(:income_sources)
-        household.income_sources.select(&:active?)
-      else
-        household.income_sources.where(active: true).to_a
+      @active_income_sources ||= begin
+        sources = if association_loaded?(:income_sources)
+          household.income_sources.select(&:active?)
+        else
+          household.income_sources.where(active: true).to_a
+        end
+
+        ActiveRecord::Associations::Preloader.new(
+          records: sources,
+          associations: :income_schedule_entries
+        ).call
+        sources
       end
     end
 
@@ -121,7 +129,9 @@ module HouseholdFinance
     end
 
     def monthly_income_cents
-      @monthly_income_cents ||= active_income_sources.sum { |income| monthly_cents(income.amount_cents, income.cadence) }
+      @monthly_income_cents ||= active_income_sources.sum do |income|
+        IncomeTimeline.recurring_monthly_cents(income, on: Date.current)
+      end
     end
 
     def stack_totals_cents

@@ -40,6 +40,17 @@ const monthRows = months.map((label, index) => ({
   remaining: label === new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date()) ? 8_830 : 9_080,
 }))
 
+const annualOutlookMonths = months.map((label, index) => ({
+  period_id: index + 1,
+  label,
+  starts_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-01`,
+  income: index >= 7 ? 15_000 : 14_200,
+  planned_outflow: index === 11 ? 12_080 : 9_080,
+  baseline_surplus: (index >= 7 ? 15_000 : 14_200) - (index === 11 ? 12_080 : 9_080),
+  expected_irregular: index === 11 ? 3_000 : 0,
+  expected_contributors: index === 11 ? [{ name: 'Holiday travel', amount: 3_000 }] : [],
+}))
+
 const budget = {
   framework: 'Expense Stack', intro: 'Annual household plan', monthly_income: 14_200,
   total_monthly_outflow: 9_405, baseline_surplus: 4_795,
@@ -52,7 +63,17 @@ const budget = {
     year: currentYear,
     months: months.map((label, index) => ({ id: index + 1, label, starts_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-01`, ends_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-28`, status: 'open' })),
     rows: [{ id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary', stack_label: 'Non-discretionary', active: true, months: monthRows, planned_total: 108_960, actual_total: 250 }],
-    monthly_income: Object.fromEntries(months.map((_, index) => [index + 1, 14_200])),
+    monthly_income: Object.fromEntries(months.map((_, index) => [index + 1, index >= 7 ? 15_000 : 14_200])),
+    income_sources: [{
+      id: 1, label: 'Primary income', source_type: 'job', base_amount: 14_200, base_cadence: 'monthly',
+      schedule_entries: [{ id: 1, entry_type: 'recurring_change', label: null, amount: 15_000, cadence: 'monthly', effective_on: `${currentYear}-08-01` }],
+    }],
+    annual_outlook: {
+      typical_monthly_outflow: 9_080,
+      months: annualOutlookMonths,
+      upcoming_spikes: [{ ...annualOutlookMonths[11], amount_above_typical: 3_000 }],
+      next_irregular_month: annualOutlookMonths[11],
+    },
     pending_transaction_drafts: [], pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
   },
 }
@@ -121,7 +142,7 @@ test('large financial values stay on one line and participant screens stay insid
     if (section !== 'Home') await page.getByRole('button', { name: section, exact: true }).click()
 
     const audit = await page.evaluate(() => {
-      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong'
+      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b'
       const values = Array.from(document.querySelectorAll<HTMLElement>(selectors)).filter((element) => element.offsetParent !== null)
       return {
         documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -153,6 +174,16 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.getByRole('button', { name: 'Load earlier messages (40 remaining)' }).click()
   await expect(page.locator('.message-row')).toHaveCount(100)
   await expect(page.locator('.chat-history-load')).toHaveCount(0)
+})
+
+test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Set it once, then schedule what changes.' })).toBeVisible()
+  await expect(page.getByText('Recurring amount changes')).toBeVisible()
+  await expect(page.getByText('$15,000.00 Monthly')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'See the expensive months before they arrive.' })).toBeVisible()
+  await expect(page.getByText('Dec spending spike')).toBeVisible()
+  await expect(page.getByText('Holiday travel')).toBeVisible()
 })
 
 test('compact phone layouts keep the status card legible and expose horizontal navigation', async ({ page }, testInfo) => {

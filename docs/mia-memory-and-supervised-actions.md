@@ -602,7 +602,7 @@ Expected response before confirm:
 I prepared that as a change for your review. Your budget will not update until you approve it.
 ```
 
-## PR #33 acceptance criteria
+## PR #32 acceptance criteria
 
 - Mia can prepare at least one budget allocation change draft.
 - UI shows a diff before applying.

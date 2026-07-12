@@ -17,8 +17,10 @@ import {
   createAdminCohort,
   createAdminUser,
   createBudgetCategory,
+  createIncomeScheduleEntry,
   deleteDocumentImport,
   deleteDocumentImportSource,
+  deleteIncomeScheduleEntry,
   fetchAdminCohorts,
   fetchAdminUsers,
   fetchAppData,
@@ -43,6 +45,7 @@ import {
   updateBudgetCategory,
   updateAdminUser,
   updateDocumentImportItem,
+  updateIncomeScheduleEntry,
   updateTransactionDraft,
   uploadDocumentImport,
 } from './api'
@@ -68,6 +71,8 @@ import type {
   DocumentSourceUrl,
   FinancialDocumentImport,
   InvitationStatus,
+  IncomeScheduleEntry,
+  IncomeScheduleEntryInput,
   MiaActionDraft,
   MiaActionItem,
   MiaMessage,
@@ -930,6 +935,46 @@ function App() {
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleSaveIncomeScheduleEntry(values: IncomeScheduleEntryInput, entryId?: number) {
+    if (!isRealWorkspace || !data) {
+      setBudgetError('Sign in to a real workspace before editing the income timeline.')
+      return
+    }
+
+    setBudgetAction(entryId ? `update-income:${entryId}` : 'create-income')
+    setBudgetError(null)
+    try {
+      const budget = entryId
+        ? await updateIncomeScheduleEntry(entryId, values, selectedBudgetYear)
+        : await createIncomeScheduleEntry(values, selectedBudgetYear)
+      setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
+      captureAnalyticsEvent(entryId ? 'income_schedule_updated' : 'income_schedule_created', { entry_type: values.entry_type })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'The income timeline could not be saved.')
+      throw caught
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleDeleteIncomeScheduleEntry(entry: IncomeScheduleEntry) {
+    if (!isRealWorkspace || !data) return
+
+    setBudgetAction(`delete-income:${entry.id}`)
+    setBudgetError(null)
+    try {
+      const budget = await deleteIncomeScheduleEntry(entry.id, selectedBudgetYear)
+      setData((current) => current ? { ...current, budget } : current)
+      refreshSpendingReportForBudget(budget)
+      captureAnalyticsEvent('income_schedule_deleted', { entry_type: entry.entry_type })
+    } catch (caught) {
+      setBudgetError(caught instanceof Error ? caught.message : 'The income timeline entry could not be removed.')
     } finally {
       setBudgetAction(null)
     }
@@ -2002,6 +2047,8 @@ function App() {
               newCategory={newBudgetCategory}
               onNewCategoryChange={setNewBudgetCategory}
               onCreateCategory={handleCreateBudgetCategory}
+              onSaveIncomeScheduleEntry={handleSaveIncomeScheduleEntry}
+              onDeleteIncomeScheduleEntry={handleDeleteIncomeScheduleEntry}
               onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
               onArchiveCategory={handleArchiveBudgetCategory}
@@ -4643,6 +4690,13 @@ function formatShortDate(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric' }).format(new Date(`${value}T00:00:00`))
 }
 
+function formatMonthYear(value: string) {
+  const [year, month] = value.split('-').map(Number)
+  if (!year || !month) return value
+
+  return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)))
+}
+
 function monthIndexFromIsoDate(value: string) {
   const date = new Date(`${value}T00:00:00Z`)
   return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
@@ -5658,6 +5712,242 @@ function CategoryEditCell({
   )
 }
 
+type IncomeScheduleDraft = {
+  income_source_id: string
+  entry_type: 'recurring_change' | 'one_time'
+  label: string
+  amount: string
+  cadence: string
+  effective_on: string
+}
+
+function blankIncomeScheduleDraft(plan: AnnualBudgetPlan): IncomeScheduleDraft {
+  const currentMonth = plan.year === new Date().getFullYear() ? new Date().getMonth() + 1 : 1
+  return {
+    income_source_id: plan.income_sources[0] ? String(plan.income_sources[0].id) : '',
+    entry_type: 'recurring_change',
+    label: '',
+    amount: '',
+    cadence: 'monthly',
+    effective_on: `${plan.year}-${String(currentMonth).padStart(2, '0')}-01`,
+  }
+}
+
+function AnnualIncomePlanner({
+  plan,
+  isRealWorkspace,
+  action,
+  onSave,
+  onDelete,
+}: {
+  plan: AnnualBudgetPlan
+  isRealWorkspace: boolean
+  action: string | null
+  onSave: (values: IncomeScheduleEntryInput, entryId?: number) => Promise<void>
+  onDelete: (entry: IncomeScheduleEntry) => void
+}) {
+  const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [formError, setFormError] = useState<string | null>(null)
+
+  function editEntry(sourceId: number, entry: IncomeScheduleEntry) {
+    setEditingId(entry.id)
+    setFormError(null)
+    setDraft({
+      income_source_id: String(sourceId),
+      entry_type: entry.entry_type,
+      label: entry.label ?? '',
+      amount: String(entry.amount),
+      cadence: entry.entry_type === 'one_time' ? 'one_time' : entry.cadence,
+      effective_on: entry.effective_on,
+    })
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setFormError(null)
+    setDraft(blankIncomeScheduleDraft(plan))
+  }
+
+  function updateIncomeDraft(values: Partial<IncomeScheduleDraft>) {
+    setDraft((current) => ({ ...current, ...values }))
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!draft.income_source_id || !draft.amount || !draft.effective_on) {
+      setFormError('Choose an income source, amount, and starting month.')
+      return
+    }
+
+    setFormError(null)
+    try {
+      await onSave({
+        income_source_id: Number(draft.income_source_id),
+        entry_type: draft.entry_type,
+        label: draft.label,
+        amount: draft.amount,
+        cadence: draft.entry_type === 'one_time' ? 'one_time' : draft.cadence,
+        effective_on: draft.effective_on,
+      }, editingId ?? undefined)
+      cancelEdit()
+    } catch {
+      // The parent renders the server-owned validation message.
+    }
+  }
+
+  const saving = action === 'create-income' || (editingId !== null && action === `update-income:${editingId}`)
+
+  return (
+    <section className="annual-income-planner" aria-labelledby="annual-income-title">
+      <div className="annual-income-heading">
+        <div>
+          <p className="eyebrow">Annual income timeline</p>
+          <h4 id="annual-income-title">Set it once, then schedule what changes.</h4>
+          <p>Base income repeats forward. Raises, income endings, and bonuses affect only the months where they belong.</p>
+        </div>
+        <span>{currency.format(Object.values(plan.monthly_income).reduce((sum, amount) => sum + amount, 0))} annual income</span>
+      </div>
+
+      {plan.income_sources.length === 0 ? (
+        <p className="annual-edit-hint">Add income in My Profile before scheduling changes across the year.</p>
+      ) : (
+        <>
+          <div className="income-source-list">
+            {plan.income_sources.map((source) => (
+              <article className="income-source-card" key={source.id}>
+                <div>
+                  <span>{source.source_type}</span>
+                  <strong>{source.label}</strong>
+                  <small>{currency.format(source.base_amount)} · {titleize(source.base_cadence)} base</small>
+                </div>
+                {source.schedule_entries.length === 0 ? (
+                  <p>No scheduled changes. The base amount continues through the year.</p>
+                ) : (
+                  <div className="income-schedule-list">
+                    {source.schedule_entries.map((entry) => (
+                      <div className="income-schedule-row" key={entry.id}>
+                        <div>
+                          <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'Recurring amount changes'}</strong>
+                          <span>{formatMonthYear(entry.effective_on)} · {currency.format(entry.amount)}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
+                        </div>
+                        {isRealWorkspace && (
+                          <div>
+                            <button type="button" className="secondary-button" onClick={() => editEntry(source.id, entry)}>Edit</button>
+                            <button type="button" className="secondary-button" disabled={action === `delete-income:${entry.id}`} onClick={() => onDelete(entry)}>
+                              {action === `delete-income:${entry.id}` ? 'Removing' : 'Remove'}
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </article>
+            ))}
+          </div>
+
+          {isRealWorkspace && (
+            <form className="income-schedule-form" onSubmit={(event) => void submit(event)}>
+              <label>
+                <span>Income source</span>
+                <select value={draft.income_source_id} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
+                  {plan.income_sources.map((source) => <option value={source.id} key={source.id}>{source.label}</option>)}
+                </select>
+              </label>
+              <label>
+                <span>Change type</span>
+                <select value={draft.entry_type} onChange={(event) => {
+                  const entryType = event.currentTarget.value as IncomeScheduleDraft['entry_type']
+                  updateIncomeDraft({ entry_type: entryType, cadence: entryType === 'one_time' ? 'one_time' : 'monthly' })
+                }}>
+                  <option value="recurring_change">Recurring change</option>
+                  <option value="one_time">One-time income</option>
+                </select>
+              </label>
+              <label>
+                <span>{draft.entry_type === 'one_time' ? 'Payment month' : 'Starting month'}</span>
+                <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => updateIncomeDraft({ effective_on: `${event.currentTarget.value}-01` })} />
+              </label>
+              <label>
+                <span>Amount</span>
+                <input type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
+              </label>
+              {draft.entry_type === 'recurring_change' && (
+                <label>
+                  <span>Cadence</span>
+                  <select value={draft.cadence} onChange={(event) => updateIncomeDraft({ cadence: event.currentTarget.value })}>
+                    {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
+                  </select>
+                </label>
+              )}
+              {draft.entry_type === 'one_time' && (
+                <label>
+                  <span>Label</span>
+                  <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
+                </label>
+              )}
+              <div className="income-schedule-form-actions">
+                {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
+                <button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === null ? 'Add to timeline' : 'Save timeline change'}</button>
+              </div>
+              {formError && <p className="setup-error" role="alert">{formError}</p>}
+            </form>
+          )}
+        </>
+      )}
+    </section>
+  )
+}
+
+function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
+  const outlook = plan.annual_outlook
+  const nextIrregular = outlook.next_irregular_month
+
+  return (
+    <section className="annual-outlook" aria-labelledby="annual-outlook-title">
+      <div className="annual-income-heading">
+        <div>
+          <p className="eyebrow">Look ahead</p>
+          <h4 id="annual-outlook-title">See the expensive months before they arrive.</h4>
+          <p>Income, planned outflow, and baseline surplus use the exact schedule for each month.</p>
+        </div>
+        <span>{currency.format(outlook.typical_monthly_outflow)} typical planned month</span>
+      </div>
+
+      {(outlook.upcoming_spikes.length > 0 || nextIrregular) && (
+        <div className="annual-outlook-callouts">
+          {outlook.upcoming_spikes.map((month) => (
+            <article className="outlook-callout spike" key={month.period_id}>
+              <span>{month.label} spending spike</span>
+              <strong>{currency.format(month.planned_outflow)} planned</strong>
+              <p>{currency.format(month.amount_above_typical ?? 0)} above a typical month.</p>
+            </article>
+          ))}
+          {nextIrregular && (
+            <article className="outlook-callout irregular">
+              <span>Next expected irregular plan · {nextIrregular.label}</span>
+              <strong>{currency.format(nextIrregular.expected_irregular)}</strong>
+              <p>{nextIrregular.expected_contributors.map((item) => item.name).join(' · ') || 'Expected sinking funds'}</p>
+            </article>
+          )}
+        </div>
+      )}
+
+      <div className="annual-outlook-grid">
+        {outlook.months.map((month) => (
+          <article className={`outlook-month${month.baseline_surplus < 0 ? ' negative' : ''}`} key={month.period_id}>
+            <strong>{month.label}</strong>
+            <span>{currency.format(month.income)} in</span>
+            <span>{currency.format(month.planned_outflow)} planned</span>
+            <b>{currency.format(month.baseline_surplus)} left</b>
+          </article>
+        ))}
+      </div>
+    </section>
+  )
+}
+
 function AnnualBudgetPlanner({
   plan,
   isRealWorkspace,
@@ -5670,6 +5960,8 @@ function AnnualBudgetPlanner({
   newCategory,
   onNewCategoryChange,
   onCreateCategory,
+  onSaveIncomeScheduleEntry,
+  onDeleteIncomeScheduleEntry,
   onBudgetViewChange,
   onSaveBudgetEdits,
   onArchiveCategory,
@@ -5695,6 +5987,8 @@ function AnnualBudgetPlanner({
   newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
   onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
   onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
+  onSaveIncomeScheduleEntry: (values: IncomeScheduleEntryInput, entryId?: number) => Promise<void>
+  onDeleteIncomeScheduleEntry: (entry: IncomeScheduleEntry) => void
   onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
   onArchiveCategory: (row: BudgetCategoryRow) => void
@@ -5853,6 +6147,17 @@ function AnnualBudgetPlanner({
         <Metric label="Annual planned" value={currency.format(annualPlanned)} />
         <Metric label="Annual actual" value={currency.format(annualActual)} />
       </div>
+
+      <AnnualIncomePlanner
+        key={`${plan.year}:${plan.income_sources.map((source) => source.id).join(':')}`}
+        plan={plan}
+        isRealWorkspace={isRealWorkspace}
+        action={action}
+        onSave={onSaveIncomeScheduleEntry}
+        onDelete={onDeleteIncomeScheduleEntry}
+      />
+
+      <AnnualOutlookPanel plan={plan} />
 
       {(plan.pending_mia_action_drafts ?? []).length > 0 && (
         <MiaActionDraftReviewStack

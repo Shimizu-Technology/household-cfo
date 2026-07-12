@@ -20,7 +20,7 @@ Annual household plan
 
 The transaction loop and conversation loop are the core. Wealth, CFO Filter, and Optionality support the method, but they should not obscure review work, month/year position, or the next CFO move.
 
-## Built and merged through PR #32
+## Built in the current code
 
 - Clerk/Postgres participant workspaces and cohort/admin controls.
 - Annual budget years, periods, categories, allocations, confirmed actuals, and pending drafts.
@@ -33,6 +33,8 @@ The transaction loop and conversation loop are the core. Wealth, CFO Filter, and
 - Rails-approved Mia answer packets, model narration, and deterministic fallback.
 - Supervised Mia action drafts for allocation and category changes with review-before-apply.
 - Token-bounded conversation continuity and model-backed strict intent resolution.
+- Effective-dated recurring income changes, zero-dollar income endings, and month-specific one-time income.
+- Annual-plan look-ahead for monthly income, planned outflow, baseline surplus, upcoming spending spikes, and expected irregular-expense drivers.
 
 ## Locally proven
 
@@ -42,7 +44,7 @@ The transaction loop and conversation loop are the core. Wealth, CFO Filter, and
 - Desktop and 390-pixel mobile rendering of the participant shell.
 - Live Mia response path through the configured model.
 
-The pilot-hardening branch adds rendered Playwright checks for:
+PR #33 added rendered Playwright checks for:
 
 - Red/readiness guidance consistency.
 - Home review-first hierarchy and month/year context.
@@ -85,8 +87,7 @@ These require product approval rather than engineering inference:
 
 ## Next sequence
 
-1. Merge pilot-hardening truth, Home hierarchy, mobile, performance, and browser-test changes.
-2. Deploy and complete the signed-in production smoke checklist with demo-safe fixtures.
-3. Review the evidence and the remaining product decisions with Mrs. Mel.
-4. Build visible, user-controlled Mia Memory only after that discovery.
-5. Continue frontend screen extraction as each area is changed; do not return to adding all behavior in `App.tsx`.
+1. Complete the signed-in production smoke checklist with demo-safe fixtures, including annual income changes and future spending spikes.
+2. Review the remaining readiness, Mia-quality, memory, and coach-visibility decisions with Mrs. Mel.
+3. Build visible, user-controlled Mia Memory only after that discovery.
+4. Continue frontend screen extraction as each area is changed; do not return to adding all behavior in `App.tsx`.
