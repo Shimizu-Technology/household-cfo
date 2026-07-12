@@ -266,7 +266,7 @@ module HouseholdFinance
       return true unless review_language
       return false unless kind.in?(%w[transaction_draft transaction_draft_update pending_drafts])
 
-      !content.match?(/\bactuals?\b/i) || !content.match?(/\b(?:not|didn['’]t|do not|until|before)\b/i)
+      !content.match?(/\bactuals?\b/i) || !content.match?(/\b(?:not|didn['’]t|don['’]t|won['’]t|can(?:not|['’]t)|do not|until|before)\b/i)
     end
 
     def missing_readiness_direct_answer?(content)
@@ -285,7 +285,10 @@ module HouseholdFinance
     end
 
     def readiness_status_question?
-      user_message.match?(/\b(?:baseline|readiness)(?:\s+status)?\b.*\b(?:red|yellow|green)\b|\bwhy\b.*\b(?:red|yellow|green)\b/i)
+      explicit_readiness_question = user_message.match?(
+        /\b(?:baseline|readiness)(?:\s+status)?\b.*\b(?:red|yellow|green)\b|\b(?:red|yellow|green)\b.*\b(?:baseline|readiness)(?:\s+status)?\b/i
+      )
+      explicit_readiness_question || fallback_response.match?(/\AYour approved readiness is (?:Red|Yellow|Green)\b/)
     end
 
     def collect_values_for_keys(value, key_pattern)

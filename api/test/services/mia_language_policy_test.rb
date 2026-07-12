@@ -41,4 +41,20 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
 
     assert_equal "That is a meaningful win. Protect the freed-up payment next.", result
   end
+
+  test "routine verbs and repeated mistakes do not earn generic praise" do
+    result = Mia::LanguagePolicy.new(user_message: "I hit the spending limit again").sanitize(
+      "You're doing great. Umbee gachong, this is the same spending pattern. Pause the next purchase."
+    )
+
+    assert_equal "Umbee gachong, this is the same spending pattern. Pause the next purchase.", result
+  end
+
+  test "common meeting language does not count as a milestone" do
+    result = Mia::LanguagePolicy.new(user_message: "I met with my partner about the budget").sanitize(
+      "Great job. That conversation gives you a shared starting point, chelu."
+    )
+
+    assert_equal "That conversation gives you a shared starting point.", result
+  end
 end

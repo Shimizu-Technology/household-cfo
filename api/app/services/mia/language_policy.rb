@@ -3,12 +3,14 @@
 module Mia
   class LanguagePolicy
     CULTURAL_LANGUAGE_PATTERN = /\b(?:h[åa]fa adai|chelu|lanya|umbee(?:\s+gachong)?|biba)\b/i.freeze
-    EARNED_MOMENT_PATTERN = /\b(?:
-      h[åa]fa\s+adai|good\s+(?:morning|afternoon|evening)|
-      paid\s+off|debt[-\s]?free|reached|hit|met|achieved|milestone|promotion|raise|bonus|windfall|unexpected|surprise|finally|celebrat|
-      ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning|
-      again|keep\s+(?:doing|spending|buying)|same\s+(?:thing|pattern)|every\s+time
+    GREETING_PATTERN = /\b(?:h[åa]fa\s+adai|good\s+(?:morning|afternoon|evening))\b/i.freeze
+    MILESTONE_PATTERN = /\b(?:
+      paid\s+off|debt[-\s]?free|milestone|promotion|raise|bonus|windfall|unexpected\s+(?:win|income|money)|surprise\s+(?:win|income|money)|celebrat\w*|
+      (?:reached|hit|met|achieved)\s+(?:my\s+|our\s+|the\s+)?(?:goal|target|milestone)|
+      (?:saved|paid)\s+\$[\d,]+(?:\.\d{1,2})?
     )\b/ix.freeze
+    EMOTIONAL_SUPPORT_PATTERN = /\b(?:ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
+    REPEATED_PATTERN = /\b(?:again|keep\s+(?:doing|spending|buying)|same\s+(?:thing|pattern)|every\s+time)\b/i.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
     def initialize(user_message:, history: [])
@@ -25,7 +27,11 @@ module Mia
     end
 
     def cultural_language_allowed?
-      user_message.match?(CULTURAL_LANGUAGE_PATTERN) || user_message.match?(EARNED_MOMENT_PATTERN)
+      user_message.match?(CULTURAL_LANGUAGE_PATTERN) ||
+        user_message.match?(GREETING_PATTERN) ||
+        earned_moment? ||
+        user_message.match?(EMOTIONAL_SUPPORT_PATTERN) ||
+        user_message.match?(REPEATED_PATTERN)
     end
 
     private
@@ -33,7 +39,7 @@ module Mia
     attr_reader :user_message, :history
 
     def earned_moment?
-      user_message.match?(EARNED_MOMENT_PATTERN)
+      user_message.match?(MILESTONE_PATTERN)
     end
 
     def cultural_language_recently_used?

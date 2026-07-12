@@ -284,6 +284,50 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "accepts common contractions in a pending transaction actuals boundary" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I drafted Payless for $25. Actuals won't update until you confirm it." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "I spent $25 at Payless",
+        answer_packet: {
+          kind: "transaction_draft",
+          fallback_response: "I drafted Payless for $25. Actuals will not change until you confirm it.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "I drafted Payless for $25. Actuals won't update until you confirm it.", answer
+    end
+  end
+
+  test "does not apply readiness status enforcement to an unrelated red category question" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Dining Out is red because confirmed spending is above its planned amount. Review the $25 overage next." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Why is my Dining Out category red this month?",
+        answer_packet: {
+          kind: "budget_question",
+          fallback_response: "Dining Out is $25 over its planned amount.",
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "Dining Out is red because confirmed spending is above its planned amount. Review the $25 overage next.", answer
+    end
+  end
+
   test "logs a privacy-safe reason code when narration is rejected" do
     response = ok_response(
       choices: [
