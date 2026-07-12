@@ -32,7 +32,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         api_key: "test-key"
       ).call
 
-      assert_equal "You have $55 left, chelu, but $40 is still pending review. Review those drafts before actuals change.", answer
+      assert_equal "You have $55 left but $40 is still pending review. Review those drafts before actuals change.", answer
     end
 
     payload = JSON.parse(requests.first.body)
@@ -203,6 +203,116 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
 
       assert_equal "The August review is ready. Check the month and amount before applying it.", answer
     end
+  end
+
+  test "removes cultural language and generic praise from a routine budget action" do
+    response = ok_response(
+      choices: [
+        { message: { content: "You're doing great. This budget change is ready for review, chelu. Apply it only if July and $3,950 are right." } }
+      ]
+    )
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Set Fixed essentials to $3,950 for July",
+        answer_packet: {
+          kind: "budget_action",
+          fallback_response: "I drafted setting Fixed essentials to $3,950 for July. Review it before applying.",
+          write_state: "pending_review"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal "This budget change is ready for review. Apply it only if July and $3,950 are right.", answer
+    end
+  end
+
+  test "falls back when readiness narration does not answer with the approved status first" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Your cash flow is positive by $4,795. Your approved readiness is Red because runway is 0.5 months." } }
+      ]
+    )
+    fallback = "Your approved readiness is Red. Monthly cash flow is positive by $4,795, but runway is 0.5 months."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Why is my readiness red?",
+        answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "falls back when readiness narration omits its approved numeric basis" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Your approved readiness is Red. Protect the baseline and build runway before expanding wants." } }
+      ]
+    )
+    fallback = "Your approved readiness is Red. Monthly cash flow is positive by $4,795, but runway is 0.5 months."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Why is my readiness red?",
+        answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "falls back when a pending transaction narration omits the actuals boundary" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I drafted Payless for $25. Review and confirm it if the amount is right." } }
+      ]
+    )
+    fallback = "I drafted Payless for $25. Actuals will not change until you confirm it."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "I spent $25 at Payless",
+        answer_packet: { kind: "transaction_draft", fallback_response: fallback, write_state: "pending_review" },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "logs a privacy-safe reason code when narration is rejected" do
+    response = ok_response(
+      choices: [
+        { message: { content: "I recorded the $25 Payless transaction in actuals." } }
+      ]
+    )
+    messages = []
+    logger = Object.new
+    logger.define_singleton_method(:info) { |message| messages << message }
+
+    with_net_http_start_stub(response) do
+      with_rails_logger_stub(logger) do
+        HouseholdFinance::MiaNarrator.new(
+          user_message: "I spent $25 at Payless",
+          answer_packet: {
+            kind: "transaction_draft",
+            fallback_response: "I drafted Payless for $25. Actuals will not change until you confirm it.",
+            write_state: "pending_review"
+          },
+          api_key: "test-key"
+        ).call
+      end
+    end
+
+    assert_equal 1, messages.length
+    assert_includes messages.first, "reason=false_write_claim"
+    assert_includes messages.first, "kind=transaction_draft"
+    refute_includes messages.first, "Payless"
+    refute_includes messages.first, "$25"
   end
 
   test "bounds narrator history by message count and aggregate characters" do
@@ -449,5 +559,15 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   ensure
     singleton.send(:remove_method, :start) if singleton.method_defined?(:start)
     singleton.define_method(:start, original)
+  end
+
+  def with_rails_logger_stub(logger)
+    singleton = Rails.singleton_class
+    original = Rails.method(:logger)
+    singleton.define_method(:logger) { logger }
+    yield
+  ensure
+    singleton.send(:remove_method, :logger) if singleton.method_defined?(:logger)
+    singleton.define_method(:logger) { original.call }
   end
 end

@@ -653,6 +653,7 @@ module HouseholdFinance
       value.to_s
         .gsub(/\b(?:my|our|the|a|an|to|as|at|with|per month|monthly|\/month)\b/i, " ")
         .squish
+        .sub(/[.!?,;:]+\z/, "")
         .truncate(80, omission: "…")
     end
 

@@ -128,6 +128,21 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     end
   end
 
+  test "normalizes sentence punctuation before checking a structured category name conflict" do
+    result = build_command(
+      type: "create_category",
+      new_name: "Dining Out.",
+      stack_key: "discretionary",
+      amount: "0",
+      months: (1..12).to_a,
+      year: 2026
+    )
+
+    assert_nil result.proposal
+    assert_includes result.response, "Dining Out already exists"
+    assert_includes result.response, "existing category instead"
+  end
+
   test "legacy category parser keeps an explicit month out of the category name" do
     result = HouseholdFinance::MiaActionDraftBuilder.new(
       @household,
