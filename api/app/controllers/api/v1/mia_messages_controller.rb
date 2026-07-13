@@ -304,13 +304,13 @@ module Api
           destination_labels = {
             "transaction_review" => "pending transaction review",
             "household_setup_review" => "household setup review",
-            "private_document_review" => "private Import history"
+            "private_document_review" => "private import history"
           }
-          labels = destinations.map { |destination| destination_labels.fetch(destination, "private Import history") }
+          labels = destinations.map { |destination| destination_labels.fetch(destination, "private import history") }
           return "I routed the uploads to #{labels.to_sentence}."
         end
         return "I routed the upload#{'s' if document_imports.many?} to household setup review." if destinations == [ "household_setup_review" ]
-        return "I saved the upload#{'s' if document_imports.many?} in private Import history for review." if destinations == [ "private_document_review" ]
+        return "I saved the upload#{'s' if document_imports.many?} in private import history for review." if destinations == [ "private_document_review" ]
 
         "I routed the upload#{'s' if document_imports.many?} to pending transaction review."
       end
@@ -355,7 +355,7 @@ module Api
         destination = case document_routing_destination(document_import)
         when "transaction_review" then "pending transaction review"
         when "household_setup_review" then "household setup review"
-        else "private Import history"
+        else "private import history"
         end
         "I recognized this as #{resolved_kind.humanize.downcase} and routed it to #{destination}."
       end

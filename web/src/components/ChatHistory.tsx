@@ -118,6 +118,7 @@ function MessageAttachmentList({
         const hasImagePreview = Boolean(attachment.preview_url && browserPreviewableImage(attachment.content_type))
         const canOpen = Boolean(attachment.document_import_id || attachment.preview_url || documentImport?.source_available)
         const label = attachmentDisplayName(attachment)
+        const effectiveStatus = documentImport?.status ?? attachment.status
         return (
           <div className={`message-attachment-entry ${hasImagePreview ? 'is-image' : ''}`} key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}>
             <button
@@ -136,7 +137,7 @@ function MessageAttachmentList({
             </button>
             {attachment.document_import_id && (
               <button type="button" className="message-attachment-review" onClick={() => onReviewImportId(attachment.document_import_id!)}>
-                {attachment.status === 'needs_review' ? 'Review draft' : 'Open import'}
+                {effectiveStatus === 'needs_review' ? 'Review draft' : 'Open import'}
               </button>
             )}
           </div>

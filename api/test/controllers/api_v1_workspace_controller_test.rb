@@ -5,7 +5,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     legacy_import = Struct.new(:metadata, :document_kind).new({}, nil)
     route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, legacy_import)
 
-    assert_equal "I recognized this as other and routed it to private Import history.", route_line
+    assert_equal "I recognized this as other and routed it to private import history.", route_line
   end
 
   test "mia attachment summary names the actual destinations in a mixed batch" do
@@ -17,7 +17,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     summary = Api::V1::MiaMessagesController.new.send(:attached_documents_route_summary, imports)
 
-    assert_equal "I routed the uploads to pending transaction review and private Import history.", summary
+    assert_equal "I routed the uploads to pending transaction review and private import history.", summary
     assert_not_includes summary, "household setup review"
   end
 

@@ -9,6 +9,7 @@ const css = readFileSync(resolve(__dirname, '../src/App.css'), 'utf8')
 const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
 const home = readFileSync(resolve(__dirname, '../src/components/HomeScreen.tsx'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
+const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 
 const expectedNav = "['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
@@ -80,6 +81,9 @@ assert.ok(!app.includes("'Delete import'"), 'ambiguous import deletion label sho
 assert.ok(app.includes('if (!metadata.routing_source) return null'), 'routing status should remain hidden until extraction records a routing decision')
 assert.ok(app.includes("if (destination === 'private_document_review') return 'Private document history'"), 'an explicit private routing destination should override document-kind fallback labels')
 assert.ok(!app.includes("destination === 'transaction_review' || kind"), 'destination labels should resolve explicit backend metadata before falling back to document kind')
+assert.ok(chatHistory.includes('const effectiveStatus = documentImport?.status ?? attachment.status'), 'chat attachment actions should prefer the live import status over the historical message snapshot')
+assert.ok(chatHistory.includes("effectiveStatus === 'needs_review'"), 'chat attachment review labels should use the effective live status')
+assert.ok(!chatHistory.includes("attachment.status === 'needs_review'"), 'historical attachment status should not directly control the current action label')
 assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
 assert.ok(app.includes('Confirm all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk confirmation')
 assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk ignore')
