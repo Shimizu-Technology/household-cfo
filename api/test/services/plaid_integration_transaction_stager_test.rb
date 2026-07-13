@@ -1,9 +1,7 @@
 require "test_helper"
-require "base64"
 
 class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
   setup do
-    ENV["PLAID_DATA_ENCRYPTION_KEY"] = Base64.strict_encode64("p" * 32)
     @user = User.create!(clerk_id: "plaid_#{SecureRandom.hex(6)}", email: "plaid-review@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 850)

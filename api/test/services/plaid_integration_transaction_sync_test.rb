@@ -1,10 +1,8 @@
 require "test_helper"
-require "base64"
 require "ostruct"
 
 class PlaidIntegrationTransactionSyncTest < ActiveSupport::TestCase
   setup do
-    ENV["PLAID_DATA_ENCRYPTION_KEY"] = Base64.strict_encode64("s" * 32)
     @user = User.create!(clerk_id: "sync_#{SecureRandom.hex(6)}", email: "plaid-sync@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @item = @household.plaid_items.create!(connected_by_user: @user, plaid_item_id: "sync-item", access_token: "sync-secret", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")

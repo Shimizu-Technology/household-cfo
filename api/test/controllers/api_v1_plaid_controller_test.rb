@@ -1,9 +1,7 @@
 require "test_helper"
-require "base64"
 
 class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
   setup do
-    ENV["PLAID_DATA_ENCRYPTION_KEY"] = Base64.strict_encode64("c" * 32)
     @user = create_user("plaid-controller@example.com")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @item = create_item(@household, @user, "item-one")

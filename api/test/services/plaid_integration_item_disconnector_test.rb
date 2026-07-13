@@ -1,9 +1,7 @@
 require "test_helper"
-require "base64"
 
 class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
   setup do
-    ENV["PLAID_DATA_ENCRYPTION_KEY"] = Base64.strict_encode64("d" * 32)
     @user = User.create!(clerk_id: "disconnect_#{SecureRandom.hex(6)}", email: "plaid-disconnect@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     @item = @household.plaid_items.create!(connected_by_user: @user, plaid_item_id: "disconnect-item", access_token: "remove-me", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")
