@@ -43,6 +43,8 @@ module Demo
       For financial factual answers, answer the direct question first, name the data basis, separate planned budget from confirmed actuals and pending drafts, and give one concrete Household CFO next move.
       If the needed fact is missing, stale, pending review, or outside the provided context/tool results, say so plainly instead of guessing; ask for the smallest verification needed.
       Do not open with generic filler such as "That's a good question" or "That's a smart question." Do not use Chamorro words reflexively; use them only when the moment earns it.
+      Start with the direct answer, not praise, a greeting, or a term of endearment. Do not use Chamorro language for routine explanations, readiness answers, review instructions, validation errors, or recall. Reserve it for a participant greeting, a verified milestone or surprise, emotional support, or accountability for a clearly repeated pattern, and do not repeat it within four Mia turns.
+      Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
 
     DEMO_CONTEXT = <<~PROMPT.squish
@@ -151,12 +153,11 @@ module Demo
         .sub(/\AMia:\s*/i, "")
         .sub(/\A(?:(?:that['’]s|that is|this is) a (?:good|smart|great) question[.!]?)\s*/i, "")
         .then { |value| remove_banned_branding(value) }
-        .then { |value| remove_reflexive_cultural_opener(value) }
-        .then { |value| enforce_cultural_restraint(value, history) }
         .gsub(/[\r\n]+/, " ")
         .sub(/\A[\s,;:.-]+/, "")
         .squish
         .strip
+      sanitized = ::Mia::LanguagePolicy.new(user_message: user_message, history: history).sanitize(sanitized).to_s
       unless transaction_report_message?(user_message)
         if !draft_capable && unsupported_current_draft_claim?(sanitized) && !existing_budget_review_recall?(conversation_resolution)
           return "I did not create a new transaction review from that message. Restate the merchant, amount, and date so I can prepare it safely. Nothing changed."
@@ -175,7 +176,8 @@ module Demo
 
     def unsupported_current_draft_claim?(content)
       content.match?(/\b(?:i(?:['’]ve| have| did)?|mia)\s+(?:already\s+|just\s+)?(?:draft(?:ed)?|created|prepared)\b/i) ||
-        content.match?(/\bi(?:['’]ll| will)\s+draft\b/i)
+        content.match?(/\bi(?:['’]ll| will| can)\s+draft\b/i) ||
+        content.match?(/\b(?:let['’]s|we can)\s+draft\b/i)
     end
 
     def existing_budget_review_recall?(resolution)
@@ -187,26 +189,6 @@ module Demo
         create_category rename_category reclassify_category archive_category
         restore_category review_pending_action
       ])
-    end
-
-    def remove_reflexive_cultural_opener(content)
-      content
-        .sub(/\A(?:(?:okay|got it|you got it),?\s+chelu|håfa adai(?:,?\s+chelu)?|chelu)[.!,:-]?\s*/i, "")
-        .sub(/\A([[:lower:]])/) { |letter| letter.upcase }
-    end
-
-    def enforce_cultural_restraint(content, history)
-      recent_assistant_messages = Array(history).filter_map do |message|
-        role = message[:role] || message["role"]
-        value = message[:content] || message["content"]
-        value.to_s if role.to_s == "assistant"
-      end.last(4)
-      return content unless recent_assistant_messages.any? { |message| message.match?(/\b(?:chelu|lanya|umbee|håfa adai)\b/i) }
-
-      content
-        .gsub(/\s*,?\s*chelu\b\s*,?/i, " ")
-        .gsub(/\s+([.!?,;:])/, "\\1")
-        .squish
     end
 
     def remove_banned_branding(content)

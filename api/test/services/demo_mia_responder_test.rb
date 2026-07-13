@@ -213,6 +213,27 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
+  test "generic replies cannot offer an unavailable draft in collaborative language" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+
+    [
+      "Let's draft this takeout expense for your review.",
+      "We can draft that purchase next.",
+      "I can draft the transaction for you."
+    ].each do |claim|
+      response = responder.send(
+        :sanitize_assistant_content,
+        claim,
+        user_message: "I bought takeout again after saying I would stop.",
+        draft_capable: false
+      )
+
+      assert_includes response, "did not create a new transaction review", claim
+      assert_includes response, "Restate the merchant, amount, and date", claim
+      assert_includes response, "Nothing changed", claim
+    end
+  end
+
   test "recall may describe an existing supervised budget review without becoming a transaction error" do
     response = Demo::MiaResponder.new(api_key: nil).send(
       :sanitize_assistant_content,

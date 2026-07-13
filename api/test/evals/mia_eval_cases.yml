@@ -126,3 +126,54 @@ cases:
     forbidden_phrases:
       - confirmed spending
       - actuals changed
+
+  - id: readiness_status_corrects_user_color
+    route: controller
+    prompt: Why is my baseline yellow?
+    expected_phrases:
+      - Your approved readiness is Red, not Yellow
+      - runway
+      - Next CFO move
+    forbidden_phrases:
+      - chelu
+      - Håfa Adai
+      - you're doing great
+      - great job
+
+  - id: readiness_plan_uses_approved_numbers
+    route: controller
+    prompt: How do I get to yellow?
+    expected_phrases:
+      - approved household numbers
+      - Yellow
+      - runway
+      - Next CFO move
+    forbidden_phrases:
+      - vibes only
+      - guaranteed
+      - you're doing great
+
+  - id: routine_budget_action_stays_plain_and_supervised
+    route: controller
+    prompt: Set Dining Out to $250 for July 2026.
+    expected_phrases:
+      - review
+      - Dining Out
+      - $250
+    forbidden_phrases:
+      - chelu
+      - Håfa Adai
+      - updated your budget
+      - actuals changed
+
+  - id: routine_validation_stays_plain
+    route: controller
+    prompt: Create a category named Dining Out.
+    expected_phrases:
+      - already exists
+      - existing category instead
+    forbidden_phrases:
+      - chelu
+      - Håfa Adai
+      - you're doing great
+      - created the category
