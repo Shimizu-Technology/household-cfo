@@ -172,13 +172,53 @@
 
 .income-schedule-form {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  align-items: end;
-  gap: 14px;
-  padding: 20px;
+  gap: 18px;
+  padding: clamp(18px, 2vw, 24px);
   border: 1px solid rgba(143, 74, 95, 0.16);
   border-radius: 20px;
   background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 238, 233, 0.72));
+}
+
+.income-schedule-form-heading,
+.income-schedule-form-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.income-schedule-form-heading > div,
+.income-schedule-preview {
+  display: grid;
+  gap: 4px;
+}
+
+.income-schedule-form-heading span,
+.income-schedule-preview span {
+  color: var(--mauve);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.income-schedule-form-heading strong {
+  font-size: clamp(1rem, 2vw, 1.16rem);
+}
+
+.income-schedule-form-heading p {
+  max-width: 320px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.income-schedule-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
 }
 
 .income-schedule-form label {
@@ -208,6 +248,39 @@
   box-shadow: 0 6px 16px rgba(47, 38, 28, 0.04);
 }
 
+.income-schedule-money-input {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 46px;
+  padding-left: 13px;
+  border: 1px solid rgba(47, 38, 28, 0.15);
+  border-radius: 13px;
+  background: white;
+  box-shadow: 0 6px 16px rgba(47, 38, 28, 0.04);
+}
+
+.income-schedule-money-input > span {
+  flex: 0 0 auto;
+  color: var(--mauve);
+  font-weight: 900;
+}
+
+.income-schedule-form .income-schedule-money-input input {
+  min-height: 44px;
+  padding-left: 5px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  outline: 0;
+}
+
+.income-schedule-money-input:focus-within {
+  outline: 3px solid rgba(143, 74, 95, 0.2);
+  outline-offset: 2px;
+  border-color: var(--mauve);
+}
+
 .income-schedule-form :where(input, select):focus-visible {
   outline: 3px solid rgba(143, 74, 95, 0.2);
   outline-offset: 2px;
@@ -215,15 +288,44 @@
 }
 
 .income-schedule-form-actions {
-  grid-column: span 2;
   align-items: center;
   justify-content: flex-end;
+  flex: 0 0 auto;
   min-width: 0;
 }
 
 .income-schedule-form-actions button {
   min-height: 46px;
   padding: 10px 16px;
+}
+
+.income-schedule-form-footer {
+  padding-top: 16px;
+  border-top: 1px solid rgba(143, 74, 95, 0.13);
+}
+
+.income-schedule-preview {
+  min-width: 0;
+}
+
+.income-schedule-preview strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.income-schedule-submit {
+  border-radius: 999px;
+  background: var(--mauve);
+  color: white;
+  box-shadow: 0 10px 22px rgba(123, 74, 88, 0.2);
+  font-weight: 900;
+}
+
+.income-schedule-submit:hover:not(:disabled) {
+  transform: translateY(-1px);
+  background: var(--plum);
+  box-shadow: 0 13px 28px rgba(123, 74, 88, 0.25);
 }
 
 .income-schedule-form .setup-error {
@@ -303,12 +405,16 @@
     grid-template-columns: 1fr;
   }
 
-  .income-schedule-form {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+  .income-schedule-fields {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 
-  .income-schedule-form-actions {
-    grid-column: 1 / -1;
+  .income-schedule-fields > label:nth-child(-n + 3) {
+    grid-column: span 2;
+  }
+
+  .income-schedule-fields > label:nth-child(n + 4) {
+    grid-column: span 3;
   }
 }
 
@@ -317,17 +423,39 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .income-schedule-form,
+  .income-schedule-fields,
   .income-source-list,
   .annual-outlook-callouts {
     grid-template-columns: 1fr;
   }
 
-  .income-schedule-row > div:last-child,
-  .income-schedule-form-actions {
+  .income-schedule-fields > label:nth-child(n) {
+    grid-column: auto;
+  }
+
+  .income-schedule-form-heading,
+  .income-schedule-form-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .income-schedule-form-heading p {
+    max-width: none;
+    text-align: left;
+  }
+
+  .income-schedule-row > div:last-child {
     display: grid;
     grid-column: 1 / -1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .income-schedule-form-actions {
+    width: 100%;
+  }
+
+  .income-schedule-form-actions button {
+    flex: 1 1 0;
   }
 }
 
@@ -5569,9 +5697,18 @@ h3 {
   background: #fbf7f3;
 }
 
-.cash-flow-detail-panel > div:first-child {
+.cash-flow-detail-summary {
   display: grid;
   gap: 2px;
+}
+
+.cash-flow-detail-summary > span,
+.cash-flow-detail-context > div > span {
+  color: var(--mauve);
+  font-size: 0.6rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
 }
 
 .cash-flow-detail-panel small {
@@ -5614,6 +5751,62 @@ h3 {
 
 .cash-flow-detail-panel .negative :where(dt, dd) {
   color: var(--status-red);
+}
+
+.cash-flow-detail-context {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: minmax(190px, 0.75fr) minmax(0, 1.5fr);
+  gap: 8px 12px;
+  align-items: center;
+  padding-top: 9px;
+  border-top: 1px solid rgba(143, 74, 95, 0.11);
+}
+
+.cash-flow-detail-context > div {
+  display: grid;
+  gap: 2px;
+}
+
+.cash-flow-detail-context > div > strong {
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.cash-flow-detail-context p,
+.cash-flow-detail-context ul {
+  margin: 0;
+}
+
+.cash-flow-detail-context p {
+  color: var(--muted);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
+.cash-flow-detail-context ul {
+  display: grid;
+  gap: 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.cash-flow-detail-context li {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 0.68rem;
+}
+
+.cash-flow-detail-context li b {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-variant-numeric: tabular-nums lining-nums;
 }
 
 .month-plan-summary-heading span,
@@ -6234,6 +6427,10 @@ h3 {
     display: flex;
     justify-content: space-between;
     gap: 10px;
+  }
+
+  .cash-flow-detail-context {
+    grid-template-columns: 1fr;
   }
 
   .transaction-draft-impact-heading,

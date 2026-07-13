@@ -5946,6 +5946,24 @@ function AnnualIncomePlanner({
   }
 
   const saving = action === 'create-income' || (editingId !== null && action === `update-income:${editingId}`)
+  const selectedSource = plan.income_sources.find((source) => String(source.id) === draft.income_source_id)
+  const numericAmount = Number(draft.amount)
+  const hasPreviewAmount = draft.amount.trim() !== '' && Number.isFinite(numericAmount)
+  const previewMonth = draft.effective_on ? formatMonthYear(draft.effective_on) : 'the selected month'
+  const previewCopy = !selectedSource || !hasPreviewAmount
+    ? 'Complete the fields above to preview how this changes the annual income plan.'
+    : draft.entry_type === 'one_time'
+      ? `${selectedSource.label} will add ${currency.format(numericAmount)} once in ${previewMonth}.`
+      : numericAmount === 0
+        ? `${selectedSource.label} will end beginning ${previewMonth}.`
+        : `${selectedSource.label} will change to ${currency.format(numericAmount)} ${titleize(draft.cadence).toLowerCase()} beginning ${previewMonth}.`
+  const submitLabel = saving
+    ? 'Saving'
+    : editingId !== null
+      ? 'Save income change'
+      : draft.entry_type === 'one_time'
+        ? 'Add one-time income'
+        : 'Schedule income change'
 
   return (
     <section className="annual-income-planner" aria-labelledby="annual-income-title">
@@ -5998,49 +6016,69 @@ function AnnualIncomePlanner({
 
           {isRealWorkspace && (
             <form className="income-schedule-form" onSubmit={(event) => void submit(event)}>
-              <label>
-                <span>Income source</span>
-                <select value={draft.income_source_id} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
-                  {plan.income_sources.map((source) => <option value={source.id} key={source.id}>{source.label}</option>)}
-                </select>
-              </label>
-              <label>
-                <span>Change type</span>
-                <select value={draft.entry_type} onChange={(event) => {
-                  const entryType = event.currentTarget.value as IncomeScheduleDraft['entry_type']
-                  updateIncomeDraft({ entry_type: entryType, cadence: entryType === 'one_time' ? 'one_time' : 'monthly' })
-                }}>
-                  <option value="recurring_change">Recurring change</option>
-                  <option value="one_time">One-time income</option>
-                </select>
-              </label>
-              <label>
-                <span>{draft.entry_type === 'one_time' ? 'Payment month' : 'Starting month'}</span>
-                <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => updateIncomeDraft({ effective_on: `${event.currentTarget.value}-01` })} />
-              </label>
-              <label>
-                <span>Amount</span>
-                <input type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
-              </label>
-              {draft.entry_type === 'recurring_change' && (
+              <div className="income-schedule-form-heading">
+                <div>
+                  <span>{editingId === null ? 'Schedule a change' : 'Edit scheduled change'}</span>
+                  <strong>Tell the annual plan exactly when income changes.</strong>
+                </div>
+                <p>Nothing changes until you save this timeline entry.</p>
+              </div>
+
+              <div className="income-schedule-fields">
                 <label>
-                  <span>Cadence</span>
-                  <select value={draft.cadence} onChange={(event) => updateIncomeDraft({ cadence: event.currentTarget.value })}>
-                    {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
+                  <span>Income source</span>
+                  <select value={draft.income_source_id} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
+                    {plan.income_sources.map((source) => <option value={source.id} key={source.id}>{source.label}</option>)}
                   </select>
                 </label>
-              )}
-              {draft.entry_type === 'one_time' && (
                 <label>
-                  <span>Label</span>
-                  <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
+                  <span>Change type</span>
+                  <select value={draft.entry_type} onChange={(event) => {
+                    const entryType = event.currentTarget.value as IncomeScheduleDraft['entry_type']
+                    updateIncomeDraft({ entry_type: entryType, cadence: entryType === 'one_time' ? 'one_time' : 'monthly' })
+                  }}>
+                    <option value="recurring_change">Recurring change</option>
+                    <option value="one_time">One-time income</option>
+                  </select>
                 </label>
-              )}
-              <div className="income-schedule-form-actions">
-                {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
-                <button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === null ? 'Add to timeline' : 'Save timeline change'}</button>
+                <label>
+                  <span>{draft.entry_type === 'one_time' ? 'Payment month' : 'Starting month'}</span>
+                  <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => updateIncomeDraft({ effective_on: `${event.currentTarget.value}-01` })} />
+                </label>
+                <label>
+                  <span>Amount</span>
+                  <div className="income-schedule-money-input">
+                    <span aria-hidden="true">$</span>
+                    <input aria-label="Amount" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
+                  </div>
+                </label>
+                {draft.entry_type === 'recurring_change' ? (
+                  <label>
+                    <span>Cadence</span>
+                    <select value={draft.cadence} onChange={(event) => updateIncomeDraft({ cadence: event.currentTarget.value })}>
+                      {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
+                    </select>
+                  </label>
+                ) : (
+                  <label>
+                    <span>Label</span>
+                    <input maxLength={80} value={draft.label} placeholder="Year-end bonus" onChange={(event) => updateIncomeDraft({ label: event.currentTarget.value })} />
+                  </label>
+                )}
               </div>
+
               {formError && <p className="setup-error" role="alert">{formError}</p>}
+
+              <div className="income-schedule-form-footer">
+                <div className="income-schedule-preview" aria-live="polite">
+                  <span>Plan preview</span>
+                  <strong>{previewCopy}</strong>
+                </div>
+                <div className="income-schedule-form-actions">
+                  {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
+                  <button type="submit" className="income-schedule-submit" disabled={saving}>{submitLabel}</button>
+                </div>
+              </div>
             </form>
           )}
         </>

@@ -222,9 +222,14 @@ export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBud
       </div>
       {activeMonth && (
         <div className="cash-flow-detail-panel" aria-live="polite">
-          <div>
+          <div className="cash-flow-detail-summary">
+            <span>Selected month</span>
             <strong>{activeMonth.label} {plan.year}</strong>
-            <small>Hover, focus, or tap any month for exact amounts.</small>
+            <small>
+              {activeMonth.baseline_surplus < 0
+                ? `${currency.format(Math.abs(activeMonth.baseline_surplus))} more is planned than expected income.`
+                : `${currency.format(activeMonth.baseline_surplus)} remains after planned outflow.`}
+            </small>
           </div>
           <dl>
             <div><dt>Income</dt><dd>{currency.format(activeMonth.income)}</dd></div>
@@ -234,6 +239,24 @@ export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBud
               <dd>{currency.format(Math.abs(activeMonth.baseline_surplus))}</dd>
             </div>
           </dl>
+          <div className="cash-flow-detail-context">
+            <div>
+              <span>Expected irregular plan included in outflow</span>
+              <strong>{currency.format(activeMonth.expected_irregular)}</strong>
+            </div>
+            {activeMonth.expected_contributors.length > 0 ? (
+              <ul>
+                {activeMonth.expected_contributors.map((contributor) => (
+                  <li key={`${activeMonth.period_id}-${contributor.name}`}>
+                    <span>{contributor.name}</span>
+                    <b>{currency.format(contributor.amount)}</b>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p>No expected irregular categories are planned this month.</p>
+            )}
+          </div>
         </div>
       )}
       <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
