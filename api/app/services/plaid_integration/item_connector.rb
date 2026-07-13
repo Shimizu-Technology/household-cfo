@@ -35,12 +35,7 @@ module PlaidIntegration
         audit!(item)
       end
 
-      begin
-        TransactionSync.new(item).call
-      rescue Error
-        # The Item remains connected while Plaid prepares initial history.
-        # TransactionSync records a safe status for the participant to retry.
-      end
+      PlaidTransactionSyncJob.perform_later(item.id)
       item.reload
     rescue ActiveRecord::RecordInvalid => e
       raise Error, e.record.errors.full_messages.to_sentence

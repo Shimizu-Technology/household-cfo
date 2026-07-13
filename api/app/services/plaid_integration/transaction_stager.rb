@@ -11,11 +11,13 @@ module PlaidIntegration
     def call
       raise Error, "Select at least one posted expense" if transaction_ids.empty?
 
-      transactions = household.plaid_transactions.where(id: transaction_ids).includes(:plaid_account).lock.to_a
-      raise Error, "One or more bank transactions were not found" unless transactions.length == transaction_ids.length
-      raise Error, "Only unreviewed, posted expenses can be drafted" unless transactions.all?(&:stageable?)
+      drafts = ApplicationRecord.transaction do
+        transactions = household.plaid_transactions.where(id: transaction_ids).includes(:plaid_account).lock.to_a
+        raise Error, "One or more bank transactions were not found" unless transactions.length == transaction_ids.length
+        raise Error, "Only unreviewed, posted expenses can be drafted" unless transactions.all?(&:stageable?)
 
-      drafts = ApplicationRecord.transaction { transactions.map { |transaction| stage!(transaction) } }
+        transactions.map { |transaction| stage!(transaction) }
+      end
       Result.new(drafts: drafts, errors: [])
     rescue ActiveRecord::RecordInvalid => e
       raise Error, e.record.errors.full_messages.to_sentence

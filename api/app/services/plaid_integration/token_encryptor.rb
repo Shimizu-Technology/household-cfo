@@ -17,15 +17,17 @@ module PlaidIntegration
       private
 
       def encryptor
-        raw = ENV["PLAID_DATA_ENCRYPTION_KEY"].presence || test_key
-        raise Error, "Plaid data encryption key is not configured" if raw.blank?
+        @encryptor ||= begin
+          raw = ENV["PLAID_DATA_ENCRYPTION_KEY"].presence || test_key
+          raise Error, "Plaid data encryption key is not configured" if raw.blank?
 
-        key = Base64.strict_decode64(raw)
-        raise Error, "Plaid data encryption key must be a base64-encoded 32-byte key" unless key.bytesize == 32
+          key = Base64.strict_decode64(raw)
+          raise Error, "Plaid data encryption key must be a base64-encoded 32-byte key" unless key.bytesize == 32
 
-        ActiveSupport::MessageEncryptor.new(key, cipher: "aes-256-gcm")
-      rescue ArgumentError
-        raise Error, "Plaid data encryption key must be a base64-encoded 32-byte key"
+          ActiveSupport::MessageEncryptor.new(key, cipher: "aes-256-gcm")
+        rescue ArgumentError
+          raise Error, "Plaid data encryption key must be a base64-encoded 32-byte key"
+        end
       end
 
       def test_key

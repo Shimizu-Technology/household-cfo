@@ -1,5 +1,5 @@
 class PlaidItem < ApplicationRecord
-  STATUSES = %w[active update_required error disconnected].freeze
+  STATUSES = %w[active update_required error disconnecting disconnected].freeze
   ENVIRONMENTS = %w[sandbox production].freeze
 
   belongs_to :household
@@ -15,6 +15,7 @@ class PlaidItem < ApplicationRecord
   validates :institution_name, length: { maximum: 160 }, allow_blank: true
 
   scope :connected, -> { where.not(status: "disconnected") }
+  scope :syncable, -> { where(status: %w[active update_required error]) }
 
   def access_token
     return if access_token_ciphertext.blank?

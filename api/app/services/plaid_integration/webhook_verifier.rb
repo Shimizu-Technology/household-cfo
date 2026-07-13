@@ -15,10 +15,12 @@ module PlaidIntegration
       header = JWT.decode(token, nil, false).last
       raise Error, "Invalid Plaid webhook signature" unless header["alg"] == "ES256" && header["kid"].present?
 
-      key_response = Client.safely do |client|
-        client.webhook_verification_key_get(Plaid::WebhookVerificationKeyGetRequest.new(key_id: header.fetch("kid")))
+      key_data = Rails.cache.fetch("plaid:webhook-jwk:#{Digest::SHA256.hexdigest(header.fetch('kid'))}", expires_in: MAX_AGE) do
+        Client.safely do |client|
+          client.webhook_verification_key_get(Plaid::WebhookVerificationKeyGetRequest.new(key_id: header.fetch("kid"))).key.to_hash
+        end
       end
-      jwk = JWT::JWK.import(key_response.key.to_hash)
+      jwk = JWT::JWK.import(key_data)
       payload = JWT.decode(token, jwk.public_key, true, algorithm: "ES256").first
       issued_at = Time.at(Integer(payload.fetch("iat")))
       raise Error, "Expired Plaid webhook signature" if issued_at < MAX_AGE.ago || issued_at > 1.minute.from_now

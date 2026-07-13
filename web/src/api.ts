@@ -836,7 +836,7 @@ export type PlaidAccount = {
 export type PlaidItem = {
   id: number
   institution_name: string
-  status: 'active' | 'update_required' | 'error' | 'disconnected'
+  status: 'active' | 'update_required' | 'error' | 'disconnecting' | 'disconnected'
   environment: 'sandbox' | 'production'
   consented_at: string
   last_synced_at: string | null

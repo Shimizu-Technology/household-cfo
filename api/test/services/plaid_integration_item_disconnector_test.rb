@@ -36,7 +36,57 @@ class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
     assert_equal "remove-me", @item.access_token
     assert_equal 1, @item.plaid_transactions.count
   ensure
+    singleton.define_method(:safely, original) if singleton && original
+  end
+
+  test "finishes local cleanup when retrying after Plaid already removed the Item" do
+    @item.update!(status: "disconnecting")
+    singleton = class << PlaidIntegration::Client; self; end
+    original = PlaidIntegration::Client.method(:safely)
+    singleton.define_method(:safely) do |_args = nil, &_block|
+      raise PlaidIntegration::Error.new("Plaid could not complete that request", code: "ITEM_NOT_FOUND")
+    end
+
+    PlaidIntegration::ItemDisconnector.new(@item, user: @user).call
+
+    assert_equal "disconnected", @item.reload.status
+    assert_nil @item.access_token_ciphertext
+    assert_empty @item.plaid_accounts
+    assert_empty @item.plaid_transactions
+    assert @draft.reload.persisted?
+  ensure
+    singleton.define_method(:safely, original) if singleton && original
+  end
+
+  test "does not treat an unrelated first-attempt ITEM_NOT_FOUND as a successful removal" do
+    singleton = class << PlaidIntegration::Client; self; end
+    original = PlaidIntegration::Client.method(:safely)
+    singleton.define_method(:safely) do |_args = nil, &_block|
+      raise PlaidIntegration::Error.new("Plaid could not complete that request", code: "ITEM_NOT_FOUND")
+    end
+
+    assert_raises(PlaidIntegration::Error) { PlaidIntegration::ItemDisconnector.new(@item, user: @user).call }
+    assert_equal "active", @item.reload.status
+    assert_equal "remove-me", @item.access_token
+    assert_equal 1, @item.plaid_transactions.count
+  ensure
     singleton.define_method(:safely, original)
+  end
+
+  test "preserves the recoverable state when a disconnect retry has a temporary Plaid failure" do
+    @item.update!(status: "disconnecting")
+    singleton = class << PlaidIntegration::Client; self; end
+    original = PlaidIntegration::Client.method(:safely)
+    singleton.define_method(:safely) do |_args = nil, &_block|
+      raise PlaidIntegration::Error.new("Plaid could not complete that request", code: "API_ERROR")
+    end
+
+    assert_raises(PlaidIntegration::Error) { PlaidIntegration::ItemDisconnector.new(@item, user: @user).call }
+    assert_equal "disconnecting", @item.reload.status
+    assert_equal "remove-me", @item.access_token
+    assert_equal 1, @item.plaid_transactions.count
+  ensure
+    singleton.define_method(:safely, original) if singleton && original
   end
 
   private

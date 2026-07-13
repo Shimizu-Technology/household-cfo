@@ -143,8 +143,9 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
       } else {
         await disconnectPlaidItem(item.id)
       }
-      setNotice(action === 'sync' ? 'Bank activity is up to date.' : 'Bank disconnected and Plaid source data removed.')
+      setNotice(action === 'sync' ? 'Sync started. New bank activity will appear here shortly.' : 'Bank disconnected and Plaid source data removed.')
       await refresh()
+      if (action === 'sync') window.setTimeout(() => void refresh(), 2_500)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : `Could not ${action} this bank.`)
     } finally {
@@ -231,8 +232,8 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
                 </div>
                 <div className="plaid-item-actions">
                   {item.status === 'update_required' && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
-                  <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy)}>Sync now</button>
-                  <button type="button" className="danger-button" onClick={() => void runItemAction(item, 'disconnect')} disabled={Boolean(busy)}>Disconnect</button>
+                  <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.status === 'disconnecting'}>Sync now</button>
+                  <button type="button" className="danger-button" onClick={() => void runItemAction(item, 'disconnect')} disabled={Boolean(busy)}>{item.status === 'disconnecting' ? 'Finish disconnect' : 'Disconnect'}</button>
                 </div>
                 <div className="plaid-accounts">
                   {item.accounts.filter((account) => account.active).map((account) => (

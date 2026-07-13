@@ -18,7 +18,7 @@ module Api
         end
 
         def update_link_token
-          item = current_household.plaid_items.connected.find(params[:id])
+          item = current_household.plaid_items.syncable.find(params[:id])
           token = PlaidIntegration::LinkToken.new(household: current_household, user: current_user, plaid_item: item).call
           render json: { link_token: token }
         rescue ActiveRecord::RecordNotFound
@@ -41,9 +41,9 @@ module Api
         end
 
         def sync
-          item = current_household.plaid_items.connected.find(params[:id])
-          PlaidIntegration::TransactionSync.new(item).call
-          render json: payload
+          item = current_household.plaid_items.syncable.find(params[:id])
+          PlaidTransactionSyncJob.perform_later(item.id)
+          render json: payload, status: :accepted
         rescue ActiveRecord::RecordNotFound
           render json: { errors: [ "Bank connection not found" ] }, status: :not_found
         rescue PlaidIntegration::Error => e

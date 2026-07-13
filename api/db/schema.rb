@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_14_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_14_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -527,7 +527,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_14_010000) do
     t.index ["household_id"], name: "index_plaid_items_on_household_id"
     t.index ["plaid_item_id"], name: "index_plaid_items_on_plaid_item_id", unique: true
     t.check_constraint "environment::text = ANY (ARRAY['sandbox'::character varying, 'production'::character varying]::text[])", name: "plaid_items_environment"
-    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'update_required'::character varying, 'error'::character varying, 'disconnected'::character varying]::text[])", name: "plaid_items_status"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'update_required'::character varying, 'error'::character varying, 'disconnecting'::character varying, 'disconnected'::character varying]::text[])", name: "plaid_items_status"
   end
 
   create_table "plaid_transactions", force: :cascade do |t|

@@ -1,6 +1,8 @@
 require "test_helper"
 
 class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
+  include ActiveJob::TestHelper
+
   setup do
     @user = create_user("plaid-controller@example.com")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
@@ -45,6 +47,26 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     assert_equal "outflow", rows.first.fetch("direction")
     refute_includes response.body, "Private merchant"
     assert_equal({ "page" => 1, "per_page" => 50, "total" => 1, "has_more" => false }, payload.fetch("pagination"))
+  end
+
+  test "manual sync enqueues background work instead of blocking the request" do
+    assert_enqueued_with(job: PlaidTransactionSyncJob, args: [ @item.id ]) do
+      post "/api/v1/plaid/items/#{@item.id}/sync", headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :accepted
+  end
+
+  test "manual sync does not enqueue another household's item" do
+    other_user = create_user("other-sync-controller@example.com")
+    other_household = HouseholdFinance::WorkspaceResolver.new(other_user).household
+    other_item = create_item(other_household, other_user, "other-sync-item")
+
+    assert_no_enqueued_jobs do
+      post "/api/v1/plaid/items/#{other_item.id}/sync", headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :not_found
   end
 
   private
