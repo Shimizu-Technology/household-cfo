@@ -148,6 +148,14 @@ export type FinancialDocumentImport = {
     last_applied_at?: string
     transaction_draft_count?: number
     transaction_match_count?: number
+    upload_origin?: 'profile' | 'mia'
+    declared_document_kind?: DocumentImportKind
+    routing_detected_kind?: DocumentImportKind
+    routing_resolved_kind?: DocumentImportKind
+    routing_source?: 'participant_context' | 'participant_selection' | 'mia_detection' | 'file_default'
+    routing_conflict?: boolean
+    routing_requires_confirmation?: boolean
+    routing_destination?: 'transaction_review' | 'household_setup_review' | 'private_document_review'
   }
   items: DocumentImportItem[]
   transaction_drafts: TransactionDraft[]

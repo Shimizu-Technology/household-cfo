@@ -84,6 +84,45 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal 3, @document_import.metadata.fetch("extraction_batch_count")
   end
 
+  test "successful extraction preserves participant routing when detection conflicts" do
+    @document_import.update!(
+      document_kind: "pay_stub",
+      metadata: {
+        "upload_origin" => "mia",
+        "upload_context" => "This is my latest pay stub. Use it to help update my income.",
+        "declared_document_kind" => "pay_stub"
+      }
+    )
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: Date.new(2026, 7, 1),
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Income details found.",
+          confidence: "medium",
+          warnings: [],
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: {}
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "pay_stub", @document_import.document_kind
+    assert_equal "statement", @document_import.metadata.fetch("routing_detected_kind")
+    assert_equal "pay_stub", @document_import.metadata.fetch("routing_resolved_kind")
+    assert_equal "household_setup_review", @document_import.metadata.fetch("routing_destination")
+    assert_equal true, @document_import.metadata.fetch("routing_requires_confirmation")
+    assert_includes @document_import.metadata.fetch("warnings").first, "You described this as pay stub"
+  end
+
   test "successful extraction stages transaction drafts with splits and match proposals" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     period = manager.current_period_for(Date.new(2026, 7, 5))

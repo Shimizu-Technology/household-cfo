@@ -135,6 +135,7 @@ type PendingMiaAttachment = {
   document_import_id?: number
   status?: FinancialDocumentImport['status']
   source_available?: boolean
+  kindWasSelected?: boolean
 }
 
 type BudgetAllocationChange = {
@@ -1367,6 +1368,12 @@ function App() {
     })
   }
 
+  function updatePendingMiaAttachmentKind(id: string, documentKind: DocumentImportKind) {
+    setPendingMiaAttachments((current) => current.map((attachment) => (
+      attachment.id === id ? { ...attachment, document_kind: documentKind, kindWasSelected: true } : attachment
+    )))
+  }
+
   async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string) {
     const preparedAttachments = [...attachments]
 
@@ -1820,6 +1827,11 @@ function App() {
                 }}
                 onOpenImport={handleOpenDocumentSource}
                 onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
+                onReviewImportId={(id) => {
+                  setSelectedImportId(id)
+                  switchSection('My Profile')
+                  requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+                }}
               />
 
               {pendingMiaActionDrafts.length > 0 && (
@@ -1867,11 +1879,15 @@ function App() {
                   }}
                 />
                 {pendingMiaAttachments.length > 0 && (
-                  <PendingAttachmentTray
-                    attachments={pendingMiaAttachments}
-                    onPreview={setPreviewAttachment}
-                    onRemove={removePendingMiaAttachment}
-                  />
+                  <div className="composer-attachment-workflow">
+                    <p>Tell Mia what each file is, or describe it in your message. Mia will verify the type and route only draft results for your review.</p>
+                    <PendingAttachmentTray
+                      attachments={pendingMiaAttachments}
+                      onPreview={setPreviewAttachment}
+                      onRemove={removePendingMiaAttachment}
+                      onKindChange={updatePendingMiaAttachmentKind}
+                    />
+                  </div>
                 )}
                 <button
                   className="composer-attach"
@@ -2199,10 +2215,12 @@ function PendingAttachmentTray({
   attachments,
   onPreview,
   onRemove,
+  onKindChange,
 }: {
   attachments: PendingMiaAttachment[]
   onPreview: (attachment: PendingMiaAttachment) => void
   onRemove: (id: string) => void
+  onKindChange: (id: string, documentKind: DocumentImportKind) => void
 }) {
   return (
     <div className="composer-attachment-tray" aria-label="Attachments waiting to send">
@@ -2212,6 +2230,16 @@ function PendingAttachmentTray({
             {browserPreviewableImage(attachment.content_type) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
             <span>{attachmentDisplayName(attachment)}</span>
           </button>
+          <label className="attachment-kind-picker">
+            <span className="sr-only">Document type for {attachment.filename}</span>
+            <select value={attachment.document_kind} onChange={(event) => onKindChange(attachment.id, event.currentTarget.value as DocumentImportKind)}>
+              <option value="receipt">Receipt or purchase</option>
+              <option value="statement">Bank or card statement</option>
+              <option value="pay_stub">Pay stub</option>
+              <option value="spreadsheet">Budget spreadsheet</option>
+              <option value="other">Supporting document</option>
+            </select>
+          </label>
           <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
             <CloseIcon />
           </button>
@@ -2876,6 +2904,8 @@ function DocumentReviewPanel({
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
       </div>
 
+      <DocumentRoutingSummary documentImport={documentImport} />
+
       {warnings.length > 0 && (
         <div className="document-warning-list" role="note" aria-label="Extraction warnings">
           {warnings.map((warning) => <span key={warning}>{warning}</span>)}
@@ -2957,6 +2987,40 @@ function DocumentReviewPanel({
       </div>
     </article>
   )
+}
+
+function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialDocumentImport }) {
+  const metadata = documentImport.metadata
+  const resolvedKind = metadata.routing_resolved_kind ?? documentImport.document_kind
+  const destination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+  const conflict = Boolean(metadata.routing_requires_confirmation)
+
+  return (
+    <div className={`document-routing-summary${conflict ? ' needs-confirmation' : ''}`} role={conflict ? 'alert' : 'note'}>
+      <div>
+        <span>{conflict ? 'Routing needs your check' : 'Routed for review'}</span>
+        <strong>{documentKindLabel(resolvedKind)} → {destination}</strong>
+      </div>
+      <p>
+        {conflict
+          ? `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but Mia detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
+          : routingExplanation(metadata.routing_source)}
+      </p>
+    </div>
+  )
+}
+
+function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {
+  if (destination === 'transaction_review' || kind === 'receipt' || kind === 'statement') return 'Transaction review'
+  if (destination === 'household_setup_review' || kind === 'pay_stub' || kind === 'spreadsheet') return 'Household setup review'
+  return 'Private document history'
+}
+
+function routingExplanation(source: FinancialDocumentImport['metadata']['routing_source']) {
+  if (source === 'participant_context') return 'Mia used your message as the strongest routing signal, checked the file, and kept every result pending.'
+  if (source === 'participant_selection') return 'Mia honored the document type you selected, checked the file, and kept every result pending.'
+  if (source === 'mia_detection') return 'Mia recognized the document from its contents and kept every extracted result pending.'
+  return 'Mia routed this from the file type and kept every extracted result pending for review.'
 }
 
 function AppliedImportSummary({ documentImport, onEdit }: { documentImport: FinancialDocumentImport; onEdit: () => void }) {
@@ -3432,6 +3496,8 @@ function attachmentWithDocumentImport(attachment: PendingMiaAttachment, document
 }
 
 function attachmentWithMessageContext(attachment: PendingMiaAttachment, message: string): PendingMiaAttachment {
+  if (attachment.kindWasSelected) return attachment
+
   const documentKind = documentKindForMessageContext(attachment.file, attachment.document_kind, message)
   return documentKind === attachment.document_kind ? attachment : { ...attachment, document_kind: documentKind }
 }

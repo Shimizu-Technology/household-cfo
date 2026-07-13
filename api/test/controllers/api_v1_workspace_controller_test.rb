@@ -458,8 +458,42 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
     assert_includes assistant_content, "Finished reading the statement upload"
+    assert_includes assistant_content, "routed the upload to pending transaction review"
     assert_includes assistant_content, "3 pending transaction reviews"
     assert_includes assistant_content, "Jul 1, 2026 through Jul 3, 2026"
+  end
+
+  test "mia chat surfaces a document routing conflict without changing household numbers" do
+    user = create_user(email: "mia-routing-conflict@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "pay_stub",
+      status: "needs_review",
+      filename: "income.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/income.png",
+      metadata: {
+        "routing_detected_kind" => "statement",
+        "routing_resolved_kind" => "pay_stub",
+        "routing_requires_confirmation" => true,
+        "routing_destination" => "household_setup_review"
+      }
+    )
+
+    assert_no_difference("IncomeSource.count") do
+      post "/api/v1/mia/messages",
+           params: { message: "Use this pay stub to help update my income", document_import_ids: [ document_import.id ] },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes assistant_content, "You described this as pay stub, but I detected statement"
+    assert_includes assistant_content, "flagged the routing difference for review"
+    assert_includes assistant_content, "no household numbers changed"
   end
 
   test "mia chat persists attached document imports with a single contextual reply" do
@@ -495,6 +529,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_nil body.fetch("transaction_draft")
     assistant_content = body.fetch("assistant_message").fetch("content")
+    assert_includes assistant_content, "routed it to pending transaction review"
     assert_not_includes assistant_content, "I used your note as context"
     assert_includes assistant_content, "I found Resend for $20"
     attachment = body.fetch("user_message").fetch("attachments").first

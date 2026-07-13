@@ -21,6 +21,20 @@ Mia can help read receipts, screenshots, pay stubs, statements, and spreadsheets
 
 Runtime source files are stored in private S3 only. There is no frontend AI call and no local runtime document fallback.
 
+## Unified chat-first intake
+
+Ask Mia and My Profile use the same private import, extraction, review, and lineage system. A participant can attach a file in chat and describe it naturally (for example, “This is my June statement” or “Use this pay stub to help update my income”) instead of first navigating to a document module.
+
+Routing follows these rules:
+
+- The participant's explicit chat description or selected upload type is the strongest signal.
+- Mia independently detects the likely document type from the file.
+- If the two signals disagree, the participant's description is preserved, the conflict is visible in Mia's response and Import history, and every extracted result remains pending.
+- Receipts, transaction screenshots, and statements route to transaction review.
+- Pay stubs and budget files route to household setup review.
+- Other supporting documents remain in private Import history for review.
+- A chat-uploaded document appears in the same Import history as a profile upload; there is no second attachment store or silent write path.
+
 ## Full-statement processing and review scale
 
 - Monthly statement CSV/XLS/XLSX uploads are parsed deterministically for up to 500 transaction rows; the old 80-row sample limit no longer truncates the review set.

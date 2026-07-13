@@ -101,7 +101,7 @@ function chatMessages(count = 125) {
     author: index % 2 === 0 ? 'You' : 'Mia',
     content: `Message ${index + 1}`,
     attachments: index === count - 1 ? [{
-      filename: 'receipt.png', content_type: 'image/png', document_kind: 'receipt', status: 'applied',
+      document_import_id: 42, filename: 'receipt.png', content_type: 'image/png', document_kind: 'receipt', status: 'needs_review',
       source_available: true, preview_url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
     }] : [],
   }))
@@ -182,6 +182,11 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
+  await expect(page.getByRole('button', { name: 'Review draft' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Review draft' }).click()
+  await expect(page.getByText('Profile completeness', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
 
   await page.getByRole('button', { name: 'Load earlier messages (40 remaining)' }).click()
   await expect(page.locator('.message-row')).toHaveCount(100)

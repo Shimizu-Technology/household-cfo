@@ -114,6 +114,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "uploaded", document_import.status
     assert_equal "mia", document_import.metadata.fetch("upload_origin")
     assert_equal "Here is my bank statement from the past month. Please review it.", document_import.metadata.fetch("upload_context")
+    assert_equal "spreadsheet", document_import.metadata.fetch("declared_document_kind")
   end
 
   test "create rejects mismatched file contents before upload" do
