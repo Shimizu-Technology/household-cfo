@@ -176,7 +176,8 @@ module Demo
 
     def unsupported_current_draft_claim?(content)
       content.match?(/\b(?:i(?:['’]ve| have| did)?|mia)\s+(?:already\s+|just\s+)?(?:draft(?:ed)?|created|prepared)\b/i) ||
-        content.match?(/\bi(?:['’]ll| will)\s+draft\b/i)
+        content.match?(/\bi(?:['’]ll| will| can)\s+draft\b/i) ||
+        content.match?(/\b(?:let['’]s|we can)\s+draft\b/i)
     end
 
     def existing_budget_review_recall?(resolution)

@@ -10,7 +10,11 @@ module Mia
       (?:saved|paid)\s+\$[\d,]+(?:\.\d{1,2})?
     )\b/ix.freeze
     EMOTIONAL_SUPPORT_PATTERN = /\b(?:ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
-    REPEATED_PATTERN = /\b(?:again|keep\s+(?:doing|spending|buying)|same\s+(?:thing|pattern)|every\s+time)\b/i.freeze
+    REPEATED_PATTERN = /\b(?:
+      keep\s+(?:doing|spending|buying)|same\s+(?:thing|pattern)|every\s+time|
+      (?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over|hit\s+(?:my\s+|the\s+)?(?:spending|credit|budget)\s+limit)\b.{0,40}\bagain|
+      again\b.{0,40}\b(?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over)
+    )\b/ix.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
     def initialize(user_message:, history: [])

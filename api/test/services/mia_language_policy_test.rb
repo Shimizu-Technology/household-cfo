@@ -57,4 +57,18 @@ class MiaLanguagePolicyTest < ActiveSupport::TestCase
 
     assert_equal "That conversation gives you a shared starting point.", result
   end
+
+  test "ordinary requests to repeat an explanation do not trigger accountability language" do
+    result = Mia::LanguagePolicy.new(user_message: "Can you explain that again?").sanitize(
+      "Of course, chelu. Your approved readiness is Red because runway is below the threshold."
+    )
+
+    assert_equal "Of course. Your approved readiness is Red because runway is below the threshold.", result
+  end
+
+  test "again still qualifies when it clearly describes a repeated financial action" do
+    policy = Mia::LanguagePolicy.new(user_message: "I bought takeout again after saying I would stop")
+
+    assert policy.cultural_language_allowed?
+  end
 end
