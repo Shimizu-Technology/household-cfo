@@ -23,7 +23,9 @@
 .annual-income-planner,
 .annual-outlook {
   display: grid;
+  min-width: 0;
   gap: 18px;
+  overflow: hidden;
   margin-top: 22px;
   padding: clamp(18px, 3vw, 26px);
   border: 1px solid var(--line);
@@ -4454,8 +4456,9 @@ h3 {
 
 .annual-budget-panel {
   display: grid;
+  min-width: 0;
   gap: 18px;
-  overflow: visible;
+  overflow: hidden;
 }
 
 .annual-budget-heading,
@@ -5369,6 +5372,424 @@ h3 {
   border-top: 1px solid rgba(31, 36, 33, 0.08);
 }
 
+/* Financial cockpit */
+.month-plan-summary,
+.expense-stack-overview,
+.category-pressure-panel,
+.annual-cash-flow-visual {
+  min-width: 0;
+  padding: 20px;
+  border: 1px solid var(--line);
+  border-radius: 24px;
+  background: rgba(255, 253, 248, 0.92);
+  box-shadow: 0 16px 36px rgba(47, 38, 28, 0.07);
+}
+
+.home-action-center .month-plan-summary {
+  container-type: inline-size;
+}
+
+.month-plan-summary-heading,
+.financial-visual-heading,
+.expense-stack-row-heading,
+.category-pressure-row-heading,
+.month-plan-explanation,
+.annual-cash-flow-legend {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.month-plan-summary-heading span,
+.financial-visual-heading span,
+.plan-value span,
+.month-plan-decision-row span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.month-plan-summary-heading h3,
+.financial-visual-heading h4,
+.financial-visual-heading p {
+  margin: 4px 0 0;
+}
+
+.month-plan-income {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 2px;
+  text-align: right;
+}
+
+.month-plan-income strong,
+.plan-value strong,
+.month-plan-decision-row strong,
+.expense-stack-row b,
+.category-pressure-status b,
+.category-pressure-values,
+.cash-flow-month span {
+  font-family: var(--number-font);
+  font-variant-numeric: tabular-nums lining-nums;
+}
+
+.month-plan-income strong,
+.plan-value strong,
+.month-plan-decision-row strong {
+  color: var(--ink);
+  white-space: nowrap;
+}
+
+.month-plan-values {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 18px 0 14px;
+}
+
+.plan-value {
+  display: grid;
+  min-width: 0;
+  gap: 5px;
+  padding: 11px;
+  border: 1px solid rgba(47, 38, 28, 0.08);
+  border-radius: 15px;
+  background: rgba(255, 255, 255, 0.72);
+  container-type: inline-size;
+}
+
+.plan-value strong {
+  font-size: clamp(0.82rem, 11cqi, 1.24rem);
+  letter-spacing: -0.035em;
+}
+
+.plan-value strong.value-long {
+  font-size: clamp(0.72rem, 9cqi, 1.04rem);
+}
+
+.plan-value strong.value-xlong {
+  font-size: clamp(0.66rem, 7.5cqi, 0.9rem);
+}
+
+.plan-value.pending {
+  border-color: rgba(123, 74, 88, 0.18);
+  background: #f8eee9;
+}
+
+.plan-value.negative,
+.category-pressure-status b.negative,
+.category-pressure-values .negative,
+.expense-stack-row b.negative,
+.cash-flow-month span.negative {
+  color: var(--status-red);
+}
+
+.budget-progress-track {
+  position: relative;
+  height: 14px;
+  overflow: hidden;
+  border: 1px solid rgba(47, 38, 28, 0.09);
+  border-radius: 999px;
+  background: #eee6dc;
+}
+
+.budget-progress-track i {
+  position: absolute;
+  inset-block: 0;
+}
+
+.budget-progress-actual {
+  inset-inline-start: 0;
+  width: var(--actual-width);
+  background: var(--emerald);
+}
+
+.budget-progress-pending {
+  inset-inline-start: var(--actual-width);
+  width: var(--pending-width);
+  background: repeating-linear-gradient(135deg, #b57352 0 5px, #f2c9ac 5px 10px);
+}
+
+.budget-progress-plan-marker {
+  inset-inline-start: var(--plan-marker);
+  width: 2px;
+  background: var(--ink);
+  transform: translateX(-1px);
+}
+
+.month-plan-explanation {
+  flex-wrap: wrap;
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.month-plan-explanation span,
+.annual-cash-flow-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.month-plan-explanation strong {
+  flex: 1 0 100%;
+  color: var(--ink);
+  font-size: 0.76rem;
+}
+
+.confirmed-swatch,
+.pending-swatch,
+.income-swatch,
+.outflow-swatch {
+  display: inline-block;
+  width: 18px;
+  height: 8px;
+  border-radius: 999px;
+}
+
+.confirmed-swatch {
+  background: var(--emerald);
+}
+
+.pending-swatch {
+  background: repeating-linear-gradient(135deg, #b57352 0 4px, #f2c9ac 4px 8px);
+}
+
+.month-plan-decision-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid rgba(47, 38, 28, 0.08);
+}
+
+.month-plan-decision-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  background: rgba(246, 239, 229, 0.76);
+}
+
+.month-plan-decision-row strong {
+  font-size: clamp(1.1rem, 5cqi, 1.55rem);
+}
+
+.month-plan-decision-row small {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.home-financial-visuals,
+.budget-operating-cockpit {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 14px;
+}
+
+.budget-operating-cockpit {
+  align-items: start;
+}
+
+.financial-visual-heading > p {
+  max-width: 310px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.expense-stack-list,
+.category-pressure-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.expense-stack-row,
+.category-pressure-row {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(47, 38, 28, 0.08);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.expense-stack-row-heading,
+.category-pressure-row-heading {
+  align-items: center;
+}
+
+.expense-stack-row-heading > div:first-child,
+.category-pressure-row-heading > div:first-child,
+.category-pressure-status {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.expense-stack-row-heading span,
+.expense-stack-row small,
+.category-pressure-row-heading span,
+.category-pressure-values,
+.category-pressure-empty {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.expense-stack-row-heading b,
+.category-pressure-status b {
+  flex: 0 0 auto;
+  color: var(--ink);
+  font-size: 0.76rem;
+  white-space: nowrap;
+}
+
+.expense-stack-row .budget-progress-track,
+.category-pressure-row .budget-progress-track {
+  height: 10px;
+  margin-top: 9px;
+}
+
+.expense-stack-row small {
+  display: block;
+  margin-top: 7px;
+}
+
+.category-pressure-status {
+  justify-items: end;
+  text-align: right;
+}
+
+.category-pressure-status > span {
+  width: fit-content;
+  padding: 4px 7px;
+  border-radius: 999px;
+  background: #f8eee9;
+  color: var(--mauve);
+  font-size: 0.64rem;
+  font-weight: 900;
+}
+
+.category-pressure-values {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 5px 12px;
+  margin-top: 7px;
+}
+
+.annual-cash-flow-visual {
+  display: grid;
+  gap: 12px;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.annual-outlook .annual-cash-flow-visual {
+  padding: 16px;
+  border-radius: 18px;
+  box-shadow: none;
+}
+
+.annual-cash-flow-legend {
+  justify-content: flex-start;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.income-swatch {
+  background: var(--emerald);
+}
+
+.outflow-swatch {
+  background: #d8a17c;
+}
+
+.annual-cash-flow-scroll {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+  contain: inline-size;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.annual-cash-flow-chart {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(50px, 1fr));
+  gap: 7px;
+  min-width: 690px;
+  padding: 4px 2px 8px;
+}
+
+.cash-flow-month {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+  text-align: center;
+}
+
+.cash-flow-bars {
+  display: flex;
+  height: 128px;
+  gap: 3px;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 5px;
+  border-bottom: 1px solid rgba(47, 38, 28, 0.12);
+  border-radius: 9px 9px 0 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.25), rgba(246, 239, 229, 0.62));
+}
+
+.cash-flow-bars i {
+  width: 13px;
+  min-height: 2px;
+  border-radius: 6px 6px 2px 2px;
+}
+
+.cash-flow-bars .income-bar {
+  height: var(--income-height);
+  background: var(--emerald);
+}
+
+.cash-flow-bars .outflow-bar {
+  height: var(--outflow-height);
+  background: #d8a17c;
+}
+
+.cash-flow-month.negative .cash-flow-bars {
+  box-shadow: inset 0 0 0 1px rgba(174, 75, 69, 0.2);
+  background: #fff0eb;
+}
+
+.cash-flow-month > strong {
+  color: var(--ink);
+  font-size: 0.72rem;
+}
+
+.cash-flow-month > span:not(.sr-only) {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.66rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.current-month-activity > .category-pressure-panel {
+  padding: 14px;
+  border-radius: 18px;
+  background: white;
+  box-shadow: none;
+}
+
 @media (max-width: 900px) {
   .annual-budget-heading,
   .annual-budget-editor-toolbar,
@@ -5468,5 +5889,84 @@ h3 {
   .recent-transaction-row {
     grid-template-columns: 1fr;
     gap: 3px;
+  }
+
+  .home-financial-visuals,
+  .budget-operating-cockpit {
+    grid-template-columns: 1fr;
+  }
+
+  .financial-visual-heading {
+    display: grid;
+  }
+
+  .financial-visual-heading > p {
+    max-width: none;
+    text-align: left;
+  }
+}
+
+@media (max-width: 620px) {
+  .month-plan-summary,
+  .expense-stack-overview,
+  .category-pressure-panel,
+  .annual-cash-flow-visual {
+    padding: 15px;
+    border-radius: 18px;
+  }
+
+  .month-plan-summary-heading {
+    display: grid;
+  }
+
+  .month-plan-income {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .month-plan-values,
+  .month-plan-decision-row {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .category-pressure-row-heading,
+  .expense-stack-row-heading {
+    display: grid;
+    align-items: start;
+  }
+
+  .category-pressure-status {
+    justify-items: start;
+    text-align: left;
+  }
+
+  .category-pressure-values {
+    justify-content: flex-start;
+  }
+
+  .annual-cash-flow-chart {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 12px 4px;
+    min-width: 0;
+  }
+
+  .cash-flow-bars {
+    height: 96px;
+    padding-inline: 2px;
+  }
+
+  .cash-flow-bars i {
+    width: 9px;
+  }
+}
+
+@media (max-width: 360px) {
+  .month-plan-values,
+  .month-plan-decision-row {
+    grid-template-columns: 1fr;
+  }
+
+  .annual-cash-flow-chart {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }

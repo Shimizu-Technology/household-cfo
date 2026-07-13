@@ -1,4 +1,10 @@
 import type { BudgetData, DashboardData, ReadinessMilestone } from '../api'
+import {
+  AnnualCashFlowChart,
+  CategoryPressureList,
+  MonthPlanSummary,
+} from './BudgetVisuals'
+import { budgetPositionsForMonth, budgetPositionTotals } from '../lib/budgetPosition'
 import { Metric } from './Metric'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -25,8 +31,9 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
   const currentMonthIndex = Math.max(0, Math.min(11, actionCenter.current_month_index))
   const monthPlanned = currentPlan?.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0) ?? 0
   const monthActual = currentPlan?.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0) ?? 0
-  const annualPlanned = currentPlan?.rows.reduce((sum, row) => sum + row.months.reduce((monthSum, month) => monthSum + month.planned, 0), 0) ?? 0
-  const annualActual = currentPlan?.rows.reduce((sum, row) => sum + row.months.reduce((monthSum, month) => monthSum + month.actual, 0), 0) ?? 0
+  const currentPositions = currentPlan ? budgetPositionsForMonth(currentPlan, currentMonthIndex) : []
+  const currentTotals = budgetPositionTotals(currentPositions)
+  const currentMonthIncome = currentPlan?.monthly_income[currentPlan.months[currentMonthIndex]?.id] ?? dashboard.summary.monthly_income
   const upcomingSpike = currentPlan?.annual_outlook?.upcoming_spikes[0]
   const nextIrregular = currentPlan?.annual_outlook?.next_irregular_month
 
@@ -49,17 +56,23 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           </div>
         </article>
 
-        <article className="home-period-card">
-          <span>{actionCenter.current_month_label} {actionCenter.current_year}</span>
-          <h3>Month-to-date inside the annual plan</h3>
-          <div className="home-period-metrics">
-            <Metric label="Month planned" value={currency.format(monthPlanned)} />
-            <Metric label="Month actual" value={currency.format(monthActual)} />
-            <Metric label="Annual planned" value={currency.format(annualPlanned)} />
-            <Metric label="Annual actual" value={currency.format(annualActual)} />
-          </div>
-        </article>
+        <MonthPlanSummary
+          label={`${actionCenter.current_month_label} ${actionCenter.current_year}`}
+          income={currentMonthIncome}
+          planned={currentTotals.planned || monthPlanned}
+          actual={currentTotals.actual || monthActual}
+          pending={currentTotals.pending}
+          safeToSpend={dashboard.summary.next_safe_to_spend_amount}
+          baselineSurplus={budget.baseline_surplus}
+        />
       </section>
+
+      {currentPlan && (
+        <section className="home-financial-visuals" aria-label="Monthly and annual financial position">
+          <CategoryPressureList positions={currentPositions} limit={4} />
+          <AnnualCashFlowChart plan={currentPlan} compact />
+        </section>
+      )}
 
       {(upcomingSpike || nextIrregular) && (
         <section className="home-look-ahead" aria-label="Annual plan look ahead">
@@ -111,13 +124,6 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
         </div>
       </section>
-
-      <div className="metric-row">
-        <Metric label="Monthly income" value={currency.format(dashboard.summary.monthly_income)} />
-        <Metric label="Runway" value={`${dashboard.summary.runway_months} months`} />
-        <Metric label="Safe to spend" value={currency.format(dashboard.summary.next_safe_to_spend_amount)} />
-        <Metric label="Baseline surplus" value={currency.format(budget.baseline_surplus)} />
-      </div>
 
       <div className="two-column">
         <article className={`panel coach-panel ${dashboard.summary.readiness_tone}`}>

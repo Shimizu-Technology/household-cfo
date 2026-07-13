@@ -6,6 +6,13 @@ import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import {
+  AnnualCashFlowChart,
+  CategoryPressureList,
+  ExpenseStackOverview,
+  MonthPlanSummary,
+} from './components/BudgetVisuals'
+import { budgetPositionsForMonth, budgetPositionTotals } from './lib/budgetPosition'
+import {
   applyDocumentImport,
   applyMiaActionDraft,
   archiveBudgetCategory,
@@ -61,7 +68,6 @@ import type {
   BudgetCategoryMonth,
   BudgetCategoryRow,
   BudgetData,
-  BudgetMonth,
   BudgetStackKey,
   CurrentUser,
   DocumentImportItem,
@@ -2037,18 +2043,6 @@ function App() {
             <Metric label="Monthly income" value={currency.format(data.budget.monthly_income)} />
             <Metric label="Monthly outflow" value={currency.format(data.budget.total_monthly_outflow)} />
             <Metric label="Baseline surplus" value={currency.format(data.budget.baseline_surplus)} />
-          </div>
-
-          <div className="stack-grid">
-            {data.budget.stacks.map((stack) => (
-              <article className={`stack-card ${stack.color}`} key={stack.label}>
-                <span>{data.budget.framework}</span>
-                <h3>{stack.label}</h3>
-                <strong>{currency.format(stack.amount)}</strong>
-                <p>{stack.description}</p>
-                <small>{stack.examples.join(' · ')}</small>
-              </article>
-            ))}
           </div>
 
           {data.budget.annual_plan ? (
@@ -5563,38 +5557,11 @@ function CurrentMonthActivityPanel({
   error: string | null
 }) {
   const month = plan.months[currentMonthIndex]
-  const pendingByCategory = useMemo(() => {
-    const totals: Record<string, number> = {}
-    plan.pending_transaction_drafts.forEach((draft) => {
-      if (!month || !draft.category_id || !draftOccursInMonth(draft, month)) return
-
-      totals[String(draft.category_id)] = (totals[String(draft.category_id)] ?? 0) + draft.amount
-    })
-    return totals
-  }, [month, plan.pending_transaction_drafts])
-  const rows = spendingReport?.categories.map((category) => ({
-    id: category.id,
-    name: category.name,
-    stackLabel: category.stack_label,
-    planned: category.planned,
-    actual: category.actual,
-    remaining: category.remaining,
-    pending: category.pending,
-    active: category.active ?? true,
-  })) ?? plan.rows.map((row) => {
-    const cell = row.months[currentMonthIndex]
-    return {
-      id: row.id,
-      name: row.name,
-      stackLabel: row.stack_label,
-      planned: cell?.planned ?? 0,
-      actual: cell?.actual ?? 0,
-      remaining: cell?.remaining ?? 0,
-      pending: pendingByCategory[String(row.id)] ?? 0,
-      active: row.active,
-    }
-  })
-  const totalPending = spendingReport?.totals.pending ?? rows.reduce((sum, row) => sum + row.pending, 0)
+  const positions = useMemo(
+    () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
+    [currentMonthIndex, plan, spendingReport],
+  )
+  const totalPending = budgetPositionTotals(positions).pending
 
   return (
     <section className="current-month-activity" aria-label={`${month?.label ?? 'Current month'} activity`}>
@@ -5606,22 +5573,11 @@ function CurrentMonthActivityPanel({
         {loading ? <span>Loading report</span> : totalPending > 0 && <span>{currency.format(totalPending)} waiting for review</span>}
       </div>
       {error && <p className="setup-error" role="alert">{error}</p>}
-      <div className="month-activity-list">
-        {rows.map((row) => (
-          <div className="month-activity-row" key={row.id}>
-            <div>
-              <strong>{row.name}</strong>
-              <span>{row.stackLabel}{row.active ? '' : ' · Archived'}</span>
-            </div>
-            <div className="month-activity-amounts">
-              <span><b>{currency.format(row.planned)}</b> planned</span>
-              <span><b>{currency.format(row.actual)}</b> actual</span>
-              <span><b>{currency.format(row.remaining)}</b> remaining</span>
-              {row.pending > 0 && <span className="pending"><b>{currency.format(row.pending)}</b> pending</span>}
-            </div>
-          </div>
-        ))}
-      </div>
+      <CategoryPressureList
+        positions={positions}
+        title="Every category, ordered by pressure"
+        eyebrow={`${month?.label ?? 'Selected month'} category view`}
+      />
       {spendingReport && <SpendingReportLedger report={spendingReport} />}
     </section>
   )
@@ -5764,10 +5720,6 @@ function sortTransactions(left: RecentTransaction, right: RecentTransaction, sor
     default:
       return right.occurred_on.localeCompare(left.occurred_on) || right.id - left.id
   }
-}
-
-function draftOccursInMonth(draft: TransactionDraft, month: BudgetMonth) {
-  return draft.occurred_on >= month.starts_on && draft.occurred_on <= month.ends_on
 }
 
 function CategoryEditCell({
@@ -6036,16 +5988,7 @@ function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
         </div>
       )}
 
-      <div className="annual-outlook-grid">
-        {outlook.months.map((month) => (
-          <article className={`outlook-month${month.baseline_surplus < 0 ? ' negative' : ''}`} key={month.period_id}>
-            <strong>{month.label}</strong>
-            <span>{currency.format(month.income)} in</span>
-            <span>{currency.format(month.planned_outflow)} planned</span>
-            <b>{currency.format(month.baseline_surplus)} left</b>
-          </article>
-        ))}
-      </div>
+      <AnnualCashFlowChart plan={plan} />
     </section>
   )
 }
@@ -6112,6 +6055,11 @@ function AnnualBudgetPlanner({
   const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
   const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
+  const currentPositions = useMemo(
+    () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
+    [currentMonthIndex, plan, spendingReport],
+  )
+  const currentPositionTotals = useMemo(() => budgetPositionTotals(currentPositions), [currentPositions])
   const planSignature = useMemo(() => annualBudgetPlanSignature(plan), [plan])
   const [budgetEditState, setBudgetEditState] = useState<{
     signature: string
@@ -6248,6 +6196,17 @@ function AnnualBudgetPlanner({
         <Metric label={`${currentMonth?.label ?? 'Month'} actual`} value={currency.format(currentActual)} />
         <Metric label="Annual planned" value={currency.format(annualPlanned)} />
         <Metric label="Annual actual" value={currency.format(annualActual)} />
+      </div>
+
+      <div className="budget-operating-cockpit">
+        <MonthPlanSummary
+          label={`${currentMonth?.label ?? 'Selected month'} ${plan.year}`}
+          income={currentMonthIncome}
+          planned={currentPositionTotals.planned || currentPlanned}
+          actual={currentPositionTotals.actual || currentActual}
+          pending={currentPositionTotals.pending}
+        />
+        <ExpenseStackOverview positions={currentPositions} />
       </div>
 
       <AnnualIncomePlanner
