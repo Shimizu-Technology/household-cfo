@@ -96,11 +96,12 @@ Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-t
 
 ## Next product direction
 
-PR #32 merged supervised Mia action drafts. The current sequence is:
+The participant experience now includes supervised Mia actions, effective-dated annual income planning, unified document routing, and a review-first financial cockpit. The current sequence is:
 
-1. Production smoke test the voice/document/transaction/action and annual-planning loops with demo-safe fixtures.
-2. Discuss Mia Memory trust, visibility, and controls with Mrs. Mel.
-3. Build a visible/user-controlled Memory MVP only after that discovery.
+1. Production smoke test the voice/document/transaction/action, annual-planning, and financial-cockpit loops with demo-safe fixtures.
+2. Instrument the pilot so review completion, upload routing, and core workflow drop-off are visible without collecting sensitive financial content.
+3. Discuss the remaining readiness, Mia-quality, memory, coach-visibility, and navigation decisions with Mrs. Mel.
+4. Build a visible/user-controlled Memory MVP only after that discovery.
 
 ## Deferred until after the real-mode MVP
 

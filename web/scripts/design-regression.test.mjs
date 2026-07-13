@@ -8,6 +8,8 @@ const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
 const css = readFileSync(resolve(__dirname, '../src/App.css'), 'utf8')
 const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
 const home = readFileSync(resolve(__dirname, '../src/components/HomeScreen.tsx'), 'utf8')
+const budgetVisuals = readFileSync(resolve(__dirname, '../src/components/BudgetVisuals.tsx'), 'utf8')
+const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPosition.ts'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 
@@ -32,11 +34,30 @@ for (const rejectedCopy of [
 }
 assert.ok(home.includes('<h2>CFO snapshot</h2>'), 'home copy should keep the section heading simple')
 assert.ok(home.includes('What needs review?'), 'home should lead with pending review work')
-assert.ok(home.includes('Month-to-date inside the annual plan'), 'home should connect the current month to the annual plan')
+assert.ok(budgetVisuals.includes('Month-to-date inside the annual plan'), 'home should connect the current month to the annual plan')
 assert.ok(home.includes('Your path from Red to Yellow to Green'), 'home should explain the deterministic readiness progression')
+assert.ok(home.includes('<CategoryPressureList'), 'home should rank the categories needing attention')
+assert.ok(home.includes('<AnnualCashFlowChart'), 'home should show the annual plan as an income-versus-outflow chart')
+assert.ok(budgetVisuals.includes('cash-flow-detail-panel'), 'shared cash-flow charts should expose a readable exact-value panel')
+assert.ok(budgetVisuals.includes('Expected irregular plan included in outflow'), 'selected cash-flow months should explain the irregular plan behind their totals')
+assert.ok(budgetVisuals.includes('expected_contributors.map'), 'selected cash-flow months should list their expected irregular contributors')
+assert.ok(budgetVisuals.includes('Readiness-aware CFO amount—not ordinary budget remaining.'), 'safe to spend must be distinguished from ordinary plan remaining')
+assert.ok(budgetVisuals.includes('pending review—not included in actuals.'), 'pending activity must remain visibly outside confirmed actuals')
+assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit panels should generate unique accessible heading IDs')
+assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')
+assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
+assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
 assert.ok(participantTabs.includes('Swipe for more'), 'mobile navigation should disclose that more modules are horizontally available')
+assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant navigation shell should stay available while scrolling')
+assert.ok(css.includes('.income-schedule-form :where(input, select)'), 'income schedule controls should share the application input styling')
+assert.ok(css.includes('.income-schedule-submit'), 'income timeline changes should use an intentional primary action style')
+assert.ok(css.includes('.income-schedule-form-footer'), 'income timeline actions should sit in a balanced full-width footer')
+assert.ok(app.includes('Plan preview'), 'income timeline edits should explain their effect before saving')
+assert.ok(app.includes('Schedule income change'), 'recurring income timeline actions should use a specific action label')
+assert.ok(app.includes('Budget impact if approved'), 'transaction review cards should show the pending category impact before confirmation')
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')
 
+const productSource = `${app}\n${budgetVisuals}`
 for (const requiredCopy of [
   'Expense Stack',
   'Non-discretionary',
@@ -47,7 +68,7 @@ for (const requiredCopy of [
   'Upload pay stub',
   'Approved data loaded',
 ]) {
-  assert.ok(app.includes(requiredCopy), `App should include source-derived UI copy: ${requiredCopy}`)
+  assert.ok(productSource.includes(requiredCopy), `App should include source-derived UI copy: ${requiredCopy}`)
 }
 
 for (const token of ['--cream', '--ink', '--emerald', '--status-green', '--status-yellow', '--status-red']) {
@@ -90,6 +111,8 @@ assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending re
 assert.ok(app.includes('const phrase = `CONFIRM ${ids.length}`'), 'bulk actuals updates should require the exact typed count phrase')
 assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review queue controls should have intentional responsive styling')
 assert.ok(css.includes('.transaction-draft-bulk-actions'), 'bulk transaction controls should have intentional styling')
+assert.ok(css.includes('.budget-progress-pending'), 'pending budget amounts should have a visually separate progress treatment')
+assert.ok(css.includes('.annual-cash-flow-scroll'), 'annual cash-flow charts should have an intentional mobile scroll region')
 assert.ok(app.includes('function updateIncomeDraft(values: Partial<IncomeScheduleDraft>)'), 'annual income edits should copy input values before React releases the event')
 assert.ok(
   !/setDraft\(\(current\)[^\n]*event\.currentTarget/.test(app),

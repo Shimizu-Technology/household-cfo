@@ -1,6 +1,6 @@
 # Household CFO current state
 
-Updated: 2026-07-11
+Updated: 2026-07-13
 
 This is the canonical implementation-status document for Household CFO Method. Product briefs and older PR roadmaps remain useful historical context, but this file is the source of truth for what is built, merged, locally proven, production-proven, and still conceptual.
 
@@ -35,16 +35,24 @@ The transaction loop and conversation loop are the core. Wealth, CFO Filter, and
 - Token-bounded conversation continuity and model-backed strict intent resolution.
 - Effective-dated recurring income changes, zero-dollar income endings, and month-specific one-time income.
 - Annual-plan look-ahead for monthly income, planned outflow, baseline surplus, upcoming spending spikes, and expected irregular-expense drivers.
+- A financial cockpit on Home and Budget that separates confirmed actuals from pending review, ranks category pressure, shows Expense Stack usage, and visualizes all 12 months of income versus planned outflow.
 
 ## Locally proven
 
 - Rails model/controller/service suite.
 - Frontend lint, typecheck/build, dependency audit, and source-derived design checks.
 - Authenticated local participant navigation, annual budget, pending transaction review, match suggestions, and private source preview.
-- Desktop and 390-pixel mobile rendering of the participant shell.
+- Desktop, 390-pixel mobile, and 320-pixel compact-mobile rendering of the participant shell and financial cockpit without document or money-value overflow.
 - Live Mia response path through the configured model.
 
-PR #33 added rendered Playwright checks for:
+The financial cockpit browser coverage verifies:
+
+- Monthly expected income, planned outflow, confirmed actuals, pending review, and remaining plan capacity.
+- Pending drafts remain visually and mathematically separate from confirmed actuals until approval.
+- Expense Stack and category-pressure views use the selected month's plan and activity.
+- The annual cash-flow chart shows all 12 months, including scheduled income changes and spending spikes.
+
+Rendered Playwright checks cover:
 
 - Red/readiness guidance consistency.
 - Home review-first hierarchy and month/year context.

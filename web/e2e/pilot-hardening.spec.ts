@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test'
 
 const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
+const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
 
 const profile = {
@@ -34,47 +35,64 @@ const dashboard = {
   next_steps: ['Protect fixed bills first.', 'Pause new wants and direct available surplus to runway.', 'Review pending activity.'],
 }
 
-const monthRows = months.map((label, index) => ({
-  period_id: index + 1, allocation_id: index + 1, planned: 9_080,
-  actual: label === new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date()) ? 250 : 0,
-  remaining: label === new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date()) ? 8_830 : 9_080,
-}))
+function categoryMonths(categoryId: number, planned: number, currentActual: number) {
+  return months.map((label, index) => {
+    const actual = label === currentShortMonth ? currentActual : 0
+    return {
+      period_id: index + 1,
+      allocation_id: categoryId * 100 + index + 1,
+      planned,
+      actual,
+      remaining: planned - actual,
+    }
+  })
+}
 
 const annualOutlookMonths = months.map((label, index) => ({
   period_id: index + 1,
   label,
   starts_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-01`,
   income: index >= 7 ? 15_000 : 14_200,
-  planned_outflow: index === 11 ? 12_080 : 9_080,
-  baseline_surplus: (index >= 7 ? 15_000 : 14_200) - (index === 11 ? 12_080 : 9_080),
+  planned_outflow: index === 11 ? 8_300 : 5_300,
+  baseline_surplus: (index >= 7 ? 15_000 : 14_200) - (index === 11 ? 8_300 : 5_300),
   expected_irregular: index === 11 ? 3_000 : 0,
   expected_contributors: index === 11 ? [{ name: 'Holiday travel', amount: 3_000 }] : [],
 }))
 
 const budget = {
   framework: 'Expense Stack', intro: 'Annual household plan', monthly_income: 14_200,
-  total_monthly_outflow: 9_405, baseline_surplus: 4_795,
+  total_monthly_outflow: 5_300, baseline_surplus: 8_900,
   stacks: [
-    { label: 'Non-discretionary', color: 'red', amount: 3_000, description: 'Fixed', examples: [] },
-    { label: 'Discretionary', color: 'yellow', amount: 1_000, description: 'Flexible', examples: [] },
+    { label: 'Non-discretionary', color: 'red', amount: 4_000, description: 'Fixed', examples: [] },
+    { label: 'Discretionary', color: 'yellow', amount: 450, description: 'Flexible', examples: [] },
+    { label: 'Sinking Fund — Expected', color: 'green', amount: 600, description: 'Known future costs', examples: [] },
+    { label: 'Sinking Fund — Unexpected', color: 'gold', amount: 250, description: 'Life happens', examples: [] },
   ],
   custom_categories_note: 'Use household language.',
   annual_plan: {
     year: currentYear,
     months: months.map((label, index) => ({ id: index + 1, label, starts_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-01`, ends_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-28`, status: 'open' })),
-    rows: [{ id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary', stack_label: 'Non-discretionary', active: true, months: monthRows, planned_total: 108_960, actual_total: 250 }],
+    rows: [
+      { id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary', stack_label: 'Non-discretionary', active: true, months: categoryMonths(1, 4_000, 2_800), planned_total: 48_000, actual_total: 2_800 },
+      { id: 2, name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', active: true, months: categoryMonths(2, 450, 475), planned_total: 5_400, actual_total: 475 },
+      { id: 3, name: 'Expected sinking fund', stack_key: 'sinking_expected', stack_label: 'Sinking Fund — Expected', active: true, months: categoryMonths(3, 600, 200), planned_total: 7_200, actual_total: 200 },
+      { id: 4, name: 'Unexpected sinking fund', stack_key: 'sinking_unexpected', stack_label: 'Sinking Fund — Unexpected', active: true, months: categoryMonths(4, 250, 0), planned_total: 3_000, actual_total: 0 },
+    ],
     monthly_income: Object.fromEntries(months.map((_, index) => [index + 1, index >= 7 ? 15_000 : 14_200])),
     income_sources: [{
       id: 1, label: 'Primary income', source_type: 'job', base_amount: 14_200, base_cadence: 'monthly',
       schedule_entries: [{ id: 1, entry_type: 'recurring_change', label: null, amount: 15_000, cadence: 'monthly', effective_on: `${currentYear}-08-01` }],
     }],
     annual_outlook: {
-      typical_monthly_outflow: 9_080,
+      typical_monthly_outflow: 5_300,
       months: annualOutlookMonths,
       upcoming_spikes: [{ ...annualOutlookMonths[11], amount_above_typical: 3_000 }],
       next_irregular_month: annualOutlookMonths[11],
     },
-    pending_transaction_drafts: [], pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
+    pending_transaction_drafts: [
+      { id: 91, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-12`, merchant: 'Dinner with friends', amount: 75, amount_cents: 7_500, status: 'pending', source_type: 'receipt', category_id: 2, category_name: 'Dining out' },
+      { id: 92, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-15`, merchant: 'Storm supplies', amount: 40, amount_cents: 4_000, status: 'pending', source_type: 'manual_chat', category_id: 4, category_name: 'Unexpected sinking fund' },
+    ], pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
   },
 }
 
@@ -140,6 +158,31 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(page.getByRole('button', { name: 'Review 2 transactions' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Review 1 Mia change' })).toBeVisible()
   await expect(page.getByText('Month-to-date inside the annual plan')).toBeVisible()
+  const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
+  await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$115.00')
+  await expect(monthSummary).toContainText('Readiness-aware CFO amount—not ordinary budget remaining.')
+  await expect(monthSummary).toContainText('$1,710.00 remains after pending review')
+  await expect(monthSummary.locator('.budget-progress-pending')).toBeVisible()
+  const pressureRows = await page.locator('.home-financial-visuals .category-pressure-row').allTextContents()
+  expect(pressureRows[0]).toContain('Dining out')
+  expect(pressureRows[0]).toContain('$100.00 over if approved')
+  await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
+  const januaryChartButton = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
+  await januaryChartButton.focus()
+  const chartDetail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
+  await expect(chartDetail).toContainText(`Jan ${currentYear}`)
+  await expect(chartDetail).toContainText('$14,200.00')
+  await expect(chartDetail).toContainText('$5,300.00')
+  await expect(chartDetail).toContainText('$8,900.00 remains after planned outflow.')
+  await expect(chartDetail).toContainText('No expected irregular categories are planned this month.')
+  const decemberChartButton = page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).first()
+  await decemberChartButton.focus()
+  await expect(chartDetail).toContainText(`Dec ${currentYear}`)
+  await expect(chartDetail).toContainText('Expected irregular plan included in outflow')
+  await expect(chartDetail).toContainText('Holiday travel')
+  await expect(chartDetail).toContainText('$3,000.00')
+  await expect(page.locator('.home-financial-visuals .cash-flow-month-summary')).toHaveCount(12)
   await expect(page.getByRole('heading', { name: 'Your path from Red to Yellow to Green' })).toBeVisible()
   await expect(page.getByText('$23,215.00')).toBeVisible()
   await expect(page.getByText('$51,430.00')).toBeVisible()
@@ -154,10 +197,23 @@ test('large financial values stay on one line and participant screens stay insid
     if (section !== 'Home') await page.getByRole('button', { name: section, exact: true }).click()
 
     const audit = await page.evaluate(() => {
-      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b'
+      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong, .cash-flow-detail-panel dd, .transaction-draft-impact-row dd, .transaction-draft-impact-title b'
       const values = Array.from(document.querySelectorAll<HTMLElement>(selectors)).filter((element) => element.offsetParent !== null)
       return {
         documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        overflowingElements: Array.from(document.querySelectorAll<HTMLElement>('main *')).filter((element) => element.offsetParent !== null).filter((element) => {
+          const rect = element.getBoundingClientRect()
+          return rect.right > document.documentElement.clientWidth + 1 || rect.left < -1
+        }).slice(0, 12).map((element) => {
+          const rect = element.getBoundingClientRect()
+          return `${element.tagName.toLowerCase()}.${element.className}: left ${Math.round(rect.left)}, right ${Math.round(rect.right)}, width ${Math.round(rect.width)}`
+        }),
+        cockpitWidths: ['.budget-screen', '.annual-budget-panel', '.annual-outlook', '.annual-cash-flow-visual', '.annual-cash-flow-scroll'].map((selector) => {
+          const element = document.querySelector<HTMLElement>(selector)
+          if (!element || element.offsetParent === null) return `${selector}: hidden`
+          const rect = element.getBoundingClientRect()
+          return `${selector}: left ${Math.round(rect.left)}, right ${Math.round(rect.right)}, width ${Math.round(rect.width)}, client ${element.clientWidth}, scroll ${element.scrollWidth}`
+        }),
         clippedBoxes: Array.from(document.querySelectorAll<HTMLElement>('.shell-header, .screen-heading, .screen-grid > article, .screen-grid > section, .status-ribbon, .metric-card, .insight-card, .stack-card, .decision-card, .choice-card')).filter((element) => element.offsetParent !== null).filter((element) => {
           const rect = element.getBoundingClientRect()
           return rect.left < -1 || rect.right > document.documentElement.clientWidth + 1
@@ -170,7 +226,7 @@ test('large financial values stay on one line and participant screens stay insid
       }
     })
 
-    expect(audit.documentOverflow, `${section} should not overflow horizontally`).toBeLessThanOrEqual(1)
+    expect(audit.documentOverflow, `${section} should not overflow horizontally. Offenders: ${audit.overflowingElements.join(' | ')}. Cockpit: ${audit.cockpitWidths.join(' | ')}`).toBeLessThanOrEqual(1)
     expect(audit.clippedBoxes, `${section} cards should not be hidden outside the viewport`).toEqual([])
     expect(audit.splitValues, `${section} should not split or clip financial values`).toEqual([])
   }
@@ -201,6 +257,24 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await expect(page.getByRole('heading', { name: 'See the expensive months before they arrive.' })).toBeVisible()
   await expect(page.getByText('Dec spending spike')).toBeVisible()
   await expect(page.getByText('Holiday travel')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'See which layer is using the plan.' })).toBeVisible()
+  await expect(page.locator('.expense-stack-row')).toHaveCount(4)
+  await expect(page.getByText('$75.00 pending review—not included in actuals.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Every category, ordered by pressure' })).toBeVisible()
+  await expect(page.locator('.annual-outlook .cash-flow-month')).toHaveCount(12)
+  const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await expect(diningDraft.getByRole('region', { name: new RegExp(`Budget impact if approved for ${currentShortMonth}`) })).toContainText('$100.00 over plan if approved.')
+  await expect(diningDraft).toContainText('Actuals stay unchanged until you confirm.')
+})
+
+test('participant navigation remains available after deep scrolling', async ({ page }) => {
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect(page.locator('.tabs-shell')).toBeInViewport()
+  const top = await page.locator('.tabs-shell').evaluate((element) => Math.round(element.getBoundingClientRect().top))
+  expect(top).toBe(0)
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
@@ -228,5 +302,6 @@ test('compact phone layouts keep the status card legible and expose horizontal n
   expect((headingBox?.width ?? 0)).toBeGreaterThan(80)
   expect((headingBox?.y ?? 0) + (headingBox?.height ?? 0)).toBeLessThanOrEqual((copyBox?.y ?? 0) + 1)
   await expect(page.getByText('Swipe for more →')).toBeVisible()
+  await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
