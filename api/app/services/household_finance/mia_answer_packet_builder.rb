@@ -128,8 +128,21 @@ module HouseholdFinance
             amount: money(split.amount_cents),
             notes: split.notes
           }
-        end
+        end,
+        budget_impacts_if_approved: transaction_draft_budget_impacts
       }.compact
+    end
+
+    def transaction_draft_budget_impacts
+      return unless annual_plan
+
+      HouseholdFinance::TransactionDraftBudgetImpact.new(annual_plan: annual_plan, draft: transaction_draft).call.map do |impact|
+        impact.dup.tap do |payload|
+          %i[draft_amount_cents planned_cents actual_cents other_pending_cents projected_if_approved_cents remaining_if_approved_cents].each do |key|
+            payload[key.to_s.delete_suffix("_cents").to_sym] = money(payload.delete(key)) if payload.key?(key)
+          end
+        end
+      end
     end
 
     def budget_action_packet

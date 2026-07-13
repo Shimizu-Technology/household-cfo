@@ -38,12 +38,18 @@ assert.ok(budgetVisuals.includes('Month-to-date inside the annual plan'), 'home 
 assert.ok(home.includes('Your path from Red to Yellow to Green'), 'home should explain the deterministic readiness progression')
 assert.ok(home.includes('<CategoryPressureList'), 'home should rank the categories needing attention')
 assert.ok(home.includes('<AnnualCashFlowChart'), 'home should show the annual plan as an income-versus-outflow chart')
+assert.ok(budgetVisuals.includes('Hover, focus, or tap any month for exact amounts.'), 'annual cash flow should disclose exact values for mouse, keyboard, and touch users')
+assert.ok(budgetVisuals.includes('cash-flow-detail-panel'), 'shared cash-flow charts should expose a readable exact-value panel')
 assert.ok(budgetVisuals.includes('Readiness-aware CFO amount—not ordinary budget remaining.'), 'safe to spend must be distinguished from ordinary plan remaining')
 assert.ok(budgetVisuals.includes('pending review—not included in actuals.'), 'pending activity must remain visibly outside confirmed actuals')
 assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit panels should generate unique accessible heading IDs')
 assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')
 assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
+assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
 assert.ok(participantTabs.includes('Swipe for more'), 'mobile navigation should disclose that more modules are horizontally available')
+assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant navigation shell should stay available while scrolling')
+assert.ok(css.includes('.income-schedule-form :where(input, select)'), 'income schedule controls should share the application input styling')
+assert.ok(app.includes('Budget impact if approved'), 'transaction review cards should show the pending category impact before confirmation')
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')
 
 const productSource = `${app}\n${budgetVisuals}`

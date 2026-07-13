@@ -11,7 +11,12 @@ import {
   ExpenseStackOverview,
   MonthPlanSummary,
 } from './components/BudgetVisuals'
-import { budgetPositionsForMonth, budgetPositionTotals } from './lib/budgetPosition'
+import {
+  budgetPositionsForMonth,
+  budgetPositionTotals,
+  transactionDraftBudgetImpacts,
+  type TransactionDraftBudgetImpact,
+} from './lib/budgetPosition'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -1852,12 +1857,13 @@ function App() {
               )}
 
               {pendingTransactionDrafts.length > 0 && (
-                <TransactionDraftReviewStack
-                  drafts={pendingTransactionDrafts}
+              <TransactionDraftReviewStack
+                drafts={pendingTransactionDrafts}
                   isRealWorkspace={Boolean(isRealWorkspace)}
                   action={budgetAction}
                   compact
-                  categories={activeBudgetPlan?.rows ?? []}
+                categories={activeBudgetPlan?.rows ?? []}
+                plan={activeBudgetPlan}
                   onUpdate={handleUpdateTransactionDraft}
                   onMatch={handleMatchTransactionDraft}
                   onConfirm={handleConfirmTransactionDraft}
@@ -1983,6 +1989,7 @@ function App() {
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
             categories={activeBudgetPlan?.rows ?? []}
+            annualPlan={activeBudgetPlan}
             selectedImport={selectedImport}
             loading={documentsLoading}
             error={documentsError}
@@ -2421,6 +2428,7 @@ function DocumentImportWorkspace({
   isRealWorkspace,
   imports,
   categories,
+  annualPlan,
   selectedImport,
   loading,
   error,
@@ -2452,6 +2460,7 @@ function DocumentImportWorkspace({
   isRealWorkspace: boolean
   imports: FinancialDocumentImport[]
   categories: BudgetCategoryRow[]
+  annualPlan?: AnnualBudgetPlan
   selectedImport: FinancialDocumentImport | null
   loading: boolean
   error: string | null
@@ -2558,6 +2567,7 @@ function DocumentImportWorkspace({
         <DocumentReviewPanel
           documentImport={selectedImport}
           categories={categories}
+          annualPlan={annualPlan}
           itemSavingIds={itemSavingIds}
           action={action}
           draftAction={draftAction}
@@ -2765,6 +2775,7 @@ function DocumentImportHistory({
 function DocumentReviewPanel({
   documentImport,
   categories,
+  annualPlan,
   itemSavingIds,
   action,
   draftAction,
@@ -2788,6 +2799,7 @@ function DocumentReviewPanel({
 }: {
   documentImport: FinancialDocumentImport | null
   categories: BudgetCategoryRow[]
+  annualPlan?: AnnualBudgetPlan
   itemSavingIds: Set<number>
   action: string | null
   draftAction: string | null
@@ -2938,6 +2950,7 @@ function DocumentReviewPanel({
             action={draftAction}
             compact
             categories={categories}
+            plan={annualPlan}
             onUpdate={onUpdateDraft}
             onMatch={onMatchDraft}
             onConfirm={onConfirmDraft}
@@ -5073,6 +5086,7 @@ function TransactionDraftReviewStack({
   draftActionsDisabled = false,
   disabledReason,
   categories = [],
+  plan,
   onUpdate,
   onMatch,
   onConfirm,
@@ -5088,6 +5102,7 @@ function TransactionDraftReviewStack({
   draftActionsDisabled?: boolean
   disabledReason?: string
   categories?: BudgetCategoryRow[]
+  plan?: AnnualBudgetPlan
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
@@ -5228,6 +5243,7 @@ function TransactionDraftReviewStack({
           action={action}
           draftActionsDisabled={draftActionsDisabled || bulkBusy}
           categories={categories}
+          plan={plan}
           onUpdate={onUpdate}
           onMatch={onMatch}
           onConfirm={onConfirm}
@@ -5269,6 +5285,7 @@ function TransactionDraftReviewCard({
   action,
   draftActionsDisabled,
   categories,
+  plan,
   onUpdate,
   onMatch,
   onConfirm,
@@ -5282,6 +5299,7 @@ function TransactionDraftReviewCard({
   action: string | null
   draftActionsDisabled: boolean
   categories: BudgetCategoryRow[]
+  plan?: AnnualBudgetPlan
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
@@ -5307,6 +5325,26 @@ function TransactionDraftReviewCard({
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
+  const impactDraft = editing ? {
+    ...draft,
+    occurred_on: occurredOn,
+    amount: targetAmount,
+    amount_cents: Math.round(targetAmount * 100),
+    category_id: null,
+    category_name: null,
+    splits: splits.map((split, index) => ({
+      id: split.id ?? -(index + 1),
+      budget_category_id: split.budget_category_id ? Number(split.budget_category_id) : null,
+      category_name: split.category_name || null,
+      stack_key: split.stack_key || null,
+      stack_label: split.stack_key || null,
+      amount: Number(split.amount || 0),
+      amount_cents: Math.round(Number(split.amount || 0) * 100),
+      notes: split.notes || null,
+      confidence: draft.splits?.find((candidate) => candidate.id === split.id)?.confidence ?? null,
+    })),
+  } satisfies TransactionDraft : draft
+  const budgetImpacts = plan ? transactionDraftBudgetImpacts(plan, impactDraft) : []
 
   function resetEditorFromDraft() {
     setMerchant(draft.merchant)
@@ -5391,6 +5429,9 @@ function TransactionDraftReviewCard({
               <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</span>
             ))}
           </div>
+        )}
+        {plan && budgetImpacts.length > 0 && (
+          <TransactionDraftBudgetImpactPanel occurredOn={impactDraft.occurred_on} impacts={budgetImpacts} editing={editing} />
         )}
         {proposedMatches.length > 0 && (
           <div className="transaction-match-suggestions">
@@ -5480,6 +5521,60 @@ function TransactionDraftReviewCard({
         </div>
       )}
     </div>
+  )
+}
+
+function TransactionDraftBudgetImpactPanel({
+  occurredOn,
+  impacts,
+  editing,
+}: {
+  occurredOn: string
+  impacts: TransactionDraftBudgetImpact[]
+  editing: boolean
+}) {
+  return (
+    <section className="transaction-draft-impact" aria-label={`Budget impact if approved for ${formatMonthYear(occurredOn)}`}>
+      <div className="transaction-draft-impact-heading">
+        <div>
+          <span>Budget impact if approved</span>
+          <strong>{formatMonthYear(occurredOn)}</strong>
+        </div>
+        {editing && <small>Preview updates as you edit</small>}
+      </div>
+      <div className="transaction-draft-impact-list">
+        {impacts.map((impact, index) => {
+          if (impact.categoryId === null || impact.planned === null || impact.actual === null || impact.remainingIfApproved === null) {
+            return (
+              <article className="transaction-draft-impact-row needs-category" key={`${impact.categoryId ?? 'none'}-${index}`}>
+                <div>
+                  <strong>{impact.categoryName}</strong>
+                  <span>{currency.format(impact.draftAmount)} in this draft</span>
+                </div>
+                <p>Choose a budget category to see what this would leave—or put over plan.</p>
+              </article>
+            )
+          }
+
+          const over = impact.remainingIfApproved < 0
+          return (
+            <article className={`transaction-draft-impact-row${over ? ' is-over' : ''}`} key={`${impact.categoryId}-${index}`}>
+              <div className="transaction-draft-impact-title">
+                <strong>{impact.categoryName}</strong>
+                <b>{over ? `${currency.format(Math.abs(impact.remainingIfApproved))} over` : `${currency.format(impact.remainingIfApproved)} left`}</b>
+              </div>
+              <dl>
+                <div><dt>Planned</dt><dd>{currency.format(impact.planned)}</dd></div>
+                <div><dt>Confirmed</dt><dd>{currency.format(impact.actual)}</dd></div>
+                <div><dt>This draft</dt><dd>{currency.format(impact.draftAmount)}</dd></div>
+                {impact.otherPending > 0 && <div><dt>Other pending</dt><dd>{currency.format(impact.otherPending)}</dd></div>}
+              </dl>
+              <p>{over ? `${currency.format(Math.abs(impact.remainingIfApproved))} over plan if approved.` : `${currency.format(impact.remainingIfApproved)} would remain if approved.`} Actuals stay unchanged until you confirm.</p>
+            </article>
+          )
+        })}
+      </div>
+    </section>
   )
 }
 
@@ -6240,6 +6335,7 @@ function AnnualBudgetPlanner({
           draftActionsDisabled={isEditingBudget}
           disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
           categories={plan.rows}
+          plan={plan}
           onUpdate={onUpdateDraft}
           onMatch={onMatchDraft}
           onConfirm={onConfirmDraft}

@@ -172,17 +172,18 @@
 
 .income-schedule-form {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   align-items: end;
-  gap: 12px;
-  padding: 16px;
-  border: 1px solid var(--line);
-  border-radius: 18px;
-  background: var(--paper);
+  gap: 14px;
+  padding: 20px;
+  border: 1px solid rgba(143, 74, 95, 0.16);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 238, 233, 0.72));
 }
 
 .income-schedule-form label {
   display: grid;
+  min-width: 0;
   gap: 6px;
 }
 
@@ -191,6 +192,38 @@
   font-size: 0.74rem;
   font-weight: 800;
   text-transform: uppercase;
+}
+
+.income-schedule-form :where(input, select) {
+  width: 100%;
+  min-width: 0;
+  min-height: 46px;
+  padding: 0 13px;
+  border: 1px solid rgba(47, 38, 28, 0.15);
+  border-radius: 13px;
+  background: white;
+  color: var(--ink);
+  font: inherit;
+  font-weight: 750;
+  box-shadow: 0 6px 16px rgba(47, 38, 28, 0.04);
+}
+
+.income-schedule-form :where(input, select):focus-visible {
+  outline: 3px solid rgba(143, 74, 95, 0.2);
+  outline-offset: 2px;
+  border-color: var(--mauve);
+}
+
+.income-schedule-form-actions {
+  grid-column: span 2;
+  align-items: center;
+  justify-content: flex-end;
+  min-width: 0;
+}
+
+.income-schedule-form-actions button {
+  min-height: 46px;
+  padding: 10px 16px;
 }
 
 .income-schedule-form .setup-error {
@@ -269,6 +302,14 @@
   .home-look-ahead {
     grid-template-columns: 1fr;
   }
+
+  .income-schedule-form {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .income-schedule-form-actions {
+    grid-column: 1 / -1;
+  }
 }
 
 @media (max-width: 480px) {
@@ -285,6 +326,7 @@
   .income-schedule-row > div:last-child,
   .income-schedule-form-actions {
     display: grid;
+    grid-column: 1 / -1;
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -303,7 +345,7 @@ body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
-  overflow-x: hidden;
+  overflow-x: clip;
   background:
     radial-gradient(circle at top left, rgba(123, 74, 88, 0.11), transparent 30rem),
     linear-gradient(180deg, #fbf8f1 0%, var(--cream) 42%, #efe6da 100%);
@@ -587,9 +629,6 @@ h3 {
 }
 
 .tabs {
-  position: sticky;
-  top: 0;
-  z-index: 10;
   display: flex;
   gap: 6px;
   overflow-x: auto;
@@ -625,7 +664,13 @@ h3 {
 }
 
 .tabs-shell {
-  position: relative;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  padding-block: 1px;
+  background: rgba(246, 239, 229, 0.92);
+  backdrop-filter: blur(18px);
+  box-shadow: 0 10px 24px rgba(47, 38, 28, 0.08);
 }
 
 .tabs-scroll-cue {
@@ -1959,7 +2004,7 @@ h3 {
 
   .app {
     padding: 10px 10px 40px;
-    overflow: hidden;
+    overflow-x: clip;
   }
 
   .loading-state {
@@ -4827,6 +4872,118 @@ h3 {
   font-weight: 800;
 }
 
+.transaction-draft-impact {
+  display: grid;
+  gap: 9px;
+  margin-top: 4px;
+  padding: 11px;
+  border: 1px solid rgba(143, 74, 95, 0.16);
+  border-radius: 15px;
+  background: linear-gradient(180deg, #fffaf6, #f8eee9);
+}
+
+.transaction-draft-impact-heading,
+.transaction-draft-impact-title,
+.transaction-draft-impact-row > div:first-child {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.transaction-draft-impact-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.transaction-draft-impact-heading span,
+.transaction-draft-impact-row dt {
+  color: var(--muted);
+  font-size: 0.63rem;
+  font-weight: 900;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.transaction-draft-impact-heading small {
+  color: var(--mauve);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.transaction-draft-impact-list {
+  display: grid;
+  gap: 8px;
+}
+
+.transaction-draft-impact-row {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid rgba(47, 38, 28, 0.08);
+  border-radius: 13px;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+.transaction-draft-impact-title b {
+  color: var(--status-green);
+  font-family: var(--number-font);
+  font-size: 0.82rem;
+  font-variant-numeric: tabular-nums lining-nums;
+  white-space: nowrap;
+}
+
+.transaction-draft-impact-row.is-over {
+  border-color: rgba(174, 75, 69, 0.25);
+  background: #fff4ef;
+}
+
+.transaction-draft-impact-row.is-over .transaction-draft-impact-title b {
+  color: var(--status-red);
+}
+
+.transaction-draft-impact-row dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 6px;
+  margin: 0;
+}
+
+.transaction-draft-impact-row dl > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  container-type: inline-size;
+}
+
+.transaction-draft-impact-row dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-size: clamp(0.58rem, 10cqi, 0.76rem);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.transaction-draft-impact-row p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.transaction-draft-impact-row.is-over p {
+  color: var(--status-red);
+}
+
+.transaction-draft-impact-row.needs-category > div span {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 800;
+}
+
 .transaction-match-suggestions > div {
   display: flex;
   flex-wrap: wrap;
@@ -5401,6 +5558,64 @@ h3 {
   gap: 12px;
 }
 
+.cash-flow-detail-panel {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.75fr) minmax(0, 1.5fr);
+  gap: 12px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid rgba(143, 74, 95, 0.14);
+  border-radius: 14px;
+  background: #fbf7f3;
+}
+
+.cash-flow-detail-panel > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.cash-flow-detail-panel small {
+  color: var(--muted);
+  font-size: 0.66rem;
+  line-height: 1.35;
+}
+
+.cash-flow-detail-panel dl {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+
+.cash-flow-detail-panel dl > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+  container-type: inline-size;
+}
+
+.cash-flow-detail-panel dt {
+  color: var(--muted);
+  font-size: 0.62rem;
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.cash-flow-detail-panel dd {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-size: clamp(0.58rem, 10cqi, 0.84rem);
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+.cash-flow-detail-panel .negative :where(dt, dd) {
+  color: var(--status-red);
+}
+
 .month-plan-summary-heading span,
 .financial-visual-heading span,
 .plan-value span,
@@ -5730,11 +5945,38 @@ h3 {
   padding: 4px 2px 8px;
 }
 
-.cash-flow-month {
-  display: grid;
+.annual-cash-flow-visual.compact .annual-cash-flow-chart {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   min-width: 0;
-  gap: 4px;
+}
+
+.cash-flow-month {
+  position: relative;
+  min-width: 0;
   text-align: center;
+}
+
+.cash-flow-month-trigger {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 44px;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  box-shadow: none;
+  text-align: center;
+}
+
+.cash-flow-month-trigger:hover,
+.cash-flow-month-trigger:focus-visible,
+.cash-flow-month.is-pinned .cash-flow-month-trigger {
+  outline: 2px solid rgba(143, 74, 95, 0.28);
+  outline-offset: 2px;
+  background: rgba(143, 74, 95, 0.05);
 }
 
 .cash-flow-bars {
@@ -5770,17 +6012,31 @@ h3 {
   background: #fff0eb;
 }
 
-.cash-flow-month > strong {
+.cash-flow-month-trigger > strong {
   color: var(--ink);
   font-size: 0.72rem;
 }
 
-.cash-flow-month > span:not(.sr-only) {
-  overflow: hidden;
+.cash-flow-month-summary {
+  display: grid;
+  min-width: 0;
+  gap: 0;
   color: var(--muted);
-  font-size: 0.66rem;
-  text-overflow: ellipsis;
+  line-height: 1.05;
+}
+
+.cash-flow-month-summary b {
+  font-family: var(--number-font);
+  font-size: clamp(0.62rem, 1vw, 0.72rem);
+  font-variant-numeric: tabular-nums lining-nums;
   white-space: nowrap;
+}
+
+.cash-flow-month-summary small {
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 .current-month-activity > .category-pressure-panel {
@@ -5904,6 +6160,10 @@ h3 {
     max-width: none;
     text-align: left;
   }
+
+  .transaction-draft-impact-row dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 620px) {
@@ -5944,10 +6204,15 @@ h3 {
     justify-content: flex-start;
   }
 
-  .annual-cash-flow-chart {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+  .annual-cash-flow-chart,
+  .annual-cash-flow-visual.compact .annual-cash-flow-chart {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 12px 4px;
     min-width: 0;
+  }
+
+  .cash-flow-detail-panel {
+    grid-template-columns: 1fr;
   }
 
   .cash-flow-bars {
@@ -5960,13 +6225,33 @@ h3 {
   }
 }
 
+@media (max-width: 480px) {
+  .cash-flow-detail-panel dl {
+    grid-template-columns: 1fr;
+  }
+
+  .cash-flow-detail-panel dl > div {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+  }
+
+  .transaction-draft-impact-heading,
+  .transaction-draft-impact-title,
+  .transaction-draft-impact-row > div:first-child {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+}
+
 @media (max-width: 360px) {
   .month-plan-values,
   .month-plan-decision-row {
     grid-template-columns: 1fr;
   }
 
-  .annual-cash-flow-chart {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+  .annual-cash-flow-chart,
+  .annual-cash-flow-visual.compact .annual-cash-flow-chart {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 }

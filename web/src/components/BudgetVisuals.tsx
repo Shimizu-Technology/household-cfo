@@ -1,4 +1,4 @@
-import { useId, type CSSProperties } from 'react'
+import { useId, useState, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
 
@@ -199,7 +199,11 @@ export function CategoryPressureList({
 
 export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBudgetPlan; compact?: boolean }) {
   const titleId = useId()
+  const [pinnedPeriodId, setPinnedPeriodId] = useState<number | null>(null)
   const months = plan.annual_outlook.months
+  const [activePeriodId, setActivePeriodId] = useState<number | null>(() => months[0]?.period_id ?? null)
+  const activeMonth = months.find((month) => month.period_id === activePeriodId) ?? months[0]
+  const pinnedPeriodExists = months.some((month) => month.period_id === pinnedPeriodId)
   const scaleMaximum = Math.max(...months.flatMap((month) => [month.income, month.planned_outflow]), 1)
   const negativeMonths = months.filter((month) => month.baseline_surplus < 0)
 
@@ -216,6 +220,22 @@ export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBud
         <span><i className="income-swatch" /> Income</span>
         <span><i className="outflow-swatch" /> Planned outflow</span>
       </div>
+      {activeMonth && (
+        <div className="cash-flow-detail-panel" aria-live="polite">
+          <div>
+            <strong>{activeMonth.label} {plan.year}</strong>
+            <small>Hover, focus, or tap any month for exact amounts.</small>
+          </div>
+          <dl>
+            <div><dt>Income</dt><dd>{currency.format(activeMonth.income)}</dd></div>
+            <div><dt>Planned outflow</dt><dd>{currency.format(activeMonth.planned_outflow)}</dd></div>
+            <div className={activeMonth.baseline_surplus < 0 ? 'negative' : ''}>
+              <dt>{activeMonth.baseline_surplus < 0 ? 'Baseline shortfall' : 'Baseline surplus'}</dt>
+              <dd>{currency.format(Math.abs(activeMonth.baseline_surplus))}</dd>
+            </div>
+          </dl>
+        </div>
+      )}
       <div className="annual-cash-flow-scroll" role="region" aria-label={`${plan.year} monthly income and planned outflow chart`} tabIndex={0}>
         <div className="annual-cash-flow-chart">
           {months.map((month) => {
@@ -226,18 +246,29 @@ export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBud
               '--outflow-height': `${outflowHeight}%`,
             } as CSSProperties
             return (
-              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}`} style={style} key={month.period_id} title={`${month.label}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned, ${currency.format(month.baseline_surplus)} baseline surplus`}>
-                <div className="cash-flow-bars" aria-hidden="true">
-                  <i className="income-bar" />
-                  <i className="outflow-bar" />
-                </div>
-                <strong>{month.label}</strong>
-                <span className={month.baseline_surplus < 0 ? 'negative' : ''}>
-                  {month.baseline_surplus < 0
-                    ? `${compactCurrency.format(Math.abs(month.baseline_surplus))} short`
-                    : `${compactCurrency.format(month.baseline_surplus)} left`}
-                </span>
-                <span className="sr-only">{currency.format(month.income)} income, {currency.format(month.planned_outflow)} planned outflow, and {currency.format(month.baseline_surplus)} baseline surplus.</span>
+              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
+                <button
+                  type="button"
+                  className="cash-flow-month-trigger"
+                  aria-pressed={pinnedPeriodId === month.period_id}
+                  aria-label={`${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'baseline shortfall' : 'baseline surplus'}`}
+                  onMouseEnter={() => { if (pinnedPeriodId === null || !pinnedPeriodExists) setActivePeriodId(month.period_id) }}
+                  onFocus={() => setActivePeriodId(month.period_id)}
+                  onClick={() => {
+                    setActivePeriodId(month.period_id)
+                    setPinnedPeriodId((current) => current === month.period_id ? null : month.period_id)
+                  }}
+                >
+                  <div className="cash-flow-bars" aria-hidden="true">
+                    <i className="income-bar" />
+                    <i className="outflow-bar" />
+                  </div>
+                  <strong>{month.label}</strong>
+                  <span className={`cash-flow-month-summary${month.baseline_surplus < 0 ? ' negative' : ''}`}>
+                    <b>{compactCurrency.format(Math.abs(month.baseline_surplus))}</b>
+                    <small>{month.baseline_surplus < 0 ? 'short' : 'left'}</small>
+                  </span>
+                </button>
               </article>
             )
           })}

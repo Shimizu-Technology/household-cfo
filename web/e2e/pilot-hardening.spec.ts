@@ -168,6 +168,13 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   expect(pressureRows[0]).toContain('Dining out')
   expect(pressureRows[0]).toContain('$100.00 over if approved')
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
+  const januaryChartButton = page.getByRole('button', { name: new RegExp(`Jan ${currentYear}:`) }).first()
+  await januaryChartButton.focus()
+  const chartDetail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
+  await expect(chartDetail).toContainText(`Jan ${currentYear}`)
+  await expect(chartDetail).toContainText('$14,200.00')
+  await expect(chartDetail).toContainText('$5,300.00')
+  await expect(page.locator('.home-financial-visuals .cash-flow-month-summary')).toHaveCount(12)
   await expect(page.getByRole('heading', { name: 'Your path from Red to Yellow to Green' })).toBeVisible()
   await expect(page.getByText('$23,215.00')).toBeVisible()
   await expect(page.getByText('$51,430.00')).toBeVisible()
@@ -182,7 +189,7 @@ test('large financial values stay on one line and participant screens stay insid
     if (section !== 'Home') await page.getByRole('button', { name: section, exact: true }).click()
 
     const audit = await page.evaluate(() => {
-      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong'
+      const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong, .cash-flow-detail-panel dd, .transaction-draft-impact-row dd, .transaction-draft-impact-title b'
       const values = Array.from(document.querySelectorAll<HTMLElement>(selectors)).filter((element) => element.offsetParent !== null)
       return {
         documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
@@ -247,6 +254,19 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await expect(page.getByText('$75.00 pending review—not included in actuals.')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Every category, ordered by pressure' })).toBeVisible()
   await expect(page.locator('.annual-outlook .cash-flow-month')).toHaveCount(12)
+  const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await expect(diningDraft.getByRole('region', { name: new RegExp(`Budget impact if approved for ${currentShortMonth}`) })).toContainText('$100.00 over plan if approved.')
+  await expect(diningDraft).toContainText('Actuals stay unchanged until you confirm.')
+})
+
+test('participant navigation remains available after deep scrolling', async ({ page }) => {
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
+  await expect(page.locator('.tabs-shell')).toBeInViewport()
+  const top = await page.locator('.tabs-shell').evaluate((element) => Math.round(element.getBoundingClientRect().top))
+  expect(top).toBe(0)
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {

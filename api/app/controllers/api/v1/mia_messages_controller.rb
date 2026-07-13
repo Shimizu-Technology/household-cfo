@@ -786,7 +786,7 @@ module Api
           return narrate_structured_answer(content, history, conversation_context, kind: "spending_report", fallback_response: report_answer, spending_report: spending_report, write_state: "no_write")
         end
         if transaction_draft
-          draft_answer = transaction_draft_answer.presence || drafted_transaction_message(transaction_draft)
+          draft_answer = transaction_draft_answer.presence || drafted_transaction_message(transaction_draft, annual_plan)
           kind = transaction_draft_answer.present? ? "transaction_draft_update" : "transaction_draft"
           write_state = transaction_draft_answer.present? ? "draft_updated" : "pending_review"
           return narrate_structured_answer(content, history, conversation_context, kind: kind, fallback_response: draft_answer, annual_plan: annual_plan, transaction_draft: transaction_draft, write_state: write_state, selected_month: transaction_draft.occurred_on.month)
@@ -828,9 +828,37 @@ module Api
         ).call
       end
 
-      def drafted_transaction_message(draft)
-        category = draft.budget_category&.name || "Uncategorized"
-        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
+      def drafted_transaction_message(draft, annual_plan)
+        category = drafted_transaction_category_label(draft)
+        impact = drafted_transaction_impact_line(draft, annual_plan)
+        "I drafted this for review: #{draft.merchant} for #{money(draft.total_amount_cents)} in #{category}. #{impact} Confirm it only if the merchant, amount, and category are right. Month-to-date actuals will not change until you approve it."
+      end
+
+      def drafted_transaction_category_label(draft)
+        return draft.budget_category.name if draft.budget_category
+
+        categories = draft.transaction_draft_splits.filter_map { |split| split.budget_category&.name || split.category_name }.uniq
+        return categories.first if categories.one?
+        return "#{categories.length} categories" if categories.many?
+
+        "Uncategorized"
+      end
+
+      def drafted_transaction_impact_line(draft, annual_plan)
+        impacts = HouseholdFinance::TransactionDraftBudgetImpact.new(annual_plan: annual_plan, draft: draft).call
+        known = impacts.select { |impact| impact[:status] != "needs_category" }
+        return "Choose a category in the draft to see its budget impact." if known.empty?
+
+        impact = known.min_by { |candidate| candidate.fetch(:remaining_if_approved_cents) }
+        remaining_cents = impact.fetch(:remaining_if_approved_cents)
+        outcome = if remaining_cents.negative?
+          "would be #{money(remaining_cents.abs)} over its #{money(impact.fetch(:planned_cents))} plan"
+        else
+          "would have #{money(remaining_cents)} left in its #{money(impact.fetch(:planned_cents))} plan"
+        end
+        line = "If approved, #{draft.occurred_on.strftime('%B')}'s #{impact.fetch(:category_name)} category #{outcome}."
+        line += " The review card shows all #{known.length} category impacts." if known.length > 1
+        line
       end
 
       def money(cents)
