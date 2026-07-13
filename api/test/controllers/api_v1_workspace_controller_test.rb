@@ -21,6 +21,19 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes summary, "household setup review"
   end
 
+  test "mia attachment summary uses complete fallback copy for malformed legacy conflicts" do
+    document_import = Struct.new(:metadata, :document_kind, :content_type)
+    imports = [
+      document_import.new({ "routing_requires_confirmation" => true, "routing_conflict_reason" => "participant_signals" }, "receipt", "image/png"),
+      document_import.new({ "routing_requires_confirmation" => true, "routing_conflict_reason" => "mia_detection" }, "statement", "application/pdf")
+    ]
+
+    summary = Api::V1::MiaMessagesController.new.send(:attached_documents_route_summary, imports)
+
+    assert_includes summary, "your message described receipt, selected type was another document type"
+    assert_includes summary, "you described statement, Mia detected another document type"
+  end
+
   test "workspace creates an empty household for an authenticated participant" do
     user = create_user(email: "participant@example.com")
 

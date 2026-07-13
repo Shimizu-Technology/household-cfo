@@ -3034,8 +3034,11 @@ function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'
 }
 
 function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {
-  if (destination === 'transaction_review' || kind === 'receipt' || kind === 'statement') return 'Transaction review'
-  if (destination === 'household_setup_review' || kind === 'pay_stub' || kind === 'spreadsheet') return 'Household setup review'
+  if (destination === 'transaction_review') return 'Transaction review'
+  if (destination === 'household_setup_review') return 'Household setup review'
+  if (destination === 'private_document_review') return 'Private document history'
+  if (kind === 'receipt' || kind === 'statement') return 'Transaction review'
+  if (kind === 'pay_stub' || kind === 'spreadsheet') return 'Household setup review'
   return 'Private document history'
 }
 

@@ -78,6 +78,8 @@ assert.ok(app.includes('Delete upload & record removes the original file and thi
 assert.ok(!app.includes("'Delete source'"), 'ambiguous source deletion label should not return')
 assert.ok(!app.includes("'Delete import'"), 'ambiguous import deletion label should not return')
 assert.ok(app.includes('if (!metadata.routing_source) return null'), 'routing status should remain hidden until extraction records a routing decision')
+assert.ok(app.includes("if (destination === 'private_document_review') return 'Private document history'"), 'an explicit private routing destination should override document-kind fallback labels')
+assert.ok(!app.includes("destination === 'transaction_review' || kind"), 'destination labels should resolve explicit backend metadata before falling back to document kind')
 assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
 assert.ok(app.includes('Confirm all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk confirmation')
 assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk ignore')

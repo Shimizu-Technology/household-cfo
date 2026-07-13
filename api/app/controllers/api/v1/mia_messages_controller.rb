@@ -286,10 +286,13 @@ module Api
         if conflicts.any?
           descriptions = conflicts.map do |document_import|
             metadata = document_import.metadata.to_h
+            resolved_kind = metadata["routing_resolved_kind"].presence || document_import.document_kind.presence || "other"
             comparison = if metadata["routing_conflict_reason"] == "participant_signals"
-              "your message described #{metadata['routing_resolved_kind'].to_s.humanize.downcase}, selected type was #{metadata['declared_document_kind'].to_s.humanize.downcase}"
+              declared_kind = metadata["declared_document_kind"].presence || "another document type"
+              "your message described #{resolved_kind.humanize.downcase}, selected type was #{declared_kind.humanize.downcase}"
             else
-              "you described #{metadata['routing_resolved_kind'].to_s.humanize.downcase}, Mia detected #{metadata['routing_detected_kind'].to_s.humanize.downcase}"
+              detected_kind = metadata["routing_detected_kind"].presence || "another document type"
+              "you described #{resolved_kind.humanize.downcase}, Mia detected #{detected_kind.humanize.downcase}"
             end
             "#{evidence_label(document_import)} (#{comparison})"
           end
