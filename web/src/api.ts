@@ -148,6 +148,16 @@ export type FinancialDocumentImport = {
     last_applied_at?: string
     transaction_draft_count?: number
     transaction_match_count?: number
+    upload_origin?: 'profile' | 'mia'
+    declared_document_kind?: DocumentImportKind
+    document_kind_explicit?: boolean
+    routing_detected_kind?: DocumentImportKind
+    routing_resolved_kind?: DocumentImportKind
+    routing_source?: 'participant_context' | 'participant_selection' | 'mia_detection' | 'file_default'
+    routing_conflict?: boolean
+    routing_conflict_reason?: 'participant_signals' | 'mia_detection'
+    routing_requires_confirmation?: boolean
+    routing_destination?: 'transaction_review' | 'household_setup_review' | 'private_document_review'
   }
   items: DocumentImportItem[]
   transaction_drafts: TransactionDraft[]
@@ -1054,11 +1064,12 @@ export async function fetchDocumentImport(id: number): Promise<FinancialDocument
   return payload.document_import
 }
 
-export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = ''): Promise<FinancialDocumentImport> {
+export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = '', documentKindExplicit = origin === 'profile'): Promise<FinancialDocumentImport> {
   const formData = new FormData()
   formData.append('file', file)
   formData.append('document_kind', documentKind)
   formData.append('upload_origin', origin)
+  formData.append('document_kind_explicit', String(documentKindExplicit))
   if (uploadContext.trim()) formData.append('upload_context', uploadContext.trim())
   formData.append('upload_request_id', clientRequestId())
 

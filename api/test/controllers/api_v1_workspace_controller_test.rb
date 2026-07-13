@@ -1,6 +1,39 @@
 require "test_helper"
 
 class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
+  test "mia attachment route copy safely handles a legacy import without a document kind" do
+    legacy_import = Struct.new(:metadata, :document_kind).new({}, nil)
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, legacy_import)
+
+    assert_equal "I recognized this as other and routed it to private import history.", route_line
+  end
+
+  test "mia attachment summary names the actual destinations in a mixed batch" do
+    document_import = Struct.new(:metadata, :document_kind)
+    imports = [
+      document_import.new({ "routing_destination" => "transaction_review" }, "receipt"),
+      document_import.new({ "routing_destination" => "private_document_review" }, "other")
+    ]
+
+    summary = Api::V1::MiaMessagesController.new.send(:attached_documents_route_summary, imports)
+
+    assert_equal "I routed the uploads to pending transaction review and private import history.", summary
+    assert_not_includes summary, "household setup review"
+  end
+
+  test "mia attachment summary uses complete fallback copy for malformed legacy conflicts" do
+    document_import = Struct.new(:metadata, :document_kind, :content_type)
+    imports = [
+      document_import.new({ "routing_requires_confirmation" => true, "routing_conflict_reason" => "participant_signals" }, "receipt", "image/png"),
+      document_import.new({ "routing_requires_confirmation" => true, "routing_conflict_reason" => "mia_detection" }, "statement", "application/pdf")
+    ]
+
+    summary = Api::V1::MiaMessagesController.new.send(:attached_documents_route_summary, imports)
+
+    assert_includes summary, "your message described receipt, selected type was another document type"
+    assert_includes summary, "you described statement, Mia detected another document type"
+  end
+
   test "workspace creates an empty household for an authenticated participant" do
     user = create_user(email: "participant@example.com")
 
@@ -458,8 +491,42 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
     assert_includes assistant_content, "Finished reading the statement upload"
+    assert_includes assistant_content, "routed the upload to pending transaction review"
     assert_includes assistant_content, "3 pending transaction reviews"
     assert_includes assistant_content, "Jul 1, 2026 through Jul 3, 2026"
+  end
+
+  test "mia chat surfaces a document routing conflict without changing household numbers" do
+    user = create_user(email: "mia-routing-conflict@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "pay_stub",
+      status: "needs_review",
+      filename: "income.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/income.png",
+      metadata: {
+        "routing_detected_kind" => "statement",
+        "routing_resolved_kind" => "pay_stub",
+        "routing_requires_confirmation" => true,
+        "routing_destination" => "household_setup_review"
+      }
+    )
+
+    assert_no_difference("IncomeSource.count") do
+      post "/api/v1/mia/messages",
+           params: { message: "Use this pay stub to help update my income", document_import_ids: [ document_import.id ] },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes assistant_content, "You described this as pay stub, but I detected statement"
+    assert_includes assistant_content, "flagged the routing difference for review"
+    assert_includes assistant_content, "no household numbers changed"
   end
 
   test "mia chat persists attached document imports with a single contextual reply" do
@@ -495,6 +562,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_nil body.fetch("transaction_draft")
     assistant_content = body.fetch("assistant_message").fetch("content")
+    assert_includes assistant_content, "routed it to pending transaction review"
     assert_not_includes assistant_content, "I used your note as context"
     assert_includes assistant_content, "I found Resend for $20"
     attachment = body.fetch("user_message").fetch("attachments").first

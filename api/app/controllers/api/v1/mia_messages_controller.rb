@@ -258,7 +258,7 @@ module Api
         end
         items = attached_imports.flat_map { |document_import| document_import.items.where(ignored: false).order(:id).to_a }
         completion_line = attached_imports.one? ? "Finished reading the statement upload." : "Finished reading all #{attached_imports.length} uploads."
-        parts = [ completion_line ]
+        parts = [ completion_line, attached_documents_route_summary(attached_imports) ]
         if drafts.any?
           dates = drafts.map(&:occurred_on).compact
           date_range = if dates.any?
@@ -281,27 +281,88 @@ module Api
         parts.join(" ")
       end
 
+      def attached_documents_route_summary(document_imports)
+        conflicts = document_imports.select { |document_import| document_import.metadata.to_h["routing_requires_confirmation"] }
+        if conflicts.any?
+          descriptions = conflicts.map do |document_import|
+            metadata = document_import.metadata.to_h
+            resolved_kind = metadata["routing_resolved_kind"].presence || document_import.document_kind.presence || "other"
+            comparison = if metadata["routing_conflict_reason"] == "participant_signals"
+              declared_kind = metadata["declared_document_kind"].presence || "another document type"
+              "your message described #{resolved_kind.humanize.downcase}, selected type was #{declared_kind.humanize.downcase}"
+            else
+              detected_kind = metadata["routing_detected_kind"].presence || "another document type"
+              "you described #{resolved_kind.humanize.downcase}, Mia detected #{detected_kind.humanize.downcase}"
+            end
+            "#{evidence_label(document_import)} (#{comparison})"
+          end
+          return "I flagged #{descriptions.to_sentence} for a routing check and preserved your description."
+        end
+
+        destinations = document_imports.map { |document_import| document_routing_destination(document_import) }.uniq
+        if destinations.many?
+          destination_labels = {
+            "transaction_review" => "pending transaction review",
+            "household_setup_review" => "household setup review",
+            "private_document_review" => "private import history"
+          }
+          labels = destinations.map { |destination| destination_labels.fetch(destination, "private import history") }
+          return "I routed the uploads to #{labels.to_sentence}."
+        end
+        return "I routed the upload#{'s' if document_imports.many?} to household setup review." if destinations == [ "household_setup_review" ]
+        return "I saved the upload#{'s' if document_imports.many?} in private import history for review." if destinations == [ "private_document_review" ]
+
+        "I routed the upload#{'s' if document_imports.many?} to pending transaction review."
+      end
+
       def attached_document_result_message(document_import)
         if document_import.status == "failed"
           return "I could not read the #{evidence_label(document_import)} yet: #{document_import.extraction_error.presence || 'extraction failed'}. The upload is saved, but no household numbers changed."
         end
 
+        route_line = attached_document_route_line(document_import)
         drafts = document_import.transaction_drafts.pending.includes(:budget_category, :transaction_draft_splits).order(:occurred_on, :id).to_a
         if drafts.any?
-          return drafted_document_transaction_message(document_import, drafts)
+          return "#{route_line} #{drafted_document_transaction_message(document_import, drafts)}"
         end
 
         items = document_import.items.where(ignored: false).order(:id).to_a
         if items.any?
           labels = items.first(3).map(&:label).to_sentence
-          return "Good — I found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review: #{labels}. You stay the CFO here: open Review imports to approve or adjust them before anything updates the household plan."
+          return "#{route_line} I found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review: #{labels}. You stay the CFO here: open Review imports to approve or adjust them before anything updates the household plan."
         end
 
         if document_import.status.in?(%w[uploaded processing])
-          return "The #{evidence_label(document_import)} is still processing. I’ll show review cards here as soon as the app finishes reading it."
+          return "#{route_line} The #{evidence_label(document_import)} is still processing. I’ll show review cards here as soon as the app finishes reading it."
         end
 
-        "I read the #{evidence_label(document_import)}, but I did not find clear money details to draft. The upload is saved for review, and no household numbers changed."
+        "#{route_line} I read the #{evidence_label(document_import)}, but I did not find clear money details to draft. The upload is saved in Import history, and no household numbers changed."
+      end
+
+      def attached_document_route_line(document_import)
+        metadata = document_import.metadata.to_h
+        resolved_kind = metadata["routing_resolved_kind"].presence || document_import.document_kind || "other"
+        if metadata["routing_requires_confirmation"]
+          if metadata["routing_conflict_reason"] == "participant_signals"
+            selected_kind = metadata["declared_document_kind"].presence || "another document type"
+            return "Your message described this as #{resolved_kind.humanize.downcase}, but the selected type was #{selected_kind.humanize.downcase}. I used your message and flagged the routing difference for review."
+          end
+
+          detected_kind = metadata["routing_detected_kind"].presence || "another document type"
+          return "You described this as #{resolved_kind.humanize.downcase}, but I detected #{detected_kind.humanize.downcase}. I kept your description and flagged the routing difference for review."
+        end
+
+        destination = case document_routing_destination(document_import)
+        when "transaction_review" then "pending transaction review"
+        when "household_setup_review" then "household setup review"
+        else "private import history"
+        end
+        "I recognized this as #{resolved_kind.humanize.downcase} and routed it to #{destination}."
+      end
+
+      def document_routing_destination(document_import)
+        document_import.metadata.to_h["routing_destination"].presence ||
+          FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind, "private_document_review")
       end
 
       def drafted_document_transaction_message(document_import, drafts)
@@ -310,7 +371,7 @@ module Api
         date = first_draft.occurred_on.strftime("%b %-d, %Y")
         merchant = first_draft.merchant.presence || evidence_label(document_import).titleize
         category = first_draft.budget_category&.name || first_draft.transaction_draft_splits.first&.category_name || "Uncategorized"
-        intro = "Good — I found #{merchant} for #{amount} on #{date} and drafted it in #{category}."
+        intro = "I found #{merchant} for #{amount} on #{date} and drafted it in #{category}."
         extra = drafts.length > 1 ? " I also found #{drafts.length - 1} more transaction row#{'s' unless drafts.length == 2}." : ""
         "#{intro}#{extra} You stay the CFO here: review the card#{'s' if drafts.length > 1} below before anything touches actuals."
       end

@@ -17,6 +17,7 @@ type ChatHistoryProps = {
   onOpenLocal: (attachment: MiaMessageAttachment) => void
   onOpenImport: (documentImport: FinancialDocumentImport) => void
   onOpenImportId: (documentImportId: number) => void
+  onReviewImportId: (documentImportId: number) => void
 }
 
 export function ChatHistory({
@@ -35,6 +36,7 @@ export function ChatHistory({
   onOpenLocal,
   onOpenImport,
   onOpenImportId,
+  onReviewImportId,
 }: ChatHistoryProps) {
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
 
@@ -68,6 +70,7 @@ export function ChatHistory({
                   onOpenLocal={onOpenLocal}
                   onOpenImport={onOpenImport}
                   onOpenImportId={onOpenImportId}
+                  onReviewImportId={onReviewImportId}
                 />
               )}
             </div>
@@ -99,12 +102,14 @@ function MessageAttachmentList({
   onOpenLocal,
   onOpenImport,
   onOpenImportId,
+  onReviewImportId,
 }: {
   attachments: MiaMessageAttachment[]
   imports: FinancialDocumentImport[]
   onOpenLocal: (attachment: MiaMessageAttachment) => void
   onOpenImport: (documentImport: FinancialDocumentImport) => void
   onOpenImportId: (documentImportId: number) => void
+  onReviewImportId: (documentImportId: number) => void
 }) {
   return (
     <div className="message-attachment-list" aria-label="Message attachments">
@@ -113,22 +118,29 @@ function MessageAttachmentList({
         const hasImagePreview = Boolean(attachment.preview_url && browserPreviewableImage(attachment.content_type))
         const canOpen = Boolean(attachment.document_import_id || attachment.preview_url || documentImport?.source_available)
         const label = attachmentDisplayName(attachment)
+        const effectiveStatus = documentImport?.status ?? attachment.status
         return (
-          <button
-            type="button"
-            className={`message-attachment-card ${hasImagePreview ? 'is-image' : ''}`}
-            key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}
-            disabled={!canOpen}
-            aria-label={`Open ${label}`}
-            onClick={() => {
-              if (documentImport) onOpenImport(documentImport)
-              else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
-              else if (attachment.preview_url) onOpenLocal(attachment)
-            }}
-          >
-            {hasImagePreview ? <img src={attachment.preview_url} alt={label} loading="lazy" decoding="async" /> : <AttachmentIcon />}
-            {!hasImagePreview && <span>{label}</span>}
-          </button>
+          <div className={`message-attachment-entry ${hasImagePreview ? 'is-image' : ''}`} key={`${attachment.document_import_id ?? attachment.filename}-${attachment.filename}`}>
+            <button
+              type="button"
+              className={`message-attachment-card ${hasImagePreview ? 'is-image' : ''}`}
+              disabled={!canOpen}
+              aria-label={`Preview ${label}`}
+              onClick={() => {
+                if (documentImport) onOpenImport(documentImport)
+                else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
+                else if (attachment.preview_url) onOpenLocal(attachment)
+              }}
+            >
+              {hasImagePreview ? <img src={attachment.preview_url} alt={label} loading="lazy" decoding="async" /> : <AttachmentIcon />}
+              <span>{label}</span>
+            </button>
+            {attachment.document_import_id && (
+              <button type="button" className="message-attachment-review" onClick={() => onReviewImportId(attachment.document_import_id!)}>
+                {effectiveStatus === 'needs_review' ? 'Review draft' : 'Open import'}
+              </button>
+            )}
+          </div>
         )
       })}
     </div>

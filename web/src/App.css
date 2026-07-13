@@ -2671,6 +2671,23 @@ h3 {
   justify-content: flex-end;
 }
 
+.document-review-controls {
+  display: grid;
+  flex: 1 1 460px;
+  gap: 8px;
+  justify-items: end;
+}
+
+.document-retention-help {
+  max-width: 590px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.45;
+  text-align: right;
+}
+
 .document-action-hint {
   display: inline-flex;
   min-height: 38px;
@@ -3094,10 +3111,20 @@ h3 {
 
   .document-review-actions,
   .document-review-actions button,
+  .document-review-controls,
   .document-apply-bar button,
   .document-item-edit-actions,
   .document-item-edit-actions button {
     width: 100%;
+  }
+
+  .document-review-controls {
+    justify-items: stretch;
+  }
+
+  .document-retention-help {
+    max-width: none;
+    text-align: left;
   }
 
   .document-review-actions button {
@@ -3111,6 +3138,27 @@ h3 {
   .document-history,
   .document-review-panel {
     padding: 13px;
+  }
+
+  .document-routing-summary {
+    grid-template-columns: 1fr;
+    padding: 13px;
+  }
+
+  .composer-attachment-card {
+    width: 100%;
+  }
+
+  .attachment-preview-button {
+    flex: 1 1 130px;
+  }
+
+  .attachment-kind-picker {
+    flex: 1 1 180px;
+  }
+
+  .attachment-kind-picker select {
+    width: 100%;
   }
 
   .document-apply-bar {
@@ -3906,6 +3954,20 @@ h3 {
   gap: 8px;
 }
 
+.composer-attachment-workflow {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+}
+
+.composer-attachment-workflow > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
 .composer-attachment-card,
 .message-attachment-card {
   display: inline-flex;
@@ -3922,6 +3984,60 @@ h3 {
 
 .composer-attachment-card {
   padding: 6px;
+  flex-wrap: wrap;
+}
+
+.attachment-kind-picker select {
+  width: min(210px, 48vw);
+  min-height: 34px;
+  border: 1px solid rgba(123, 74, 88, 0.16);
+  border-radius: 10px;
+  background: rgba(123, 74, 88, 0.05);
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.73rem;
+  padding: 5px 28px 5px 8px;
+}
+
+.document-routing-summary {
+  display: grid;
+  grid-template-columns: minmax(180px, 0.75fr) minmax(0, 1.25fr);
+  gap: 14px;
+  align-items: center;
+  padding: 14px 16px;
+  border: 1px solid rgba(80, 125, 92, 0.28);
+  border-radius: 16px;
+  background: rgba(80, 125, 92, 0.08);
+}
+
+.document-routing-summary.needs-confirmation {
+  border-color: rgba(181, 111, 42, 0.34);
+  background: rgba(181, 111, 42, 0.1);
+}
+
+.document-routing-summary > div {
+  display: grid;
+  gap: 4px;
+}
+
+.document-routing-summary span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.document-routing-summary strong,
+.document-routing-summary p {
+  overflow-wrap: anywhere;
+}
+
+.document-routing-summary p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
 }
 
 .attachment-preview-button,
@@ -3982,6 +4098,12 @@ h3 {
   margin-top: 10px;
 }
 
+.message-attachment-entry {
+  display: grid;
+  justify-items: stretch;
+  min-width: 0;
+}
+
 .message-attachment-card {
   padding: 7px 10px 7px 7px;
 }
@@ -4013,6 +4135,36 @@ h3 {
   max-height: 230px;
   border-radius: inherit;
   object-fit: cover;
+}
+
+.message-attachment-card.is-image span {
+  display: block;
+  max-width: none;
+  padding: 8px 10px;
+  overflow: hidden;
+  background: rgba(255, 253, 248, 0.96);
+  color: var(--mauve);
+  text-align: left;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.message-attachment-review {
+  justify-self: stretch;
+  margin-top: 6px;
+  min-height: 34px;
+  border: 1px solid rgba(255, 253, 248, 0.24);
+  border-radius: 12px;
+  background: rgba(255, 253, 248, 0.12);
+  color: inherit;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.message.assistant .message-attachment-review {
+  border-color: rgba(123, 74, 88, 0.16);
+  background: rgba(123, 74, 88, 0.06);
+  color: var(--mauve);
 }
 
 .local-attachment-preview {

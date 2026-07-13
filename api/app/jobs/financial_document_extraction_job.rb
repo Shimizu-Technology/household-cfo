@@ -5,7 +5,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
 
   ATTEMPT_METADATA_STRING_LENGTH = 120
   ATTEMPT_USAGE_KEYS = %w[prompt_tokens completion_tokens total_tokens].freeze
-  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at transaction_draft_count transaction_match_count].freeze
+  EXTRACTION_SUCCESS_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination].freeze
   STALE_PROCESSING_AFTER = 15.minutes
 
   def perform(financial_document_import_id)
@@ -56,12 +56,22 @@ class FinancialDocumentExtractionJob < ApplicationJob
         return
       end
 
+      routing = FinancialDocuments::RoutingDecision.new(document_import, detected_kind: data[:document_kind]).call
+      document_import.document_kind = routing.resolved_kind
       document_import.items.where(applied_at: nil).delete_all
       Array(data[:items]).each do |item_attributes|
         document_import.items.create!(item_attributes)
       end
       draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, data[:transaction_drafts]).call
       warnings = Array(data[:warnings]) + Array(draft_result.fetch(:warnings))
+      if routing.conflict
+        warning = if routing.conflict_reason == "participant_signals"
+          "Your message described this as #{routing.resolved_kind.humanize.downcase}, while the selected type was #{routing.declared_kind.humanize.downcase}. Mia used your message and left every extracted value pending for you to verify."
+        else
+          "You described this as #{routing.resolved_kind.humanize.downcase}, while Mia detected #{routing.detected_kind.humanize.downcase}. Mia kept your description and left every extracted value pending for you to verify."
+        end
+        warnings.unshift(warning)
+      end
 
       metadata = (document_import.metadata || {}).merge(
         "confidence" => data[:confidence],
@@ -72,11 +82,18 @@ class FinancialDocumentExtractionJob < ApplicationJob
         "extraction_batch_count" => result.metadata[:batch_count],
         "last_extracted_at" => Time.current.iso8601,
         "transaction_draft_count" => draft_result.fetch(:created_count),
-        "transaction_match_count" => draft_result.fetch(:match_count)
+        "transaction_match_count" => draft_result.fetch(:match_count),
+        "routing_detected_kind" => routing.detected_kind,
+        "routing_resolved_kind" => routing.resolved_kind,
+        "routing_source" => routing.source,
+        "routing_conflict" => routing.conflict,
+        "routing_conflict_reason" => routing.conflict_reason,
+        "routing_requires_confirmation" => routing.requires_confirmation,
+        "routing_destination" => routing.destination
       ).compact
 
       document_import.update!(
-        document_kind: data[:document_kind] || document_import.document_kind,
+        document_kind: routing.resolved_kind,
         status: "needs_review",
         document_date: data[:document_date],
         period_start_on: data[:period_start_on],

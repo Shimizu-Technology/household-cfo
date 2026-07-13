@@ -101,6 +101,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
             params: {
               file: uploaded_csv,
               document_kind: "spreadsheet",
+              document_kind_explicit: true,
               upload_origin: "mia",
               upload_context: "Here is my <bank> statement from the past month.`\nPlease review it."
             },
@@ -114,6 +115,8 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "uploaded", document_import.status
     assert_equal "mia", document_import.metadata.fetch("upload_origin")
     assert_equal "Here is my bank statement from the past month. Please review it.", document_import.metadata.fetch("upload_context")
+    assert_equal "spreadsheet", document_import.metadata.fetch("declared_document_kind")
+    assert_equal true, document_import.metadata.fetch("document_kind_explicit")
   end
 
   test "create rejects mismatched file contents before upload" do

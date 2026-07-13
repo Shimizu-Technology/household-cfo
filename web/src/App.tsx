@@ -135,6 +135,7 @@ type PendingMiaAttachment = {
   document_import_id?: number
   status?: FinancialDocumentImport['status']
   source_available?: boolean
+  kindWasSelected?: boolean
 }
 
 type BudgetAllocationChange = {
@@ -1367,6 +1368,12 @@ function App() {
     })
   }
 
+  function updatePendingMiaAttachmentKind(id: string, documentKind: DocumentImportKind) {
+    setPendingMiaAttachments((current) => current.map((attachment) => (
+      attachment.id === id ? { ...attachment, document_kind: documentKind, kindWasSelected: true } : attachment
+    )))
+  }
+
   async function uploadPendingMiaAttachments(attachments: PendingMiaAttachment[], messageContext: string) {
     const preparedAttachments = [...attachments]
 
@@ -1376,7 +1383,7 @@ function App() {
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
-        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext)
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext, Boolean(attachment.kindWasSelected))
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
@@ -1521,7 +1528,7 @@ function App() {
   }
 
   async function handleDeleteDocumentSource(documentImport: FinancialDocumentImport) {
-    if (!window.confirm('Delete the private source file from S3? Applied household numbers will stay saved.')) return
+    if (!window.confirm("Remove the original private file? This keeps the import history, extracted results, and any saved household values. You won't be able to preview or reprocess this file.")) return
 
     setDocumentAction(`source:${documentImport.id}`)
     setDocumentsError(null)
@@ -1529,7 +1536,7 @@ function App() {
     try {
       const updatedImport = await deleteDocumentImportSource(documentImport.id)
       setDocumentImports((current) => replaceImport(current, updatedImport))
-      setDocumentsNotice('Private source file deleted. The extracted review record remains for audit context.')
+      setDocumentsNotice('Original file removed. Import history, extracted results, and saved household values remain.')
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be deleted.')
     } finally {
@@ -1538,7 +1545,7 @@ function App() {
   }
 
   async function handleDeleteDocumentImport(documentImport: FinancialDocumentImport) {
-    if (!window.confirm('Delete this import record and its source file? This is only available before values are applied.')) return
+    if (!window.confirm('Delete this upload, its original file, and its import history? This cannot be undone and is only available before anything is applied or matched.')) return
 
     setDocumentAction(`delete:${documentImport.id}`)
     setDocumentsError(null)
@@ -1547,7 +1554,7 @@ function App() {
       await deleteDocumentImport(documentImport.id)
       setDocumentImports((current) => current.filter((existing) => existing.id !== documentImport.id))
       setSelectedImportId((current) => (current === documentImport.id ? null : current))
-      setDocumentsNotice('Document import deleted.')
+      setDocumentsNotice('Upload, original file, and import record deleted.')
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Document import could not be deleted.')
     } finally {
@@ -1820,6 +1827,11 @@ function App() {
                 }}
                 onOpenImport={handleOpenDocumentSource}
                 onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
+                onReviewImportId={(id) => {
+                  setSelectedImportId(id)
+                  switchSection('My Profile')
+                  requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+                }}
               />
 
               {pendingMiaActionDrafts.length > 0 && (
@@ -1867,11 +1879,15 @@ function App() {
                   }}
                 />
                 {pendingMiaAttachments.length > 0 && (
-                  <PendingAttachmentTray
-                    attachments={pendingMiaAttachments}
-                    onPreview={setPreviewAttachment}
-                    onRemove={removePendingMiaAttachment}
-                  />
+                  <div className="composer-attachment-workflow">
+                    <p>Tell Mia what each file is, or describe it in your message. Mia will verify the type and route only draft results for your review.</p>
+                    <PendingAttachmentTray
+                      attachments={pendingMiaAttachments}
+                      onPreview={setPreviewAttachment}
+                      onRemove={removePendingMiaAttachment}
+                      onKindChange={updatePendingMiaAttachmentKind}
+                    />
+                  </div>
                 )}
                 <button
                   className="composer-attach"
@@ -2199,10 +2215,12 @@ function PendingAttachmentTray({
   attachments,
   onPreview,
   onRemove,
+  onKindChange,
 }: {
   attachments: PendingMiaAttachment[]
   onPreview: (attachment: PendingMiaAttachment) => void
   onRemove: (id: string) => void
+  onKindChange: (id: string, documentKind: DocumentImportKind) => void
 }) {
   return (
     <div className="composer-attachment-tray" aria-label="Attachments waiting to send">
@@ -2212,6 +2230,16 @@ function PendingAttachmentTray({
             {browserPreviewableImage(attachment.content_type) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
             <span>{attachmentDisplayName(attachment)}</span>
           </button>
+          <label className="attachment-kind-picker">
+            <span className="sr-only">Document type for {attachment.filename}</span>
+            <select value={attachment.document_kind} onChange={(event) => onKindChange(attachment.id, event.currentTarget.value as DocumentImportKind)}>
+              <option value="receipt">Receipt or purchase</option>
+              <option value="statement">Bank or card statement</option>
+              <option value="pay_stub">Pay stub</option>
+              <option value="spreadsheet">Budget spreadsheet</option>
+              <option value="other">Supporting document</option>
+            </select>
+          </label>
           <button type="button" className="attachment-remove-button" aria-label={`Remove ${attachmentDisplayName(attachment)}`} onClick={() => onRemove(attachment.id)}>
             <CloseIcon />
           </button>
@@ -2828,7 +2856,17 @@ function DocumentReviewPanel({
   const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
   const fullyApplied = documentImport.status === 'applied'
+  const importHasSavedValues = fullyApplied ||
+    documentImport.status === 'partially_applied' ||
+    documentImport.items.some((item) => item.applied_at) ||
+    documentImport.transaction_drafts.some((draft) => ['confirmed', 'corrected', 'matched'].includes(draft.status))
   const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
+  const retentionHelpId = `document-retention-help-${documentImport.id}`
+  const retentionHelp = !documentImport.source_available
+    ? 'The original file has been removed. This import history, its extracted results, and any saved household values remain.'
+    : importHasSavedValues
+      ? 'Remove original file keeps this history and saved household values. The complete import record cannot be deleted after values are saved.'
+      : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
   return (
     <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
@@ -2838,28 +2876,31 @@ function DocumentReviewPanel({
           <h4>{documentImportDisplayName(documentImport)}</h4>
           <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
-        <div className="document-review-actions">
-          <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
-            {actionForImport('source-url') ? 'Opening' : 'Preview source'}
-          </button>
-          {fullyApplied ? (
-            <>
-              <span className="document-action-hint">Upload a new copy to reprocess</span>
-              <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
-                {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
-              {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+        <div className="document-review-controls">
+          <div className="document-review-actions">
+            <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
+              {actionForImport('source-url') ? 'Opening' : 'Preview original'}
             </button>
-          )}
-          <button type="button" className="subtle" onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
-            {actionForImport('source') ? 'Deleting' : 'Delete source'}
-          </button>
-          <button type="button" className="danger" onClick={() => onDeleteImport(documentImport)} disabled={documentImport.items.some((item) => item.applied_at) || actionForImport('delete')}>
-            {actionForImport('delete') ? 'Deleting' : 'Delete import'}
-          </button>
+            {fullyApplied ? (
+              <>
+                <span className="document-action-hint">Upload a new copy to reprocess</span>
+                <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
+                  {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
+                {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+              </button>
+            )}
+            <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
+              {actionForImport('source') ? 'Removing' : 'Remove original file'}
+            </button>
+            <button type="button" className="danger" aria-describedby={retentionHelpId} onClick={() => onDeleteImport(documentImport)} disabled={importHasSavedValues || actionForImport('delete')}>
+              {actionForImport('delete') ? 'Deleting' : 'Delete upload & record'}
+            </button>
+          </div>
+          <p className="document-retention-help" id={retentionHelpId}>{retentionHelp}</p>
         </div>
       </div>
 
@@ -2875,6 +2916,8 @@ function DocumentReviewPanel({
         )}
         {documentImport.extraction_error && <p className="document-error-copy">{documentImport.extraction_error}</p>}
       </div>
+
+      <DocumentRoutingSummary documentImport={documentImport} />
 
       {warnings.length > 0 && (
         <div className="document-warning-list" role="note" aria-label="Extraction warnings">
@@ -2957,6 +3000,53 @@ function DocumentReviewPanel({
       </div>
     </article>
   )
+}
+
+function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialDocumentImport }) {
+  const metadata = documentImport.metadata
+  if (!metadata.routing_source) return null
+
+  const resolvedKind = metadata.routing_resolved_kind ?? documentImport.document_kind
+  const destination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+  const conflict = Boolean(metadata.routing_requires_confirmation)
+
+  return (
+    <div className={`document-routing-summary${conflict ? ' needs-confirmation' : ''}`} role={conflict ? 'alert' : 'note'}>
+      <div>
+        <span>{conflict ? 'Routing needs your check' : 'Routed for review'}</span>
+        <strong>{documentKindLabel(resolvedKind)} → {destination}</strong>
+      </div>
+      <p>
+        {conflict
+          ? routingConflictExplanation(metadata, resolvedKind)
+          : routingExplanation(metadata.routing_source)}
+      </p>
+    </div>
+  )
+}
+
+function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind) {
+  if (metadata.routing_conflict_reason === 'participant_signals') {
+    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. Mia used your message; verify the draft before approving anything.`
+  }
+
+  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but Mia detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
+}
+
+function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {
+  if (destination === 'transaction_review') return 'Transaction review'
+  if (destination === 'household_setup_review') return 'Household setup review'
+  if (destination === 'private_document_review') return 'Private document history'
+  if (kind === 'receipt' || kind === 'statement') return 'Transaction review'
+  if (kind === 'pay_stub' || kind === 'spreadsheet') return 'Household setup review'
+  return 'Private document history'
+}
+
+function routingExplanation(source: FinancialDocumentImport['metadata']['routing_source']) {
+  if (source === 'participant_context') return 'Mia used your message as the strongest routing signal, checked the file, and kept every result pending.'
+  if (source === 'participant_selection') return 'Mia honored the document type you selected, checked the file, and kept every result pending.'
+  if (source === 'mia_detection') return 'Mia recognized the document from its contents and kept every extracted result pending.'
+  return 'Mia routed this from the file type and kept every extracted result pending for review.'
 }
 
 function AppliedImportSummary({ documentImport, onEdit }: { documentImport: FinancialDocumentImport; onEdit: () => void }) {
@@ -3432,6 +3522,8 @@ function attachmentWithDocumentImport(attachment: PendingMiaAttachment, document
 }
 
 function attachmentWithMessageContext(attachment: PendingMiaAttachment, message: string): PendingMiaAttachment {
+  if (attachment.kindWasSelected) return attachment
+
   const documentKind = documentKindForMessageContext(attachment.file, attachment.document_kind, message)
   return documentKind === attachment.document_kind ? attachment : { ...attachment, document_kind: documentKind }
 }
