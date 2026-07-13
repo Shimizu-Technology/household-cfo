@@ -820,6 +820,100 @@ export async function resendAdminUserInvitation(id: number): Promise<AdminUserMu
   return postJson<AdminUserMutationResponse>(`/api/v1/admin/users/${id}/resend_invitation`, {})
 }
 
+export type PlaidAccount = {
+  id: number
+  name: string
+  official_name: string | null
+  mask: string | null
+  type: string
+  subtype: string | null
+  current_balance_cents: number | null
+  available_balance_cents: number | null
+  currency: string | null
+  active: boolean
+}
+
+export type PlaidItem = {
+  id: number
+  institution_name: string
+  status: 'active' | 'update_required' | 'error' | 'disconnecting' | 'disconnected'
+  environment: 'sandbox' | 'production'
+  consented_at: string
+  last_synced_at: string | null
+  error_message: string | null
+  disconnected_at: string | null
+  accounts: PlaidAccount[]
+}
+
+export type PlaidOverview = {
+  configured: boolean
+  environment: 'sandbox' | 'production' | null
+  consent_policy_version: string
+  items: PlaidItem[]
+}
+
+export type PlaidTransaction = {
+  id: number
+  account_id: number
+  account_name: string
+  account_mask: string | null
+  name: string
+  merchant_name: string | null
+  occurred_on: string
+  authorized_on: string | null
+  amount_cents: number
+  pending: boolean
+  direction: 'outflow' | 'inflow'
+  primary_category: string | null
+  detailed_category: string | null
+  review_status: 'unreviewed' | 'drafted' | 'ignored'
+  stageable: boolean
+  transaction_draft_id: number | null
+  source_changed_after_draft: boolean
+}
+
+export async function fetchPlaidOverview(): Promise<PlaidOverview> {
+  return fetchJson<PlaidOverview>('/api/v1/plaid/items')
+}
+
+export async function createPlaidLinkToken(consentAccepted: boolean): Promise<{ link_token: string; consent_policy_version: string }> {
+  return postJson('/api/v1/plaid/items/link_token', { consent_accepted: consentAccepted })
+}
+
+export async function createPlaidUpdateLinkToken(itemId: number): Promise<{ link_token: string }> {
+  return postJson(`/api/v1/plaid/items/${itemId}/update_link_token`, {})
+}
+
+export async function exchangePlaidPublicToken(values: { public_token: string; institution_id?: string | null; institution_name?: string | null }): Promise<PlaidOverview> {
+  const payload = await postJson<{ plaid: PlaidOverview }>('/api/v1/plaid/items/exchange', values)
+  return payload.plaid
+}
+
+export async function syncPlaidItem(itemId: number): Promise<PlaidOverview> {
+  return postJson<PlaidOverview>(`/api/v1/plaid/items/${itemId}/sync`, {})
+}
+
+export async function disconnectPlaidItem(itemId: number): Promise<PlaidOverview> {
+  return fetchJson<PlaidOverview>(`/api/v1/plaid/items/${itemId}`, { method: 'DELETE' })
+}
+
+export type PlaidTransactionsPage = {
+  transactions: PlaidTransaction[]
+  pagination: { page: number; per_page: number; total: number; has_more: boolean }
+}
+
+export async function fetchPlaidTransactions(page = 1): Promise<PlaidTransactionsPage> {
+  return fetchJson<PlaidTransactionsPage>(`/api/v1/plaid/transactions?limit=100&page=${page}`)
+}
+
+export async function stagePlaidTransactions(transactionIds: number[]): Promise<{ drafted_count: number; transaction_draft_ids: number[] }> {
+  return postJson('/api/v1/plaid/transactions/stage', { transaction_ids: transactionIds })
+}
+
+export async function ignorePlaidTransactions(transactionIds: number[]): Promise<{ ignored_count: number }> {
+  return postJson('/api/v1/plaid/transactions/ignore', { transaction_ids: transactionIds })
+}
+
 export async function fetchAppData(realWorkspace = false): Promise<AppData> {
   if (realWorkspace) {
     return fetchJson<AppData>('/api/v1/workspace')

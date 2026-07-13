@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_14_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -343,7 +343,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
     t.index ["household_id", "status"], name: "index_household_transactions_on_household_id_and_status"
     t.index ["household_id"], name: "index_household_transactions_on_household_id"
     t.index ["source_import_id"], name: "index_household_transactions_on_source_import_id"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "household_transactions_source_type_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying, 'plaid'::character varying]::text[])", name: "household_transactions_source_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying, 'reconciled'::character varying, 'ignored'::character varying]::text[])", name: "household_transactions_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "household_transactions_amount_positive"
   end
@@ -480,6 +480,84 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
     t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying]::text[])", name: "mia_action_items_action_type_valid"
+  end
+
+  create_table "plaid_accounts", force: :cascade do |t|
+    t.string "account_subtype"
+    t.string "account_type", null: false
+    t.boolean "active", default: true, null: false
+    t.bigint "available_balance_cents"
+    t.datetime "created_at", null: false
+    t.bigint "current_balance_cents"
+    t.string "iso_currency_code"
+    t.datetime "last_synced_at"
+    t.bigint "limit_balance_cents"
+    t.string "mask"
+    t.string "name", null: false
+    t.string "official_name"
+    t.string "persistent_account_id"
+    t.string "plaid_account_id", null: false
+    t.bigint "plaid_item_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["plaid_account_id"], name: "index_plaid_accounts_on_plaid_account_id", unique: true
+    t.index ["plaid_item_id"], name: "index_plaid_accounts_on_plaid_item_id"
+  end
+
+  create_table "plaid_items", force: :cascade do |t|
+    t.text "access_token_ciphertext"
+    t.bigint "connected_by_user_id", null: false
+    t.datetime "consent_expiration_time"
+    t.string "consent_policy_version", null: false
+    t.datetime "consented_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "disconnected_at"
+    t.string "environment", null: false
+    t.string "error_code"
+    t.string "error_message"
+    t.bigint "household_id", null: false
+    t.string "institution_id"
+    t.string "institution_name"
+    t.datetime "last_successful_update_at"
+    t.datetime "last_synced_at"
+    t.string "plaid_item_id", null: false
+    t.string "status", default: "active", null: false
+    t.text "sync_cursor"
+    t.datetime "updated_at", null: false
+    t.index ["connected_by_user_id"], name: "index_plaid_items_on_connected_by_user_id"
+    t.index ["household_id"], name: "index_plaid_items_on_household_id"
+    t.index ["plaid_item_id"], name: "index_plaid_items_on_plaid_item_id", unique: true
+    t.check_constraint "environment::text = ANY (ARRAY['sandbox'::character varying, 'production'::character varying]::text[])", name: "plaid_items_environment"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'update_required'::character varying, 'error'::character varying, 'disconnecting'::character varying, 'disconnected'::character varying]::text[])", name: "plaid_items_status"
+  end
+
+  create_table "plaid_transactions", force: :cascade do |t|
+    t.bigint "amount_cents", null: false
+    t.date "authorized_on"
+    t.datetime "created_at", null: false
+    t.string "detailed_category"
+    t.string "drafted_source_fingerprint"
+    t.string "iso_currency_code"
+    t.string "merchant_name"
+    t.string "name", null: false
+    t.date "occurred_on", null: false
+    t.string "payment_channel"
+    t.boolean "pending", default: false, null: false
+    t.string "pending_transaction_id"
+    t.bigint "plaid_account_id", null: false
+    t.bigint "plaid_item_id", null: false
+    t.string "plaid_transaction_id", null: false
+    t.string "primary_category"
+    t.datetime "removed_at"
+    t.string "review_status", default: "unreviewed", null: false
+    t.string "source_fingerprint", null: false
+    t.bigint "transaction_draft_id"
+    t.datetime "updated_at", null: false
+    t.index ["plaid_account_id"], name: "index_plaid_transactions_on_plaid_account_id"
+    t.index ["plaid_item_id", "occurred_on"], name: "index_plaid_transactions_on_plaid_item_id_and_occurred_on"
+    t.index ["plaid_item_id"], name: "index_plaid_transactions_on_plaid_item_id"
+    t.index ["plaid_transaction_id"], name: "index_plaid_transactions_on_plaid_transaction_id", unique: true
+    t.index ["transaction_draft_id"], name: "index_plaid_transactions_on_transaction_draft_id"
+    t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying, 'drafted'::character varying, 'ignored'::character varying]::text[])", name: "plaid_transactions_review_status"
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|
@@ -671,7 +749,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
     t.index ["household_id", "status", "created_at"], name: "idx_on_household_id_status_created_at_cf0ad72279"
     t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
     t.index ["matched_transaction_id"], name: "index_transaction_drafts_on_matched_transaction_id"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying, 'plaid'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying, 'matched'::character varying]::text[])", name: "transaction_drafts_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "transaction_drafts_amount_positive"
   end
@@ -762,6 +840,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
   add_foreign_key "mia_action_drafts", "users", column: "canceled_by_user_id"
   add_foreign_key "mia_action_drafts", "users", column: "requested_by_user_id"
   add_foreign_key "mia_action_items", "mia_action_drafts"
+  add_foreign_key "plaid_accounts", "plaid_items"
+  add_foreign_key "plaid_items", "households"
+  add_foreign_key "plaid_items", "users", column: "connected_by_user_id"
+  add_foreign_key "plaid_transactions", "plaid_accounts"
+  add_foreign_key "plaid_transactions", "plaid_items"
+  add_foreign_key "plaid_transactions", "transaction_drafts", on_delete: :nullify
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

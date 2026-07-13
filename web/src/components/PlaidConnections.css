@@ -1,0 +1,45 @@
+.plaid-workspace { display: grid; gap: 1.25rem; overflow: clip; }
+.plaid-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.plaid-heading h2 { margin: .25rem 0 .45rem; font-family: var(--font-display); font-size: clamp(1.75rem, 3vw, 2.6rem); line-height: 1; }
+.plaid-heading p, .plaid-item p, .plaid-review-note { margin: 0; color: var(--ink-soft); }
+.plaid-environment, .plaid-status { border-radius: 999px; padding: .4rem .7rem; background: var(--paper-deep); font-size: .72rem; font-weight: 800; text-transform: uppercase; letter-spacing: .07em; }
+.plaid-status.is-update_required, .plaid-status.is-error { background: #fae8dc; color: #923e33; }
+.plaid-consent, .plaid-empty { padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: rgba(255,255,255,.55); }
+.plaid-consent { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .8rem 1rem; align-items: center; }
+.plaid-consent label { display: flex; gap: .7rem; align-items: flex-start; grid-column: 1 / -1; }
+.plaid-consent input, .plaid-transaction input { width: 1.15rem; height: 1.15rem; flex: 0 0 auto; accent-color: var(--berry); }
+.plaid-consent a { color: var(--berry); font-weight: 750; }
+.plaid-items { display: grid; gap: .8rem; }
+.plaid-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .8rem 1rem; padding: 1rem; border: 1px solid var(--line); border-radius: 1rem; background: #fffdfa; }
+.plaid-item > div:first-child { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; }
+.plaid-item > div:first-child p { flex-basis: 100%; }
+.plaid-item-actions, .plaid-review-actions { display: flex; flex-wrap: wrap; gap: .55rem; justify-content: flex-end; }
+.plaid-accounts { grid-column: 1 / -1; display: grid; gap: .35rem; padding-top: .7rem; border-top: 1px solid var(--line); }
+.plaid-accounts > div { display: flex; justify-content: space-between; gap: 1rem; }
+.plaid-review { display: grid; gap: .8rem; padding-top: .5rem; }
+.plaid-review h3 { margin: .15rem 0 0; }
+.plaid-transaction-list { display: grid; gap: .5rem; }
+.plaid-transaction { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: .75rem; align-items: center; padding: .8rem; border: 1px solid var(--line); border-radius: .85rem; background: #fff; }
+.plaid-transaction.is-pending { opacity: .72; }
+.plaid-transaction-copy { display: grid; gap: .15rem; min-width: 0; }
+.plaid-transaction-copy strong { overflow-wrap: anywhere; }
+.plaid-transaction-copy small { color: var(--ink-soft); }
+.plaid-review-actions { padding-top: .35rem; }
+.plaid-load-more { justify-self: center; }
+.plaid-workspace .primary-button { background: var(--berry); color: white; border-color: var(--berry); }
+.plaid-workspace .danger-button { color: #923e33; border-color: #dfb7ac; }
+
+@media (max-width: 700px) {
+  .plaid-heading, .plaid-item { grid-template-columns: 1fr; display: grid; }
+  .plaid-environment { justify-self: start; }
+  .plaid-consent { grid-template-columns: 1fr; }
+  .plaid-consent a, .plaid-consent button { width: 100%; text-align: center; }
+  .plaid-item-actions, .plaid-review-actions { justify-content: stretch; }
+  .plaid-item-actions button, .plaid-review-actions button { flex: 1 1 9rem; }
+}
+
+@media (max-width: 390px) {
+  .plaid-transaction { grid-template-columns: auto minmax(0, 1fr); }
+  .plaid-transaction > strong:last-child { grid-column: 2; }
+  .plaid-accounts > div { align-items: flex-start; flex-direction: column; gap: .2rem; }
+}

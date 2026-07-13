@@ -65,6 +65,10 @@ Requirements for document testing:
 - Receipt/photo/PDF OCR requires api/.env OPENROUTER_API_KEY and private S3 env vars.
 - If Clerk rejects the phone URL, add ${WEB_URL} as an allowed dev origin/redirect in Clerk.
 
+Requirements for Plaid Sandbox testing:
+- Add PLAID_ENV, PLAID_CLIENT_ID, PLAID_SECRET, and PLAID_DATA_ENCRYPTION_KEY to api/.env.
+- Use My Profile in signed-in real mode; Plaid secrets stay server-side.
+
 Press Ctrl+C here to stop both servers.
 INFO
 

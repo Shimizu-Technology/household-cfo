@@ -30,6 +30,9 @@ gem "thruster", require: false
 gem "httparty", "~> 0.24.2"
 gem "jwt", "~> 3.2"
 
+# Read-only bank connections and transaction synchronization
+gem "plaid", "~> 47.0"
+
 # Transactional email delivery for cohort invitations
 gem "resend", "~> 0.16.0"
 
