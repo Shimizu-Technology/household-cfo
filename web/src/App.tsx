@@ -1528,7 +1528,7 @@ function App() {
   }
 
   async function handleDeleteDocumentSource(documentImport: FinancialDocumentImport) {
-    if (!window.confirm('Delete the private source file from S3? Applied household numbers will stay saved.')) return
+    if (!window.confirm("Remove the original private file? This keeps the import history, extracted results, and any saved household values. You won't be able to preview or reprocess this file.")) return
 
     setDocumentAction(`source:${documentImport.id}`)
     setDocumentsError(null)
@@ -1536,7 +1536,7 @@ function App() {
     try {
       const updatedImport = await deleteDocumentImportSource(documentImport.id)
       setDocumentImports((current) => replaceImport(current, updatedImport))
-      setDocumentsNotice('Private source file deleted. The extracted review record remains for audit context.')
+      setDocumentsNotice('Original file removed. Import history, extracted results, and saved household values remain.')
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Document source could not be deleted.')
     } finally {
@@ -1545,7 +1545,7 @@ function App() {
   }
 
   async function handleDeleteDocumentImport(documentImport: FinancialDocumentImport) {
-    if (!window.confirm('Delete this import record and its source file? This is only available before values are applied.')) return
+    if (!window.confirm('Delete this upload, its original file, and its import history? This cannot be undone and is only available before anything is applied or matched.')) return
 
     setDocumentAction(`delete:${documentImport.id}`)
     setDocumentsError(null)
@@ -1554,7 +1554,7 @@ function App() {
       await deleteDocumentImport(documentImport.id)
       setDocumentImports((current) => current.filter((existing) => existing.id !== documentImport.id))
       setSelectedImportId((current) => (current === documentImport.id ? null : current))
-      setDocumentsNotice('Document import deleted.')
+      setDocumentsNotice('Upload, original file, and import record deleted.')
     } catch (caught) {
       setDocumentsError(caught instanceof Error ? caught.message : 'Document import could not be deleted.')
     } finally {
@@ -2856,7 +2856,17 @@ function DocumentReviewPanel({
   const reviewable = REVIEWABLE_IMPORT_STATUSES.has(documentImport.status)
   const processing = PROCESSING_IMPORT_STATUSES.has(documentImport.status)
   const fullyApplied = documentImport.status === 'applied'
+  const importHasSavedValues = fullyApplied ||
+    documentImport.status === 'partially_applied' ||
+    documentImport.items.some((item) => item.applied_at) ||
+    documentImport.transaction_drafts.some((draft) => ['confirmed', 'corrected', 'matched'].includes(draft.status))
   const actionForImport = (name: string) => action === `${name}:${documentImport.id}`
+  const retentionHelpId = `document-retention-help-${documentImport.id}`
+  const retentionHelp = !documentImport.source_available
+    ? 'The original file has been removed. This import history, its extracted results, and any saved household values remain.'
+    : importHasSavedValues
+      ? 'Remove original file keeps this history and saved household values. The complete import record cannot be deleted after values are saved.'
+      : 'Remove original file keeps this history and extracted results. Delete upload & record removes the original file and this entire import history.'
 
   return (
     <article className="document-review-panel" aria-label={`Review ${documentImportDisplayName(documentImport)}`}>
@@ -2866,28 +2876,31 @@ function DocumentReviewPanel({
           <h4>{documentImportDisplayName(documentImport)}</h4>
           <p>{documentKindLabel(documentImport.document_kind)} · {formatByteSize(documentImport.byte_size)} · {importPeriodLabel(documentImport)}</p>
         </div>
-        <div className="document-review-actions">
-          <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
-            {actionForImport('source-url') ? 'Opening' : 'Preview source'}
-          </button>
-          {fullyApplied ? (
-            <>
-              <span className="document-action-hint">Upload a new copy to reprocess</span>
-              <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
-                {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
-              </button>
-            </>
-          ) : (
-            <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
-              {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+        <div className="document-review-controls">
+          <div className="document-review-actions">
+            <button type="button" onClick={() => onOpenSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source-url')}>
+              {actionForImport('source-url') ? 'Opening' : 'Preview original'}
             </button>
-          )}
-          <button type="button" className="subtle" onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
-            {actionForImport('source') ? 'Deleting' : 'Delete source'}
-          </button>
-          <button type="button" className="danger" onClick={() => onDeleteImport(documentImport)} disabled={documentImport.items.some((item) => item.applied_at) || actionForImport('delete')}>
-            {actionForImport('delete') ? 'Deleting' : 'Delete import'}
-          </button>
+            {fullyApplied ? (
+              <>
+                <span className="document-action-hint">Upload a new copy to reprocess</span>
+                <button type="button" className="subtle" onClick={() => onAppliedDetailsOpenChange(!appliedDetailsOpen)}>
+                  {appliedDetailsOpen ? 'Hide saved values' : 'Edit saved values'}
+                </button>
+              </>
+            ) : (
+              <button type="button" onClick={() => onReprocess(documentImport)} disabled={!documentImport.source_available || processing || documentImport.status === 'partially_applied' || actionForImport('reprocess')}>
+                {actionForImport('reprocess') ? 'Starting' : 'Reprocess'}
+              </button>
+            )}
+            <button type="button" className="subtle" aria-describedby={retentionHelpId} onClick={() => onDeleteSource(documentImport)} disabled={!documentImport.source_available || actionForImport('source')}>
+              {actionForImport('source') ? 'Removing' : 'Remove original file'}
+            </button>
+            <button type="button" className="danger" aria-describedby={retentionHelpId} onClick={() => onDeleteImport(documentImport)} disabled={importHasSavedValues || actionForImport('delete')}>
+              {actionForImport('delete') ? 'Deleting' : 'Delete upload & record'}
+            </button>
+          </div>
+          <p className="document-retention-help" id={retentionHelpId}>{retentionHelp}</p>
         </div>
       </div>
 

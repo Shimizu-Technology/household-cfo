@@ -2671,6 +2671,23 @@ h3 {
   justify-content: flex-end;
 }
 
+.document-review-controls {
+  display: grid;
+  flex: 1 1 460px;
+  gap: 8px;
+  justify-items: end;
+}
+
+.document-retention-help {
+  max-width: 590px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.45;
+  text-align: right;
+}
+
 .document-action-hint {
   display: inline-flex;
   min-height: 38px;
@@ -3094,10 +3111,20 @@ h3 {
 
   .document-review-actions,
   .document-review-actions button,
+  .document-review-controls,
   .document-apply-bar button,
   .document-item-edit-actions,
   .document-item-edit-actions button {
     width: 100%;
+  }
+
+  .document-review-controls {
+    justify-items: stretch;
+  }
+
+  .document-retention-help {
+    max-width: none;
+    text-align: left;
   }
 
   .document-review-actions button {

@@ -73,6 +73,10 @@ assert.ok(
   'budget year navigation must restore the previous view when loading a different year fails',
 )
 assert.ok(app.includes('Search merchant, category, date, or amount'), 'large transaction review queues should be searchable')
+assert.ok(app.includes('Remove original file keeps this history and extracted results.'), 'source deletion should clearly preserve the import record')
+assert.ok(app.includes('Delete upload & record removes the original file and this entire import history.'), 'full import deletion should clearly describe its larger scope')
+assert.ok(!app.includes("'Delete source'"), 'ambiguous source deletion label should not return')
+assert.ok(!app.includes("'Delete import'"), 'ambiguous import deletion label should not return')
 assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
 assert.ok(app.includes('Confirm all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk confirmation')
 assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk ignore')
