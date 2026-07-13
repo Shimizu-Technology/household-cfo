@@ -77,6 +77,7 @@ assert.ok(app.includes('Remove original file keeps this history and extracted re
 assert.ok(app.includes('Delete upload & record removes the original file and this entire import history.'), 'full import deletion should clearly describe its larger scope')
 assert.ok(!app.includes("'Delete source'"), 'ambiguous source deletion label should not return')
 assert.ok(!app.includes("'Delete import'"), 'ambiguous import deletion label should not return')
+assert.ok(app.includes('if (!metadata.routing_source) return null'), 'routing status should remain hidden until extraction records a routing decision')
 assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
 assert.ok(app.includes('Confirm all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk confirmation')
 assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk ignore')

@@ -3004,6 +3004,8 @@ function DocumentReviewPanel({
 
 function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialDocumentImport }) {
   const metadata = documentImport.metadata
+  if (!metadata.routing_source) return null
+
   const resolvedKind = metadata.routing_resolved_kind ?? documentImport.document_kind
   const destination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
   const conflict = Boolean(metadata.routing_requires_confirmation)
