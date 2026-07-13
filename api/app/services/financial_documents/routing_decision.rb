@@ -9,6 +9,7 @@ module FinancialDocuments
       :resolved_kind,
       :source,
       :conflict,
+      :conflict_reason,
       :requires_confirmation,
       :destination
     )
@@ -34,10 +35,14 @@ module FinancialDocuments
     end
 
     def call
-      declared_kind = valid_kind(document_import.metadata.to_h["declared_document_kind"]) || document_import.document_kind
+      declared_kind = valid_kind(document_import.metadata.to_h["declared_document_kind"]) || valid_kind(document_import.document_kind) || "other"
       context_kind = kind_from_context(document_import.metadata.to_h["upload_context"])
-      participant_kind = context_kind || (declared_kind if document_import.metadata.to_h["upload_origin"] == "profile")
-      conflict = participant_kind.present? && detected_kind.present? && detected_kind != "other" && participant_kind != detected_kind
+      explicit_selection = document_import.metadata.to_h["document_kind_explicit"] == true || document_import.metadata.to_h["upload_origin"] == "profile"
+      participant_kind = context_kind || (declared_kind if explicit_selection)
+      participant_signal_conflict = context_kind.present? && explicit_selection && context_kind != declared_kind
+      detection_conflict = participant_kind.present? && detected_kind.present? && detected_kind != "other" && participant_kind != detected_kind
+      conflict = participant_signal_conflict || detection_conflict
+      conflict_reason = participant_signal_conflict ? "participant_signals" : ("mia_detection" if detection_conflict)
 
       resolved_kind, source = if participant_kind.present?
         [ participant_kind, context_kind.present? ? "participant_context" : "participant_selection" ]
@@ -54,8 +59,9 @@ module FinancialDocuments
         resolved_kind: resolved_kind,
         source: source,
         conflict: conflict,
+        conflict_reason: conflict_reason,
         requires_confirmation: conflict,
-        destination: DESTINATIONS.fetch(resolved_kind)
+        destination: DESTINATIONS.fetch(resolved_kind, "private_document_review")
       )
     end
 

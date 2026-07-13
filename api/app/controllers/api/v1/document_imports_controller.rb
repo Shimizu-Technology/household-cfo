@@ -24,7 +24,7 @@ module Api
         ".heic" => %w[image/heic image/heif],
         ".heif" => %w[image/heif image/heic]
       }.freeze
-      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_requires_confirmation routing_destination].freeze
+      EXTRACTION_METADATA_KEYS = %w[confidence warnings extraction_model extraction_mode extraction_page_count extraction_batch_count last_extracted_at last_extraction_failed_at transaction_draft_count transaction_match_count routing_detected_kind routing_resolved_kind routing_source routing_conflict routing_conflict_reason routing_requires_confirmation routing_destination].freeze
 
       def index
         imports = current_household.financial_document_imports
@@ -277,7 +277,8 @@ module Api
             "upload_request_id" => params[:upload_request_id].to_s.presence,
             "upload_origin" => params[:upload_origin].to_s.presence_in(%w[profile mia]),
             "upload_context" => sanitized_upload_context,
-            "declared_document_kind" => document_kind
+            "declared_document_kind" => document_kind,
+            "document_kind_explicit" => ActiveModel::Type::Boolean.new.cast(params[:document_kind_explicit])
           }.compact
         )
       end
@@ -567,7 +568,7 @@ module Api
       end
 
       def safe_import_metadata(metadata)
-        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "upload_origin", "declared_document_kind", "extraction_model", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count", "routing_detected_kind", "routing_resolved_kind", "routing_source", "routing_conflict", "routing_requires_confirmation", "routing_destination")
+        (metadata || {}).slice("confidence", "warnings", "original_filename", "upload_request_id", "upload_origin", "declared_document_kind", "document_kind_explicit", "extraction_model", "extraction_mode", "extraction_page_count", "extraction_batch_count", "last_extracted_at", "last_applied_count", "last_applied_at", "transaction_draft_count", "transaction_match_count", "routing_detected_kind", "routing_resolved_kind", "routing_source", "routing_conflict", "routing_conflict_reason", "routing_requires_confirmation", "routing_destination")
       end
 
       def safe_draft_payload(payload)

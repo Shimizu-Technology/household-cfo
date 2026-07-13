@@ -286,7 +286,12 @@ module Api
         if conflicts.any?
           descriptions = conflicts.map do |document_import|
             metadata = document_import.metadata.to_h
-            "#{evidence_label(document_import)} (you described #{metadata['routing_resolved_kind'].to_s.humanize.downcase}, Mia detected #{metadata['routing_detected_kind'].to_s.humanize.downcase})"
+            comparison = if metadata["routing_conflict_reason"] == "participant_signals"
+              "your message described #{metadata['routing_resolved_kind'].to_s.humanize.downcase}, selected type was #{metadata['declared_document_kind'].to_s.humanize.downcase}"
+            else
+              "you described #{metadata['routing_resolved_kind'].to_s.humanize.downcase}, Mia detected #{metadata['routing_detected_kind'].to_s.humanize.downcase}"
+            end
+            "#{evidence_label(document_import)} (#{comparison})"
           end
           return "I flagged #{descriptions.to_sentence} for a routing check and preserved your description."
         end
@@ -327,6 +332,11 @@ module Api
         metadata = document_import.metadata.to_h
         resolved_kind = metadata["routing_resolved_kind"].presence || document_import.document_kind
         if metadata["routing_requires_confirmation"]
+          if metadata["routing_conflict_reason"] == "participant_signals"
+            selected_kind = metadata["declared_document_kind"].presence || "another document type"
+            return "Your message described this as #{resolved_kind.humanize.downcase}, but the selected type was #{selected_kind.humanize.downcase}. I used your message and flagged the routing difference for review."
+          end
+
           detected_kind = metadata["routing_detected_kind"].presence || "another document type"
           return "You described this as #{resolved_kind.humanize.downcase}, but I detected #{detected_kind.humanize.downcase}. I kept your description and flagged the routing difference for review."
         end
@@ -341,7 +351,7 @@ module Api
 
       def document_routing_destination(document_import)
         document_import.metadata.to_h["routing_destination"].presence ||
-          FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind)
+          FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind, "private_document_review")
       end
 
       def drafted_document_transaction_message(document_import, drafts)

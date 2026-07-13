@@ -1383,7 +1383,7 @@ function App() {
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
       try {
-        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext)
+        const documentImport = await uploadDocumentImport(attachment.file, attachment.document_kind, 'mia', messageContext, Boolean(attachment.kindWasSelected))
         preparedAttachments[index] = attachmentWithDocumentImport(attachment, documentImport)
         setDocumentImports((current) => [documentImport, ...current.filter((existing) => existing.id !== documentImport.id)])
         setSelectedImportId(documentImport.id)
@@ -3003,11 +3003,19 @@ function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialD
       </div>
       <p>
         {conflict
-          ? `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but Mia detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
+          ? routingConflictExplanation(metadata, resolvedKind)
           : routingExplanation(metadata.routing_source)}
       </p>
     </div>
   )
+}
+
+function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind) {
+  if (metadata.routing_conflict_reason === 'participant_signals') {
+    return `Your message described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but the selected type was ${documentKindLabel(metadata.declared_document_kind ?? 'other').toLowerCase()}. Mia used your message; verify the draft before approving anything.`
+  }
+
+  return `You described this as ${documentKindLabel(resolvedKind).toLowerCase()}, but Mia detected ${documentKindLabel(metadata.routing_detected_kind ?? 'other').toLowerCase()}. Your description was preserved; verify the draft before approving anything.`
 }
 
 function routingDestinationLabel(destination: FinancialDocumentImport['metadata']['routing_destination'], kind: DocumentImportKind) {

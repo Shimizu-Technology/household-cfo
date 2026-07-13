@@ -45,6 +45,51 @@ class FinancialDocumentsRoutingDecisionTest < ActiveSupport::TestCase
     assert_not result.conflict
   end
 
+  test "an explicit Mia upload selection remains authoritative with a generic message" do
+    @document_import.document_kind = "pay_stub"
+    @document_import.metadata = {
+      "upload_origin" => "mia",
+      "upload_context" => "Please review this upload.",
+      "declared_document_kind" => "pay_stub",
+      "document_kind_explicit" => true
+    }
+
+    result = FinancialDocuments::RoutingDecision.new(@document_import, detected_kind: "statement").call
+
+    assert_equal "pay_stub", result.resolved_kind
+    assert_equal "participant_selection", result.source
+    assert_equal "mia_detection", result.conflict_reason
+    assert result.requires_confirmation
+  end
+
+  test "message context wins but conflicts with a different explicit selection" do
+    @document_import.document_kind = "pay_stub"
+    @document_import.metadata = {
+      "upload_origin" => "mia",
+      "upload_context" => "This is my June bank statement.",
+      "declared_document_kind" => "pay_stub",
+      "document_kind_explicit" => true
+    }
+
+    result = FinancialDocuments::RoutingDecision.new(@document_import, detected_kind: "statement").call
+
+    assert_equal "statement", result.resolved_kind
+    assert_equal "participant_context", result.source
+    assert_equal "participant_signals", result.conflict_reason
+    assert result.requires_confirmation
+  end
+
+  test "invalid legacy kinds fall back to private document review" do
+    @document_import.document_kind = nil
+    @document_import.metadata = {}
+
+    result = FinancialDocuments::RoutingDecision.new(@document_import, detected_kind: nil).call
+
+    assert_equal "other", result.resolved_kind
+    assert_equal "private_document_review", result.destination
+    assert_not result.conflict
+  end
+
   test "profile selection remains authoritative" do
     @document_import.metadata = {
       "upload_origin" => "profile",
