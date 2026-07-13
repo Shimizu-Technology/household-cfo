@@ -53,6 +53,24 @@ Rails.application.routes.draw do
         end
         resources :items, only: :update, controller: "document_import_items"
       end
+      namespace :plaid do
+        resources :items, only: %i[index destroy] do
+          collection do
+            post :link_token
+            post :exchange
+          end
+          member do
+            post :sync
+            post :update_link_token
+          end
+        end
+        resources :transactions, only: :index do
+          collection do
+            post :stage
+            post :ignore
+          end
+        end
+      end
       namespace :admin do
         resources :cohorts, only: %i[index show create update]
         resources :users, only: %i[index create update] do
@@ -78,4 +96,5 @@ Rails.application.routes.draw do
   end
 
   get "up" => "rails/health#show", as: :rails_health_check
+  post "api/plaid/webhook", to: "api/plaid_webhooks#create"
 end

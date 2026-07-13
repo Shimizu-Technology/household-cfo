@@ -37,6 +37,11 @@ module ActiveSupport
         RESEND_API_KEY
         RESEND_FROM_EMAIL
         MAILER_FROM_EMAIL
+        PLAID_ENV
+        PLAID_CLIENT_ID
+        PLAID_SECRET
+        PLAID_DATA_ENCRYPTION_KEY
+        PLAID_WEBHOOK_URL
       ].each { |key| ENV.delete(key) }
     end
   end

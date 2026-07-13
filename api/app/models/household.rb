@@ -18,6 +18,8 @@ class Household < ApplicationRecord
   has_many :financial_document_imports, dependent: :destroy
   has_many :mia_action_drafts, dependent: :destroy
   has_many :household_audit_events, dependent: :destroy
+  has_many :plaid_items, dependent: :destroy
+  has_many :plaid_transactions, through: :plaid_items
 
   validates :name, presence: true, length: { maximum: 120 }
   validates :primary_goal, length: { maximum: 500 }, allow_blank: true

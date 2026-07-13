@@ -19,7 +19,8 @@
     "@clerk/clerk-react": "^5.61.8",
     "posthog-js": "^1.395.0",
     "react": "^19.2.6",
-    "react-dom": "^19.2.6"
+    "react-dom": "^19.2.6",
+    "react-plaid-link": "^4.1.1"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

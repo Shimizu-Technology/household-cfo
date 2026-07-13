@@ -5,6 +5,7 @@ import { HomeScreen } from './components/HomeScreen'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
+import { PlaidConnections } from './components/PlaidConnections'
 import {
   AnnualCashFlowChart,
   CategoryPressureList,
@@ -1981,6 +1982,17 @@ function App() {
               onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
+            />
+          )}
+
+          {isRealWorkspace && (
+            <PlaidConnections
+              onDraftsCreated={async () => {
+                const payload = await fetchAppData(true)
+                setData(payload)
+                setSetupDraft(payload.workspace?.setup_values ?? null)
+                replaceMiaHistory(payload.mia)
+              }}
             />
           )}
 
