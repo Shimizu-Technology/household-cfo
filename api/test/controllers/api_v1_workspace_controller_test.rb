@@ -8,6 +8,19 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "I recognized this as other and routed it to private Import history.", route_line
   end
 
+  test "mia attachment summary names the actual destinations in a mixed batch" do
+    document_import = Struct.new(:metadata, :document_kind)
+    imports = [
+      document_import.new({ "routing_destination" => "transaction_review" }, "receipt"),
+      document_import.new({ "routing_destination" => "private_document_review" }, "other")
+    ]
+
+    summary = Api::V1::MiaMessagesController.new.send(:attached_documents_route_summary, imports)
+
+    assert_equal "I routed the uploads to pending transaction review and private Import history.", summary
+    assert_not_includes summary, "household setup review"
+  end
+
   test "workspace creates an empty household for an authenticated participant" do
     user = create_user(email: "participant@example.com")
 

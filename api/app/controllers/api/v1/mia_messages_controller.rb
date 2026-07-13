@@ -297,7 +297,15 @@ module Api
         end
 
         destinations = document_imports.map { |document_import| document_routing_destination(document_import) }.uniq
-        return "I routed the uploads to transaction and household setup review." if destinations.many?
+        if destinations.many?
+          destination_labels = {
+            "transaction_review" => "pending transaction review",
+            "household_setup_review" => "household setup review",
+            "private_document_review" => "private Import history"
+          }
+          labels = destinations.map { |destination| destination_labels.fetch(destination, "private Import history") }
+          return "I routed the uploads to #{labels.to_sentence}."
+        end
         return "I routed the upload#{'s' if document_imports.many?} to household setup review." if destinations == [ "household_setup_review" ]
         return "I saved the upload#{'s' if document_imports.many?} in private Import history for review." if destinations == [ "private_document_review" ]
 
