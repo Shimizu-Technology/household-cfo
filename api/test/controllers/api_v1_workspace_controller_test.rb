@@ -1,6 +1,13 @@
 require "test_helper"
 
 class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
+  test "mia attachment route copy safely handles a legacy import without a document kind" do
+    legacy_import = Struct.new(:metadata, :document_kind).new({}, nil)
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, legacy_import)
+
+    assert_equal "I recognized this as other and routed it to private Import history.", route_line
+  end
+
   test "workspace creates an empty household for an authenticated participant" do
     user = create_user(email: "participant@example.com")
 

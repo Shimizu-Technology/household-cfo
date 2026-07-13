@@ -330,7 +330,7 @@ module Api
 
       def attached_document_route_line(document_import)
         metadata = document_import.metadata.to_h
-        resolved_kind = metadata["routing_resolved_kind"].presence || document_import.document_kind
+        resolved_kind = metadata["routing_resolved_kind"].presence || document_import.document_kind || "other"
         if metadata["routing_requires_confirmation"]
           if metadata["routing_conflict_reason"] == "participant_signals"
             selected_kind = metadata["declared_document_kind"].presence || "another document type"
