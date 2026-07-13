@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import { useId, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
 
@@ -95,6 +95,7 @@ export function MonthPlanSummary({
 }
 
 export function ExpenseStackOverview({ positions }: { positions: BudgetPosition[] }) {
+  const titleId = useId()
   const groups = stackOrder.map((stackKey) => {
     const stackPositions = positions.filter((position) => position.stackKey === stackKey && position.active)
     return {
@@ -105,11 +106,11 @@ export function ExpenseStackOverview({ positions }: { positions: BudgetPosition[
   })
 
   return (
-    <section className="expense-stack-overview" aria-labelledby="expense-stack-overview-title">
+    <section className="expense-stack-overview" aria-labelledby={titleId}>
       <div className="financial-visual-heading">
         <div>
           <span>Expense Stack</span>
-          <h4 id="expense-stack-overview-title">See which layer is using the plan.</h4>
+          <h4 id={titleId}>See which layer is using the plan.</h4>
         </div>
         <p>Confirmed spending is solid. Pending review stays striped until you approve it.</p>
       </div>
@@ -143,17 +144,18 @@ export function CategoryPressureList({
   title?: string
   eyebrow?: string
 }) {
+  const titleId = useId()
   const activePositions = positions.filter((position) => position.active)
   const rankedPositions = [...activePositions]
     .sort((left, right) => categoryPressureScore(right) - categoryPressureScore(left) || right.actual - left.actual)
     .slice(0, limit ?? activePositions.length)
 
   return (
-    <section className="category-pressure-panel" aria-labelledby="category-pressure-title">
+    <section className="category-pressure-panel" aria-labelledby={titleId}>
       <div className="financial-visual-heading">
         <div>
           <span>{eyebrow}</span>
-          <h4 id="category-pressure-title">{title}</h4>
+          <h4 id={titleId}>{title}</h4>
         </div>
         <p>Ranked by confirmed pace, pending review, and how much of the monthly plan remains.</p>
       </div>
@@ -196,16 +198,17 @@ export function CategoryPressureList({
 }
 
 export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBudgetPlan; compact?: boolean }) {
+  const titleId = useId()
   const months = plan.annual_outlook.months
   const scaleMaximum = Math.max(...months.flatMap((month) => [month.income, month.planned_outflow]), 1)
   const negativeMonths = months.filter((month) => month.baseline_surplus < 0)
 
   return (
-    <section className={`annual-cash-flow-visual${compact ? ' compact' : ''}`} aria-labelledby={compact ? 'home-annual-cash-flow-title' : 'annual-cash-flow-title'}>
+    <section className={`annual-cash-flow-visual${compact ? ' compact' : ''}`} aria-labelledby={titleId}>
       <div className="financial-visual-heading">
         <div>
           <span>Annual cash flow</span>
-          <h4 id={compact ? 'home-annual-cash-flow-title' : 'annual-cash-flow-title'}>Income and planned outflow across {plan.year}</h4>
+          <h4 id={titleId}>Income and planned outflow across {plan.year}</h4>
         </div>
         <p>{negativeMonths.length === 0 ? 'Every planned month keeps a baseline surplus.' : `${negativeMonths.length} planned month${negativeMonths.length === 1 ? '' : 's'} need attention.`}</p>
       </div>

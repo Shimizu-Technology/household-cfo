@@ -33,7 +33,10 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
   const monthActual = currentPlan?.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0) ?? 0
   const currentPositions = currentPlan ? budgetPositionsForMonth(currentPlan, currentMonthIndex) : []
   const currentTotals = budgetPositionTotals(currentPositions)
-  const currentMonthIncome = currentPlan?.monthly_income[currentPlan.months[currentMonthIndex]?.id] ?? dashboard.summary.monthly_income
+  const currentMonth = currentPlan?.months[currentMonthIndex]
+  const currentMonthIncome = currentPlan && currentMonth
+    ? currentPlan.monthly_income[currentMonth.id] ?? dashboard.summary.monthly_income
+    : dashboard.summary.monthly_income
   const upcomingSpike = currentPlan?.annual_outlook?.upcoming_spikes[0]
   const nextIrregular = currentPlan?.annual_outlook?.next_irregular_month
 
@@ -59,8 +62,8 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         <MonthPlanSummary
           label={`${actionCenter.current_month_label} ${actionCenter.current_year}`}
           income={currentMonthIncome}
-          planned={currentTotals.planned || monthPlanned}
-          actual={currentTotals.actual || monthActual}
+          planned={currentPlan ? currentTotals.planned : monthPlanned}
+          actual={currentPlan ? currentTotals.actual : monthActual}
           pending={currentTotals.pending}
           safeToSpend={dashboard.summary.next_safe_to_spend_amount}
           baselineSurplus={budget.baseline_surplus}

@@ -40,6 +40,8 @@ assert.ok(home.includes('<CategoryPressureList'), 'home should rank the categori
 assert.ok(home.includes('<AnnualCashFlowChart'), 'home should show the annual plan as an income-versus-outflow chart')
 assert.ok(budgetVisuals.includes('Readiness-aware CFO amount—not ordinary budget remaining.'), 'safe to spend must be distinguished from ordinary plan remaining')
 assert.ok(budgetVisuals.includes('pending review—not included in actuals.'), 'pending activity must remain visibly outside confirmed actuals')
+assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit panels should generate unique accessible heading IDs')
+assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')
 assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
 assert.ok(participantTabs.includes('Swipe for more'), 'mobile navigation should disclose that more modules are horizontally available')
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')

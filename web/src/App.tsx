@@ -6202,8 +6202,8 @@ function AnnualBudgetPlanner({
         <MonthPlanSummary
           label={`${currentMonth?.label ?? 'Selected month'} ${plan.year}`}
           income={currentMonthIncome}
-          planned={currentPositionTotals.planned || currentPlanned}
-          actual={currentPositionTotals.actual || currentActual}
+          planned={currentPositionTotals.planned}
+          actual={currentPositionTotals.actual}
           pending={currentPositionTotals.pending}
         />
         <ExpenseStackOverview positions={currentPositions} />
