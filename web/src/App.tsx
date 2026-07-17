@@ -51,6 +51,7 @@ import {
   restoreBudgetCategory,
   saveWorkspaceSetup,
   sendMiaMessage,
+  submitPilotFeedback,
   transcribeMiaVoice,
   updateBudgetAllocation,
   updateAdminCohort,
@@ -89,6 +90,8 @@ import type {
   MiaMessage,
   MiaMessageAttachment,
   MiaMessagesData,
+  PilotFeedbackInput,
+  PilotFeedbackWorkflow,
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
@@ -99,7 +102,7 @@ import type {
 } from './api'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
-import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload } from './lib/analytics'
+import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -271,6 +274,8 @@ function App() {
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
+  const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
   const chatStorageKey = useMemo(() => {
     const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
     return `${MIA_CHAT_STORAGE_PREFIX}:${owner}`
@@ -287,7 +292,8 @@ function App() {
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
-  const shouldUseRealWorkspace = auth.isClerkEnabled
+  const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
+  const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
@@ -341,7 +347,6 @@ function App() {
       workspace_mode: data.workspace?.mode ?? 'demo',
       auth_mode: auth.isClerkEnabled ? 'clerk' : 'preview',
       app_role: auth.currentUser?.role ?? 'preview',
-      profile_complete: data.profile.completeness,
       pending_imports: pendingImportsCount,
       processing_imports: processingImportsCount,
     })
@@ -640,6 +645,7 @@ function App() {
     setVoiceRecording(false)
 
     if (chunks.length === 0) {
+      trackPilotWorkflowFailure('voice', 'no_audio')
       setVoiceNotice(null)
       setMiaError("I couldn't hear anything in that recording. Try again or type the note for Mia.")
       return
@@ -650,6 +656,7 @@ function App() {
     try {
       const transcript = (await transcribeMiaVoice(new Blob(chunks, { type: mimeType || 'audio/webm' }))).trim()
       if (!transcript) {
+        trackPilotWorkflowFailure('voice', 'empty_transcript')
         setMiaError("I couldn't turn that recording into text. Try again or type the note for Mia.")
         return
       }
@@ -659,6 +666,7 @@ function App() {
       setMiaError(null)
       window.setTimeout(() => composerRef.current?.focus(), 0)
     } catch (error) {
+      trackPilotWorkflowFailure('voice', 'transcription')
       setMiaError(error instanceof Error ? error.message : 'Voice transcription failed. Try again or type your note for Mia.')
     } finally {
       setVoiceTranscribing(false)
@@ -718,6 +726,7 @@ function App() {
         void handleVoiceRecordingComplete(recorder.mimeType || mimeType || 'audio/webm')
       }
       recorder.onerror = () => {
+        trackPilotWorkflowFailure('voice', 'recording')
         recorder.onstop = null
         voiceChunksRef.current = []
         mediaRecorderRef.current = null
@@ -731,6 +740,7 @@ function App() {
       setVoiceRecording(true)
       setVoiceNotice('Recording. Tap stop when you are done speaking.')
     } catch (error) {
+      trackPilotWorkflowFailure('voice', 'microphone_access')
       stopVoiceStream()
       setVoiceRecording(false)
       setMiaError(error instanceof Error ? error.message : 'Microphone access was blocked. Allow microphone access or type your note for Mia.')
@@ -745,6 +755,20 @@ function App() {
     setActive(section)
     if (section !== 'Ask Mia') setIsChatExpanded(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
+  }
+
+  function startManualFirstSession() {
+    switchSection('My Profile')
+    setIsProfileEditing(true)
+    window.setTimeout(() => {
+      setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setupFormRef.current?.querySelector<HTMLInputElement>('[name="primary_income"]')?.focus({ preventScroll: true })
+    }, 80)
+  }
+
+  function startUploadFirstSession() {
+    switchSection('My Profile')
+    window.setTimeout(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
   async function handleAskMia(prompt = question) {
@@ -824,6 +848,7 @@ function App() {
         })
       }
     } catch (caught) {
+      trackPilotWorkflowFailure('ask_mia', 'send')
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
@@ -1106,7 +1131,9 @@ function App() {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'applied' })
     } catch (caught) {
+      trackPilotWorkflowFailure('mia_budget_review', 'apply')
       const message = caught instanceof Error ? caught.message : 'Mia action draft could not be applied.'
       setBudgetError(message)
       setMiaError(message)
@@ -1131,7 +1158,9 @@ function App() {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'canceled' })
     } catch (caught) {
+      trackPilotWorkflowFailure('mia_budget_review', 'cancel')
       const message = caught instanceof Error ? caught.message : 'Mia action draft could not be canceled.'
       setBudgetError(message)
       setMiaError(message)
@@ -1180,7 +1209,9 @@ function App() {
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
+      trackPilotWorkflowFailure('transaction_review', 'confirm')
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.'
       setBudgetError(message)
       setDocumentsError(message)
@@ -1206,7 +1237,9 @@ function App() {
       captureAnalyticsEvent('transaction_draft_ignored', {
         source_type: draft.source_type ?? 'manual_chat',
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'ignored' })
     } catch (caught) {
+      trackPilotWorkflowFailure('transaction_review', 'ignore')
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
       setBudgetError(message)
       setDocumentsError(message)
@@ -1247,9 +1280,10 @@ function App() {
       replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
         draft_count: ids.length,
-        amount_bucket: transactionBulkAmountBucket(total),
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft_bulk', resolution, draft_count: ids.length })
     } catch (caught) {
+      trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
       const message = caught instanceof Error ? caught.message : `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`
       setBudgetError(message)
       setDocumentsError(message)
@@ -1512,7 +1546,9 @@ function App() {
         selected_count: itemIds.length,
         resulting_status: response.document_import.status,
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'document_import', resolution: 'applied' })
     } catch (caught) {
+      trackPilotWorkflowFailure('document_review', 'apply', { document_kind: documentImport.document_kind })
       captureAnalyticsEvent('document_import_apply_failed', {
         document_kind: documentImport.document_kind,
         selected_count: itemIds.length,
@@ -1617,6 +1653,7 @@ function App() {
         workspace_mode: payload.workspace?.mode ?? 'real',
       })
     } catch (caught) {
+      trackPilotWorkflowFailure('setup', 'save')
       captureAnalyticsEvent('workspace_setup_save_failed')
       setSetupError(caught instanceof Error ? caught.message : 'Your numbers could not be saved. Please try again.')
     } finally {
@@ -1710,29 +1747,42 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>Your CFO workspace is ready</strong>
-          <p>Mia can coach from {data.profile.completeness}% profile completeness · {data.dashboard.summary.readiness_label}</p>
+          <strong>{isRealWorkspace && !data.workspace?.setup_complete ? 'Start with the essentials' : 'Your CFO workspace is ready'}</strong>
+          <p>{isRealWorkspace && !data.workspace?.setup_complete
+            ? 'Add the few numbers you know today, or upload a budget file. You can return for the rest.'
+            : `Mia can coach from your approved profile · ${data.dashboard.summary.readiness_label}`}</p>
           {auth.currentUser && (
             <div className="account-pill">
               <span>{auth.currentUser.full_name}</span>
               <small>{auth.currentUser.role}</small>
-              <UserButton afterSignOutUrl="/" />
+              {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
             </div>
           )}
-          <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia for the CFO read</button>
+          <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
+            {isRealWorkspace && !data.workspace?.setup_complete ? 'Enter essential information' : 'Ask Mia for the CFO read'}
+          </button>
         </aside>
       </header>
 
       <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
 
+      {isRealWorkspace && activeSection !== ADMIN_SECTION && (
+        <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
+      )}
+
       {activeSection === 'Home' && (
-        <HomeScreen
-          dashboard={data.dashboard}
-          budget={data.budget}
-          onAskMia={() => switchSection('Ask Mia')}
-          onReviewTransactions={() => switchSection('Budget')}
-          onReviewMiaActions={() => switchSection('Ask Mia')}
-        />
+        <>
+          {isRealWorkspace && !data.workspace?.setup_complete && (
+            <FirstSessionCard onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
+          )}
+          <HomeScreen
+            dashboard={data.dashboard}
+            budget={data.budget}
+            onAskMia={() => switchSection('Ask Mia')}
+            onReviewTransactions={() => switchSection('Budget')}
+            onReviewMiaActions={() => switchSection('Ask Mia')}
+          />
+        </>
       )}
 
       {activeSection === 'Ask Mia' && (
@@ -1981,6 +2031,7 @@ function App() {
               onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
+              setupComplete={Boolean(data.workspace?.setup_complete)}
             />
           )}
 
@@ -2208,6 +2259,15 @@ function App() {
       {previewAttachment && (
         <LocalAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
       )}
+
+      {pilotGuideOpen && <PilotGuideDialog onClose={() => setPilotGuideOpen(false)} />}
+      {pilotFeedbackOpen && (
+        <PilotFeedbackDialog
+          initialWorkflow={pilotFeedbackWorkflowForSection(activeSection)}
+          onClose={() => setPilotFeedbackOpen(false)}
+          onSubmit={submitPilotFeedback}
+        />
+      )}
     </main>
   )
 }
@@ -2364,6 +2424,177 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
       <p className="eyebrow">{eyebrow}</p>
       <h2>{title}</h2>
       <p>{copy}</p>
+    </div>
+  )
+}
+
+function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => void; onUpload: () => void; onGuide: () => void }) {
+  return (
+    <section className="first-session-card" aria-labelledby="first-session-title">
+      <div className="first-session-heading">
+        <div>
+          <p className="eyebrow">Your first session</p>
+          <h2 id="first-session-title">Choose the easiest way to begin.</h2>
+          <p>You do not need every account or statement today. Start with what you know, review it, then let Mia help with one next step.</p>
+        </div>
+        <button type="button" className="secondary-button" onClick={onGuide}>Read the 3-minute guide</button>
+      </div>
+      <div className="first-session-paths">
+        <article>
+          <span>Simple start</span>
+          <h3>Enter the essentials manually</h3>
+          <p>Add monthly income, essential bills, flexible spending, and the goal you want Mia to keep in mind. Everything else can wait.</p>
+          <button type="button" onClick={onManual}>Enter essential information</button>
+        </article>
+        <article>
+          <span>Have files ready</span>
+          <h3>Upload, then review every draft</h3>
+          <p>Use a budget spreadsheet, statement, pay stub, or receipt. Nothing changes your plan or actuals until you approve it.</p>
+          <button type="button" className="secondary-button" onClick={onUpload}>Open private uploads</button>
+        </article>
+      </div>
+    </section>
+  )
+}
+
+function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
+  return (
+    <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
+      <span><ShieldIcon /> Pilot files and financial details stay private.</span>
+      <div>
+        <button type="button" className="secondary-button" onClick={onOpenGuide}><GuideIcon /> Tester guide</button>
+        <button type="button" className="secondary-button" onClick={onOpenFeedback}><FeedbackIcon /> Report a problem</button>
+      </div>
+    </aside>
+  )
+}
+
+const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string }> = [
+  { value: 'sign_in', label: 'Sign in or invitation' },
+  { value: 'home', label: 'Home or next action' },
+  { value: 'setup', label: 'Household setup' },
+  { value: 'ask_mia', label: 'Ask Mia' },
+  { value: 'voice', label: 'Voice entry' },
+  { value: 'budget', label: 'Budget or annual plan' },
+  { value: 'transaction_review', label: 'Transaction review' },
+  { value: 'receipt_upload', label: 'Receipt upload' },
+  { value: 'statement_upload', label: 'Statement upload' },
+  { value: 'document_upload', label: 'Other document upload' },
+  { value: 'private_document', label: 'Preview, download, or delete' },
+  { value: 'admin', label: 'Cohort administration' },
+  { value: 'other', label: 'Something else' },
+]
+
+function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow {
+  if (section === 'Ask Mia') return 'ask_mia'
+  if (section === 'My Profile') return 'setup'
+  if (section === 'Budget') return 'budget'
+  if (section === ADMIN_SECTION) return 'admin'
+  if (section === 'Home') return 'home'
+  return 'other'
+}
+
+function PilotGuideDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="pilot-dialog-overlay" role="presentation">
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close tester guide" onClick={onClose} />
+      <section className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title">
+        <header>
+          <div>
+            <p className="eyebrow">Pilot tester guide</p>
+            <h2 id="pilot-guide-title">A dependable first session in three moves.</h2>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </header>
+        <ol className="pilot-guide-steps">
+          <li><span>1</span><div><strong>Set up only what you know.</strong><p>Enter income, essential bills, flexible spending, and your main household goal. Save once; you can refine it later.</p></div></li>
+          <li><span>2</span><div><strong>Try one real workflow.</strong><p>Ask Mia, speak a transaction, or upload one receipt. If you upload a statement or budget file, wait for processing and review each draft.</p></div></li>
+          <li><span>3</span><div><strong>Approve intentionally.</strong><p>Edit, confirm, ignore, apply, or cancel. Pending drafts do not change actuals or your annual plan until you approve them.</p></div></li>
+        </ol>
+        <div className="pilot-guide-power-path">
+          <strong>Power-user path</strong>
+          <p>Upload a budget first, then statements, receipts, and pay stubs. Review extracted setup values before applying them; review transaction drafts separately before confirming actuals.</p>
+        </div>
+        <footer>
+          <ShieldIcon />
+          <p>Use Report a problem if you get stuck. Avoid typing account numbers or financial values into the report, and crop screenshots to the problem area.</p>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function PilotFeedbackDialog({
+  initialWorkflow,
+  onClose,
+  onSubmit,
+}: {
+  initialWorkflow: PilotFeedbackWorkflow
+  onClose: () => void
+  onSubmit: (values: PilotFeedbackInput) => Promise<{ id: number; screenshot_attached: boolean }>
+}) {
+  const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
+  const [attempted, setAttempted] = useState('')
+  const [expected, setExpected] = useState('')
+  const [actual, setActual] = useState('')
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [receiptId, setReceiptId] = useState<number | null>(null)
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!attempted.trim() || !expected.trim() || !actual.trim()) {
+      setError('Describe what you attempted, what you expected, and what happened.')
+      return
+    }
+    if (screenshot && screenshot.size > 5 * 1024 * 1024) {
+      setError('Screenshot must be 5 MB or smaller.')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+    try {
+      const receipt = await onSubmit({ workflow, attempted: attempted.trim(), expected: expected.trim(), actual: actual.trim(), screenshot })
+      captureAnalyticsEvent('pilot_feedback_report_submitted', { workflow, screenshot_attached: receipt.screenshot_attached })
+      setReceiptId(receipt.id)
+    } catch (caught) {
+      trackPilotWorkflowFailure('feedback', 'submit', { workflow })
+      setError(caught instanceof Error ? caught.message : 'Feedback could not be submitted. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="pilot-dialog-overlay" role="presentation">
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
+      <section className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title">
+        <header>
+          <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </header>
+        {receiptId ? (
+          <div className="pilot-feedback-success" role="status">
+            <FeedbackIcon />
+            <strong>Report received.</strong>
+            <p>Reference #{receiptId}. Your written details and optional screenshot were not sent to analytics.</p>
+            <button type="button" onClick={onClose}>Return to Household CFO</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <p className="pilot-privacy-note"><ShieldIcon /> Do not include account numbers, exact financial values, document contents, passwords, or private Mia messages. Crop screenshots to the problem area.</p>
+            <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
+            <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
+            <label><span>What happened instead?</span><textarea rows={3} maxLength={2000} value={actual} onChange={(event) => setActual(event.currentTarget.value)} /></label>
+            <label className="pilot-screenshot-field"><span>Optional cropped screenshot</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={(event) => setScreenshot(event.currentTarget.files?.[0] ?? null)} /><small>{screenshot ? `${screenshot.name} · ${Math.ceil(screenshot.size / 1024)} KB` : 'JPG, PNG, or WebP · 5 MB maximum'}</small></label>
+            {error && <p className="setup-error" role="alert">{error}</p>}
+            <button type="submit" disabled={saving}>{saving ? 'Submitting privately' : 'Submit report'}</button>
+          </form>
+        )}
+      </section>
     </div>
   )
 }
@@ -4545,12 +4776,15 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                       <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
                       <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
                       <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />
-                      <AdminBadge value={`${user.workspace.profile_completeness}% setup`} tone={user.workspace.setup_complete ? 'green' : 'neutral'} />
+                      <AdminBadge value={pilotSetupLabel(user.workspace.setup_status)} tone={user.workspace.setup_complete ? 'green' : user.workspace.setup_status === 'started' ? 'gold' : 'neutral'} />
+                      <AdminBadge value={user.workspace.signed_in ? 'Signed in' : 'Not signed in'} tone={user.workspace.signed_in ? 'green' : 'neutral'} />
+                      {user.workspace.has_pending_review_work && <AdminBadge value="Review waiting" tone="gold" />}
                     </div>
                     <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
                     {user.invite_email.last_attempted_at && (
                       <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
                     )}
+                    <p className="admin-email-line">Last safe activity: {user.workspace.last_safe_activity_at ? shortDateTime(user.workspace.last_safe_activity_at) : 'No participant activity yet'}</p>
                   </div>
 
                   <div className="admin-user-controls">
@@ -4711,7 +4945,7 @@ function compareAdminUsers(left: AdminUser, right: AdminUser, sort: UserSortKey)
   if (sort === 'email_asc') return left.email.localeCompare(right.email)
   if (sort === 'role_asc') return compareTextThenName(left.role, right.role, left, right)
   if (sort === 'status_asc') return compareTextThenName(left.invitation_status, right.invitation_status, left, right)
-  if (sort === 'setup_desc') return right.workspace.profile_completeness - left.workspace.profile_completeness || compareByName(left, right)
+  if (sort === 'setup_desc') return pilotSetupRank(right.workspace.setup_status) - pilotSetupRank(left.workspace.setup_status) || compareByName(left, right)
   if (sort === 'invite_desc') return sortableTime(right.invite_email.last_attempted_at) - sortableTime(left.invite_email.last_attempted_at) || compareByName(left, right)
 
   return compareByName(left, right)
@@ -4727,6 +4961,18 @@ function compareByName(left: AdminUser, right: AdminUser) {
 
 function sortableTime(value: string | null) {
   return value ? new Date(value).getTime() : 0
+}
+
+function pilotSetupRank(status: AdminUser['workspace']['setup_status']) {
+  if (status === 'complete') return 2
+  if (status === 'started') return 1
+  return 0
+}
+
+function pilotSetupLabel(status: AdminUser['workspace']['setup_status']) {
+  if (status === 'complete') return 'Setup complete'
+  if (status === 'started') return 'Setup started'
+  return 'Setup not started'
 }
 
 function inviteActionNotice(response: AdminUserMutationResponse) {
@@ -4811,13 +5057,6 @@ function monthIndexFromIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
 }
 
-function transactionBulkAmountBucket(amount: number) {
-  if (amount < 100) return 'under_100'
-  if (amount < 1_000) return '100_to_999'
-  if (amount < 5_000) return '1000_to_4999'
-  return '5000_plus'
-}
-
 function messageLengthBucket(length: number) {
   if (length < 80) return 'under_80'
   if (length < 250) return '80_249'
@@ -4831,6 +5070,7 @@ function WorkspaceSetupForm({
   editing,
   saving,
   error,
+  setupComplete,
   onBeginEdit,
   onCancel,
   onChange,
@@ -4841,6 +5081,7 @@ function WorkspaceSetupForm({
   editing: boolean
   saving: boolean
   error: string | null
+  setupComplete: boolean
   onBeginEdit: () => void
   onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
@@ -4866,41 +5107,44 @@ function WorkspaceSetupForm({
         </div>
       </div>
 
-      <div className="setup-field-grid">
-        <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
-          <span>Household name</span>
-          <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
-          <small>The name Mia should use for this household.</small>
-        </label>
-        <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
-          <span>Primary goal</span>
-          <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
-          <small>Write the goal, worry, or decision Mia should coach around. This box grows for longer notes.</small>
-        </label>
-        <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
-        <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
-        <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-        <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
-        <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
-        <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
-        <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
-        <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-        <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
-        <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
-        <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
-          <span>Target runway months</span>
-          <input
-            type="number"
-            min="0"
-            step="0.5"
-            name="target_runway_months"
-            value={values.target_runway_months}
-            disabled={!editing}
-            onChange={(event) => onChange('target_runway_months', event.target.value)}
-          />
-          <small>How many months of expenses you want protected before bigger moves.</small>
-        </label>
-      </div>
+      <fieldset className="setup-fieldset">
+        <legend>Essential first-session information</legend>
+        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait.</p>
+        <div className="setup-field-grid">
+          <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
+            <span>Household name</span>
+            <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
+            <small>The name Mia should use for this household.</small>
+          </label>
+          <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
+            <span>Primary goal</span>
+            <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
+            <small>Write the goal, worry, or decision Mia should coach around.</small>
+          </label>
+          <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+          <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+          <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+        </div>
+      </fieldset>
+
+      <details className="setup-optional-fields" open={setupComplete || undefined}>
+        <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, debt, and runway target</small></summary>
+        <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
+        <div className="setup-field-grid">
+          <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+          <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
+          <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+          <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
+          <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
+          <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
+          <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+          <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
+            <span>Target runway months</span>
+            <input type="number" min="0" step="0.5" name="target_runway_months" value={values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
+            <small>How many months of expenses you want protected before bigger moves.</small>
+          </label>
+        </div>
+      </details>
 
       {error && <p className="setup-error" role="alert">{error}</p>}
     </form>
@@ -6604,6 +6848,24 @@ function ShieldIcon() {
     <svg viewBox="0 0 24 24" role="img" aria-label="Secure access">
       <path d="M12 2.7 19 5.4v5.25c0 4.45-2.8 8.5-7 10.05-4.2-1.55-7-5.6-7-10.05V5.4l7-2.7Z" />
       <path d="m8.9 12.05 2 2 4.2-4.45" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function GuideIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12H7.5A2.5 2.5 0 0 1 5 16.5v-12Z" className="icon-stroke" />
+      <path d="M7.5 16.5H17M9 8h4.5M9 11h5.5" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function FeedbackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 5.5h15v10.25h-8L7.5 19v-3.25h-3V5.5Z" className="icon-stroke" />
+      <path d="M8 9h8M8 12h5" className="icon-stroke" />
     </svg>
   )
 }

@@ -1,6 +1,6 @@
 # Household CFO current state
 
-Updated: 2026-07-13
+Updated: 2026-07-17
 
 This is the canonical implementation-status document for Household CFO Method. Product briefs and older PR roadmaps remain useful historical context, but this file is the source of truth for what is built, merged, locally proven, production-proven, and still conceptual.
 
@@ -36,6 +36,10 @@ The transaction loop and conversation loop are the core. Wealth, CFO Filter, and
 - Effective-dated recurring income changes, zero-dollar income endings, and month-specific one-time income.
 - Annual-plan look-ahead for monthly income, planned outflow, baseline surplus, upcoming spending spikes, and expected irregular-expense drivers.
 - A financial cockpit on Home and Budget that separates confirmed actuals from pending review, ranks category pressure, shows Expense Stack usage, and visualizes all 12 months of income versus planned outflow.
+- A pilot-first Home path that lets a basic participant save five household essentials, while keeping the existing upload-heavy path available for power users.
+- An in-app mobile tester guide and structured, authenticated feedback flow with an optional private screenshot.
+- A privacy-bounded pilot analytics funnel for setup, Mia, upload, draft, confirmation, failure, and review-completion signals.
+- Admin/cohort progress limited to invitation, sign-in, setup state, pending-review state, and a safe last-activity timestamp.
 
 ## Locally proven
 
@@ -59,6 +63,26 @@ Rendered Playwright checks cover:
 - Dynamic readiness quick prompts.
 - Bounded chat rendering and lazy attachment images.
 - Mobile status-card layout, horizontal overflow, and navigation affordance.
+- Basic and power-user first-session paths, tester guide, and private feedback on desktop, 390-pixel mobile, and 320-pixel compact mobile.
+- Admin progress visibility without participant readiness percentages or financial details.
+- Explicit confirmation boundaries for transaction and Mia budget-change drafts.
+- Failed receipt upload recovery without losing the upload path.
+
+## Pilot operating boundaries
+
+The first cohort can use manual entry, Mia, voice, receipts, statements, general documents, annual budgets, and supervised review without Plaid. The supported first session is:
+
+```text
+Invitation and sign-in
+→ save five household essentials
+→ ask Mia or create one manual transaction
+→ review before confirming
+→ add documents only when useful
+```
+
+The alternative power-user path begins with a budget upload and then adds statements, receipts, or pay stubs through the same review-before-apply boundary. See `docs/pilot-tester-guide.md` for the participant-facing instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
+
+Pilot feedback is stored in the participant's authenticated household scope. Its narrative and optional screenshot are never copied into PostHog or shown in the cohort progress screen. Participants are warned not to include financial values, account information, document contents, passwords, or private Mia messages.
 
 ## Not yet production-proven
 
@@ -97,7 +121,8 @@ These require product approval rather than engineering inference:
 
 ## Next sequence
 
-1. Complete the signed-in production smoke checklist with demo-safe fixtures, including annual income changes and future spending spikes.
-2. Review the remaining readiness, Mia-quality, memory, and coach-visibility decisions with Mrs. Mel.
-3. Build visible, user-controlled Mia Memory only after that discovery.
-4. Continue frontend screen extraction as each area is changed; do not return to adding all behavior in `App.tsx`.
+1. Deploy the bounded pilot-readiness release and complete the signed-in production smoke checklist with representative participant and admin accounts.
+2. Give the mobile tester guide to the initial six participants, then use the same first-session path for the additional 10–15 participants.
+3. Record production evidence for phone uploads, voice, statement matching, private document controls, supervised Mia changes, and participant/admin isolation.
+4. Review the remaining readiness, Mia-quality, memory, and coach-visibility decisions with Mrs. Mel.
+5. Build visible, user-controlled Mia Memory only after that discovery; keep Plaid as a separate optional validation track.

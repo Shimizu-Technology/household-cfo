@@ -53,6 +53,7 @@ Rails.application.routes.draw do
         end
         resources :items, only: :update, controller: "document_import_items"
       end
+      resources :pilot_feedback_reports, only: :create
       namespace :admin do
         resources :cohorts, only: %i[index show create update]
         resources :users, only: %i[index create update] do

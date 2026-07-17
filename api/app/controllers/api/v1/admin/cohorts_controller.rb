@@ -52,14 +52,15 @@ module Api
         def cohort_includes
           [
             :created_by_user,
-            { cohort_memberships: { user: { household_memberships: { household: %i[income_sources expense_items debts accounts goals] } } } }
+            { cohort_memberships: :user }
           ]
         end
 
         def serialize_cohort(cohort, include_members: false, include_setup: true, setup_complete_count: nil)
           memberships = cohort.cohort_memberships.to_a
           member_users = memberships.map(&:user)
-          setup_complete_by_user_id = include_setup ? member_users.to_h { |user| [ user.id, setup_complete?(user) ] } : {}
+          progress_by_user_id = include_setup ? HouseholdFinance::PilotProgressBatchBuilder.new(member_users).call : {}
+          setup_complete_by_user_id = progress_by_user_id.transform_values { |progress| progress.fetch(:setup_complete) }
           setup_complete_count ||= include_setup ? setup_complete_by_user_id.values.count(true) : 0
           participant_count = memberships.count { |membership| membership.role == "participant" }
           staff_count = memberships.count { |membership| membership.role.in?([ "coach", "admin" ]) }
@@ -95,7 +96,7 @@ module Api
                   full_name: membership.user.full_name,
                   role: membership.user.role,
                   invitation_status: membership.user.invitation_status,
-                  setup_complete: setup_complete_by_user_id.fetch(membership.user.id)
+                  **progress_by_user_id.fetch(membership.user.id)
                 }
               }
             end
@@ -148,13 +149,6 @@ module Api
           ApplicationRecord.connection.exec_query(sql).to_h do |row|
             [ row.fetch("cohort_id"), row.fetch("setup_complete_count") ]
           end
-        end
-
-        def setup_complete?(user)
-          household = user.household_memberships.sort_by(&:created_at).first&.household
-          return false unless household
-
-          HouseholdFinance::SnapshotBuilder.new(household).call.fetch(:profile_completeness) >= 70
         end
 
         def render_not_found(error)

@@ -75,7 +75,10 @@ Privacy defaults in code:
 - Autocapture is off; only safe product events are tracked.
 - User identification sends app role/status only, not email/name/financial values.
 - Session replay is enabled whenever analytics is enabled and masks all inputs/text.
-- Query strings and source document URLs are redacted before replay/network capture.
+- Product page views omit query strings and fragments; replay/network capture redacts query strings and source document URLs.
+- Pilot feedback narrative and screenshots are sent only to the authenticated Rails feedback endpoint, never to PostHog.
+
+The allowed pilot events and coach-visibility boundary are defined in `docs/pilot-analytics-contract.md`. Before deploy, run `npm test` in `web`; its privacy regression check fails if forbidden financial/content properties return to the tracked funnel.
 
 ## PWA checks
 
@@ -129,6 +132,10 @@ Evidence location:
 - Clerk sign-in/sign-out.
 - Invited participant lands in the real workspace.
 - Uninvited account is denied.
+- Incomplete participant sees **Start with the essentials** and can open the mobile tester guide.
+- Five-essential setup saves successfully without requiring business, wealth, or debt details.
+- Power-user path remains available for budget, statement, receipt, pay-stub, and document uploads.
+- **Report a problem** accepts screen/workflow, attempted, expected, actual, and an optional cropped screenshot; the report response and analytics contain no narrative or private storage key.
 - Home/Budget/Wealth/CFO Filter/Optionality render from saved data.
 - Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
 - Home shows pending transaction/action review counts and the current month inside the annual plan.
@@ -144,3 +151,23 @@ Evidence location:
 - Ask Mia attachment flow creates a reviewable import.
 - Admin tab visible only to admins; participant cannot see it.
 - Admin can create cohort, invite participant, resend invite, revoke/remove access.
+- Admin participant rows show only invited, signed in, setup state, pending-review state, and last safe activity; inspect the network response and confirm there are no household names, financial values, documents, messages, transactions, readiness scores, or setup percentages.
+
+## Pilot workflow matrix
+
+Run the representative workflows below on desktop, a real phone, and the automated 390-pixel and 320-pixel projects. Use demo-safe fixtures in production.
+
+| Workflow | Required boundary/evidence |
+| --- | --- |
+| Invite, sign-in, access | Participant cannot access admin routes or another household; admin role does not expose participant financial content. |
+| Manual setup and annual plan | Five essentials save; optional details remain editable; annual months and budget allocations persist. |
+| Typed and voice capture | Both create pending review only; voice transcript is editable before send. |
+| Receipt/document upload | Failure is retryable; success leads to explicit review; source controls require explicit action. |
+| Statement matching | Multi-month assignment is correct; existing matches prevent duplicate confirmed actuals. |
+| Transaction review | Edit/confirm/ignore are explicit and affect only the selected household. |
+| Mia budget action | Review card preserves category/month/amount; apply/cancel is explicit; no action occurs from narration alone. |
+| Private source controls | Preview/download links expire and authorize the current household; remove/delete choices are distinguishable and recoverable where promised. |
+| Pilot feedback | Narrative and screenshot remain outside analytics and cohort progress; invalid/disguised images are rejected. |
+| Cohort progress | Invited, signed-in, setup state, pending review, and safe last activity match known test-account state. |
+
+Record failures with the in-app feedback form using only demo-safe descriptions. A local automated pass is necessary but does not replace real iOS Safari and Android Chrome evidence.

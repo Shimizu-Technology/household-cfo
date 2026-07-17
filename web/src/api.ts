@@ -559,6 +559,35 @@ export type UserRole = 'admin' | 'coach' | 'participant'
 export type InvitationStatus = 'pending' | 'accepted' | 'revoked'
 export type AdminCohortStatus = 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'
 
+export type PilotSetupStatus = 'not_started' | 'started' | 'complete'
+
+export type PilotProgress = {
+  invited: boolean
+  signed_in: boolean
+  setup_status: PilotSetupStatus
+  setup_complete: boolean
+  has_pending_review_work: boolean
+  last_safe_activity_at: string | null
+}
+
+export type PilotFeedbackWorkflow = 'sign_in' | 'home' | 'setup' | 'ask_mia' | 'voice' | 'budget' | 'transaction_review' | 'receipt_upload' | 'statement_upload' | 'document_upload' | 'private_document' | 'admin' | 'other'
+
+export type PilotFeedbackInput = {
+  workflow: PilotFeedbackWorkflow
+  attempted: string
+  expected: string
+  actual: string
+  screenshot?: File | null
+}
+
+export type PilotFeedbackReceipt = {
+  id: number
+  workflow: PilotFeedbackWorkflow
+  screenshot_attached: boolean
+  status: 'submitted' | 'reviewed' | 'resolved'
+  created_at: string
+}
+
 export type CurrentUser = {
   id: number
   clerk_id: string
@@ -605,8 +634,7 @@ export type AdminCohort = {
       full_name: string
       role: UserRole
       invitation_status: InvitationStatus
-      setup_complete: boolean
-    }
+    } & PilotProgress
   }>
 }
 
@@ -654,13 +682,7 @@ export type AdminUser = CurrentUser & {
       status: AdminCohortStatus
     }
   }>
-  workspace: {
-    household_id: number | null
-    household_name: string | null
-    setup_complete: boolean
-    profile_completeness: number
-    readiness_label: string
-  }
+  workspace: PilotProgress
 }
 
 export type AdminCohortInput = {
@@ -777,6 +799,31 @@ async function responseErrorMessage(response: Response, fallback: string) {
 export async function fetchCurrentUser(): Promise<CurrentUser> {
   const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
   return payload.user
+}
+
+export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<PilotFeedbackReceipt> {
+  const formData = new FormData()
+  formData.append('feedback_report[workflow]', values.workflow)
+  formData.append('feedback_report[attempted]', values.attempted)
+  formData.append('feedback_report[expected]', values.expected)
+  formData.append('feedback_report[actual]', values.actual)
+  if (values.screenshot) formData.append('screenshot', values.screenshot)
+
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE}/api/v1/pilot_feedback_reports`, {
+      method: 'POST',
+      headers: await authHeaders(),
+      body: formData,
+    })
+  } catch (error) {
+    throw new Error(apiNetworkErrorMessage('Feedback submission could not reach the API'), { cause: error })
+  }
+
+  if (!response.ok) throw new Error(await responseErrorMessage(response, 'Feedback submission failed'))
+
+  const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
+  return payload.feedback_report
 }
 
 export async function fetchAdminUsers(): Promise<AdminUser[]> {
