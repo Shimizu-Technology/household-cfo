@@ -210,10 +210,10 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript((messages) => {
     window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify(messages))
   }, chatMessages(100))
-  await page.goto('/')
 })
 
 test('Home centers review work and keeps Red guidance internally consistent', async ({ page }) => {
+  await page.goto('/')
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect(page.getByText('What needs review?')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Review 2 transactions' })).toBeVisible()
@@ -254,6 +254,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
 })
 
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
+  await page.goto('/')
   for (const section of ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {
     if (section !== 'Home') await page.getByRole('button', { name: section, exact: true }).click()
 
@@ -294,6 +295,7 @@ test('large financial values stay on one line and participant screens stay insid
 })
 
 test('Ask Mia renders bounded history and lazy attachment previews', async ({ page }) => {
+  await page.goto('/')
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Why is my readiness Red?' })).toBeVisible()
   await expect(page.locator('.message-row')).toHaveCount(60)
@@ -311,6 +313,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
 })
 
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
+  await page.goto('/')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Set it once, then schedule what changes.' })).toBeVisible()
   await expect(page.getByText('Recurring amount changes')).toBeVisible()
@@ -329,6 +332,7 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
 })
 
 test('participant navigation remains available after deep scrolling', async ({ page }) => {
+  await page.goto('/')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect(page.locator('.tabs-shell')).toBeInViewport()
@@ -339,6 +343,7 @@ test('participant navigation remains available after deep scrolling', async ({ p
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
+  await page.goto('/')
   await page.getByRole('button', { name: 'Wealth', exact: true }).click()
   const debtCard = page.getByRole('heading', { name: 'Debt payoff' }).locator('..')
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
@@ -354,6 +359,7 @@ test('Wealth and Optionality explain decisions without fake payoff progress or c
 
 test('compact phone layouts keep the status card legible and expose horizontal navigation', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only responsive assertion')
+  await page.goto('/')
 
   const statusCard = page.locator('.mia-status-card')
   const headingBox = await statusCard.locator('strong').boundingBox()
