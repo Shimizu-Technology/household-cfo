@@ -459,58 +459,6 @@
   }
 }
 
-@media (max-width: 620px) {
-  .pilot-support-bar,
-  .first-session-heading,
-  .first-session-paths,
-  .pilot-dialog > header {
-    display: grid;
-    grid-template-columns: 1fr;
-  }
-
-  .pilot-support-bar {
-    align-items: stretch;
-    margin-bottom: 14px;
-  }
-
-  .pilot-support-bar > div {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .pilot-support-bar button,
-  .first-session-heading button,
-  .first-session-paths button,
-  .pilot-feedback-dialog form > button,
-  .pilot-feedback-success button {
-    width: 100%;
-    justify-content: center;
-  }
-
-  .first-session-card {
-    padding: 16px;
-    border-radius: 20px;
-  }
-
-  .pilot-dialog-overlay {
-    padding: 10px;
-  }
-
-  .pilot-dialog {
-    max-height: 94vh;
-    padding: 17px;
-    border-radius: 20px;
-  }
-
-  .pilot-dialog > header button {
-    width: 100%;
-  }
-
-  .setup-fieldset {
-    padding: 13px;
-  }
-}
-
 @media (max-width: 360px) {
   .annual-outlook-grid {
     grid-template-columns: 1fr;
@@ -1971,6 +1919,58 @@ h3 {
   border-radius: 20px;
   background: rgba(95, 125, 97, 0.08);
   color: var(--status-green);
+}
+
+@media (max-width: 620px) {
+  .pilot-support-bar,
+  .first-session-heading,
+  .first-session-paths,
+  .pilot-dialog > header {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .pilot-support-bar {
+    align-items: stretch;
+    margin-bottom: 14px;
+  }
+
+  .pilot-support-bar > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pilot-support-bar button,
+  .first-session-heading button,
+  .first-session-paths button,
+  .pilot-feedback-dialog form > button,
+  .pilot-feedback-success button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .first-session-card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .pilot-dialog-overlay {
+    padding: 10px;
+  }
+
+  .pilot-dialog {
+    max-height: 94vh;
+    padding: 17px;
+    border-radius: 20px;
+  }
+
+  .pilot-dialog > header button {
+    width: 100%;
+  }
+
+  .setup-fieldset {
+    padding: 13px;
+  }
 }
 
 .admin-screen {

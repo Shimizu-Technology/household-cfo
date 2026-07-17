@@ -379,6 +379,10 @@ test('incomplete participants get a short first session, private feedback, and a
   const firstSessionHeading = page.getByRole('heading', { name: 'Choose the easiest way to begin.' })
   await firstSessionHeading.scrollIntoViewIfNeeded()
   await expect(firstSessionHeading).toBeVisible()
+  if ((page.viewportSize()?.width ?? 1_000) <= 620) {
+    const firstSessionColumns = await page.locator('.first-session-heading').evaluate((element) => getComputedStyle(element).gridTemplateColumns)
+    expect(firstSessionColumns.split(' ')).toHaveLength(1)
+  }
   await expect(page.getByText('Start with the essentials', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Tester guide' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
