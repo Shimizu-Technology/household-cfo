@@ -8,19 +8,20 @@ module Api
       end
 
       def setup
+        workspace_data = nil
         current_household.transaction do
           HouseholdFinance::SetupUpdater.new(current_household, setup_params).call
-          record_setup_save!
+          workspace_data = current_workspace_data
+          record_setup_save!(workspace_data.dig(:workspace, :setup_complete))
         end
-        render_current_workspace
+        render json: workspace_data
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
       private
 
-      def record_setup_save!
-        setup_complete = HouseholdFinance::SnapshotBuilder.new(current_household).call.fetch(:profile_completeness) >= HouseholdFinance::PilotProgressBuilder::SETUP_COMPLETE_THRESHOLD
+      def record_setup_save!(setup_complete)
         current_household.household_audit_events.create!(
           user: current_user,
           actor_type: "user",

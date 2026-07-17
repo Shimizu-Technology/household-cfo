@@ -92,6 +92,26 @@ class ApiV1PilotFeedbackReportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, HouseholdAuditEvent.where(event_type: "pilot_feedback_report.submitted").count
   end
 
+  test "create preserves a validated screenshot extension when sanitizing removes the filename stem" do
+    uploaded = []
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, io, content_type:) { uploaded << [ key, io.read, content_type ]; key }
+    ) do
+      assert_difference([ "PilotFeedbackReport.count", "HouseholdAuditEvent.count" ], 1) do
+        post "/api/v1/pilot_feedback_reports",
+          params: valid_params.merge(screenshot: uploaded_png(original_filename: "-----.png")),
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :created
+    report = PilotFeedbackReport.last
+    assert_equal "pilot-feedback.png", report.screenshot_filename
+    assert_match %r{/pilot-feedback/#{report.id}/pilot-feedback\.png\z}, report.screenshot_s3_key
+    assert_equal "image/png", uploaded.first.third
+  end
+
   test "create rejects disguised non-image screenshots" do
     with_s3_stubs(configured?: true) do
       post "/api/v1/pilot_feedback_reports",
@@ -117,12 +137,12 @@ class ApiV1PilotFeedbackReportsControllerTest < ActionDispatch::IntegrationTest
     }
   end
 
-  def uploaded_png
+  def uploaded_png(original_filename: "pilot-screen.png")
     file = Tempfile.new([ "pilot-screen", ".png" ])
     file.binmode
     file.write(Base64.decode64("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="))
     file.rewind
-    Rack::Test::UploadedFile.new(file.path, "image/png", original_filename: "pilot-screen.png")
+    Rack::Test::UploadedFile.new(file.path, "image/png", original_filename: original_filename)
   end
 
   def uploaded_text_as_png

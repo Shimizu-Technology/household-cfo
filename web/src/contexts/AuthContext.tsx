@@ -79,9 +79,12 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   const pilotE2ERole = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true'
     ? new URLSearchParams(window.location.search).get('pilot_e2e_role')
     : null
-  const currentUser = pilotE2ERole === 'admin' || pilotE2ERole === 'participant'
-    ? e2eCurrentUser(pilotE2ERole)
-    : null
+  const currentUser = useMemo(
+    () => pilotE2ERole === 'admin' || pilotE2ERole === 'participant'
+      ? e2eCurrentUser(pilotE2ERole)
+      : null,
+    [pilotE2ERole],
+  )
 
   useEffect(() => {
     setAuthTokenGetter(null)

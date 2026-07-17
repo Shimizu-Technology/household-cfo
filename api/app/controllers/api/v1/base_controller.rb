@@ -10,7 +10,11 @@ module Api
       end
 
       def render_current_workspace
-        render json: HouseholdFinance::DataPresenter.new(current_household, user: current_user).app_data
+        render json: current_workspace_data
+      end
+
+      def current_workspace_data
+        HouseholdFinance::DataPresenter.new(current_household, user: current_user).app_data
       end
     end
   end

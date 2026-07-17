@@ -72,9 +72,11 @@ module Api
       end
 
       def store_screenshot(report, file)
+        extension = File.extname(file.original_filename.to_s).downcase
+        content_type = ALLOWED_SCREENSHOT_TYPES.fetch(extension)
         filename = S3Service.safe_filename(file.original_filename, fallback: "pilot-feedback")
+        filename = "pilot-feedback#{extension}" if File.extname(filename).blank?
         key = S3Service.namespaced_key("households", current_household.id, "pilot-feedback", report.id, filename)
-        content_type = ALLOWED_SCREENSHOT_TYPES.fetch(File.extname(filename).downcase)
         uploaded = File.open(file.tempfile.path, "rb") do |io|
           S3Service.upload(key, io, content_type: content_type)
         end
