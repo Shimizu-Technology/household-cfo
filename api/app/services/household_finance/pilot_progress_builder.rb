@@ -1,10 +1,13 @@
 module HouseholdFinance
   class PilotProgressBuilder
     SETUP_COMPLETE_THRESHOLD = 70
+    MEANINGFUL_SETUP_ASSOCIATIONS = %i[income_sources expense_items accounts debts goals].freeze
+    HOUSEHOLD_NOT_PROVIDED = Object.new.freeze
 
-    def initialize(user, household: nil)
+    def initialize(user, household: HOUSEHOLD_NOT_PROVIDED, operational_signals: nil)
       @user = user
-      @household = household || first_household
+      @household = household.equal?(HOUSEHOLD_NOT_PROVIDED) ? first_household : household
+      @operational_signals = operational_signals
     end
 
     def call
@@ -20,7 +23,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :user, :household
+    attr_reader :user, :household, :operational_signals
 
     def first_household
       user.household_memberships.order(:created_at, :id).first&.household
@@ -45,19 +48,21 @@ module HouseholdFinance
     end
 
     def explicit_setup_save?
+      return operational_signals.fetch(:setup_saved) if operational_signals
+
       household.household_audit_events.where(event_type: "workspace.setup_saved").exists?
     end
 
     def meaningful_setup_records?
-      household.income_sources.exists? ||
-        household.expense_items.exists? ||
-        household.accounts.exists? ||
-        household.debts.exists? ||
-        household.goals.exists?
+      MEANINGFUL_SETUP_ASSOCIATIONS.any? do |association_name|
+        association = household.association(association_name)
+        association.loaded? ? association.target.any? : household.public_send(association_name).exists?
+      end
     end
 
     def pending_review_work?
       return false unless household
+      return operational_signals.fetch(:pending_review_work) if operational_signals
 
       household.transaction_drafts.pending.exists? ||
         household.mia_action_drafts.pending.exists? ||
@@ -65,6 +70,8 @@ module HouseholdFinance
     end
 
     def last_safe_activity_at
+      return operational_signals.fetch(:last_safe_activity_at) if operational_signals
+
       timestamps = [ user.last_sign_in_at, household&.updated_at ]
       return timestamps.compact.max unless household
 
