@@ -411,19 +411,13 @@ module Api
 
         def serialize_user(user)
           household = user.household_memberships.sort_by(&:created_at).first&.household
-          snapshot = household ? HouseholdFinance::SnapshotBuilder.new(household).call : nil
+          progress = HouseholdFinance::PilotProgressBuilder.new(user, household: household).call
 
           user.as_api_json.merge(
             invited_by: serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
             cohorts: user.cohort_memberships.sort_by { |membership| membership.cohort.name.downcase }.map { |membership| serialize_membership(membership) },
-            workspace: {
-              household_id: household&.id,
-              household_name: household&.name,
-              setup_complete: snapshot ? snapshot.fetch(:profile_completeness) >= 70 : false,
-              profile_completeness: snapshot ? snapshot.fetch(:profile_completeness) : 0,
-              readiness_label: snapshot ? snapshot.fetch(:readiness_label) : "Not started"
-            }
+            workspace: progress
           )
         end
 

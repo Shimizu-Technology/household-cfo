@@ -459,6 +459,58 @@
   }
 }
 
+@media (max-width: 620px) {
+  .pilot-support-bar,
+  .first-session-heading,
+  .first-session-paths,
+  .pilot-dialog > header {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .pilot-support-bar {
+    align-items: stretch;
+    margin-bottom: 14px;
+  }
+
+  .pilot-support-bar > div {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pilot-support-bar button,
+  .first-session-heading button,
+  .first-session-paths button,
+  .pilot-feedback-dialog form > button,
+  .pilot-feedback-success button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .first-session-card {
+    padding: 16px;
+    border-radius: 20px;
+  }
+
+  .pilot-dialog-overlay {
+    padding: 10px;
+  }
+
+  .pilot-dialog {
+    max-height: 94vh;
+    padding: 17px;
+    border-radius: 20px;
+  }
+
+  .pilot-dialog > header button {
+    width: 100%;
+  }
+
+  .setup-fieldset {
+    padding: 13px;
+  }
+}
+
 @media (max-width: 360px) {
   .annual-outlook-grid {
     grid-template-columns: 1fr;
@@ -1557,6 +1609,368 @@ h3 {
   color: var(--status-red);
   font-size: 0.88rem;
   font-weight: 800;
+}
+
+.setup-fieldset {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  margin: 0;
+  padding: 16px;
+  border: 1px solid rgba(123, 74, 88, 0.18);
+  border-radius: 20px;
+  background: rgba(255, 253, 248, 0.7);
+}
+
+.setup-fieldset legend {
+  padding: 0 8px;
+  color: var(--emerald);
+  font-size: 0.78rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.setup-fieldset > p,
+.setup-optional-fields > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.setup-optional-fields {
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: rgba(249, 242, 233, 0.72);
+}
+
+.setup-optional-fields summary {
+  display: grid;
+  gap: 4px;
+  padding: 14px 16px;
+  cursor: pointer;
+  color: var(--ink);
+  font-weight: 900;
+}
+
+.setup-optional-fields summary small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 650;
+  line-height: 1.4;
+}
+
+.setup-optional-fields[open] summary {
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.setup-optional-fields > p,
+.setup-optional-fields > .setup-field-grid {
+  margin: 14px 16px;
+}
+
+.pilot-support-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  margin: -4px 0 18px;
+  padding: 10px 14px;
+  border: 1px solid rgba(95, 125, 97, 0.2);
+  border-radius: 18px;
+  background: rgba(241, 235, 224, 0.82);
+}
+
+.pilot-support-bar > span,
+.pilot-support-bar > div,
+.pilot-support-bar button {
+  display: flex;
+  align-items: center;
+}
+
+.pilot-support-bar > span {
+  gap: 8px;
+  color: #4f654f;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.pilot-support-bar > div {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.pilot-support-bar button {
+  gap: 7px;
+  min-height: 40px;
+  padding: 9px 12px;
+}
+
+.pilot-support-bar svg,
+.pilot-guide-dialog footer svg,
+.pilot-privacy-note svg,
+.pilot-feedback-success svg {
+  width: 19px;
+  height: 19px;
+  flex: 0 0 auto;
+  fill: none;
+  color: currentColor;
+}
+
+.first-session-card {
+  display: grid;
+  gap: 16px;
+  margin-bottom: 18px;
+  padding: clamp(18px, 3vw, 28px);
+  border: 1px solid rgba(123, 74, 88, 0.26);
+  border-radius: 26px;
+  background: linear-gradient(135deg, #fffdf8, #f3e5e4);
+  box-shadow: 0 18px 42px rgba(71, 47, 53, 0.09);
+}
+
+.first-session-heading {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 18px;
+  align-items: end;
+}
+
+.first-session-heading h2 {
+  max-width: 680px;
+  font-size: clamp(2rem, 4vw, 3rem);
+}
+
+.first-session-heading p,
+.first-session-paths p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.first-session-paths {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.first-session-paths article {
+  display: grid;
+  align-content: start;
+  gap: 10px;
+  padding: 17px;
+  border: 1px solid rgba(226, 217, 203, 0.9);
+  border-radius: 20px;
+  background: rgba(255, 253, 248, 0.86);
+}
+
+.first-session-paths article > span {
+  color: var(--emerald);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.first-session-paths h3 {
+  margin: 0;
+  font-size: 1.08rem;
+}
+
+.first-session-paths button,
+.first-session-heading button {
+  width: fit-content;
+  min-height: 44px;
+  margin-top: auto;
+  border-radius: 999px;
+  padding: 11px 15px;
+  background: var(--emerald);
+  color: white;
+  font-weight: 900;
+}
+
+.first-session-paths .secondary-button,
+.first-session-heading .secondary-button {
+  border: 1px solid rgba(123, 74, 88, 0.22);
+  background: white;
+  color: var(--emerald);
+}
+
+.pilot-dialog-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+}
+
+.pilot-dialog-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border-radius: 0;
+  background: rgba(31, 36, 33, 0.58);
+  backdrop-filter: blur(7px);
+}
+
+.pilot-dialog {
+  position: relative;
+  display: grid;
+  width: min(720px, 100%);
+  max-height: min(88vh, 820px);
+  gap: 18px;
+  overflow-y: auto;
+  padding: clamp(18px, 4vw, 28px);
+  border: 1px solid var(--line);
+  border-radius: 26px;
+  background: var(--paper);
+  box-shadow: 0 28px 90px rgba(31, 36, 33, 0.3);
+}
+
+.pilot-dialog > header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.pilot-dialog h2 {
+  margin: 0;
+  font-size: clamp(2rem, 5vw, 3rem);
+}
+
+.pilot-dialog > header button {
+  flex: 0 0 auto;
+  min-height: 42px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: white;
+  color: var(--emerald);
+  font-weight: 900;
+}
+
+.pilot-guide-steps {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.pilot-guide-steps li {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.pilot-guide-steps li > span {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--emerald);
+  color: white;
+  font-weight: 900;
+}
+
+.pilot-guide-steps p,
+.pilot-guide-power-path p,
+.pilot-guide-dialog footer p,
+.pilot-feedback-success p {
+  margin: 3px 0 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.pilot-guide-power-path,
+.pilot-guide-dialog footer,
+.pilot-privacy-note {
+  padding: 14px;
+  border-radius: 16px;
+}
+
+.pilot-guide-power-path {
+  border: 1px solid rgba(185, 115, 82, 0.22);
+  background: #fff3e8;
+}
+
+.pilot-guide-dialog footer,
+.pilot-privacy-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  border: 1px solid rgba(95, 125, 97, 0.22);
+  background: rgba(95, 125, 97, 0.08);
+  color: #4f654f;
+}
+
+.pilot-feedback-dialog form {
+  display: grid;
+  gap: 13px;
+}
+
+.pilot-feedback-dialog form > label {
+  display: grid;
+  gap: 7px;
+}
+
+.pilot-feedback-dialog label > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.pilot-feedback-dialog :where(select, textarea, input[type="file"]) {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 10px 12px;
+  background: #fffdf8;
+  color: var(--ink);
+}
+
+.pilot-feedback-dialog textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.pilot-screenshot-field small {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.pilot-feedback-dialog form > button,
+.pilot-feedback-success button {
+  width: fit-content;
+  min-height: 44px;
+  border-radius: 999px;
+  padding: 11px 16px;
+  background: var(--emerald);
+  color: white;
+  font-weight: 900;
+}
+
+.pilot-feedback-success {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  padding: 18px;
+  border: 1px solid rgba(95, 125, 97, 0.25);
+  border-radius: 20px;
+  background: rgba(95, 125, 97, 0.08);
+  color: var(--status-green);
 }
 
 .admin-screen {

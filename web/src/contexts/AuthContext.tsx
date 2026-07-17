@@ -76,21 +76,49 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 }
 
 function NoAuthBridge({ children }: { children: ReactNode }) {
+  const pilotE2ERole = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true'
+    ? new URLSearchParams(window.location.search).get('pilot_e2e_role')
+    : null
+  const currentUser = pilotE2ERole === 'admin' || pilotE2ERole === 'participant'
+    ? e2eCurrentUser(pilotE2ERole)
+    : null
+
   useEffect(() => {
     setAuthTokenGetter(null)
   }, [])
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: false,
-    isSignedIn: false,
+    isSignedIn: Boolean(currentUser),
     isLoading: false,
     isVerifyingApi: false,
-    currentUser: null,
+    currentUser,
     authError: null,
     refreshCurrentUser: async () => undefined,
-  }), [])
+  }), [currentUser])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function e2eCurrentUser(role: 'admin' | 'participant'): CurrentUser {
+  return {
+    id: role === 'admin' ? 900 : 901,
+    clerk_id: `e2e_${role}`,
+    email: `${role}@pilot.test`,
+    first_name: role === 'admin' ? 'Pilot' : 'Test',
+    last_name: role === 'admin' ? 'Admin' : 'Participant',
+    full_name: role === 'admin' ? 'Pilot Admin' : 'Test Participant',
+    role,
+    invitation_status: 'accepted',
+    invited_at: '2026-07-01T00:00:00Z',
+    accepted_at: '2026-07-02T00:00:00Z',
+    last_sign_in_at: '2026-07-17T00:00:00Z',
+    created_at: '2026-07-01T00:00:00Z',
+    is_admin: role === 'admin',
+    is_coach: false,
+    is_participant: role === 'participant',
+    is_staff: role === 'admin',
+  }
 }
 
 export function AuthProvider({ children, isClerkEnabled }: { children: ReactNode; isClerkEnabled: boolean }) {

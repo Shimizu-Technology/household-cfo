@@ -49,26 +49,28 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
   test "workspace setup saves real household numbers and recalculates dashboard" do
     user = create_user(email: "mel@example.com", first_name: "Mel")
 
-    patch "/api/v1/workspace/setup",
-          params: {
-            workspace: {
-              household_name: "Mendiola Household",
-              primary_goal: "Decide if the purse is in the cards.",
-              primary_income: 8_000,
-              business_income: 1_200,
-              fixed_expenses: 4_500,
-              flexible_spend: 1_300,
-              expected_sinking_fund: 500,
-              unexpected_sinking_fund: 300,
-              emergency_fund: 18_000,
-              other_assets: 12_000,
-              credit_card_debt: 7_000,
-              debt_payment: 700,
-              target_runway_months: 6
-            }
-          },
-          headers: auth_headers(user),
-          as: :json
+    assert_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count", 1) do
+      patch "/api/v1/workspace/setup",
+            params: {
+              workspace: {
+                household_name: "Mendiola Household",
+                primary_goal: "Decide if the purse is in the cards.",
+                primary_income: 8_000,
+                business_income: 1_200,
+                fixed_expenses: 4_500,
+                flexible_spend: 1_300,
+                expected_sinking_fund: 500,
+                unexpected_sinking_fund: 300,
+                emergency_fund: 18_000,
+                other_assets: 12_000,
+                credit_card_debt: 7_000,
+                debt_payment: 700,
+                target_runway_months: 6
+              }
+            },
+            headers: auth_headers(user),
+            as: :json
+    end
 
     assert_response :success
     body = JSON.parse(response.body)
@@ -77,6 +79,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 7_300, body.fetch("budget").fetch("total_monthly_outflow")
     assert_equal 1_900, body.fetch("budget").fetch("baseline_surplus")
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
+    setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
+    assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
 
   test "workspace setup partial patch preserves omitted financial values" do

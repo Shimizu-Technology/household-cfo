@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_07_17_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -482,6 +482,25 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
     t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying]::text[])", name: "mia_action_items_action_type_valid"
   end
 
+  create_table "pilot_feedback_reports", force: :cascade do |t|
+    t.text "actual", null: false
+    t.text "attempted", null: false
+    t.datetime "created_at", null: false
+    t.text "expected", null: false
+    t.bigint "household_id", null: false
+    t.bigint "screenshot_byte_size"
+    t.string "screenshot_content_type"
+    t.string "screenshot_filename"
+    t.string "screenshot_s3_key"
+    t.string "status", default: "submitted", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.string "workflow", null: false
+    t.index ["household_id"], name: "index_pilot_feedback_reports_on_household_id"
+    t.index ["status", "created_at"], name: "index_pilot_feedback_reports_on_status_and_created_at"
+    t.index ["user_id"], name: "index_pilot_feedback_reports_on_user_id"
+  end
+
   create_table "solid_cache_entries", force: :cascade do |t|
     t.integer "byte_size", null: false
     t.datetime "created_at", null: false
@@ -762,6 +781,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_12_010000) do
   add_foreign_key "mia_action_drafts", "users", column: "canceled_by_user_id"
   add_foreign_key "mia_action_drafts", "users", column: "requested_by_user_id"
   add_foreign_key "mia_action_items", "mia_action_drafts"
+  add_foreign_key "pilot_feedback_reports", "households"
+  add_foreign_key "pilot_feedback_reports", "users"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

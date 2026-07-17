@@ -41,6 +41,7 @@ export default defineConfig({
       VITE_API_BASE_URL: 'http://api.test',
       VITE_CLERK_PUBLISHABLE_KEY: '',
       VITE_PUBLIC_POSTHOG_KEY: '',
+      VITE_E2E_AUTH: 'true',
     },
   },
 })

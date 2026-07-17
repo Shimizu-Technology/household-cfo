@@ -638,6 +638,36 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("errors"), "Reactivate this user before resending an invitation"
   end
 
+  test "admin user progress exposes operational pilot signals without household financial details" do
+    admin = create_user(email: "progress-admin@example.com", role: "admin")
+    participant = create_user(email: "progress-participant@example.com", role: "participant")
+    participant.update!(invited_at: 2.days.ago, last_sign_in_at: 1.hour.ago)
+    household = HouseholdFinance::WorkspaceResolver.new(participant).household
+    household.household_audit_events.create!(
+      user: participant,
+      actor_type: "user",
+      event_type: "workspace.setup_saved",
+      metadata: { setup_complete: false },
+      occurred_at: 30.minutes.ago
+    )
+
+    get "/api/v1/admin/users", headers: auth_headers(admin)
+
+    assert_response :success
+    row = JSON.parse(response.body).fetch("users").find { |user| user.fetch("id") == participant.id }
+    progress = row.fetch("workspace")
+    assert_equal true, progress.fetch("invited")
+    assert_equal true, progress.fetch("signed_in")
+    assert_equal "started", progress.fetch("setup_status")
+    assert_equal false, progress.fetch("setup_complete")
+    assert_equal false, progress.fetch("has_pending_review_work")
+    assert progress.fetch("last_safe_activity_at").present?
+    assert_equal %w[has_pending_review_work invited last_safe_activity_at setup_complete setup_status signed_in], progress.keys.sort
+    assert_not_includes response.body, household.name
+    assert_not_includes response.body, "profile_completeness"
+    assert_not_includes response.body, "readiness_label"
+  end
+
   private
 
   def create_user(email:, role:)

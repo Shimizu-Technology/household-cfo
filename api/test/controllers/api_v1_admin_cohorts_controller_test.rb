@@ -113,6 +113,32 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert JSON.parse(response.body).fetch("errors").first.include?("Couldn't find Cohort")
   end
 
+  test "cohort show exposes only safe operational progress for each member" do
+    admin = create_user(email: "safe-cohort-admin@example.com", role: "admin")
+    participant = create_user(email: "safe-cohort-member@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Privacy Safe Pilot", status: "active", created_by_user: admin)
+    cohort.cohort_memberships.create!(user: participant, role: "participant")
+    household = create_setup_complete_household(user: participant, name: "Private Household Name")
+    household.household_memberships.create!(user: participant, role: "owner")
+
+    get "/api/v1/admin/cohorts/#{cohort.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    member = JSON.parse(response.body).dig("cohort", "members").find do |item|
+      item.dig("user", "id") == participant.id
+    end.fetch("user")
+
+    assert_equal %w[
+      email full_name has_pending_review_work id invitation_status invited last_safe_activity_at role
+      setup_complete setup_status signed_in
+    ], member.keys.sort
+    assert_equal "complete", member.fetch("setup_status")
+    assert member.fetch("setup_complete")
+    assert_not member.key?("household_name")
+    assert_not member.key?("profile_completeness")
+    assert_not member.key?("readiness")
+  end
+
   test "cohort update returns json not found errors" do
     admin = create_user(email: "update-missing-owner@example.com", role: "admin")
 
