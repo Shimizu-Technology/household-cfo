@@ -376,7 +376,9 @@ test('compact phone layouts keep the status card legible and expose horizontal n
 test('incomplete participants get a short first session, private feedback, and a recoverable power-user path', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
 
-  await expect(page.getByRole('heading', { name: 'Choose the easiest way to begin.' })).toBeVisible()
+  const firstSessionHeading = page.getByRole('heading', { name: 'Choose the easiest way to begin.' })
+  await firstSessionHeading.scrollIntoViewIfNeeded()
+  await expect(firstSessionHeading).toBeVisible()
   await expect(page.getByText('Start with the essentials', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Tester guide' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
