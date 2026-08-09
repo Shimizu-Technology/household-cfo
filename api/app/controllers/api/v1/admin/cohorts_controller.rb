@@ -9,7 +9,7 @@ module Api
         def index
           cohorts = Cohort.includes(cohort_list_includes).order(created_at: :desc).to_a
           setup_counts = setup_complete_counts_for_cohorts(cohorts.map(&:id))
-          render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort, include_setup: false, setup_complete_count: setup_counts.fetch(cohort.id, 0)) } }
+          render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort, setup_complete_count: setup_counts.fetch(cohort.id, 0)) } }
         end
 
         def show
@@ -56,12 +56,11 @@ module Api
           ]
         end
 
-        def serialize_cohort(cohort, include_members: false, include_setup: true, setup_complete_count: nil)
+        def serialize_cohort(cohort, include_members: false, setup_complete_count: nil)
           memberships = cohort.cohort_memberships.to_a
           member_users = memberships.map(&:user)
-          progress_by_user_id = include_setup ? HouseholdFinance::PilotProgressBatchBuilder.new(member_users).call : {}
-          setup_complete_by_user_id = progress_by_user_id.transform_values { |progress| progress.fetch(:setup_complete) }
-          setup_complete_count ||= include_setup ? setup_complete_by_user_id.values.count(true) : 0
+          progress_by_user_id = include_members ? HouseholdFinance::PilotProgressBatchBuilder.new(member_users).call : {}
+          setup_complete_count ||= progress_by_user_id.values.count { |progress| progress.fetch(:setup_complete) }
           participant_count = memberships.count { |membership| membership.role == "participant" }
           staff_count = memberships.count { |membership| membership.role.in?([ "coach", "admin" ]) }
 

@@ -27,6 +27,9 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
          as: :json
 
     assert_response :created
+    created_payload = JSON.parse(response.body).fetch("cohort")
+    assert_equal 0, created_payload.fetch("setup_complete_count")
+    assert_not created_payload.key?("members")
     cohort = Cohort.find_by!(name: "Tuesday Pilot")
     cohort.cohort_memberships.create!(user: participant, role: "participant")
 
