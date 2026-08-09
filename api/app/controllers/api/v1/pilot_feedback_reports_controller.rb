@@ -14,6 +14,7 @@ module Api
       before_action :authenticate_user!
 
       def create
+        report = nil
         screenshot = params[:screenshot]
         screenshot_error = validate_screenshot(screenshot)
         return render json: { errors: [ screenshot_error ] }, status: :unprocessable_entity if screenshot_error
@@ -42,6 +43,7 @@ module Api
 
         render json: { feedback_report: serialize_report(report.reload) }, status: :created
       rescue S3Service::MissingConfigurationError
+        report&.destroy!
         render json: { errors: [ "Private screenshot storage is not configured. Submit without a screenshot or try again later." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity

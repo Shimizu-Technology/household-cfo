@@ -1,6 +1,6 @@
 # Household CFO current state
 
-Updated: 2026-07-17
+Updated: 2026-08-09
 
 This is the canonical implementation-status document for Household CFO Method. Product briefs and older PR roadmaps remain useful historical context, but this file is the source of truth for what is built, merged, locally proven, production-proven, and still conceptual.
 
@@ -20,6 +20,19 @@ Annual household plan
 
 The transaction loop and conversation loop are the core. Wealth, CFO Filter, and Optionality support the method, but they should not obscure review work, month/year position, or the next CFO move.
 
+## August 8 product direction
+
+Mrs. Mel reframed the immediate validation and the longer-term platform direction in the August 8 meeting:
+
+- The pre-FinCon validation is a focused group of about four women, not the earlier 16–21-person rollout.
+- The first-session hook is Mia as a culturally authentic coach between human coaching sessions. The app should lead with dialogue and the clearest money-in/money-out picture, not a tour of every module.
+- Uploads from both Ask Mia and My Profile must be treated as a release blocker until real-device production checks prove that supported spreadsheets and images can be read, reviewed, and retried safely.
+- FinCon, September 16–18, is a tablet/phone demonstration and founding-coach recruitment milestone. The operating targets discussed were three coaches by December and ten by spring.
+- The eventual product is modular coach infrastructure: a coach can configure which modules are visible and build an AI persona from a questionnaire, coaching sources/transcripts, vetted financial sources, and carefully governed cultural/style guidance.
+- That coach-persona, module-configuration, and white-label system is a separate product track. PR #48 only prepares a dependable participant pilot and captures the evidence needed to design that system responsibly.
+
+This section supersedes the older cohort-size and setup/upload-first assumptions in historical roadmaps.
+
 ## Built in the current code
 
 - Clerk/Postgres participant workspaces and cohort/admin controls.
@@ -36,7 +49,8 @@ The transaction loop and conversation loop are the core. Wealth, CFO Filter, and
 - Effective-dated recurring income changes, zero-dollar income endings, and month-specific one-time income.
 - Annual-plan look-ahead for monthly income, planned outflow, baseline surplus, upcoming spending spikes, and expected irregular-expense drivers.
 - A financial cockpit on Home and Budget that separates confirmed actuals from pending review, ranks category pressure, shows Expense Stack usage, and visualizes all 12 months of income versus planned outflow.
-- A pilot-first Home path that lets a basic participant save five household essentials, while keeping the existing upload-heavy path available for power users.
+- A dialogue-first Home path that asks for five household essentials, then takes a newly ready participant directly to Mia with an editable starter question.
+- An optional private-upload pilot path for participants who have a useful file, with explicit review-before-apply and in-app failure reporting.
 - An in-app mobile tester guide and structured, authenticated feedback flow with an optional private screenshot.
 - A privacy-bounded pilot analytics funnel for setup, Mia, upload, draft, confirmation, failure, and review-completion signals.
 - Admin/cohort progress limited to invitation, sign-in, setup state, pending-review state, and a safe last-activity timestamp.
@@ -70,17 +84,18 @@ Rendered Playwright checks cover:
 
 ## Pilot operating boundaries
 
-The first cohort can use manual entry, Mia, voice, receipts, statements, general documents, annual budgets, and supervised review without Plaid. The supported first session is:
+The focused pre-FinCon group can use manual entry, Mia, voice, receipts, statements, general documents, annual budgets, and supervised review without Plaid. The supported first session is:
 
 ```text
 Invitation and sign-in
 → save five household essentials
-→ ask Mia or create one manual transaction
+→ continue directly into one real Mia conversation
+→ optionally create one typed or voice transaction draft
 → review before confirming
-→ add documents only when useful
+→ test a demo-safe upload only when useful
 ```
 
-The alternative power-user path begins with a budget upload and then adds statements, receipts, or pay stubs through the same review-before-apply boundary. See `docs/pilot-tester-guide.md` for the participant-facing instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
+The optional file path accepts budgets, statements, receipts, screenshots, and pay stubs through the same review-before-apply boundary. A successful automated test is not enough: uploads from Ask Mia and My Profile remain unproven until exercised on the custom domain and real phones. See `docs/pilot-tester-guide.md` for participant instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
 
 Pilot feedback is stored in the participant's authenticated household scope. Its narrative and optional screenshot are never copied into PostHog or shown in the cohort progress screen. Participants are warned not to include financial values, account information, document contents, passwords, or private Mia messages.
 
@@ -110,19 +125,21 @@ With the default six-month runway target, Yellow begins at three months and Gree
 
 Optionality uses this same approved readiness status for plain-language fit guidance rather than presenting a separate, arbitrary 0–100 score. Wealth reports the current debt balance as dollars remaining; it does not display payoff progress because the product does not yet store an original payoff baseline.
 
-## Product decisions to confirm with Mrs. Mel
+## Product decisions still requiring discovery
 
 These require product approval rather than engineering inference:
 
 - Exact Red/Yellow/Green thresholds and whether Red always means zero discretionary safe-to-spend.
 - The 20–30 representative Mia questions and examples of a good versus bad response.
-- Whether mobile keeps all seven tabs visible through horizontal navigation or moves secondary modules under More.
 - Mia Memory: what can be remembered automatically, what requires confirmation, what a coach can see, and how participants edit, forget, or pause it.
+- The minimum always-on participant modules and the coach-controlled module catalog.
+- Coach-persona onboarding inputs, source governance, participant disclosure, and the approval process for culturally specific language or examples.
+- Whether mobile keeps all seven current tabs visible before configurable modules exist, or moves secondary modules under More.
 
 ## Next sequence
 
-1. Deploy the bounded pilot-readiness release and complete the signed-in production smoke checklist with representative participant and admin accounts.
-2. Give the mobile tester guide to the initial six participants, then use the same first-session path for the additional 10–15 participants.
-3. Record production evidence for phone uploads, voice, statement matching, private document controls, supervised Mia changes, and participant/admin isolation.
-4. Review the remaining readiness, Mia-quality, memory, and coach-visibility decisions with Mrs. Mel.
-5. Build visible, user-controlled Mia Memory only after that discovery; keep Plaid as a separate optional validation track.
+1. Deploy the bounded PR #48 pilot-readiness release and complete the signed-in production smoke checklist with representative participant and admin accounts.
+2. Give the dialogue-first tester guide to the focused four-person group and observe whether each person can reach a useful Mia exchange without being taught the tabs.
+3. Reproduce and resolve the reported Ask Mia and My Profile upload failures; record real phone/browser evidence for supported spreadsheet and image paths.
+4. Record production evidence for voice, statement matching, private document controls, supervised Mia changes, participant/admin isolation, and in-app feedback follow-up.
+5. Use those findings to define the separate FinCon coach demonstration and coach-platform foundation. Keep Plaid integration in its own PR and sequence after this pilot-readiness work.

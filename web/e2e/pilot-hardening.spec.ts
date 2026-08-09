@@ -376,23 +376,25 @@ test('compact phone layouts keep the status card legible and expose horizontal n
 test('incomplete participants get a short first session, private feedback, and a recoverable power-user path', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
 
-  const firstSessionHeading = page.getByRole('heading', { name: 'Choose the easiest way to begin.' })
+  const firstSessionHeading = page.getByRole('heading', { name: 'Start with money in, money out.' })
   await firstSessionHeading.scrollIntoViewIfNeeded()
   await expect(firstSessionHeading).toBeVisible()
   if ((page.viewportSize()?.width ?? 1_000) <= 620) {
     const firstSessionColumns = await page.locator('.first-session-heading').evaluate((element) => getComputedStyle(element).gridTemplateColumns)
     expect(firstSessionColumns.split(' ')).toHaveLength(1)
   }
-  await expect(page.getByText('Start with the essentials', { exact: true })).toBeVisible()
+  await expect(page.getByText('Prepare your first Mia conversation', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Tester guide' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Read the 3-minute guide' }).click()
-  await expect(page.getByRole('heading', { name: 'A dependable first session in three moves.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()
   await expect(page.getByText('Pending drafts do not change actuals or your annual plan until you approve them.')).toBeVisible()
-  await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click()
+  await expect(page.getByRole('dialog').getByRole('button', { name: 'Close' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).not.toBeVisible()
 
-  await page.getByRole('button', { name: 'Open private uploads' }).click()
+  await page.getByRole('button', { name: 'Test a private upload' }).click()
   await expect(page.getByRole('heading', { name: 'Upload evidence. Review draft facts. Apply only what is right.' })).toBeVisible()
   await page.getByRole('button', { name: 'Home', exact: true }).click()
 
@@ -407,7 +409,7 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(feedback).toContainText('were not sent to analytics')
   await feedback.getByRole('button', { name: 'Return to Household CFO' }).click()
 
-  await page.getByRole('button', { name: 'Enter essential information' }).first().click()
+  await page.getByRole('button', { name: 'Set up my first Mia conversation' }).first().click()
   await expect(page.getByText('Essential first-session information')).toBeVisible()
   await expect(page.locator('.setup-optional-fields')).not.toHaveAttribute('open', '')
   await page.getByLabel('Primary monthly income').fill('5000')
@@ -415,6 +417,10 @@ test('incomplete participants get a short first session, private feedback, and a
   await page.getByLabel('Flexible spending').fill('600')
   await page.getByRole('button', { name: 'Save numbers' }).click()
   await expect(page.getByText('Your CFO workspace is ready', { exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Ask Mia for the CFO read.' })).toBeVisible()
+  const miaComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(miaComposer).toHaveValue('What should I focus on first based on these numbers?')
+  await expect(miaComposer).toBeFocused()
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })

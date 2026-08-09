@@ -1655,7 +1655,7 @@ h3 {
 
 .pilot-support-bar button {
   gap: 7px;
-  min-height: 40px;
+  min-height: 44px;
   padding: 9px 12px;
 }
 
@@ -1702,7 +1702,7 @@ h3 {
 
 .first-session-paths {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
   gap: 12px;
 }
 
@@ -1714,6 +1714,11 @@ h3 {
   border: 1px solid rgba(226, 217, 203, 0.9);
   border-radius: 20px;
   background: rgba(255, 253, 248, 0.86);
+}
+
+.first-session-paths .first-session-path-secondary {
+  border-style: dashed;
+  background: rgba(255, 253, 248, 0.62);
 }
 
 .first-session-paths article > span {
@@ -1795,7 +1800,7 @@ h3 {
 
 .pilot-dialog > header button {
   flex: 0 0 auto;
-  min-height: 42px;
+  min-height: 44px;
   border: 1px solid var(--line);
   border-radius: 999px;
   padding: 10px 14px;

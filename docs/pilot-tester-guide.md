@@ -1,27 +1,28 @@
 # Household CFO pilot tester guide
 
-This short guide is for the first 16–21 Household CFO pilot participants. Plaid or bank connection is not required. You can start with only the five essentials and add documents later.
+This short guide is for the focused four-person Household CFO validation before FinCon. Plaid or a bank connection is not required. The goal is to see whether you can get from a few numbers to one useful Mia conversation without learning every part of the app.
 
 ## Your first session
 
 1. Open your invitation on your phone or computer and sign in.
-2. On **Home**, choose **Start with the essentials**.
+2. On **Home**, choose **Set up my first Mia conversation**.
 3. Enter your household name, primary goal, monthly income, fixed essentials, and flexible spending. Estimates are okay for the pilot.
-4. Save the setup. You can return to **My Profile** to add savings, debt, business income, or other details later.
-5. Choose one next step:
-   - Ask Mia a question about the numbers you saved.
-   - Tell Mia about one transaction, then review the draft before confirming it.
-   - Add more information from a budget, receipt, statement, pay stub, or other document.
+4. Save the setup. The app takes you directly to **Ask Mia** with a starter question you can edit or replace.
+5. Have one real conversation: ask what to focus on first, describe a money concern, or tell Mia about one transaction. Review any draft before confirming it.
+6. Return to **My Profile** later if you want to add savings, debt, business income, or other details.
 
 Nothing pending changes your approved household numbers. A transaction or budget change takes effect only after you review and confirm or apply it.
 
-## If you prefer to upload your information
+## Optional upload check
 
-1. From **Home**, choose the document upload path.
-2. Upload one budget spreadsheet or document first. Wait for its review screen and correct anything that was interpreted incorrectly before applying it.
-3. Add statements, receipts, screenshots, or pay stubs one at a time while you learn the review flow.
-4. A statement or receipt can create transaction drafts. Review each draft and its possible matches before confirming it so the same purchase is not counted twice.
-5. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls for private files. Removing a source file and deleting an import are separate actions.
+Uploads are not required to have a useful first Mia conversation. They are an important pilot check because prior production attempts from Ask Mia and My Profile could not read some spreadsheet/Drive files.
+
+1. Use a demo-safe file with no real account or card numbers. From **Home**, choose **Test a private upload**, or attach it in **Ask Mia**.
+2. Upload one supported budget spreadsheet, statement, receipt, screenshot, or pay stub. A Google Drive link is not a file upload; download the file to the device first, then select it in Household CFO.
+3. Wait for its review screen and correct anything interpreted incorrectly before applying it.
+4. Add files one at a time while learning the review flow. A statement or receipt can create transaction drafts; review possible matches so a purchase is not counted twice.
+5. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls. Removing a source file and deleting an import are separate actions.
+6. If either upload entry point fails or says it could not read the file, stop and submit **Report a problem** with the file type and workflow—but no document contents or financial values.
 
 ## Typed and voice Mia
 
@@ -46,7 +47,7 @@ Try these on both a computer and your phone when practical:
 - Save the five setup essentials.
 - Ask Mia one question.
 - Create one typed or voice transaction draft and confirm or ignore it.
-- Upload one receipt or document, including retrying one intentionally failed upload if convenient.
+- From both Ask Mia and My Profile, upload one demo-safe supported file; report the exact entry point and generic file type if either path fails.
 - Preview a private source and close it.
 - Review one proposed budget change and apply or cancel it.
 - Report one demo-safe piece of feedback.

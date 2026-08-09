@@ -92,6 +92,23 @@ class ApiV1PilotFeedbackReportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, HouseholdAuditEvent.where(event_type: "pilot_feedback_report.submitted").count
   end
 
+  test "screenshot storage configuration errors remove the report before returning an error" do
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(*) { raise S3Service::MissingConfigurationError, "configuration changed" }
+    ) do
+      assert_no_difference("PilotFeedbackReport.count") do
+        post "/api/v1/pilot_feedback_reports",
+          params: valid_params.merge(screenshot: uploaded_png),
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :service_unavailable
+    assert_includes JSON.parse(response.body).fetch("errors").join, "not configured"
+    assert_equal 0, HouseholdAuditEvent.where(event_type: "pilot_feedback_report.submitted").count
+  end
+
   test "create preserves a validated screenshot extension when sanitizing removes the filename stem" do
     uploaded = []
     with_s3_stubs(

@@ -57,6 +57,24 @@ class HouseholdFinancePilotProgressBatchBuilderTest < ActiveSupport::TestCase
     assert_equal false, progress.fetch(:setup_complete)
   end
 
+  test "batch treats a membership whose household disappears during loading as not started" do
+    user = create_user("batch-stale-membership@example.com")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+
+    builder_class = Class.new(HouseholdFinance::PilotProgressBatchBuilder) do
+      private
+
+      def load_households_by_id(_household_ids)
+        {}
+      end
+    end
+    progress = builder_class.new([ user ]).call.fetch(user.id)
+
+    assert_equal "not_started", progress.fetch(:setup_status)
+    assert_equal false, progress.fetch(:setup_complete)
+    assert_nil progress.fetch(:last_safe_activity_at)
+  end
+
   test "query count stays bounded at the pilot ceiling" do
     one_user = create_users_with_workspaces(1, prefix: "batch-small")
     pilot_cohort = create_users_with_workspaces(21, prefix: "batch-pilot")

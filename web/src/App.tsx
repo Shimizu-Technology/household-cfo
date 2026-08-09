@@ -1635,6 +1635,7 @@ function App() {
     event.preventDefault()
     if (!setupDraft || setupSaving) return
 
+    const wasSetupComplete = Boolean(data?.workspace?.setup_complete)
     setSetupSaving(true)
     setSetupError(null)
     try {
@@ -1652,6 +1653,11 @@ function App() {
         setup_complete: payload.workspace?.setup_complete ?? false,
         workspace_mode: payload.workspace?.mode ?? 'real',
       })
+      if (!wasSetupComplete && payload.workspace?.setup_complete) {
+        setQuestion('What should I focus on first based on these numbers?')
+        switchSection('Ask Mia')
+        window.setTimeout(() => composerRef.current?.focus(), 80)
+      }
     } catch (caught) {
       trackPilotWorkflowFailure('setup', 'save')
       captureAnalyticsEvent('workspace_setup_save_failed')
@@ -1747,9 +1753,9 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>{isRealWorkspace && !data.workspace?.setup_complete ? 'Start with the essentials' : 'Your CFO workspace is ready'}</strong>
+          <strong>{isRealWorkspace && !data.workspace?.setup_complete ? 'Prepare your first Mia conversation' : 'Your CFO workspace is ready'}</strong>
           <p>{isRealWorkspace && !data.workspace?.setup_complete
-            ? 'Add the few numbers you know today, or upload a budget file. You can return for the rest.'
+            ? 'Start with money in, money out, and one goal. Mia can help you make sense of the rest.'
             : `Mia can coach from your approved profile · ${data.dashboard.summary.readiness_label}`}</p>
           {auth.currentUser && (
             <div className="account-pill">
@@ -1759,7 +1765,7 @@ function App() {
             </div>
           )}
           <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
-            {isRealWorkspace && !data.workspace?.setup_complete ? 'Enter essential information' : 'Ask Mia for the CFO read'}
+            {isRealWorkspace && !data.workspace?.setup_complete ? 'Set up my first Mia conversation' : 'Ask Mia for the CFO read'}
           </button>
         </aside>
       </header>
@@ -2433,24 +2439,24 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
     <section className="first-session-card" aria-labelledby="first-session-title">
       <div className="first-session-heading">
         <div>
-          <p className="eyebrow">Your first session</p>
-          <h2 id="first-session-title">Choose the easiest way to begin.</h2>
-          <p>You do not need every account or statement today. Start with what you know, review it, then let Mia help with one next step.</p>
+          <p className="eyebrow">Your first Mia session</p>
+          <h2 id="first-session-title">Start with money in, money out.</h2>
+          <p>Give Mia five essentials, then bring her one real money question. You do not need every account, tab, or statement today.</p>
         </div>
         <button type="button" className="secondary-button" onClick={onGuide}>Read the 3-minute guide</button>
       </div>
       <div className="first-session-paths">
         <article>
-          <span>Simple start</span>
-          <h3>Enter the essentials manually</h3>
-          <p>Add monthly income, essential bills, flexible spending, and the goal you want Mia to keep in mind. Everything else can wait.</p>
-          <button type="button" onClick={onManual}>Enter essential information</button>
+          <span>Recommended</span>
+          <h3>Give Mia the minimum context</h3>
+          <p>Add monthly income, essential bills, flexible spending, and one goal. After you save, we will take you directly to Mia.</p>
+          <button type="button" onClick={onManual}>Set up my first Mia conversation</button>
         </article>
-        <article>
-          <span>Have files ready</span>
-          <h3>Upload, then review every draft</h3>
-          <p>Use a budget spreadsheet, statement, pay stub, or receipt. Nothing changes your plan or actuals until you approve it.</p>
-          <button type="button" className="secondary-button" onClick={onUpload}>Open private uploads</button>
+        <article className="first-session-path-secondary">
+          <span>Optional pilot check</span>
+          <h3>Use a file only if it helps</h3>
+          <p>Try a demo-safe budget, statement, pay stub, or receipt. Report any failure; no extracted draft changes your numbers until you approve it.</p>
+          <button type="button" className="secondary-button" onClick={onUpload}>Test a private upload</button>
         </article>
       </div>
     </section>
@@ -2460,7 +2466,7 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
 function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
   return (
     <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
-      <span><ShieldIcon /> Pilot files and financial details stay private.</span>
+      <span><ShieldIcon /> Private uploads require household access. Feedback stays outside product analytics.</span>
       <div>
         <button type="button" className="secondary-button" onClick={onOpenGuide}><GuideIcon /> Tester guide</button>
         <button type="button" className="secondary-button" onClick={onOpenFeedback}><FeedbackIcon /> Report a problem</button>
@@ -2494,26 +2500,80 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   return 'other'
 }
 
+function usePilotDialog(onClose: () => void) {
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const dialog = dialogRef.current
+    const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
+    const focusFrame = window.requestAnimationFrame(() => (focusableElements()[0] ?? dialog)?.focus())
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const elements = focusableElements()
+      if (elements.length === 0) {
+        event.preventDefault()
+        dialog?.focus()
+        return
+      }
+
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  return dialogRef
+}
+
 function PilotGuideDialog({ onClose }: { onClose: () => void }) {
+  const dialogRef = usePilotDialog(onClose)
+
   return (
     <div className="pilot-dialog-overlay" role="presentation">
       <button type="button" className="pilot-dialog-backdrop" aria-label="Close tester guide" onClick={onClose} />
-      <section className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title">
+      <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
         <header>
           <div>
             <p className="eyebrow">Pilot tester guide</p>
-            <h2 id="pilot-guide-title">A dependable first session in three moves.</h2>
+            <h2 id="pilot-guide-title">A clear first Mia session in three moves.</h2>
           </div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <ol className="pilot-guide-steps">
-          <li><span>1</span><div><strong>Set up only what you know.</strong><p>Enter income, essential bills, flexible spending, and your main household goal. Save once; you can refine it later.</p></div></li>
-          <li><span>2</span><div><strong>Try one real workflow.</strong><p>Ask Mia, speak a transaction, or upload one receipt. If you upload a statement or budget file, wait for processing and review each draft.</p></div></li>
+          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Save once; you can refine it later.</p></div></li>
+          <li><span>2</span><div><strong>Have one real conversation.</strong><p>Ask Mia what to focus on first or tell her about one transaction. Review any draft she prepares before it changes your approved numbers.</p></div></li>
           <li><span>3</span><div><strong>Approve intentionally.</strong><p>Edit, confirm, ignore, apply, or cancel. Pending drafts do not change actuals or your annual plan until you approve them.</p></div></li>
         </ol>
         <div className="pilot-guide-power-path">
-          <strong>Power-user path</strong>
-          <p>Upload a budget first, then statements, receipts, and pay stubs. Review extracted setup values before applying them; review transaction drafts separately before confirming actuals.</p>
+          <strong>Optional upload check</strong>
+          <p>If a file would save time, try one demo-safe budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask Mia or My Profile.</p>
         </div>
         <footer>
           <ShieldIcon />
@@ -2533,6 +2593,7 @@ function PilotFeedbackDialog({
   onClose: () => void
   onSubmit: (values: PilotFeedbackInput) => Promise<{ id: number; screenshot_attached: boolean }>
 }) {
+  const dialogRef = usePilotDialog(onClose)
   const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
   const [attempted, setAttempted] = useState('')
   const [expected, setExpected] = useState('')
@@ -2570,7 +2631,7 @@ function PilotFeedbackDialog({
   return (
     <div className="pilot-dialog-overlay" role="presentation">
       <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
-      <section className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title">
+      <section ref={dialogRef} className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
         <header>
           <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>

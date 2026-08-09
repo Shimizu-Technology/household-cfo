@@ -117,6 +117,8 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 
 ## Full production smoke test
 
+For the August pre-FinCon release, the acceptance boundary is the focused four-person validation: a participant can save money in, money out, and one goal; move directly into a useful Mia conversation; and report a blocker without putting private content in analytics. Uploads remain a release blocker until the Ask Mia and My Profile paths are each proven with a demo-safe spreadsheet and image on the custom domain and a real phone.
+
 For each deploy, record the date, deployed commit, tester, account/cohort, desktop browser, real phone/browser, and links to screenshots/log evidence. A checked item without that evidence is not considered production-proven.
 
 ```text
@@ -132,9 +134,9 @@ Evidence location:
 - Clerk sign-in/sign-out.
 - Invited participant lands in the real workspace.
 - Uninvited account is denied.
-- Incomplete participant sees **Start with the essentials** and can open the mobile tester guide.
-- Five-essential setup saves successfully without requiring business, wealth, or debt details.
-- Power-user path remains available for budget, statement, receipt, pay-stub, and document uploads.
+- Incomplete participant sees **Prepare your first Mia conversation** and can open the mobile tester guide.
+- Five-essential setup saves successfully without requiring business, wealth, or debt details, then opens Ask Mia with an editable starter question.
+- Optional upload path remains available for budget, statement, receipt, pay-stub, and document checks without competing with the primary Mia path.
 - **Report a problem** accepts screen/workflow, attempted, expected, actual, and an optional cropped screenshot; the report response and analytics contain no narrative or private storage key.
 - Home/Budget/Wealth/CFO Filter/Optionality render from saved data.
 - Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
@@ -148,7 +150,8 @@ Evidence location:
 - Ask Mia resolves a multi-turn reference correctly: ask for the largest category, request “lower that to $3,000 for July,” ask what you were discussing, then say “yes, please do that”; the same category/month/amount must remain active and only a review card may be prepared.
 - Existing pending review cards are reused instead of duplicated, and model/provider failure asks for an exact restatement instead of guessing.
 - Ask Mia voice input records, transcribes, puts editable transcript in the composer, and does not auto-confirm actuals.
-- Ask Mia attachment flow creates a reviewable import.
+- Ask Mia attachment flow creates a reviewable import from a demo-safe spreadsheet and image on the custom domain.
+- My Profile upload flow creates a reviewable import from the same demo-safe file types; a failed read remains retryable and can be reported in-app.
 - Admin tab visible only to admins; participant cannot see it.
 - Admin can create cohort, invite participant, resend invite, revoke/remove access.
 - Admin participant rows show only invited, signed in, setup state, pending-review state, and last safe activity; inspect the network response and confirm there are no household names, financial values, documents, messages, transactions, readiness scores, or setup percentages.

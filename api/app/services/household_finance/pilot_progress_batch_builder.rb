@@ -56,7 +56,16 @@ module HouseholdFinance
           first_household_id_by_user_id[user_id] ||= household_id
         end
 
-      households_by_id = Household.where(id: first_household_id_by_user_id.values.uniq)
+      households_by_id = load_households_by_id(first_household_id_by_user_id.values.uniq)
+
+      @households_by_user_id = first_household_id_by_user_id.transform_values do |household_id|
+        households_by_id[household_id]
+      end
+        .compact
+    end
+
+    def load_households_by_id(household_ids)
+      Household.where(id: household_ids)
         .includes(
           { income_sources: :income_schedule_entries },
           :expense_items,
@@ -65,10 +74,6 @@ module HouseholdFinance
           :goals
         )
         .index_by(&:id)
-
-      @households_by_user_id = first_household_id_by_user_id.transform_values do |household_id|
-        households_by_id.fetch(household_id)
-      end
     end
 
     def load_operational_signals

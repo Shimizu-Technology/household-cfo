@@ -96,12 +96,12 @@ Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-t
 
 ## Next product direction
 
-The participant experience now includes supervised Mia actions, effective-dated annual income planning, unified document routing, and a review-first financial cockpit. The current sequence is:
+The participant experience now includes supervised Mia actions, effective-dated annual income planning, unified document routing, and a review-first financial cockpit. After Mrs. Mel's August 8 meeting, the current sequence is:
 
-1. Production smoke test the voice/document/transaction/action, annual-planning, and financial-cockpit loops with demo-safe fixtures.
-2. Instrument the pilot so review completion, upload routing, and core workflow drop-off are visible without collecting sensitive financial content.
-3. Discuss the remaining readiness, Mia-quality, memory, coach-visibility, and navigation decisions with Mrs. Mel.
-4. Build a visible/user-controlled Memory MVP only after that discovery.
+1. Run a focused four-person, dialogue-first validation before FinCon: five essentials, one useful Mia conversation, and explicit review before any write.
+2. Production-prove both Ask Mia and My Profile uploads with demo-safe spreadsheets and images on real phones; treat the reported unreadable-file path as a release blocker.
+3. Use pilot evidence to design the separate FinCon coach demonstration and later modular coach/persona infrastructure.
+4. Build visible/user-controlled Memory only after its trust, visibility, and coach-access discovery. Keep Plaid in its separate integration PR.
 
 ## Deferred until after the real-mode MVP
 
