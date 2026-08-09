@@ -3,6 +3,8 @@ require "marcel"
 module Api
   module V1
     class PilotFeedbackReportsController < BaseController
+      class ScreenshotStorageError < StandardError; end
+
       MAX_SCREENSHOT_BYTES = 5.megabytes
       ALLOWED_SCREENSHOT_TYPES = {
         ".jpg" => "image/jpeg",
@@ -15,37 +17,41 @@ module Api
 
       def create
         report = nil
+        stored_screenshot_key = nil
         screenshot = params[:screenshot]
         screenshot_error = validate_screenshot(screenshot)
         return render json: { errors: [ screenshot_error ] }, status: :unprocessable_entity if screenshot_error
 
-        report = current_household.pilot_feedback_reports.create!(
-          feedback_params.merge(user: current_user)
-        )
+        ApplicationRecord.transaction do
+          report = current_household.pilot_feedback_reports.create!(
+            feedback_params.merge(user: current_user)
+          )
 
-        if screenshot.present?
-          stored = store_screenshot(report, screenshot)
-          unless stored
-            report.destroy!
-            return render json: { errors: [ "The screenshot could not be stored privately. Your report was not submitted; please try again without it or retry later." ] }, status: :unprocessable_entity
+          if screenshot.present?
+            stored = store_screenshot(report, screenshot) { |key| stored_screenshot_key = key }
+            raise ScreenshotStorageError unless stored
           end
+
+          current_household.household_audit_events.create!(
+            user: current_user,
+            actor_type: "user",
+            event_type: "pilot_feedback_report.submitted",
+            auditable_type: "PilotFeedbackReport",
+            auditable_id: report.id,
+            metadata: { workflow: report.workflow, screenshot_attached: report.screenshot? },
+            occurred_at: Time.current
+          )
         end
 
-        current_household.household_audit_events.create!(
-          user: current_user,
-          actor_type: "user",
-          event_type: "pilot_feedback_report.submitted",
-          auditable_type: "PilotFeedbackReport",
-          auditable_id: report.id,
-          metadata: { workflow: report.workflow, screenshot_attached: report.screenshot? },
-          occurred_at: Time.current
-        )
-
         render json: { feedback_report: serialize_report(report.reload) }, status: :created
+      rescue ScreenshotStorageError
+        cleanup_stored_screenshot(stored_screenshot_key)
+        render json: { errors: [ "The screenshot could not be stored privately. Your report was not submitted; please try again without it or retry later." ] }, status: :unprocessable_entity
       rescue S3Service::MissingConfigurationError
-        report&.destroy!
+        cleanup_stored_screenshot(stored_screenshot_key)
         render json: { errors: [ "Private screenshot storage is not configured. Submit without a screenshot or try again later." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordInvalid => e
+        cleanup_stored_screenshot(stored_screenshot_key)
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
@@ -84,13 +90,23 @@ module Api
         end
         return false unless uploaded
 
+        yield key if block_given?
         report.update!(
           screenshot_s3_key: key,
           screenshot_filename: filename,
           screenshot_content_type: content_type,
           screenshot_byte_size: file.size
         )
-        true
+        key
+      end
+
+      def cleanup_stored_screenshot(key)
+        return if key.blank?
+        return if S3Service.delete(key)
+
+        Rails.logger.error("[PilotFeedbackReportsController] Private screenshot cleanup failed")
+      rescue StandardError => e
+        Rails.logger.error("[PilotFeedbackReportsController] Private screenshot cleanup failed: #{e.class}")
       end
 
       def serialize_report(report)
