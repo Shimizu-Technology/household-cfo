@@ -4,6 +4,8 @@ module Api
   module V1
     class PilotFeedbackReportsController < BaseController
       class ScreenshotStorageError < StandardError; end
+      class FeedbackAuditError < StandardError; end
+      class FeedbackPersistenceError < StandardError; end
 
       MAX_SCREENSHOT_BYTES = 5.megabytes
       ALLOWED_SCREENSHOT_TYPES = {
@@ -22,37 +24,42 @@ module Api
         screenshot_error = validate_screenshot(screenshot)
         return render json: { errors: [ screenshot_error ] }, status: :unprocessable_entity if screenshot_error
 
-        ApplicationRecord.transaction do
-          report = current_household.pilot_feedback_reports.create!(
-            feedback_params.merge(user: current_user)
-          )
+        begin
+          ApplicationRecord.transaction do
+            report = current_household.pilot_feedback_reports.create!(
+              feedback_params.merge(user: current_user)
+            )
 
-          if screenshot.present?
-            stored = store_screenshot(report, screenshot) { |key| stored_screenshot_key = key }
-            raise ScreenshotStorageError unless stored
+            if screenshot.present?
+              stored = store_screenshot(report, screenshot) { |key| stored_screenshot_key = key }
+              raise ScreenshotStorageError unless stored
+            end
+
+            record_submission_audit!(report)
           end
-
-          current_household.household_audit_events.create!(
-            user: current_user,
-            actor_type: "user",
-            event_type: "pilot_feedback_report.submitted",
-            auditable_type: "PilotFeedbackReport",
-            auditable_id: report.id,
-            metadata: { workflow: report.workflow, screenshot_attached: report.screenshot? },
-            occurred_at: Time.current
-          )
+        rescue ActiveRecord::RecordInvalid
+          raise
+        rescue ActiveRecord::ActiveRecordError => e
+          raise FeedbackPersistenceError, e.message
         end
 
-        render json: { feedback_report: serialize_report(report.reload) }, status: :created
+        render json: { feedback_report: serialize_report(report) }, status: :created
       rescue ScreenshotStorageError
         cleanup_stored_screenshot(stored_screenshot_key)
         render json: { errors: [ "The screenshot could not be stored privately. Your report was not submitted; please try again without it or retry later." ] }, status: :unprocessable_entity
       rescue S3Service::MissingConfigurationError
         cleanup_stored_screenshot(stored_screenshot_key)
         render json: { errors: [ "Private screenshot storage is not configured. Submit without a screenshot or try again later." ] }, status: :service_unavailable
+      rescue FeedbackAuditError
+        cleanup_stored_screenshot(stored_screenshot_key)
+        render json: { errors: [ "Your report could not be submitted right now. Please try again." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordInvalid => e
         cleanup_stored_screenshot(stored_screenshot_key)
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue FeedbackPersistenceError => e
+        cleanup_stored_screenshot(stored_screenshot_key)
+        Rails.logger.error("[PilotFeedbackReportsController] Feedback persistence failed: #{e.cause&.class || e.class}")
+        render json: { errors: [ "Your report could not be submitted right now. Please try again." ] }, status: :service_unavailable
       end
 
       private
@@ -107,6 +114,20 @@ module Api
         Rails.logger.error("[PilotFeedbackReportsController] Private screenshot cleanup failed")
       rescue StandardError => e
         Rails.logger.error("[PilotFeedbackReportsController] Private screenshot cleanup failed: #{e.class}")
+      end
+
+      def record_submission_audit!(report)
+        current_household.household_audit_events.create!(
+          user: current_user,
+          actor_type: "user",
+          event_type: "pilot_feedback_report.submitted",
+          auditable_type: "PilotFeedbackReport",
+          auditable_id: report.id,
+          metadata: { workflow: report.workflow, screenshot_attached: report.screenshot? },
+          occurred_at: Time.current
+        )
+      rescue ActiveRecord::RecordInvalid => e
+        raise FeedbackAuditError, e.message
       end
 
       def serialize_report(report)

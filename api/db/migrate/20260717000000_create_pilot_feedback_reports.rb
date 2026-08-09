@@ -14,6 +14,11 @@ class CreatePilotFeedbackReports < ActiveRecord::Migration[8.1]
       t.bigint :screenshot_byte_size
 
       t.timestamps
+
+      t.check_constraint "workflow IN ('sign_in', 'home', 'setup', 'ask_mia', 'voice', 'budget', 'transaction_review', 'receipt_upload', 'statement_upload', 'document_upload', 'private_document', 'admin', 'other')",
+        name: "pilot_feedback_reports_workflow_valid"
+      t.check_constraint "status IN ('submitted', 'reviewed', 'resolved')",
+        name: "pilot_feedback_reports_status_valid"
     end
 
     add_index :pilot_feedback_reports, %i[status created_at]

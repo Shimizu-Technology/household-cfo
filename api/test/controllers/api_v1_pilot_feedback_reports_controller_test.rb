@@ -129,11 +129,40 @@ class ApiV1PilotFeedbackReportsControllerTest < ActionDispatch::IntegrationTest
       end
     end
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors").join, "Forced pilot audit failure"
+    assert_response :service_unavailable
+    assert_equal [ "Your report could not be submitted right now. Please try again." ], JSON.parse(response.body).fetch("errors")
+    assert_not_includes response.body, "Forced pilot audit failure"
     assert_equal [ uploaded.fetch(0).fetch(0) ], deleted
   ensure
     HouseholdAuditEvent.skip_callback(:validation, :before, reject_pilot_audit) if reject_pilot_audit
+  end
+
+  test "database failure rolls back the report and removes an already stored screenshot" do
+    uploaded = []
+    deleted = []
+    fail_pilot_audit = lambda do |audit_event|
+      raise ActiveRecord::StatementInvalid, "Forced private database failure" if audit_event.event_type == "pilot_feedback_report.submitted"
+    end
+    HouseholdAuditEvent.set_callback(:create, :before, fail_pilot_audit)
+
+    with_s3_stubs(
+      configured?: true,
+      upload: ->(key, _io, content_type:) { uploaded << [ key, content_type ]; key },
+      delete: ->(key) { deleted << key; true }
+    ) do
+      assert_no_difference([ "PilotFeedbackReport.count", "HouseholdAuditEvent.count" ]) do
+        post "/api/v1/pilot_feedback_reports",
+          params: valid_params.merge(screenshot: uploaded_png),
+          headers: auth_headers(@user)
+      end
+    end
+
+    assert_response :service_unavailable
+    assert_equal [ "Your report could not be submitted right now. Please try again." ], JSON.parse(response.body).fetch("errors")
+    assert_not_includes response.body, "Forced private database failure"
+    assert_equal [ uploaded.fetch(0).fetch(0) ], deleted
+  ensure
+    HouseholdAuditEvent.skip_callback(:create, :before, fail_pilot_audit) if fail_pilot_audit
   end
 
   test "create preserves a validated screenshot extension when sanitizing removes the filename stem" do
