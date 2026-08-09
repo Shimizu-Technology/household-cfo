@@ -83,6 +83,30 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
 
+  test "workspace setup audit failure rolls back changes and returns a safe retry response" do
+    user = create_user(email: "setup-audit-failure@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    original_name = household.name
+    reject_setup_audit = lambda do |audit_event|
+      audit_event.errors.add(:base, "Forced setup audit failure") if audit_event.event_type == "workspace.setup_saved"
+    end
+    HouseholdAuditEvent.set_callback(:validation, :before, reject_setup_audit)
+
+    assert_no_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count") do
+      patch "/api/v1/workspace/setup",
+            params: { workspace: { household_name: "Name that must roll back" } },
+            headers: auth_headers(user),
+            as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_equal [ "We couldn't save your setup right now. Please try again." ], JSON.parse(response.body).fetch("errors")
+    assert_equal original_name, household.reload.name
+    assert_not_includes response.body, "Forced setup audit failure"
+  ensure
+    HouseholdAuditEvent.skip_callback(:validation, :before, reject_setup_audit) if reject_setup_audit
+  end
+
   test "workspace setup partial patch preserves omitted financial values" do
     user = create_user(email: "partial-setup@example.com")
 

@@ -1,6 +1,8 @@
 module Api
   module V1
     class WorkspacesController < BaseController
+      class SetupAuditError < StandardError; end
+
       before_action :authenticate_user!
 
       def show
@@ -15,6 +17,8 @@ module Api
           record_setup_save!(workspace_data.dig(:workspace, :setup_complete))
         end
         render json: workspace_data
+      rescue SetupAuditError
+        render json: { errors: [ "We couldn't save your setup right now. Please try again." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
@@ -29,6 +33,8 @@ module Api
           metadata: { setup_complete: setup_complete },
           occurred_at: Time.current
         )
+      rescue ActiveRecord::RecordInvalid => e
+        raise SetupAuditError, e.message
       end
 
       def setup_params
