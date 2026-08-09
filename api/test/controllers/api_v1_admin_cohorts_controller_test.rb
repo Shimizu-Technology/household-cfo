@@ -43,7 +43,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, row.fetch("participant_count")
   end
 
-  test "cohort index returns setup complete counts without loading full snapshots" do
+  test "cohort index and detail use the same setup complete progress result" do
     admin = create_user(email: "setup-count-admin@example.com", role: "admin")
     participant = create_user(email: "setup-count-member@example.com", role: "participant")
     cohort = Cohort.create!(name: "Setup Count Pilot", status: "active", created_by_user: admin)
@@ -56,6 +56,14 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     row = JSON.parse(response.body).fetch("cohorts").find { |item| item.fetch("name") == "Setup Count Pilot" }
     assert_equal 1, row.fetch("setup_complete_count")
+
+    get "/api/v1/admin/cohorts/#{cohort.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    member = JSON.parse(response.body).dig("cohort", "members").find do |item|
+      item.dig("user", "id") == participant.id
+    end
+    assert_equal row.fetch("setup_complete_count"), member.dig("user", "setup_complete") ? 1 : 0
   end
 
   test "cohort index setup counts use the same first household as user snapshots" do

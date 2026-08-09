@@ -8,7 +8,7 @@ module Api
 
         def index
           cohorts = Cohort.includes(cohort_list_includes).order(created_at: :desc).to_a
-          setup_counts = setup_complete_counts_for_cohorts(cohorts.map(&:id))
+          setup_counts = setup_complete_counts_for_cohorts(cohorts)
           render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort, setup_complete_count: setup_counts.fetch(cohort.id, 0)) } }
         end
 
@@ -104,49 +104,15 @@ module Api
           payload
         end
 
-        def setup_complete_counts_for_cohorts(cohort_ids)
-          return {} if cohort_ids.empty?
+        def setup_complete_counts_for_cohorts(cohorts)
+          users = cohorts.flat_map { |cohort| cohort.cohort_memberships.map(&:user) }
+          progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
 
-          sql = ApplicationRecord.sanitize_sql_array([
-            <<~SQL.squish,
-              WITH first_households AS (
-                SELECT user_id, household_id, name, primary_goal
-                FROM (
-                  SELECT
-                    household_memberships.user_id,
-                    households.id AS household_id,
-                    households.name,
-                    households.primary_goal,
-                    ROW_NUMBER() OVER (PARTITION BY household_memberships.user_id ORDER BY household_memberships.created_at ASC, household_memberships.id ASC) AS household_rank
-                  FROM household_memberships
-                  INNER JOIN households ON households.id = household_memberships.household_id
-                  WHERE household_memberships.user_id IN (
-                    SELECT DISTINCT user_id FROM cohort_memberships WHERE cohort_id IN (?)
-                  )
-                ) ranked_households
-                WHERE household_rank = 1
-              )
-              SELECT cohort_memberships.cohort_id, COUNT(DISTINCT cohort_memberships.user_id) AS setup_complete_count
-              FROM cohort_memberships
-              INNER JOIN first_households ON first_households.user_id = cohort_memberships.user_id
-              WHERE cohort_memberships.cohort_id IN (?)
-                AND (
-                  CASE WHEN NULLIF(TRIM(first_households.name), '') IS NOT NULL THEN 1 ELSE 0 END +
-                  CASE WHEN NULLIF(TRIM(first_households.primary_goal), '') IS NOT NULL THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM income_sources WHERE income_sources.household_id = first_households.household_id AND income_sources.active = TRUE AND income_sources.amount_cents > 0) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM expense_items WHERE expense_items.household_id = first_households.household_id AND expense_items.active = TRUE AND expense_items.amount_cents > 0) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE accounts.household_id = first_households.household_id AND accounts.balance_cents > 0) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM debts WHERE debts.household_id = first_households.household_id) OR EXISTS (SELECT 1 FROM accounts WHERE accounts.household_id = first_households.household_id) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM goals WHERE goals.household_id = first_households.household_id) THEN 1 ELSE 0 END
-                ) >= 5
-              GROUP BY cohort_memberships.cohort_id
-            SQL
-            cohort_ids,
-            cohort_ids
-          ])
-
-          ApplicationRecord.connection.exec_query(sql).to_h do |row|
-            [ row.fetch("cohort_id"), row.fetch("setup_complete_count") ]
+          cohorts.to_h do |cohort|
+            complete_count = cohort.cohort_memberships.count do |membership|
+              progress_by_user_id.fetch(membership.user_id).fetch(:setup_complete)
+            end
+            [ cohort.id, complete_count ]
           end
         end
 
