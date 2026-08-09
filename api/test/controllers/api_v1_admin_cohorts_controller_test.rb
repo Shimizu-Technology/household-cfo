@@ -85,6 +85,24 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, row.fetch("setup_complete_count")
   end
 
+  test "cohort serialization safely ignores a membership whose user is unavailable" do
+    admin = create_user(email: "orphan-safe-admin@example.com", role: "admin")
+    participant = create_user(email: "orphan-safe-member@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Orphan Safe Pilot", status: "active", created_by_user: admin)
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    cohort.cohort_memberships.load
+    membership.define_singleton_method(:user) { nil }
+    controller = Api::V1::Admin::CohortsController.new
+
+    payload = controller.send(:serialize_cohort, cohort, include_members: true)
+    setup_counts = controller.send(:setup_complete_counts_for_cohorts, [ cohort ])
+
+    assert_equal 0, payload.fetch(:member_count)
+    assert_equal 0, payload.fetch(:participant_count)
+    assert_empty payload.fetch(:members)
+    assert_equal 0, setup_counts.fetch(cohort.id)
+  end
+
   test "admin can update cohort status and dates" do
     admin = create_user(email: "owner@example.com", role: "admin")
     cohort = Cohort.create!(name: "Draft Pilot", status: "draft", created_by_user: admin)

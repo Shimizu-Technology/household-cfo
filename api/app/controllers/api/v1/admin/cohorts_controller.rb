@@ -57,7 +57,7 @@ module Api
         end
 
         def serialize_cohort(cohort, include_members: false, setup_complete_count: nil)
-          memberships = cohort.cohort_memberships.to_a
+          memberships = memberships_with_users(cohort)
           member_users = memberships.map(&:user)
           progress_by_user_id = include_members ? HouseholdFinance::PilotProgressBatchBuilder.new(member_users).call : {}
           setup_complete_count ||= progress_by_user_id.values.count { |progress| progress.fetch(:setup_complete) }
@@ -105,15 +105,20 @@ module Api
         end
 
         def setup_complete_counts_for_cohorts(cohorts)
-          users = cohorts.flat_map { |cohort| cohort.cohort_memberships.map(&:user) }
+          memberships_by_cohort_id = cohorts.to_h { |cohort| [ cohort.id, memberships_with_users(cohort) ] }
+          users = memberships_by_cohort_id.values.flatten.map(&:user).uniq(&:id)
           progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
 
           cohorts.to_h do |cohort|
-            complete_count = cohort.cohort_memberships.count do |membership|
-              progress_by_user_id.fetch(membership.user_id).fetch(:setup_complete)
+            complete_count = memberships_by_cohort_id.fetch(cohort.id).count do |membership|
+              progress_by_user_id.fetch(membership.user.id, {}).fetch(:setup_complete, false)
             end
             [ cohort.id, complete_count ]
           end
+        end
+
+        def memberships_with_users(cohort)
+          cohort.cohort_memberships.to_a.select { |membership| membership.user.present? }
         end
 
         def render_not_found(error)
