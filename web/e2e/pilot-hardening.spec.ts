@@ -159,6 +159,20 @@ const pilotAdminUser = {
   workspace: { invited: true, signed_in: true, setup_status: 'started', setup_complete: false, has_pending_review_work: true, last_safe_activity_at: '2026-07-17T00:00:00Z' },
 }
 
+const pilotFeedbackSummary = {
+  id: 72, workflow: 'ask_mia', status: 'submitted', screenshot_attached: true,
+  reporter: { id: 901, email: 'participant@pilot.test', full_name: 'Test Participant' },
+  created_at: '2026-08-08T02:30:00Z', updated_at: '2026-08-08T02:30:00Z',
+}
+
+const pilotFeedbackDetail = {
+  ...pilotFeedbackSummary,
+  attempted: 'Upload a demo-safe budget spreadsheet in Ask Mia.',
+  expected: 'Mia should summarize the spreadsheet and ask what to update.',
+  actual: 'The upload stopped with a provider error.',
+  screenshot: { filename: 'ask-mia-error.png', content_type: 'image/png', byte_size: 18_432 },
+}
+
 function chatMessages(count = 125) {
   return Array.from({ length: count }, (_, index) => ({
     id: index + 1,
@@ -173,6 +187,7 @@ function chatMessages(count = 125) {
 }
 
 async function mockDemoApi(page: Page) {
+  let pilotFeedbackStatus = 'submitted'
   const responses: Record<string, unknown> = {
     '/api/demo/profile': profile,
     '/api/demo/dashboard': dashboard,
@@ -188,10 +203,32 @@ async function mockDemoApi(page: Page) {
   }
 
   await page.route('http://api.test/**', async (route) => {
-    const path = new URL(route.request().url()).pathname
+    const url = new URL(route.request().url())
+    const path = url.pathname
     if (path === '/api/v1/workspace/setup' && route.request().method() === 'PATCH') return route.fulfill({ status: 200, json: realWorkspaceData(true) })
     if (path === '/api/v1/pilot_feedback_reports' && route.request().method() === 'POST') {
       return route.fulfill({ status: 201, json: { feedback_report: { id: 55, workflow: 'setup', screenshot_attached: false, status: 'submitted', created_at: '2026-07-17T00:00:00Z' } } })
+    }
+    if (path === '/api/v1/admin/pilot_feedback_reports' && route.request().method() === 'GET') {
+      const filter = url.searchParams.get('status') ?? 'submitted'
+      const visible = filter === 'all' || filter === pilotFeedbackStatus
+      return route.fulfill({
+        status: 200,
+        json: {
+          feedback_reports: visible ? [{ ...pilotFeedbackSummary, status: pilotFeedbackStatus }] : [],
+          counts: { submitted: pilotFeedbackStatus === 'submitted' ? 1 : 0, reviewed: pilotFeedbackStatus === 'reviewed' ? 1 : 0, resolved: pilotFeedbackStatus === 'resolved' ? 1 : 0 },
+        },
+      })
+    }
+    if (path === '/api/v1/admin/pilot_feedback_reports/72' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { feedback_report: { ...pilotFeedbackDetail, status: pilotFeedbackStatus } } })
+    }
+    if (path === '/api/v1/admin/pilot_feedback_reports/72' && route.request().method() === 'PATCH') {
+      pilotFeedbackStatus = route.request().postDataJSON().feedback_report.status
+      return route.fulfill({ status: 200, json: { feedback_report: { ...pilotFeedbackDetail, status: pilotFeedbackStatus } } })
+    }
+    if (path === '/api/v1/admin/pilot_feedback_reports/72/screenshot_url') {
+      return route.fulfill({ status: 200, json: { url: 'https://signed.example/inline', download_url: 'https://signed.example/download', expires_in: 300, filename: 'ask-mia-error.png', content_type: 'image/png' } })
     }
     if (/^\/api\/v1\/transaction_drafts\/\d+\/(confirm|ignore|match|reopen)$/.test(path)) {
       return route.fulfill({ status: 200, json: { workspace: realWorkspaceData(true) } })
@@ -436,6 +473,24 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   const participantRow = page.locator('.admin-user-row').filter({ hasText: 'participant@pilot.test' })
   await expect(participantRow.getByText(/profile completeness/i)).toHaveCount(0)
   await expect(participantRow.getByText(/readiness/i)).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('admin can privately review and resolve submitted pilot feedback', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=admin')
+  await page.getByRole('button', { name: 'Admin', exact: true }).click()
+
+  const inbox = page.locator('.pilot-feedback-inbox')
+  await expect(inbox.getByText('The upload stopped with a provider error.')).toBeVisible()
+  await expect(inbox.getByText('participant@pilot.test', { exact: true })).toBeVisible()
+
+  const statusRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/admin/pilot_feedback_reports/72') && request.method() === 'PATCH')
+  await inbox.getByRole('button', { name: 'Mark reviewed' }).click()
+  await statusRequest
+
+  await expect(inbox.getByText('Feedback marked reviewed.')).toBeVisible()
+  await expect(inbox.getByRole('button', { name: 'Reviewed 1' })).toBeVisible()
+  await expect(inbox.getByText('Private Feedback Household')).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

@@ -56,6 +56,9 @@ Rails.application.routes.draw do
       resources :pilot_feedback_reports, only: :create
       namespace :admin do
         resources :cohorts, only: %i[index show create update]
+        resources :pilot_feedback_reports, only: %i[index show update] do
+          get :screenshot_url, on: :member
+        end
         resources :users, only: %i[index create update] do
           post :resend_invitation, on: :member
         end

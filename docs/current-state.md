@@ -1,6 +1,6 @@
 # Household CFO current state
 
-Updated: 2026-08-09
+Updated: 2026-08-14
 
 This is the canonical implementation-status document for Household CFO Method. Product briefs and older PR roadmaps remain useful historical context, but this file is the source of truth for what is built, merged, locally proven, production-proven, and still conceptual.
 
@@ -52,6 +52,7 @@ This section supersedes the older cohort-size and setup/upload-first assumptions
 - A dialogue-first Home path that asks for five household essentials, then takes a newly ready participant directly to Mia with an editable starter question.
 - An optional private-upload pilot path for participants who have a useful file, with explicit review-before-apply and in-app failure reporting.
 - An in-app mobile tester guide and structured, authenticated feedback flow with an optional private screenshot.
+- An admin-only private feedback inbox with status filtering, explicit reviewed/resolved transitions, audited status changes, and five-minute screenshot links. Feedback narrative remains separate from cohort progress.
 - A privacy-bounded pilot analytics funnel for setup, Mia, upload, draft, confirmation, failure, and review-completion signals.
 - Admin/cohort progress limited to invitation, sign-in, setup state, pending-review state, and a safe last-activity timestamp.
 
@@ -78,6 +79,7 @@ Rendered Playwright checks cover:
 - Bounded chat rendering and lazy attachment images.
 - Mobile status-card layout, horizontal overflow, and navigation affordance.
 - Basic and power-user first-session paths, tester guide, and private feedback on desktop, 390-pixel mobile, and 320-pixel compact mobile.
+- Admin feedback triage on desktop, 390-pixel mobile, and 320-pixel compact mobile, including private detail, status transitions, and short-lived screenshot controls.
 - Admin progress visibility without participant readiness percentages or financial details.
 - Explicit confirmation boundaries for transaction and Mia budget-change drafts.
 - Failed receipt upload recovery without losing the upload path.
@@ -97,7 +99,7 @@ Invitation and sign-in
 
 The optional file path accepts budgets, statements, receipts, screenshots, and pay stubs through the same review-before-apply boundary. A successful automated test is not enough: uploads from Ask Mia and My Profile remain unproven until exercised on the custom domain and real phones. See `docs/pilot-tester-guide.md` for participant instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
 
-Pilot feedback is stored in the participant's authenticated household scope. Its narrative and optional screenshot are never copied into PostHog or shown in the cohort progress screen. Participants are warned not to include financial values, account information, document contents, passwords, or private Mia messages.
+Pilot feedback is stored in the participant's authenticated household scope. Its narrative and optional screenshot are never copied into PostHog or shown in the cohort progress screen. Admins review it in a separate private inbox; list responses omit narrative and storage keys, while screenshot access requires a short-lived signed link. Participants are warned not to include financial values, account information, document contents, passwords, or private Mia messages.
 
 ## Not yet production-proven
 

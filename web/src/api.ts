@@ -571,6 +571,7 @@ export type PilotProgress = {
 }
 
 export type PilotFeedbackWorkflow = 'sign_in' | 'home' | 'setup' | 'ask_mia' | 'voice' | 'budget' | 'transaction_review' | 'receipt_upload' | 'statement_upload' | 'document_upload' | 'private_document' | 'admin' | 'other'
+export type PilotFeedbackStatus = 'submitted' | 'reviewed' | 'resolved'
 
 export type PilotFeedbackInput = {
   workflow: PilotFeedbackWorkflow
@@ -584,8 +585,38 @@ export type PilotFeedbackReceipt = {
   id: number
   workflow: PilotFeedbackWorkflow
   screenshot_attached: boolean
-  status: 'submitted' | 'reviewed' | 'resolved'
+  status: PilotFeedbackStatus
   created_at: string
+}
+
+export type AdminPilotFeedbackSummary = PilotFeedbackReceipt & {
+  updated_at: string
+  reporter: {
+    id: number
+    email: string
+    full_name: string
+  }
+}
+
+export type AdminPilotFeedbackDetail = AdminPilotFeedbackSummary & {
+  attempted: string
+  expected: string
+  actual: string
+  screenshot: null | {
+    filename: string
+    content_type: string
+    byte_size: number
+  }
+}
+
+export type AdminPilotFeedbackCounts = Record<PilotFeedbackStatus, number>
+
+export type AdminPilotFeedbackScreenshotUrl = {
+  url: string
+  download_url: string
+  expires_in: number
+  filename: string
+  content_type: string
 }
 
 export type CurrentUser = {
@@ -824,6 +855,28 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
 
   const payload = (await response.json()) as { feedback_report: PilotFeedbackReceipt }
   return payload.feedback_report
+}
+
+export async function fetchAdminPilotFeedback(status: PilotFeedbackStatus | 'all' = 'submitted'): Promise<{ feedback_reports: AdminPilotFeedbackSummary[]; counts: AdminPilotFeedbackCounts }> {
+  return fetchJson(`/api/v1/admin/pilot_feedback_reports?status=${encodeURIComponent(status)}`)
+}
+
+export async function fetchAdminPilotFeedbackReport(id: number): Promise<AdminPilotFeedbackDetail> {
+  const payload = await fetchJson<{ feedback_report: AdminPilotFeedbackDetail }>(`/api/v1/admin/pilot_feedback_reports/${id}`)
+  return payload.feedback_report
+}
+
+export async function updateAdminPilotFeedbackStatus(id: number, status: PilotFeedbackStatus): Promise<AdminPilotFeedbackDetail> {
+  const payload = await fetchJson<{ feedback_report: AdminPilotFeedbackDetail }>(`/api/v1/admin/pilot_feedback_reports/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ feedback_report: { status } }),
+  })
+  return payload.feedback_report
+}
+
+export async function fetchAdminPilotFeedbackScreenshotUrl(id: number): Promise<AdminPilotFeedbackScreenshotUrl> {
+  return fetchJson(`/api/v1/admin/pilot_feedback_reports/${id}/screenshot_url`)
 }
 
 export async function fetchAdminUsers(): Promise<AdminUser[]> {

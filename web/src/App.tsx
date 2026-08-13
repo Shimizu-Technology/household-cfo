@@ -5,6 +5,7 @@ import { HomeScreen } from './components/HomeScreen'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
+import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import {
   AnnualCashFlowChart,
   CategoryPressureList,
@@ -4603,6 +4604,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       </div>
 
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
+
+      <PilotFeedbackInbox />
 
       <div className="admin-layout">
         <article className="panel admin-card">

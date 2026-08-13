@@ -138,6 +138,7 @@ Evidence location:
 - Five-essential setup saves successfully without requiring business, wealth, or debt details, then opens Ask Mia with an editable starter question.
 - Optional upload path remains available for budget, statement, receipt, pay-stub, and document checks without competing with the primary Mia path.
 - **Report a problem** accepts screen/workflow, attempted, expected, actual, and an optional cropped screenshot; the report response and analytics contain no narrative or private storage key.
+- Admin **Pilot feedback inbox** defaults to new reports, opens private detail only on selection, generates screenshot links that expire after five minutes, and records reviewed/resolved/reopened status changes in the household audit trail.
 - Home/Budget/Wealth/CFO Filter/Optionality render from saved data.
 - Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
 - Home shows pending transaction/action review counts and the current month inside the annual plan.
@@ -155,6 +156,7 @@ Evidence location:
 - Admin tab visible only to admins; participant cannot see it.
 - Admin can create cohort, invite participant, resend invite, revoke/remove access.
 - Admin participant rows show only invited, signed in, setup state, pending-review state, and last safe activity; inspect the network response and confirm there are no household names, financial values, documents, messages, transactions, readiness scores, or setup percentages.
+- Admin feedback list responses contain only workflow, status, screenshot-present state, reporter identity, and timestamps; confirm narrative and private storage keys appear only in the authorized detail/link requests and never in cohort progress or analytics.
 
 ## Pilot workflow matrix
 
@@ -170,7 +172,7 @@ Run the representative workflows below on desktop, a real phone, and the automat
 | Transaction review | Edit/confirm/ignore are explicit and affect only the selected household. |
 | Mia budget action | Review card preserves category/month/amount; apply/cancel is explicit; no action occurs from narration alone. |
 | Private source controls | Preview/download links expire and authorize the current household; remove/delete choices are distinguishable and recoverable where promised. |
-| Pilot feedback | Narrative and screenshot remain outside analytics and cohort progress; invalid/disguised images are rejected. |
+| Pilot feedback | Narrative and screenshot remain outside analytics and cohort progress; invalid/disguised images are rejected; only admins can read detail, obtain five-minute screenshot links, and auditably change review status. |
 | Cohort progress | Invited, signed-in, setup state, pending review, and safe last activity match known test-account state. |
 
 Record failures with the in-app feedback form using only demo-safe descriptions. A local automated pass is necessary but does not replace real iOS Safari and Android Chrome evidence.
