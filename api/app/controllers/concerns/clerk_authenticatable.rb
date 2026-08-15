@@ -119,8 +119,7 @@ module ClerkAuthenticatable
 
     updates = { last_sign_in_at: Time.current }
     updates[:email] = email if email.present? && email.downcase != user.email
-    updates[:first_name] = first_name if first_name.present? && first_name != user.first_name
-    updates[:last_name] = last_name if last_name.present? && last_name != user.last_name
+    updates.merge!(clerk_name_attributes(first_name:, last_name:)) if first_name.present? || last_name.present?
     updates[:invitation_status] = "accepted" if user.invitation_status != "accepted"
     updates[:accepted_at] = Time.current if user.accepted_at.blank?
     user.update!(updates)
@@ -138,15 +137,25 @@ module ClerkAuthenticatable
       return nil
     end
 
-    user.update!(
+    name_attributes = if first_name.present? || last_name.present?
+      clerk_name_attributes(first_name:, last_name:)
+    else
+      {}
+    end
+    user.update!({
       clerk_id: clerk_id,
-      first_name: first_name.presence || user.first_name,
-      last_name: last_name.presence || user.last_name,
       invitation_status: "accepted",
       accepted_at: user.accepted_at || Time.current,
       last_sign_in_at: Time.current
-    )
+    }.merge(name_attributes))
     user
+  end
+
+  def clerk_name_attributes(first_name:, last_name:)
+    {
+      first_name: first_name.presence,
+      last_name: last_name.presence
+    }
   end
 
   def create_bootstrap_admin(clerk_id:, email:, first_name:, last_name:)

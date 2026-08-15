@@ -1462,6 +1462,33 @@ h3 {
   gap: 16px;
 }
 
+.first-session-setup-screen {
+  width: min(100%, 1040px);
+  margin-inline: auto;
+}
+
+.first-session-setup-form {
+  padding: clamp(20px, 4vw, 34px);
+  border-color: rgba(123, 74, 88, 0.24);
+  background: linear-gradient(145deg, rgba(255, 253, 248, 0.98), rgba(247, 236, 232, 0.86));
+  box-shadow: 0 22px 54px rgba(71, 47, 53, 0.11);
+}
+
+.first-session-upload-return {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.first-session-upload-return button {
+  min-height: 44px;
+  padding: 10px 15px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--emerald);
+  font-weight: 900;
+}
+
 .setup-form-heading {
   align-items: flex-start;
 }
@@ -1525,6 +1552,29 @@ h3 {
   padding: 10px 12px;
   background: #fffdf8;
   color: var(--ink);
+}
+
+.money-input-shell {
+  position: relative;
+  display: block;
+}
+
+.setup-field .money-input-shell > span {
+  position: absolute;
+  z-index: 1;
+  top: 50%;
+  left: 13px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+  pointer-events: none;
+}
+
+.money-input-shell input {
+  padding-left: 29px;
 }
 
 .setup-field input:disabled,

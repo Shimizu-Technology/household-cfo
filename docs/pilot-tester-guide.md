@@ -4,12 +4,15 @@ This short guide is for the focused four-person Household CFO validation before 
 
 ## Your first session
 
-1. Open your invitation on your phone or computer and sign in.
-2. On **Home**, choose **Set up my first Mia conversation**.
-3. Enter your household name, primary goal, monthly income, fixed essentials, and flexible spending. Estimates are okay for the pilot.
-4. Save the setup. The app takes you directly to **Ask Mia** with a starter question you can edit or replace.
-5. Have one real conversation: ask what to focus on first, describe a money concern, or tell Mia about one transaction. Review any draft before confirming it.
-6. Return to **My Profile** later if you want to add savings, debt, business income, or other details.
+1. Open your email invitation on your phone or computer. Create or sign in to your Clerk account with the invited email. Your display name comes from Clerk; the coach or admin does not enter it for you.
+2. On **Home**, choose **Give Mia my starting numbers**.
+3. In the focused kickoff, enter your household name, primary goal, monthly income, fixed essentials, and flexible spending. Estimates are okay. A blank money field is treated as $0 when you save.
+4. Choose **Save and talk to Mia**. The app takes you directly to **Ask Mia** with this editable starter question: “Based on my income, spending, and goal, what should I focus on first this month?”
+5. Send the starter question and confirm Mia answers from the numbers and goal you just saved.
+6. Create your first category through Mia. Type: **Create a School Supplies category under Sinking Fund — Expected and plan $75 every month.**
+7. Review the proposed action card. Confirm the category, Expense Stack group, amount, and all-12-month scope. Nothing should change before you choose **Apply**.
+8. Choose **Apply**, then open **Budget** and confirm School Supplies appears under **Sinking Fund — Expected** with $75 planned in every month.
+9. Return to **My Profile** later if you want to add savings, debt, business income, documents, or other details. Direct Budget editing remains available as a manual fallback, not the required first-session path.
 
 Nothing pending changes your approved household numbers. A transaction or budget change takes effect only after you review and confirm or apply it.
 
@@ -28,7 +31,7 @@ Uploads are not required to have a useful first Mia conversation. They are an im
 
 - Type a question or transaction in **Ask Mia**. Mia may prepare a draft, but does not silently change approved numbers.
 - For voice, allow microphone access, speak, stop the recording, and review the editable transcript before sending it.
-- For a proposed budget change, review the category, month, and amount on the action card. Choose **Apply** only when it is correct; otherwise edit your request or choose **Cancel**.
+- For a proposed budget change, review the category, Expense Stack group, month scope, and amount on the action card. Choose **Apply** only when it is correct; otherwise restate the request or choose **Cancel**.
 
 ## If something fails
 
@@ -44,8 +47,11 @@ Do not put financial values, account or card numbers, document contents, passwor
 Try these on both a computer and your phone when practical:
 
 - Sign in from the invitation and confirm another participant's information is never visible.
-- Save the five setup essentials.
-- Ask Mia one question.
+- Confirm the invite form required only email, role, and cohort; the participant's Clerk name appears after first sign-in.
+- Confirm zero-value money fields are blank while editing, accept the first digit without producing a leading zero, and save a blank as $0.
+- Save the five setup essentials and confirm the advanced profile and upload areas stay out of the kickoff.
+- Send the prefilled “Based on my income, spending, and goal…” question.
+- Ask Mia to create School Supplies under Sinking Fund — Expected for $75 every month; apply the review card, then verify all 12 months in Budget.
 - Create one typed or voice transaction draft and confirm or ignore it.
 - From both Ask Mia and My Profile, upload one demo-safe supported file; report the exact entry point and generic file type if either path fails.
 - Preview a private source and close it.

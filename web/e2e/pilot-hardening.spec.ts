@@ -420,13 +420,13 @@ test('incomplete participants get a short first session, private feedback, and a
     const firstSessionColumns = await page.locator('.first-session-heading').evaluate((element) => getComputedStyle(element).gridTemplateColumns)
     expect(firstSessionColumns.split(' ')).toHaveLength(1)
   }
-  await expect(page.getByText('Prepare your first Mia conversation', { exact: true })).toBeVisible()
+  await expect(page.getByText('Give Mia a useful starting point', { exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Tester guide' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
 
   await page.getByRole('button', { name: 'Read the 3-minute guide' }).click()
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()
-  await expect(page.getByText('Pending drafts do not change actuals or your annual plan until you approve them.')).toBeVisible()
+  await expect(page.getByText('Pending drafts change nothing by themselves.')).toBeVisible()
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Close' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).not.toBeVisible()
@@ -446,17 +446,37 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(feedback).toContainText('were not sent to analytics')
   await feedback.getByRole('button', { name: 'Return to Household CFO' }).click()
 
-  await page.getByRole('button', { name: 'Set up my first Mia conversation' }).first().click()
+  await page.getByRole('button', { name: 'Give Mia my starting numbers' }).first().click()
+  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
   await expect(page.getByText('Essential first-session information')).toBeVisible()
-  await expect(page.locator('.setup-optional-fields')).not.toHaveAttribute('open', '')
-  await page.getByLabel('Primary monthly income').fill('5000')
-  await page.getByLabel('Fixed essentials').fill('2500')
-  await page.getByLabel('Flexible spending').fill('600')
-  await page.getByRole('button', { name: 'Save numbers' }).click()
+  await expect(page.locator('.setup-optional-fields')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'Upload evidence. Review draft facts. Apply only what is right.' })).toHaveCount(0)
+  const incomeInput = page.getByLabel('Primary monthly income')
+  await expect(incomeInput).toHaveValue('')
+  await incomeInput.click()
+  await incomeInput.press('7')
+  await expect(incomeInput).toHaveValue('7')
+  await incomeInput.fill('7200')
+  await expect(incomeInput).toHaveValue('7200')
+  const fixedExpensesInput = page.getByLabel('Fixed essentials')
+  await fixedExpensesInput.fill('2500')
+  await expect(fixedExpensesInput).toHaveValue('2500')
+  const flexibleSpendingInput = page.getByLabel('Flexible spending')
+  await flexibleSpendingInput.fill('600')
+  await expect(flexibleSpendingInput).toHaveValue('600')
+  const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  const setupRequest = await setupRequestPromise
+  expect(setupRequest.postDataJSON().workspace).toMatchObject({
+    primary_income: 7200,
+    fixed_expenses: 2500,
+    flexible_spend: 600,
+    business_income: 0,
+  })
   await expect(page.getByText('Your CFO workspace is ready', { exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Ask Mia for the CFO read.' })).toBeVisible()
   const miaComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(miaComposer).toHaveValue('What should I focus on first based on these numbers?')
+  await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
   await expect(miaComposer).toBeFocused()
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
@@ -465,6 +485,11 @@ test('incomplete participants get a short first session, private feedback, and a
 test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
   await page.getByRole('button', { name: 'Admin', exact: true }).click()
+
+  const inviteForm = page.locator('.admin-form').filter({ has: page.getByLabel('Email') }).first()
+  await expect(inviteForm.getByLabel('First name')).toHaveCount(0)
+  await expect(inviteForm.getByLabel('Last name')).toHaveCount(0)
+  await expect(inviteForm.getByText("Names come from the invited person's Clerk account after first sign-in.")).toBeVisible()
 
   await expect(page.getByText('Setup started', { exact: true })).toBeVisible()
   await expect(page.getByText('Signed in', { exact: true })).toBeVisible()
@@ -519,7 +544,8 @@ test('failed receipt upload leaves the participant on a retryable private-upload
     return route.fallback()
   })
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('button', { name: 'Test a private upload' }).click()
+  await expect(page.getByRole('heading', { name: 'Test one private file without changing your numbers.' })).toBeVisible()
 
   const receiptCard = page.locator('.document-upload-card').filter({ hasText: 'Receipt or quick evidence' })
   await receiptCard.locator('input[type="file"]').setInputFiles({

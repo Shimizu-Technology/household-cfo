@@ -134,7 +134,10 @@ Evidence location:
 - Clerk sign-in/sign-out.
 - Invited participant lands in the real workspace.
 - Uninvited account is denied.
-- Incomplete participant sees **Prepare your first Mia conversation** and can open the mobile tester guide.
+- Incomplete participant sees **Give Mia a useful starting point**, opens the focused five-field kickoff from **Give Mia my starting numbers**, and can open the mobile tester guide.
+- Zero-value money fields are blank while editing, accept the first digit without a leading zero, and normalize a blank field to $0 on save.
+- Saving the kickoff opens Ask Mia with **Based on my income, spending, and goal, what should I focus on first this month?** ready to send.
+- Admin invite creation asks for email, role, and cohort—not a duplicate participant name—and Clerk supplies the display name after sign-in.
 - Five-essential setup saves successfully without requiring business, wealth, or debt details, then opens Ask Mia with an editable starter question.
 - Optional upload path remains available for budget, statement, receipt, pay-stub, and document checks without competing with the primary Mia path.
 - **Report a problem** accepts screen/workflow, attempted, expected, actual, and an optional cropped screenshot; the report response and analytics contain no narrative or private storage key.
@@ -148,6 +151,7 @@ Evidence location:
 - Applied corrections update saved household numbers.
 - Source preview/download/delete work only from explicit controls.
 - Ask Mia persists chat and uses approved context.
+- Ask Mia turns “Create a School Supplies category under Sinking Fund — Expected and plan $75 every month” into a pending review card; applying it creates the correct category and all 12 monthly allocations, while canceling leaves the plan unchanged.
 - Ask Mia resolves a multi-turn reference correctly: ask for the largest category, request “lower that to $3,000 for July,” ask what you were discussing, then say “yes, please do that”; the same category/month/amount must remain active and only a review card may be prepared.
 - Existing pending review cards are reused instead of duplicated, and model/provider failure asks for an exact restatement instead of guessing.
 - Ask Mia voice input records, transcribes, puts editable transcript in the composer, and does not auto-confirm actuals.

@@ -166,6 +166,8 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     user = User.find_by!(email: "quiet-pilot@example.com")
+    assert_nil user.first_name
+    assert_nil user.last_name
     assert_equal "skipped", user.invitation_email_status
     assert_equal "skipped", user.invitation_email_attempts.last.status
     body = JSON.parse(response.body)

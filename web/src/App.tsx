@@ -219,14 +219,49 @@ const sourceDerivedCopy = [
   'Approved data loaded',
 ]
 
+type WorkspaceSetupMoneyKey = Exclude<keyof WorkspaceSetupValues, 'household_name' | 'primary_goal'>
+type WorkspaceSetupDraft = Omit<WorkspaceSetupValues, WorkspaceSetupMoneyKey> & Record<WorkspaceSetupMoneyKey, string>
+
+const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
+  'primary_income',
+  'business_income',
+  'fixed_expenses',
+  'flexible_spend',
+  'expected_sinking_fund',
+  'unexpected_sinking_fund',
+  'emergency_fund',
+  'other_assets',
+  'credit_card_debt',
+  'debt_payment',
+  'target_runway_months',
+]
+
+function workspaceSetupDraftFromValues(values: WorkspaceSetupValues): WorkspaceSetupDraft {
+  const draft = { ...values } as unknown as WorkspaceSetupDraft
+  workspaceSetupMoneyKeys.forEach((key) => {
+    draft[key] = values[key] === 0 ? '' : String(values[key])
+  })
+  return draft
+}
+
+function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
+  const values = { ...draft } as unknown as WorkspaceSetupValues
+  workspaceSetupMoneyKeys.forEach((key) => {
+    const parsed = Number(draft[key])
+    values[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+  })
+  return values
+}
+
 function App() {
   const auth = useAuthContext()
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
-  const [setupDraft, setSetupDraft] = useState<WorkspaceSetupValues | null>(null)
+  const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
+  const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [active, setActive] = useState(() => {
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
     return allSections.includes(hashSection) ? hashSection : sections[0]
@@ -296,6 +331,9 @@ function App() {
   const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const isFirstSessionSetup = Boolean(isRealWorkspace && !data?.workspace?.setup_complete)
+  const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
+  const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
   const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
@@ -443,7 +481,7 @@ function App() {
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(chatStorageKey)
         setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setSetupDraft(payload.workspace?.setup_values ?? null)
+        setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
         setMessages(restoredMessages)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
@@ -532,7 +570,7 @@ function App() {
         if (cancelled) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
-        setSetupDraft((current) => payload.workspace?.setup_values ?? current)
+        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : current)
         replaceMiaHistory(payload.mia)
       })
       .catch(() => {
@@ -755,11 +793,13 @@ function App() {
     })
     setActive(section)
     if (section !== 'Ask Mia') setIsChatExpanded(false)
+    if (section !== 'My Profile') setFirstSessionUploadOpen(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
   }
 
   function startManualFirstSession() {
     switchSection('My Profile')
+    setFirstSessionUploadOpen(false)
     setIsProfileEditing(true)
     window.setTimeout(() => {
       setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -769,6 +809,7 @@ function App() {
 
   function startUploadFirstSession() {
     switchSection('My Profile')
+    setFirstSessionUploadOpen(true)
     window.setTimeout(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
@@ -1506,7 +1547,7 @@ function App() {
         try {
           const refreshed = await fetchAppData(isRealWorkspace)
           setData(refreshed)
-          setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
+          setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values) : setupDraft)
           replaceMiaHistory(refreshed.mia)
           setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
         } catch {
@@ -1538,7 +1579,7 @@ function App() {
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData(response.workspace)
-      setSetupDraft(response.workspace.workspace?.setup_values ?? setupDraft)
+      setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
@@ -1640,9 +1681,9 @@ function App() {
     setSetupSaving(true)
     setSetupError(null)
     try {
-      const payload = await saveWorkspaceSetup(setupDraft)
+      const payload = await saveWorkspaceSetup(workspaceSetupValuesFromDraft(setupDraft))
       setData(payload)
-      setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
+      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : setupDraft)
       setBudgetView((current) => {
         const responseYear = payload.budget.annual_plan?.year
         if (!responseYear) return current
@@ -1655,7 +1696,7 @@ function App() {
         workspace_mode: payload.workspace?.mode ?? 'real',
       })
       if (!wasSetupComplete && payload.workspace?.setup_complete) {
-        setQuestion('What should I focus on first based on these numbers?')
+        setQuestion('Based on my income, spending, and goal, what should I focus on first this month?')
         switchSection('Ask Mia')
         window.setTimeout(() => composerRef.current?.focus(), 80)
       }
@@ -1669,20 +1710,18 @@ function App() {
   }
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
-    if (!isProfileEditing) return
+    if (!isProfileEditing && !isFirstSessionSetup) return
 
     setSetupError(null)
     setSetupDraft((current) => {
       if (!current) return current
-      if (key === 'household_name' || key === 'primary_goal') return { ...current, [key]: value }
-
-      return { ...current, [key]: Number(value) || 0 }
+      return { ...current, [key]: value }
     })
   }
 
   function cancelProfileEditing() {
     setSetupError(null)
-    setSetupDraft(data?.workspace?.setup_values ?? setupDraft)
+    setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values) : setupDraft)
     setIsProfileEditing(false)
   }
 
@@ -1754,7 +1793,7 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>{isRealWorkspace && !data.workspace?.setup_complete ? 'Prepare your first Mia conversation' : 'Your CFO workspace is ready'}</strong>
+          <strong>{isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia a useful starting point' : 'Your CFO workspace is ready'}</strong>
           <p>{isRealWorkspace && !data.workspace?.setup_complete
             ? 'Start with money in, money out, and one goal. Mia can help you make sense of the rest.'
             : `Mia can coach from your approved profile · ${data.dashboard.summary.readiness_label}`}</p>
@@ -1766,7 +1805,7 @@ function App() {
             </div>
           )}
           <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
-            {isRealWorkspace && !data.workspace?.setup_complete ? 'Set up my first Mia conversation' : 'Ask Mia for the CFO read'}
+            {isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Ask Mia for the CFO read'}
           </button>
         </aside>
       </header>
@@ -2011,27 +2050,35 @@ function App() {
       )}
 
       {activeSection === 'My Profile' && (
-        <section className="screen-grid profile-screen">
+        <section className={`screen-grid profile-screen${isFocusedFirstSessionSetup ? ' first-session-setup-screen' : ''}`}>
           <ScreenHeading
-            eyebrow="My Profile"
-            title={data.profile.household.name}
-            copy={data.profile.household.primary_goal}
+            eyebrow={isFirstSessionUpload ? 'Optional pilot check' : isFocusedFirstSessionSetup ? 'Your Mia kickoff' : 'My Profile'}
+            title={isFirstSessionUpload ? 'Test one private file without changing your numbers.' : isFocusedFirstSessionSetup ? 'Give Mia the basics for a useful first answer.' : data.profile.household.name}
+            copy={isFirstSessionUpload ? 'Upload demo-safe evidence, review every extracted draft, and apply only what is right. You can return to the five-field kickoff at any time.' : isFocusedFirstSessionSetup ? 'Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; Mia will help you make sense of the rest.' : data.profile.household.primary_goal}
           />
 
-          <article className="panel completeness-card">
-            <div>
-              <span>Profile completeness</span>
-              <strong>{data.profile.completeness}%</strong>
+          {isFirstSessionUpload && (
+            <div className="first-session-upload-return">
+              <button type="button" className="secondary-button" onClick={startManualFirstSession}>Return to starting numbers</button>
             </div>
-            <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
-            <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
-          </article>
+          )}
 
-          {isRealWorkspace && setupDraft && (
+          {!isFirstSessionSetup && (
+            <article className="panel completeness-card">
+              <div>
+                <span>Profile completeness</span>
+                <strong>{data.profile.completeness}%</strong>
+              </div>
+              <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
+              <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
+            </article>
+          )}
+
+          {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
             <WorkspaceSetupForm
               formRef={setupFormRef}
               values={setupDraft}
-              editing={isProfileEditing}
+              editing={isProfileEditing || isFirstSessionSetup}
               saving={setupSaving}
               error={setupError}
               onBeginEdit={() => setIsProfileEditing(true)}
@@ -2039,10 +2086,11 @@ function App() {
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
               setupComplete={Boolean(data.workspace?.setup_complete)}
+              firstSession={isFirstSessionSetup}
             />
           )}
 
-          <DocumentImportWorkspace
+          {(!isFirstSessionSetup || isFirstSessionUpload) && <DocumentImportWorkspace
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -2074,9 +2122,9 @@ function App() {
             onDeleteSource={handleDeleteDocumentSource}
             onDeleteImport={handleDeleteDocumentImport}
             onOpenSource={handleOpenDocumentSource}
-          />
+          />}
 
-          <div className="profile-section-grid">
+          {!isFirstSessionSetup && <div className="profile-section-grid">
             {data.profile.sections.map((section) => (
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
@@ -2092,7 +2140,7 @@ function App() {
                 ))}
               </article>
             ))}
-          </div>
+          </div>}
         </section>
       )}
 
@@ -2449,9 +2497,9 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
       <div className="first-session-paths">
         <article>
           <span>Recommended</span>
-          <h3>Give Mia the minimum context</h3>
+          <h3>Give Mia your starting numbers</h3>
           <p>Add monthly income, essential bills, flexible spending, and one goal. After you save, we will take you directly to Mia.</p>
-          <button type="button" onClick={onManual}>Set up my first Mia conversation</button>
+          <button type="button" onClick={onManual}>Give Mia my starting numbers</button>
         </article>
         <article className="first-session-path-secondary">
           <span>Optional pilot check</span>
@@ -2568,9 +2616,9 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <ol className="pilot-guide-steps">
-          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Save once; you can refine it later.</p></div></li>
-          <li><span>2</span><div><strong>Have one real conversation.</strong><p>Ask Mia what to focus on first or tell her about one transaction. Review any draft she prepares before it changes your approved numbers.</p></div></li>
-          <li><span>3</span><div><strong>Approve intentionally.</strong><p>Edit, confirm, ignore, apply, or cancel. Pending drafts do not change actuals or your annual plan until you approve them.</p></div></li>
+          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Blank money fields count as $0; you can refine everything later.</p></div></li>
+          <li><span>2</span><div><strong>Start with one real question.</strong><p>Save and send the prepared question about your income, spending, and goal. Mia should answer from the context you just approved.</p></div></li>
+          <li><span>3</span><div><strong>Let Mia draft the next change.</strong><p>Ask her to create or adjust a category, then review the group, amount, and month scope before you apply it. Pending drafts change nothing by themselves.</p></div></li>
         </ol>
         <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
@@ -4277,8 +4325,6 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [editDraft, setEditDraft] = useState<AdminCohortInput | null>(null)
   const [inviteDraft, setInviteDraft] = useState<AdminUserInput>({
     email: '',
-    first_name: '',
-    last_name: '',
     role: 'participant',
     cohort_id: '',
     send_invitation_email: true,
@@ -4441,14 +4487,12 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     try {
       const response = await createAdminUser({
         email: inviteDraft.email.trim(),
-        first_name: inviteDraft.first_name?.trim(),
-        last_name: inviteDraft.last_name?.trim(),
         role: inviteRole,
         cohort_id: cohortId || undefined,
         send_invitation_email: inviteDraft.send_invitation_email ?? true,
       })
       setNotice(`${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
-      setInviteDraft({ email: '', first_name: '', last_name: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
+      setInviteDraft({ email: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
       await loadAdminData()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invite could not be created.')
@@ -4734,14 +4778,6 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               <input type="email" value={inviteDraft.email ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
             </label>
             <label className="admin-field">
-              <span>First name</span>
-              <input value={inviteDraft.first_name ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, first_name: event.target.value }))} />
-            </label>
-            <label className="admin-field">
-              <span>Last name</span>
-              <input value={inviteDraft.last_name ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, last_name: event.target.value }))} />
-            </label>
-            <label className="admin-field">
               <span>Role</span>
               <select value={inviteRole} onChange={(event) => setInviteDraft((current) => ({ ...current, role: event.target.value as UserRole }))}>
                 {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
@@ -4762,7 +4798,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               />
               <span>Send invite email now</span>
             </label>
-            <p className="admin-field-note wide">Admins can manage across cohorts without assignment. Active coaches and participants must belong to at least one cohort.</p>
+            <p className="admin-field-note wide">Names come from the invited person's Clerk account after first sign-in. Admins can manage across cohorts without assignment; active coaches and participants must belong to at least one cohort.</p>
             <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
           </form>
         </article>
@@ -5135,32 +5171,36 @@ function WorkspaceSetupForm({
   saving,
   error,
   setupComplete,
+  firstSession,
   onBeginEdit,
   onCancel,
   onChange,
   onSubmit,
 }: {
   formRef?: Ref<HTMLFormElement>
-  values: WorkspaceSetupValues
+  values: WorkspaceSetupDraft
   editing: boolean
   saving: boolean
   error: string | null
   setupComplete: boolean
+  firstSession: boolean
   onBeginEdit: () => void
   onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <form ref={formRef} className="panel setup-form" onSubmit={onSubmit}>
+    <form ref={formRef} className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
-          <p className="eyebrow">Real workspace</p>
-          <h3>{editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
-          <p>{editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
+          <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Real workspace'}</p>
+          <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
+          <p>{firstSession ? 'Use your best monthly estimates. Blank money fields count as $0, and you can refine everything later.' : editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
         </div>
         <div className="setup-form-actions">
-          {editing ? (
+          {firstSession ? (
+            <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save and talk to Mia'}</button>
+          ) : editing ? (
             <>
               <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
               <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
@@ -5191,7 +5231,7 @@ function WorkspaceSetupForm({
         </div>
       </fieldset>
 
-      <details className="setup-optional-fields" open={setupComplete || undefined}>
+      {!firstSession && <details className="setup-optional-fields" open={setupComplete || undefined}>
         <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, debt, and runway target</small></summary>
         <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
         <div className="setup-field-grid">
@@ -5204,22 +5244,25 @@ function WorkspaceSetupForm({
           <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
           <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
             <span>Target runway months</span>
-            <input type="number" min="0" step="0.5" name="target_runway_months" value={values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
+            <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={!editing && values.target_runway_months === '' ? '0' : values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
             <small>How many months of expenses you want protected before bigger moves.</small>
           </label>
         </div>
-      </details>
+      </details>}
 
       {error && <p className="setup-error" role="alert">{error}</p>}
     </form>
   )
 }
 
-function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: string; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
-      <input name={name} type="number" min="0" step="1" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+      <span className="money-input-shell">
+        <span aria-hidden="true">$</span>
+        <input name={name} type="number" inputMode="decimal" min="0" step="1" placeholder="0" value={disabled && value === '' ? '0' : value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+      </span>
       <small>{help}</small>
     </label>
   )
