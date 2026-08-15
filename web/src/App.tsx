@@ -6562,6 +6562,7 @@ function AnnualBudgetPlanner({
   })
   const [manualTool, setManualTool] = useState<'category' | 'monthly' | 'income' | null>(null)
   const manualManagerRef = useRef<HTMLElement | null>(null)
+  const manualTriggerRef = useRef<HTMLButtonElement | null>(null)
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null)
   const allocationDrafts = useMemo(
     () => budgetEditState.signature === planSignature ? budgetEditState.allocationDrafts : {},
@@ -6576,6 +6577,7 @@ function AnnualBudgetPlanner({
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
+  const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
   const archivedCategories = plan.archived_categories ?? []
   const today = new Date()
   const currentCalendarYear = today.getFullYear()
@@ -6595,6 +6597,7 @@ function AnnualBudgetPlanner({
     if (totalBudgetChanges === 0) {
       cancelBudgetEdit()
       setManualTool(null)
+      window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
       return
     }
 
@@ -6602,6 +6605,7 @@ function AnnualBudgetPlanner({
       await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
       cancelBudgetEdit()
       setManualTool(null)
+      window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
     } catch {
       // The parent keeps the server-owned error visible and the drafts available to retry.
     }
@@ -6651,7 +6655,7 @@ function AnnualBudgetPlanner({
   }
 
   function selectManualTool(tool: 'category' | 'monthly' | 'income') {
-    if (isEditingBudget && totalBudgetChanges > 0 && tool !== 'monthly') return
+    if (tool === manualTool || (hasUnsavedBudgetChanges && tool !== 'monthly')) return
     if (tool === 'monthly') beginBudgetEdit()
     else cancelBudgetEdit()
     setManualTool(tool)
@@ -6659,9 +6663,16 @@ function AnnualBudgetPlanner({
   }
 
   function closeManualManager() {
-    if (isEditingBudget && totalBudgetChanges > 0) return
+    if (hasUnsavedBudgetChanges) return
     cancelBudgetEdit()
     setManualTool(null)
+    window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
+  }
+
+  function cancelAndCloseManualManager() {
+    cancelBudgetEdit()
+    setManualTool(null)
+    window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
   }
 
   return (
@@ -6672,20 +6683,20 @@ function AnnualBudgetPlanner({
           <h3>Money in, money out, and what is left.</h3>
           <p>Use Mia for the fastest update, or open the manual tools when you want exact control.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
-            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
             {!isViewingCurrentYear && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
             )}
             <label>
               <span className="sr-only">Report month</span>
-              <select value={currentMonthIndex} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
+              <select value={currentMonthIndex} disabled={hasUnsavedBudgetChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
                 {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
               </select>
             </label>
             {isViewingCurrentYear && !isViewingCurrentMonth && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
             )}
-            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
           </div>
         </div>
         <div className="annual-budget-actions">
@@ -6693,26 +6704,26 @@ function AnnualBudgetPlanner({
           <span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span>
           <div className="budget-primary-actions">
             <button type="button" onClick={onAskMia}>Ask Mia to update my plan</button>
-            {isRealWorkspace && <button type="button" className="secondary-button" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
+            {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="secondary-button" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
           </div>
         </div>
       </div>
 
       {manualTool && (
-        <section className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
+        <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
           <div className="budget-manual-manager-heading">
             <div>
               <p className="eyebrow">Manual budget tools</p>
               <h4 id="budget-manual-manager-title">What do you want to change?</h4>
               <p>Choose one focused task. Your full annual controls stay here when you need them.</p>
             </div>
-            <button type="button" className="secondary-button" disabled={isEditingBudget && totalBudgetChanges > 0} onClick={closeManualManager}>Close manual tools</button>
+            <button type="button" className="secondary-button" disabled={hasUnsavedBudgetChanges} onClick={closeManualManager}>Close manual tools</button>
           </div>
 
           <div className="budget-manual-tabs" role="group" aria-label="Manual budget tools">
-            <button type="button" aria-pressed={manualTool === 'category'} disabled={isEditingBudget && totalBudgetChanges > 0} onClick={() => selectManualTool('category')}>Add a category</button>
+            <button type="button" aria-pressed={manualTool === 'category'} disabled={hasUnsavedBudgetChanges} onClick={() => selectManualTool('category')}>Add a category</button>
             <button type="button" aria-pressed={manualTool === 'monthly'} onClick={() => selectManualTool('monthly')}>Edit monthly plan</button>
-            <button type="button" aria-pressed={manualTool === 'income'} disabled={isEditingBudget && totalBudgetChanges > 0} onClick={() => selectManualTool('income')}>Schedule income</button>
+            <button type="button" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges} onClick={() => selectManualTool('income')}>Schedule income</button>
           </div>
 
           {error && <p className="setup-error" role="alert">{error}</p>}
@@ -6765,10 +6776,10 @@ function AnnualBudgetPlanner({
                 <div>
                   <p className="eyebrow">Month-by-month plan</p>
                   <strong>Change category names, groups, or monthly amounts.</strong>
-                  <span>{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'The table scrolls sideways on smaller screens.'}</span>
+                  <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'The table scrolls sideways on smaller screens.'}</span>
                 </div>
                 <div className="annual-plan-edit-actions">
-                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={() => { cancelBudgetEdit(); setManualTool(null) }}>Cancel</button>
+                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelAndCloseManualManager}>Cancel</button>
                   <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
                     {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
                   </button>

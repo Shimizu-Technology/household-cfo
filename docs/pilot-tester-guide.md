@@ -22,7 +22,7 @@ The default **Budget** screen should show the selected month's money in, money o
 2. Choose **Ask Mia to update my plan**. Confirm the app opens **Ask Mia**, focuses the message box, and prefills: **I want to update my budget. Help me make this change safely:** Add your requested change after the colon; nothing changes until you review and apply Mia's proposal.
 3. Return to **Budget** and choose **Manage manually**. The manual manager should appear directly below the annual budget heading—without hunting down the page—and focus **New category**.
 4. In **Add a category**, enter **School Supplies — Manual**, choose **Sinking Fund — Expected**, enter **75**, and choose **Add category**. Confirm it appears in the expected stack.
-5. Open **Manage manually** again and choose **Edit monthly plan**. Confirm the editable 12-month table appears only now. Change one amount, then confirm the other manual-tool buttons and close control stay unavailable until you choose the clearly labeled save button or **Cancel**.
+5. Open **Manage manually** again and choose **Edit monthly plan**. Confirm the editable 12-month table appears only now. Change one amount, then confirm the other manual-tool buttons, year/month controls, and close control stay unavailable until you choose the clearly labeled save button or **Cancel**. Choosing the already-active **Edit monthly plan** control must not erase your draft.
 6. Open **Manage manually** again and choose **Schedule income**. Confirm the existing income timeline and exact scheduling controls appear in the same focused manager.
 7. Close the manual tools. Open **Monthly activity and transactions** only when you need category pressure or the confirmed ledger.
 

@@ -148,7 +148,7 @@ Evidence location:
 - Budget defaults to money in, money out, remaining, grouped Expense Stack, review work, and annual outlook; the dense annual table, income schedule, and activity ledger remain hidden until explicitly opened.
 - **Ask Mia to update my plan** opens Ask Mia with the budget-change starter focused and editable.
 - **Manage manually** opens directly below the Budget heading, focuses **New category**, and separates category creation, month-by-month editing, and income scheduling into explicit tasks.
-- Unsaved month-by-month edits cannot be lost by switching manual tools or closing the manager; save and cancel are available beside the table.
+- Unsaved month-by-month edits cannot be lost by reselecting or switching manual tools, changing the report period, or closing the manager; save and cancel are available beside the table, and closing returns focus to **Manage manually**.
 - My Profile manual setup saves and refreshes Mia context.
 - Excel budget template downloads.
 - Private document upload → review → edit → apply.
