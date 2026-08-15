@@ -1115,6 +1115,7 @@ function App() {
     } catch (caught) {
       if (appliedChanges > 0) setData((current) => current ? { ...current, budget: latestBudget } : current)
       setBudgetError(caught instanceof Error ? `${caught.message} Some earlier changes may have saved; refresh before retrying.` : 'Budget edits could not be saved. Some earlier changes may have saved; refresh before retrying.')
+      throw caught
     } finally {
       setBudgetAction(null)
     }
@@ -2148,7 +2149,7 @@ function App() {
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
-            title="Build the annual plan, then keep the monthly truth current."
+            title="Know what came in, what went out, and what is left."
             copy={data.budget.intro}
           />
 
@@ -2175,6 +2176,11 @@ function App() {
               onDeleteIncomeScheduleEntry={handleDeleteIncomeScheduleEntry}
               onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
+              onAskMia={() => {
+                setQuestion('I want to update my budget. Help me make this change safely: ')
+                switchSection('Ask Mia')
+                window.setTimeout(() => composerRef.current?.focus(), 80)
+              }}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
               onApplyMiaActionDraft={handleApplyMiaActionDraft}
@@ -2194,10 +2200,6 @@ function App() {
             </article>
           )}
 
-          <article className="panel coach-panel">
-            <h3>Custom categories matter</h3>
-            <p>{data.budget.custom_categories_note}</p>
-          </article>
         </section>
       )}
 
@@ -6493,6 +6495,7 @@ function AnnualBudgetPlanner({
   onDeleteIncomeScheduleEntry,
   onBudgetViewChange,
   onSaveBudgetEdits,
+  onAskMia,
   onArchiveCategory,
   onRestoreCategory,
   onApplyMiaActionDraft,
@@ -6520,6 +6523,7 @@ function AnnualBudgetPlanner({
   onDeleteIncomeScheduleEntry: (entry: IncomeScheduleEntry) => void
   onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
+  onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
   onApplyMiaActionDraft: (draft: MiaActionDraft) => void
@@ -6556,6 +6560,9 @@ function AnnualBudgetPlanner({
     allocationDrafts: {},
     categoryDrafts: {},
   })
+  const [manualTool, setManualTool] = useState<'category' | 'monthly' | 'income' | null>(null)
+  const manualManagerRef = useRef<HTMLElement | null>(null)
+  const newCategoryInputRef = useRef<HTMLInputElement | null>(null)
   const allocationDrafts = useMemo(
     () => budgetEditState.signature === planSignature ? budgetEditState.allocationDrafts : {},
     [budgetEditState.allocationDrafts, budgetEditState.signature, planSignature],
@@ -6566,7 +6573,6 @@ function AnnualBudgetPlanner({
   )
   const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
   const isSavingBudgetEdits = action === 'save-budget-edits'
-  const editableBudget = isRealWorkspace && isEditingBudget && !isSavingBudgetEdits
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
@@ -6588,10 +6594,17 @@ function AnnualBudgetPlanner({
   async function saveBudgetEdits() {
     if (totalBudgetChanges === 0) {
       cancelBudgetEdit()
+      setManualTool(null)
       return
     }
 
-    await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
+    try {
+      await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
+      cancelBudgetEdit()
+      setManualTool(null)
+    } catch {
+      // The parent keeps the server-owned error visible and the drafts available to retry.
+    }
   }
 
   function updateAllocationDraft(month: BudgetCategoryMonth, value: string) {
@@ -6623,23 +6636,32 @@ function AnnualBudgetPlanner({
     })
   }
 
-  function renderBudgetEditActions() {
-    if (!isRealWorkspace) return null
+  function focusManualManager(tool: 'category' | 'monthly' | 'income') {
+    window.setTimeout(() => {
+      manualManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      if (tool === 'category') newCategoryInputRef.current?.focus({ preventScroll: true })
+      else manualManagerRef.current?.focus({ preventScroll: true })
+    }, 0)
+  }
 
-    return (
-      <div className="annual-plan-edit-actions">
-        {isEditingBudget ? (
-          <>
-            <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelBudgetEdit}>Cancel</button>
-            <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
-              {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
-            </button>
-          </>
-        ) : (
-          <button type="button" onClick={beginBudgetEdit}>Edit annual budget</button>
-        )}
-      </div>
-    )
+  function openManualManager() {
+    cancelBudgetEdit()
+    setManualTool('category')
+    focusManualManager('category')
+  }
+
+  function selectManualTool(tool: 'category' | 'monthly' | 'income') {
+    if (isEditingBudget && totalBudgetChanges > 0 && tool !== 'monthly') return
+    if (tool === 'monthly') beginBudgetEdit()
+    else cancelBudgetEdit()
+    setManualTool(tool)
+    focusManualManager(tool)
+  }
+
+  function closeManualManager() {
+    if (isEditingBudget && totalBudgetChanges > 0) return
+    cancelBudgetEdit()
+    setManualTool(null)
   }
 
   return (
@@ -6647,8 +6669,8 @@ function AnnualBudgetPlanner({
       <div className="annual-budget-heading">
         <div>
           <p className="eyebrow">Annual budget · {plan.year}</p>
-          <h3>Year view with month-to-date truth</h3>
-          <p>Plan the whole year, then let manual entries, receipts, and statements fill the actuals for each month.</p>
+          <h3>Money in, money out, and what is left.</h3>
+          <p>Use Mia for the fastest update, or open the manual tools when you want exact control.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
             <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
             {!isViewingCurrentYear && (
@@ -6668,18 +6690,175 @@ function AnnualBudgetPlanner({
         </div>
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
-          <span>{plan.pending_transaction_drafts.length} pending transaction drafts</span>
-          {(plan.pending_mia_action_drafts ?? []).length > 0 && <span>{(plan.pending_mia_action_drafts ?? []).length} Mia action drafts</span>}
-          {renderBudgetEditActions()}
+          <span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span>
+          <div className="budget-primary-actions">
+            <button type="button" onClick={onAskMia}>Ask Mia to update my plan</button>
+            {isRealWorkspace && <button type="button" className="secondary-button" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
+          </div>
         </div>
       </div>
 
-      <div className="annual-budget-metrics">
-        <Metric label={`${currentMonth?.label ?? 'Month'} income`} value={currency.format(currentMonthIncome)} />
-        <Metric label={`${currentMonth?.label ?? 'Month'} planned`} value={currency.format(currentPlanned)} />
-        <Metric label={`${currentMonth?.label ?? 'Month'} actual`} value={currency.format(currentActual)} />
-        <Metric label="Annual planned" value={currency.format(annualPlanned)} />
-        <Metric label="Annual actual" value={currency.format(annualActual)} />
+      {manualTool && (
+        <section className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
+          <div className="budget-manual-manager-heading">
+            <div>
+              <p className="eyebrow">Manual budget tools</p>
+              <h4 id="budget-manual-manager-title">What do you want to change?</h4>
+              <p>Choose one focused task. Your full annual controls stay here when you need them.</p>
+            </div>
+            <button type="button" className="secondary-button" disabled={isEditingBudget && totalBudgetChanges > 0} onClick={closeManualManager}>Close manual tools</button>
+          </div>
+
+          <div className="budget-manual-tabs" role="group" aria-label="Manual budget tools">
+            <button type="button" aria-pressed={manualTool === 'category'} disabled={isEditingBudget && totalBudgetChanges > 0} onClick={() => selectManualTool('category')}>Add a category</button>
+            <button type="button" aria-pressed={manualTool === 'monthly'} onClick={() => selectManualTool('monthly')}>Edit monthly plan</button>
+            <button type="button" aria-pressed={manualTool === 'income'} disabled={isEditingBudget && totalBudgetChanges > 0} onClick={() => selectManualTool('income')}>Schedule income</button>
+          </div>
+
+          {error && <p className="setup-error" role="alert">{error}</p>}
+
+          {manualTool === 'category' && (
+            <div className="budget-manual-tool">
+              <div className="budget-manual-tool-intro">
+                <strong>Add one spending category</strong>
+                <span>Give it a household-friendly name, choose its Expense Stack group, and set the amount you expect each month.</span>
+              </div>
+              <form className="annual-category-form" onSubmit={onCreateCategory}>
+                <label>
+                  <span>New category</span>
+                  <input ref={newCategoryInputRef} value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={action === 'create-category'} />
+                </label>
+                <label>
+                  <span>Expense Stack group</span>
+                  <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={action === 'create-category'}>
+                    <option value="non_discretionary">Non-discretionary</option>
+                    <option value="discretionary">Discretionary</option>
+                    <option value="sinking_expected">Sinking Fund — Expected</option>
+                    <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Monthly plan</span>
+                  <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={action === 'create-category'} />
+                </label>
+                <button type="submit" disabled={action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+              </form>
+            </div>
+          )}
+
+          {manualTool === 'income' && (
+            <div className="budget-manual-tool">
+              <AnnualIncomePlanner
+                key={`${plan.year}:${plan.income_sources.map((source) => source.id).join(':')}`}
+                plan={plan}
+                isRealWorkspace={isRealWorkspace}
+                action={action}
+                onSave={onSaveIncomeScheduleEntry}
+                onDelete={onDeleteIncomeScheduleEntry}
+              />
+            </div>
+          )}
+
+          {manualTool === 'monthly' && (
+            <div className="budget-manual-tool">
+              <div className="annual-budget-editor-toolbar">
+                <div>
+                  <p className="eyebrow">Month-by-month plan</p>
+                  <strong>Change category names, groups, or monthly amounts.</strong>
+                  <span>{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'The table scrolls sideways on smaller screens.'}</span>
+                </div>
+                <div className="annual-plan-edit-actions">
+                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={() => { cancelBudgetEdit(); setManualTool(null) }}>Cancel</button>
+                  <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+                    {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
+                <table className="annual-budget-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Category</th>
+                      {plan.months.map((month, index) => (
+                        <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
+                      ))}
+                      <th scope="col">Year</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plan.rows.length === 0 ? (
+                      <tr><td colSpan={14}>Add a category to start building the annual plan.</td></tr>
+                    ) : plan.rows.map((row) => (
+                      <tr key={row.id}>
+                        <th scope="row">
+                          <CategoryEditCell
+                            row={row}
+                            draft={categoryDraftValue(row, categoryDrafts)}
+                            hasPendingDrafts={plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
+                            action={action}
+                            onChange={(value) => updateCategoryDraft(row, value)}
+                            onArchive={() => onArchiveCategory(row)}
+                          />
+                        </th>
+                        {row.months.map((month, index) => {
+                          const allocationMissing = !month.allocation_id || month.allocation_missing
+                          const draftValue = allocationDraftValue(month, allocationDrafts)
+                          const draftedAmount = Number(draftValue || 0)
+                          const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
+                          return (
+                            <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
+                              {row.active && !allocationMissing ? (
+                                <input
+                                  key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
+                                  aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={draftValue}
+                                  data-dirty={hasDraftChange ? 'true' : undefined}
+                                  onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
+                                />
+                              ) : (
+                                <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
+                              )}
+                              <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
+                            </td>
+                          )
+                        })}
+                        <td><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {archivedCategories.length > 0 && (
+                <details className="archived-categories-panel">
+                  <summary><span>Archived categories</span><strong>{archivedCategories.length}</strong></summary>
+                  <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
+                  <div className="archived-category-list">
+                    {archivedCategories.map((category) => (
+                      <div className="archived-category-row" key={category.id}>
+                        <div><strong>{category.name}</strong><span>{category.stack_label}</span></div>
+                        <button type="button" className="secondary-button" disabled={action === `restore-category:${category.id}`} onClick={() => onRestoreCategory(category.id)}>
+                          {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      <div className="annual-budget-summary" aria-label="Annual budget summary">
+        <span><small>Annual planned</small><strong>{currency.format(annualPlanned)}</strong></span>
+        <span><small>Annual actual</small><strong>{currency.format(annualActual)}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} planned</small><strong>{currency.format(currentPlanned)}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} actual</small><strong>{currency.format(currentActual)}</strong></span>
       </div>
 
       <div className="budget-operating-cockpit">
@@ -6692,17 +6871,6 @@ function AnnualBudgetPlanner({
         />
         <ExpenseStackOverview positions={currentPositions} />
       </div>
-
-      <AnnualIncomePlanner
-        key={`${plan.year}:${plan.income_sources.map((source) => source.id).join(':')}`}
-        plan={plan}
-        isRealWorkspace={isRealWorkspace}
-        action={action}
-        onSave={onSaveIncomeScheduleEntry}
-        onDelete={onDeleteIncomeScheduleEntry}
-      />
-
-      <AnnualOutlookPanel plan={plan} />
 
       {(plan.pending_mia_action_drafts ?? []).length > 0 && (
         <MiaActionDraftReviewStack
@@ -6735,158 +6903,21 @@ function AnnualBudgetPlanner({
         />
       )}
 
-      <CurrentMonthActivityPanel
-        plan={plan}
-        currentMonthIndex={currentMonthIndex}
-        spendingReport={spendingReport}
-        loading={spendingReportLoading}
-        error={spendingReportError}
-      />
+      <AnnualOutlookPanel plan={plan} />
 
-      <div className="annual-budget-editor-toolbar">
-        <div>
-          <p className="eyebrow">Annual plan editor</p>
-          <strong>{isEditingBudget ? 'Editing is on' : 'Budget is read-only'}</strong>
-          <span>{isEditingBudget ? 'Change monthly cells, rename categories, or add a new row below.' : 'Turn on editing when you want to change the annual plan.'}</span>
-        </div>
-        {renderBudgetEditActions()}
-      </div>
-
-      {isEditingBudget ? (
-        <form className="annual-category-form" onSubmit={onCreateCategory}>
-          <label>
-            <span>New category</span>
-            <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!editableBudget} />
-          </label>
-          <label>
-            <span>Stack</span>
-            <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!editableBudget}>
-              <option value="non_discretionary">Non-discretionary</option>
-              <option value="discretionary">Discretionary</option>
-              <option value="sinking_expected">Sinking Fund — Expected</option>
-              <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
-            </select>
-          </label>
-          <label>
-            <span>Monthly plan</span>
-            <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!editableBudget} />
-          </label>
-          <button type="submit" disabled={!editableBudget || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
-        </form>
-      ) : (
-        <p className="annual-edit-hint">Click Edit annual budget to add categories or change monthly planned amounts.</p>
-      )}
-
-      {error && <p className="setup-error" role="alert">{error}</p>}
-
-      <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
-        <table className="annual-budget-table">
-          <thead>
-            <tr>
-              <th scope="col">Category</th>
-              {plan.months.map((month, index) => (
-                <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
-              ))}
-              <th scope="col">Year</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.rows.length === 0 ? (
-              <tr>
-                <td colSpan={14}>Add a category to start building the annual plan.</td>
-              </tr>
-            ) : plan.rows.map((row) => (
-              <tr key={row.id}>
-                <th scope="row">
-                  {editableBudget && row.active ? (
-                    <CategoryEditCell
-                      row={row}
-                      draft={categoryDraftValue(row, categoryDrafts)}
-                      hasPendingDrafts={plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
-                      action={action}
-                      onChange={(value) => updateCategoryDraft(row, value)}
-                      onArchive={() => onArchiveCategory(row)}
-                    />
-                  ) : (
-                    <>
-                      <strong>{row.name}</strong>
-                      <span>{row.stack_label}{row.active ? '' : ' · Archived'}</span>
-                    </>
-                  )}
-                </th>
-                {row.months.map((month, index) => {
-                  const allocationMissing = !month.allocation_id || month.allocation_missing
-                  const draftValue = allocationDraftValue(month, allocationDrafts)
-                  const draftedAmount = Number(draftValue || 0)
-                  const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
-
-                  return (
-                    <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
-                      {editableBudget && row.active && !allocationMissing ? (
-                        <input
-                          key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
-                          aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={draftValue}
-                          data-dirty={hasDraftChange ? 'true' : undefined}
-                          onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
-                        />
-                      ) : (
-                        <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
-                      )}
-                      <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
-                    </td>
-                  )
-                })}
-                <td>
-                  <strong>{currency.format(row.planned_total)}</strong>
-                  <small>{currency.format(row.actual_total)} actual</small>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {archivedCategories.length > 0 && (
-        <details className="archived-categories-panel">
-          <summary>
-            <span>Archived categories</span>
-            <strong>{archivedCategories.length}</strong>
-          </summary>
-          <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
-          <div className="archived-category-list">
-            {archivedCategories.map((category) => (
-              <div className="archived-category-row" key={category.id}>
-                <div>
-                  <strong>{category.name}</strong>
-                  <span>{category.stack_label}</span>
-                </div>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={!editableBudget || action === `restore-category:${category.id}`}
-                  onClick={() => onRestoreCategory(category.id)}
-                >
-                  {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
-                </button>
-              </div>
-            ))}
-          </div>
-          {!editableBudget && <small>Click Edit annual budget to restore archived categories.</small>}
-        </details>
-      )}
-
-      {plan.recent_transactions.length > 0 && (
-        <TransactionLedger
-          title="Recent confirmed transactions"
-          transactions={plan.recent_transactions}
-          emptyMessage="No confirmed transactions for this budget year yet."
-          pageSize={8}
+      <details className="budget-detail-disclosure">
+        <summary>
+          <span><strong>Monthly activity and transactions</strong><small>See category pressure, confirmed spending, and the ledger.</small></span>
+          <b>{currentPositions.length} categories</b>
+        </summary>
+        <CurrentMonthActivityPanel
+          plan={plan}
+          currentMonthIndex={currentMonthIndex}
+          spendingReport={spendingReport}
+          loading={spendingReportLoading}
+          error={spendingReportError}
         />
-      )}
+      </details>
     </article>
   )
 }

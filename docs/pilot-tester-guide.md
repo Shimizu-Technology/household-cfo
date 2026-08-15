@@ -14,6 +14,18 @@ This short guide is for the focused four-person Household CFO validation before 
 8. Choose **Apply**, then open **Budget** and confirm School Supplies appears under **Sinking Fund — Expected** with $75 planned in every month.
 9. Return to **My Profile** later if you want to add savings, debt, business income, documents, or other details. Direct Budget editing remains available as a manual fallback, not the required first-session path.
 
+## Budget simplicity and manual fallback
+
+The default **Budget** screen should show the selected month's money in, money out, what remains, the four Expense Stack groups, review work, and a compact annual outlook. The dense annual table, income schedule, and category form should not compete with that overview.
+
+1. Open **Budget**. Confirm **Ask Mia to update my plan** and **Manage manually** are visible near the annual budget heading. The full annual table and income editor should not be visible yet.
+2. Choose **Ask Mia to update my plan**. Confirm the app opens **Ask Mia**, focuses the message box, and prefills: **I want to update my budget. Help me make this change safely:** Add your requested change after the colon; nothing changes until you review and apply Mia's proposal.
+3. Return to **Budget** and choose **Manage manually**. The manual manager should appear directly below the annual budget heading—without hunting down the page—and focus **New category**.
+4. In **Add a category**, enter **School Supplies — Manual**, choose **Sinking Fund — Expected**, enter **75**, and choose **Add category**. Confirm it appears in the expected stack.
+5. Open **Manage manually** again and choose **Edit monthly plan**. Confirm the editable 12-month table appears only now. Change one amount, then confirm the other manual-tool buttons and close control stay unavailable until you choose the clearly labeled save button or **Cancel**.
+6. Open **Manage manually** again and choose **Schedule income**. Confirm the existing income timeline and exact scheduling controls appear in the same focused manager.
+7. Close the manual tools. Open **Monthly activity and transactions** only when you need category pressure or the confirmed ledger.
+
 Nothing pending changes your approved household numbers. A transaction or budget change takes effect only after you review and confirm or apply it.
 
 ## Optional upload check
@@ -52,6 +64,7 @@ Try these on both a computer and your phone when practical:
 - Save the five setup essentials and confirm the advanced profile and upload areas stay out of the kickoff.
 - Send the prefilled “Based on my income, spending, and goal…” question.
 - Ask Mia to create School Supplies under Sinking Fund — Expected for $75 every month; apply the review card, then verify all 12 months in Budget.
+- Confirm Budget defaults to the simple overview; test the Mia CTA and each focused **Manage manually** task without scrolling to discover its controls.
 - Create one typed or voice transaction draft and confirm or ignore it.
 - From both Ask Mia and My Profile, upload one demo-safe supported file; report the exact entry point and generic file type if either path fails.
 - Preview a private source and close it.

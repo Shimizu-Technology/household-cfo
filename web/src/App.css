@@ -5158,8 +5158,10 @@ h3 {
 }
 
 .annual-budget-actions {
+  display: grid;
   flex-wrap: wrap;
   justify-content: flex-end;
+  justify-items: end;
 }
 
 .annual-budget-actions span,
@@ -5181,10 +5183,157 @@ h3 {
   font-weight: 800;
 }
 
-.annual-budget-metrics {
+.budget-primary-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.budget-primary-actions button,
+.budget-manual-manager-heading > button,
+.budget-manual-tabs button {
+  min-height: 44px;
+  padding: 10px 15px;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.budget-primary-actions > button:first-child {
+  background: var(--emerald);
+  color: white;
+}
+
+.budget-primary-actions .secondary-button,
+.budget-manual-manager-heading > .secondary-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--emerald);
+}
+
+.annual-budget-summary {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 10px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  border: 1px solid rgba(143, 74, 95, 0.12);
+  border-radius: 18px;
+  background: rgba(143, 74, 95, 0.12);
+}
+
+.annual-budget-summary > span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+  padding: 12px 14px;
+  background: #fffdf9;
+}
+
+.annual-budget-summary small {
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.annual-budget-summary strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-size: clamp(0.8rem, 1.25vw, 1rem);
+  font-variant-numeric: tabular-nums lining-nums;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.budget-manual-manager {
+  display: grid;
+  gap: 16px;
+  padding: clamp(16px, 2.2vw, 24px);
+  border: 1px solid rgba(143, 74, 95, 0.24);
+  border-radius: 24px;
+  outline: none;
+  background: linear-gradient(145deg, #fffaf4, #f8eee9);
+  box-shadow: 0 18px 42px rgba(54, 42, 36, 0.08);
+}
+
+.budget-manual-manager:focus-visible {
+  box-shadow: 0 0 0 4px rgba(143, 74, 95, 0.14), 0 18px 42px rgba(54, 42, 36, 0.08);
+}
+
+.budget-manual-manager-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.budget-manual-manager-heading h4,
+.budget-manual-manager-heading p {
+  margin: 0;
+}
+
+.budget-manual-manager-heading h4 {
+  margin-top: 3px;
+  font-family: var(--serif-font);
+  font-size: clamp(1.45rem, 2.4vw, 2.05rem);
+  line-height: 1.05;
+}
+
+.budget-manual-manager-heading > div > p:last-child {
+  max-width: 640px;
+  margin-top: 7px;
+  color: var(--muted);
+}
+
+.budget-manual-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid rgba(143, 74, 95, 0.14);
+}
+
+.budget-manual-tabs button {
+  border: 1px solid rgba(143, 74, 95, 0.18);
+  background: rgba(255, 255, 255, 0.74);
+  color: var(--mauve);
+}
+
+.budget-manual-tabs button[aria-pressed="true"] {
+  border-color: var(--mauve);
+  background: var(--mauve);
+  color: white;
+  box-shadow: 0 8px 18px rgba(143, 74, 95, 0.16);
+}
+
+.budget-manual-tabs button:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.budget-manual-tool {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+}
+
+.budget-manual-tool-intro {
+  display: grid;
+  gap: 3px;
+}
+
+.budget-manual-tool-intro strong {
+  color: var(--ink);
+  font-size: 1.02rem;
+}
+
+.budget-manual-tool-intro span {
+  color: var(--muted);
+  line-height: 1.45;
 }
 
 .transaction-draft-stack,
@@ -5824,9 +5973,7 @@ h3 {
 }
 
 .annual-budget-editor-toolbar {
-  position: sticky;
-  top: 92px;
-  z-index: 3;
+  position: static;
   flex-wrap: wrap;
   padding: 12px 14px;
   border: 1px solid rgba(143, 74, 95, 0.16);
@@ -5834,6 +5981,66 @@ h3 {
   background: rgba(255, 250, 242, 0.94);
   box-shadow: 0 16px 34px rgba(54, 42, 36, 0.08);
   backdrop-filter: blur(12px);
+}
+
+.budget-detail-disclosure {
+  overflow: hidden;
+  border: 1px solid rgba(143, 74, 95, 0.14);
+  border-radius: 22px;
+  background: rgba(255, 250, 242, 0.72);
+}
+
+.budget-detail-disclosure > summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 64px;
+  padding: 14px 16px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.budget-detail-disclosure > summary::-webkit-details-marker {
+  display: none;
+}
+
+.budget-detail-disclosure > summary > span {
+  display: grid;
+  gap: 2px;
+}
+
+.budget-detail-disclosure > summary strong {
+  color: var(--ink);
+}
+
+.budget-detail-disclosure > summary small {
+  color: var(--muted);
+}
+
+.budget-detail-disclosure > summary b {
+  flex: 0 0 auto;
+  color: var(--mauve);
+  font-size: 0.78rem;
+}
+
+.budget-detail-disclosure > summary::after {
+  content: '+';
+  flex: 0 0 auto;
+  color: var(--mauve);
+  font-size: 1.4rem;
+  font-weight: 500;
+}
+
+.budget-detail-disclosure[open] > summary::after {
+  content: '−';
+}
+
+.budget-detail-disclosure > .current-month-activity {
+  border: 0;
+  border-top: 1px solid rgba(143, 74, 95, 0.12);
+  border-radius: 0;
+  background: #fffdf9;
 }
 
 .annual-budget-editor-toolbar > div:first-child {
@@ -6710,6 +6917,7 @@ h3 {
 
 @media (max-width: 900px) {
   .annual-budget-heading,
+  .budget-manual-manager-heading,
   .annual-budget-editor-toolbar,
   .transaction-draft-card,
   .mia-action-draft-card,
@@ -6721,6 +6929,7 @@ h3 {
   }
 
   .annual-budget-actions,
+  .budget-primary-actions,
   .setup-form-actions,
   .transaction-draft-actions,
   .mia-action-draft-actions,
@@ -6730,16 +6939,12 @@ h3 {
     justify-content: flex-start;
   }
 
-  .annual-budget-metrics {
+  .annual-budget-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .month-activity-amounts {
     justify-content: flex-start;
-  }
-
-  .annual-budget-editor-toolbar {
-    position: static;
   }
 
   .annual-category-form,
@@ -6825,6 +7030,28 @@ h3 {
 
   .transaction-draft-impact-row dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 520px) {
+  .annual-budget-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-primary-actions,
+  .budget-primary-actions button,
+  .budget-manual-manager-heading > button,
+  .budget-manual-tabs,
+  .budget-manual-tabs button {
+    width: 100%;
+  }
+
+  .budget-manual-tabs {
+    display: grid;
+  }
+
+  .budget-detail-disclosure > summary {
+    align-items: flex-start;
   }
 }
 

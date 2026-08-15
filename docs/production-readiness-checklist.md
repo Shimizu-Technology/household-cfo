@@ -145,6 +145,10 @@ Evidence location:
 - Home/Budget/Wealth/CFO Filter/Optionality render from saved data.
 - Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
 - Home shows pending transaction/action review counts and the current month inside the annual plan.
+- Budget defaults to money in, money out, remaining, grouped Expense Stack, review work, and annual outlook; the dense annual table, income schedule, and activity ledger remain hidden until explicitly opened.
+- **Ask Mia to update my plan** opens Ask Mia with the budget-change starter focused and editable.
+- **Manage manually** opens directly below the Budget heading, focuses **New category**, and separates category creation, month-by-month editing, and income scheduling into explicit tasks.
+- Unsaved month-by-month edits cannot be lost by switching manual tools or closing the manager; save and cancel are available beside the table.
 - My Profile manual setup saves and refreshes Mia context.
 - Excel budget template downloads.
 - Private document upload → review → edit → apply.
@@ -169,7 +173,7 @@ Run the representative workflows below on desktop, a real phone, and the automat
 | Workflow | Required boundary/evidence |
 | --- | --- |
 | Invite, sign-in, access | Participant cannot access admin routes or another household; admin role does not expose participant financial content. |
-| Manual setup and annual plan | Five essentials save; optional details remain editable; annual months and budget allocations persist. |
+| Manual setup and annual plan | Five essentials save; Budget stays simple by default; focused category, month-by-month, and income tools open near the heading; annual months and allocations persist. |
 | Typed and voice capture | Both create pending review only; voice transcript is editable before send. |
 | Receipt/document upload | Failure is retryable; success leads to explicit review; source controls require explicit action. |
 | Statement matching | Multi-month assignment is correct; existing matches prevent duplicate confirmed actuals. |
