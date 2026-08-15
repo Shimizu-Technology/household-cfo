@@ -70,7 +70,7 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Ariana", invited.full_name
   end
 
-  test "later Clerk profile updates remain authoritative for linked users" do
+  test "later Clerk profile updates preserve name claims that Clerk omits" do
     user = User.create!(
       clerk_id: "clerk_existing_profile_123",
       email: "existing-profile@example.com",
@@ -85,7 +85,7 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     user.reload
     assert_equal "Updated", user.first_name
-    assert_nil user.last_name
+    assert_equal "Name", user.last_name
   end
 
   test "rejects uninvited Clerk users without creating a local user" do
