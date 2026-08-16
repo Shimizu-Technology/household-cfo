@@ -66,6 +66,32 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, payload.dig("pagination", "total")
   end
 
+  test "ignoring transactions is all-or-nothing for a mixed valid and invalid batch" do
+    valid = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "ignore-valid", name: "Valid expense", occurred_on: Date.current, amount_cents: 4_200, pending: false, source_fingerprint: SecureRandom.hex(32))
+    pending = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "ignore-pending", name: "Pending expense", occurred_on: Date.current, amount_cents: 2_100, pending: true, source_fingerprint: SecureRandom.hex(32))
+
+    assert_no_difference -> { @household.household_audit_events.count } do
+      post "/api/v1/plaid/transactions/ignore", params: { transaction_ids: [ valid.id, pending.id ] }, headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "unreviewed", valid.reload.review_status
+    assert_equal "unreviewed", pending.reload.review_status
+  end
+
+  test "ignoring a valid batch updates every row and records one audit event" do
+    first = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "ignore-first", name: "First expense", occurred_on: Date.current, amount_cents: 4_200, pending: false, source_fingerprint: SecureRandom.hex(32))
+    second = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "ignore-second", name: "Second expense", occurred_on: Date.current, amount_cents: 2_100, pending: false, source_fingerprint: SecureRandom.hex(32))
+
+    assert_difference -> { @household.household_audit_events.count }, 1 do
+      post "/api/v1/plaid/transactions/ignore", params: { transaction_ids: [ first.id, second.id ] }, headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :success
+    assert_equal 2, JSON.parse(response.body).fetch("ignored_count")
+    assert_equal %w[ignored ignored], [ first.reload.review_status, second.reload.review_status ]
+  end
+
   test "item review automation preference is explicit and household scoped" do
     patch "/api/v1/plaid/items/#{@item.id}", params: { auto_confirm_trusted_merchants: true }, headers: auth_headers(@user), as: :json
 

@@ -34,11 +34,19 @@ module Api
           ids = Array(params[:transaction_ids]).map(&:to_i).uniq
           return render json: { errors: [ "Select at least one bank transaction" ] }, status: :unprocessable_entity if ids.empty?
 
-          updated = current_household.plaid_transactions.visible.where(id: ids, pending: false, review_status: "unreviewed").update_all(review_status: "ignored", updated_at: Time.current)
-          return render json: { errors: [ "One or more bank transactions could not be ignored" ] }, status: :unprocessable_entity unless updated == ids.length
+          ignored_count = ApplicationRecord.transaction do
+            transactions = current_household.plaid_transactions.visible.where(id: ids).lock.to_a
+            unless transactions.length == ids.length && transactions.all? { |transaction| !transaction.pending? && transaction.review_status == "unreviewed" }
+              raise PlaidIntegration::Error, "One or more bank transactions could not be ignored"
+            end
 
-          current_household.household_audit_events.create!(user: current_user, actor_type: "user", event_type: "plaid_transactions.ignored", occurred_at: Time.current, metadata: { transaction_record_ids: ids })
-          render json: { ignored_count: updated }
+            updated = PlaidTransaction.where(id: transactions.map(&:id)).update_all(review_status: "ignored", updated_at: Time.current)
+            current_household.household_audit_events.create!(user: current_user, actor_type: "user", event_type: "plaid_transactions.ignored", occurred_at: Time.current, metadata: { transaction_record_ids: ids })
+            updated
+          end
+          render json: { ignored_count: ignored_count }
+        rescue PlaidIntegration::Error => e
+          render json: { errors: [ e.message ] }, status: :unprocessable_entity
         end
 
         private
