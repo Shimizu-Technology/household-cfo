@@ -64,6 +64,34 @@ class PlaidIntegrationAutoConfirmerTest < ActiveSupport::TestCase
     end
   end
 
+  test "loads confirmed amount history once for a batch of candidate drafts" do
+    %w[Netflix Hulu].each do |merchant|
+      3.times do |index|
+        transaction = @household.household_transactions.create!(budget_period: @period, occurred_on: Date.new(2026, 8, index + 1), merchant: merchant, total_amount_cents: 1_957, source_type: "plaid", status: "confirmed")
+        transaction.transaction_splits.create!(budget_category: @category, amount_cents: 1_957)
+      end
+      @household.merchant_category_rules.create!(budget_category: @category, merchant_pattern: merchant.downcase, confidence: BigDecimal("0.89"), source: "user_confirmed", times_confirmed: 3, last_confirmed_at: Time.current, active: true)
+    end
+
+    drafts = %w[Netflix Hulu].map do |merchant|
+      source = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "next-#{merchant.downcase}", name: merchant, merchant_name: merchant, occurred_on: Date.new(2026, 8, 16), amount_cents: 1_957, pending: false, source_fingerprint: SecureRandom.hex(32))
+      PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ source.id ], actor_type: "system").call.drafts.sole
+    end
+
+    history_queries = []
+    subscriber = lambda do |_name, _started, _finished, _unique_id, payload|
+      sql = payload[:sql].to_s
+      history_queries << sql if sql.include?('SELECT "household_transactions"."id", "household_transactions"."merchant", "household_transactions"."total_amount_cents"')
+    end
+
+    confirmed = ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") do
+      PlaidIntegration::AutoConfirmer.new(@item, drafts: drafts).call
+    end
+
+    assert_equal 2, confirmed.length
+    assert_equal 1, history_queries.length
+  end
+
   test "never auto confirms into an Uncategorized placeholder" do
     placeholder = @household.budget_categories.create!(name: "Uncategorized", stack_key: "discretionary", active: true, sort_order: 99)
     3.times do |index|

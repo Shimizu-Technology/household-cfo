@@ -60,16 +60,30 @@ module PlaidIntegration
 
     def amount_is_familiar?(draft)
       pattern = MerchantCategoryRule.normalized_pattern(draft.merchant)
-      matching_amounts = []
-      plaid_item.household.household_transactions
-        .where(source_type: "plaid", status: %w[confirmed reconciled])
-        .select(:id, :merchant, :total_amount_cents)
-        .find_each(batch_size: 500) do |transaction|
-          matching_amounts << transaction.total_amount_cents if MerchantCategoryRule.normalized_pattern(transaction.merchant) == pattern
-        end
-      return false if matching_amounts.length < MIN_CONFIRMATIONS
+      stats = confirmed_amount_stats.fetch(pattern, { count: 0, maximum_cents: 0 })
+      return false if stats[:count] < MIN_CONFIRMATIONS
 
-      draft.total_amount_cents <= (matching_amounts.max * MAX_AMOUNT_GROWTH).round
+      draft.total_amount_cents <= (stats[:maximum_cents] * MAX_AMOUNT_GROWTH).round
+    end
+
+    def confirmed_amount_stats
+      @confirmed_amount_stats ||= begin
+        stats = Hash.new { |hash, pattern| hash[pattern] = { count: 0, maximum_cents: 0 } }
+
+        plaid_item.household.household_transactions
+          .where(source_type: "plaid", status: %w[confirmed reconciled])
+          .select(:id, :merchant, :total_amount_cents)
+          .find_each(batch_size: 500) do |transaction|
+            pattern = MerchantCategoryRule.normalized_pattern(transaction.merchant)
+            next if pattern.blank?
+
+            merchant_stats = stats[pattern]
+            merchant_stats[:count] += 1
+            merchant_stats[:maximum_cents] = [ merchant_stats[:maximum_cents], transaction.total_amount_cents ].max
+          end
+
+        stats
+      end
     end
   end
 end
