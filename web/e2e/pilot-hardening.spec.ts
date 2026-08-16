@@ -819,6 +819,61 @@ test('a late spending report cannot overwrite the refresh triggered by a transac
   expect(requestCount).toBeGreaterThanOrEqual(2)
 })
 
+test('a late Mia response cannot replace the ledger after the participant changes months', async ({ page }) => {
+  const currentMonthIndex = new Date().getMonth()
+  const targetMonthIndex = currentMonthIndex === 11 ? 10 : currentMonthIndex + 1
+  const targetMonthNumber = String(targetMonthIndex + 1).padStart(2, '0')
+  const currentMonthNumber = String(currentMonthIndex + 1).padStart(2, '0')
+  const reportFor = (monthIndex: number, transactionLabel: string) => ({
+    period_label: `${new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(currentYear, monthIndex, 1))} ${currentYear}`,
+    start_on: `${currentYear}-${String(monthIndex + 1).padStart(2, '0')}-01`,
+    end_on: `${currentYear}-${String(monthIndex + 1).padStart(2, '0')}-28`,
+    totals: { planned: 5_300, actual: 125, pending: 0, remaining: 5_175 },
+    categories: [],
+    transactions: [{ id: monthIndex + 500, occurred_on: `${currentYear}-${String(monthIndex + 1).padStart(2, '0')}-12`, merchant: transactionLabel, amount: 125, amount_cents: 12_500, categories: ['Fixed essentials'], source_type: 'manual' }],
+    pending_drafts: [],
+  })
+  const currentReport = reportFor(currentMonthIndex, 'STALE MIA MONTH')
+  const targetReport = reportFor(targetMonthIndex, 'Selected month transaction')
+  let releaseMiaResponse: (() => void) | undefined
+  const miaResponseReleased = new Promise<void>((resolve) => { releaseMiaResponse = resolve })
+
+  await page.route('http://api.test/api/v1/spending_report**', (route) => {
+    const startOn = new URL(route.request().url()).searchParams.get('start_on')
+    return route.fulfill({ status: 200, json: { spending_report: startOn?.includes(`-${targetMonthNumber}-`) ? targetReport : currentReport } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await miaResponseReleased
+    return route.fulfill({
+      status: 200,
+      json: {
+        user_message: { id: 901, role: 'user', author: 'You', content: 'What should I focus on?', attachments: [] },
+        assistant_message: { id: 902, role: 'assistant', author: 'Mia', content: 'Protect the baseline first.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: { ...currentReport, start_on: `${currentYear}-${currentMonthNumber}-01`, end_on: `${currentYear}-${currentMonthNumber}-28` },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByLabel('Report month').selectOption(String(targetMonthIndex))
+  await page.getByText('Monthly activity and transactions', { exact: true }).click()
+  await expect(page.getByText('Selected month transaction')).toBeVisible()
+
+  const completedMiaResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/mia/messages') && response.request().method() === 'POST')
+  releaseMiaResponse?.()
+  await completedMiaResponse
+  await expect(page.getByText('Selected month transaction')).toBeVisible()
+  await expect(page.getByText('STALE MIA MONTH')).toHaveCount(0)
+})
+
 test('failed receipt upload leaves the participant on a retryable private-upload state', async ({ page }) => {
   await page.route('http://api.test/api/v1/document_imports', async (route) => {
     if (route.request().method() === 'POST') return route.fulfill({ status: 422, json: { errors: ['Could not store document in private S3'] } })

@@ -326,6 +326,7 @@ function App() {
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const spendingReportRequestRef = useRef(0)
+  const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
@@ -359,6 +360,7 @@ function App() {
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
+  selectedBudgetPeriodRef.current = { startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn }
   useEffect(() => {
     pendingMiaAttachmentsRef.current = pendingMiaAttachments
   }, [pendingMiaAttachments])
@@ -888,8 +890,11 @@ function App() {
         refreshSpendingReportForBudget(response.budget, responseMonthIndex)
       }
       if (response.spending_report) {
-        spendingReportRequestRef.current += 1
-        setSpendingReport(response.spending_report)
+        const visiblePeriod = selectedBudgetPeriodRef.current
+        if (response.spending_report.start_on === visiblePeriod.startsOn && response.spending_report.end_on === visiblePeriod.endsOn) {
+          spendingReportRequestRef.current += 1
+          setSpendingReport(response.spending_report)
+        }
       }
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
@@ -6071,9 +6076,12 @@ function CurrentMonthActivityPanel({
   error: string | null
 }) {
   const month = plan.months[currentMonthIndex]
+  const visibleSpendingReport = spendingReport?.start_on === month?.starts_on && spendingReport?.end_on === month?.ends_on
+    ? spendingReport
+    : null
   const positions = useMemo(
-    () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
-    [currentMonthIndex, plan, spendingReport],
+    () => budgetPositionsForMonth(plan, currentMonthIndex, visibleSpendingReport),
+    [currentMonthIndex, plan, visibleSpendingReport],
   )
   const totalPending = budgetPositionTotals(positions).pending
 
@@ -6092,7 +6100,7 @@ function CurrentMonthActivityPanel({
         title="Every category, ordered by pressure"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
-      {spendingReport && <SpendingReportLedger report={spendingReport} />}
+      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} />}
     </section>
   )
 }
