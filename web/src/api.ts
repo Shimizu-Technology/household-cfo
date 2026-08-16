@@ -842,6 +842,7 @@ export type PlaidItem = {
   last_synced_at: string | null
   error_message: string | null
   disconnected_at: string | null
+  auto_confirm_trusted_merchants: boolean
   accounts: PlaidAccount[]
 }
 
@@ -869,7 +870,31 @@ export type PlaidTransaction = {
   review_status: 'unreviewed' | 'drafted' | 'ignored'
   stageable: boolean
   transaction_draft_id: number | null
+  transaction_draft_status: 'pending' | 'confirmed' | 'corrected' | 'ignored' | 'matched' | null
+  confirmed_transaction_id: number | null
+  confirmed_amount_cents: number | null
+  category_names: string[]
+  trust_state: 'bank_observed' | 'needs_review' | 'confirmed' | 'excluded' | 'bank_pending' | 'money_in' | 'source_changed'
+  removed: boolean
   source_changed_after_draft: boolean
+}
+
+export type PlaidActivityView = 'all' | 'needs_review' | 'confirmed' | 'excluded' | 'pending' | 'inflow'
+
+export type PlaidActivitySummary = {
+  all_count: number
+  posted_outflow_count: number
+  posted_outflow_cents: number
+  pending_count: number
+  pending_cents: number
+  inflow_count: number
+  inflow_cents: number
+  needs_review_count: number
+  needs_review_cents: number
+  confirmed_count: number
+  confirmed_actual_count: number
+  confirmed_cents: number
+  excluded_count: number
 }
 
 export async function fetchPlaidOverview(): Promise<PlaidOverview> {
@@ -900,10 +925,26 @@ export async function disconnectPlaidItem(itemId: number): Promise<PlaidOverview
 export type PlaidTransactionsPage = {
   transactions: PlaidTransaction[]
   pagination: { page: number; per_page: number; total: number; has_more: boolean }
+  summary: PlaidActivitySummary
 }
 
-export async function fetchPlaidTransactions(page = 1): Promise<PlaidTransactionsPage> {
-  return fetchJson<PlaidTransactionsPage>(`/api/v1/plaid/transactions?limit=100&page=${page}`)
+export async function fetchPlaidTransactions(
+  page = 1,
+  view: PlaidActivityView = 'all',
+  filters: { query?: string; accountId?: number | null } = {},
+): Promise<PlaidTransactionsPage> {
+  const query = new URLSearchParams({ limit: '100', page: String(page), view })
+  if (filters.query) query.set('query', filters.query)
+  if (filters.accountId) query.set('account_id', String(filters.accountId))
+  return fetchJson<PlaidTransactionsPage>(`/api/v1/plaid/transactions?${query}`)
+}
+
+export async function updatePlaidItemPreferences(itemId: number, values: { auto_confirm_trusted_merchants: boolean }): Promise<PlaidOverview> {
+  return fetchJson<PlaidOverview>(`/api/v1/plaid/items/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  })
 }
 
 export async function stagePlaidTransactions(transactionIds: number[]): Promise<{ drafted_count: number; transaction_draft_ids: number[] }> {

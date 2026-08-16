@@ -33,6 +33,9 @@ class PlaidIntegrationTransactionSyncTest < ActiveSupport::TestCase
     assert_equal 12_345, @item.plaid_accounts.first.current_balance_cents
     assert_equal [ -50_000, 1_234 ], @item.plaid_transactions.order(:amount_cents).pluck(:amount_cents)
     assert_equal %w[txn-1 txn-2], @item.plaid_transactions.order(:plaid_transaction_id).pluck(:plaid_transaction_id)
+    assert_equal 1, @household.transaction_drafts.pending.where(source_type: "plaid").count
+    assert_equal "drafted", @item.plaid_transactions.find_by!(plaid_transaction_id: "txn-1").review_status
+    assert_equal "unreviewed", @item.plaid_transactions.find_by!(plaid_transaction_id: "txn-2").review_status
     refute @item.plaid_transactions.column_names.any? { |name| name.include?("payload") || name.include?("location") }
   end
 

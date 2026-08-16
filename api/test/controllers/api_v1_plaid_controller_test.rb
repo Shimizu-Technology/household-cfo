@@ -45,8 +45,36 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ transaction.id ], rows.map { |row| row.fetch("id") }
     assert rows.first.fetch("stageable")
     assert_equal "outflow", rows.first.fetch("direction")
+    assert_equal "needs_review", rows.first.fetch("trust_state")
     refute_includes response.body, "Private merchant"
     assert_equal({ "page" => 1, "per_page" => 50, "total" => 1, "has_more" => false }, payload.fetch("pagination"))
+    assert_equal 1, payload.fetch("summary").fetch("needs_review_count")
+    assert_equal 4_200, payload.fetch("summary").fetch("posted_outflow_cents")
+  end
+
+  test "transaction listing filters by merchant search and household account" do
+    matching = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "amazon-one", name: "AMAZON MARKETPLACE", merchant_name: "Amazon", occurred_on: Date.new(2026, 7, 10), amount_cents: 4_200, pending: false, source_fingerprint: SecureRandom.hex(32))
+    other_account = @item.plaid_accounts.create!(plaid_account_id: "account-savings", name: "Savings", mask: "4321", account_type: "depository")
+    @item.plaid_transactions.create!(plaid_account: other_account, plaid_transaction_id: "amazon-two", name: "Amazon transfer", occurred_on: Date.new(2026, 7, 11), amount_cents: 9_900, pending: false, source_fingerprint: SecureRandom.hex(32))
+
+    get "/api/v1/plaid/transactions", params: { query: "amazon", account_id: @account.id }, headers: auth_headers(@user)
+
+    assert_response :success
+    payload = JSON.parse(response.body)
+    assert_equal [ matching.id ], payload.fetch("transactions").map { |row| row.fetch("id") }
+    assert_equal 1, payload.dig("pagination", "total")
+  end
+
+  test "item review automation preference is explicit and household scoped" do
+    patch "/api/v1/plaid/items/#{@item.id}", params: { auto_confirm_trusted_merchants: true }, headers: auth_headers(@user), as: :json
+
+    assert_response :success
+    assert @item.reload.auto_confirm_trusted_merchants?
+    serialized = JSON.parse(response.body).fetch("items").find { |item| item.fetch("id") == @item.id }
+    assert serialized.fetch("auto_confirm_trusted_merchants")
+    event = @household.household_audit_events.order(:id).last
+    assert_equal "plaid_item.review_preferences_updated", event.event_type
+    assert_equal true, event.metadata.fetch("auto_confirm_trusted_merchants")
   end
 
   test "manual sync enqueues background work instead of blocking the request" do

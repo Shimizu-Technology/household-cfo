@@ -26,6 +26,22 @@ class HouseholdFinanceTransactionDraftConfirmerTest < ActiveSupport::TestCase
     assert_equal 1, household.budget_categories.where("LOWER(name) = ?", "travel").count
   end
 
+  test "confirmation rejects an Uncategorized placeholder category" do
+    user = create_user
+    household = create_household(user)
+    create_budget_period(household, Date.new(2026, 7, 5))
+    category = household.budget_categories.create!(name: "Uncategorized", stack_key: "discretionary", active: true, sort_order: 1)
+    draft = household.transaction_drafts.create!(occurred_on: Date.new(2026, 7, 5), merchant: "Bank merchant", total_amount_cents: 2_500, budget_category: category, source_type: "plaid", status: "pending", raw_input: "Bank row")
+    draft.transaction_draft_splits.create!(budget_category: category, amount_cents: 2_500, category_name: category.name, stack_key: category.stack_key)
+
+    assert_no_difference("HouseholdTransaction.count") do
+      result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
+      refute result.success?
+      assert_includes result.errors, "Choose a specific budget category before confirming this transaction"
+    end
+    assert draft.reload.pending?
+  end
+
   private
 
   def create_user

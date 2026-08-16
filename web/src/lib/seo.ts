@@ -11,7 +11,12 @@ const sectionSeo: Record<string, { title: string; description: string; robots?: 
   },
   'Ask Mia': {
     title: `Ask Mia | ${SITE_NAME}`,
-    description: 'Ask Mia private household finance questions using approved profile, budget, debt, runway, and document context.',
+    description: 'Ask Mia private household finance questions with clearly labeled bank-observed activity, confirmed actuals, budget, debt, and runway context.',
+    robots: 'noindex,nofollow',
+  },
+  Activity: {
+    title: `Transaction Activity | ${SITE_NAME}`,
+    description: 'Review bank-observed activity, categorize transactions, and control which records become official household budget actuals.',
     robots: 'noindex,nofollow',
   },
   'My Profile': {

@@ -13,10 +13,10 @@ const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPositio
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 
-const expectedNav = "['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
+const expectedNav = "['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
   app.replace(/\s+/g, ' ').includes(expectedNav),
-  'participant nav must match Mel source order: Home, Ask Mia, My Profile, Budget, Wealth, CFO Filter, Optionality',
+  'participant nav must place transaction Activity beside Ask Mia before profile and planning modules',
 )
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
@@ -106,7 +106,7 @@ assert.ok(chatHistory.includes('const effectiveStatus = documentImport?.status ?
 assert.ok(chatHistory.includes("effectiveStatus === 'needs_review'"), 'chat attachment review labels should use the effective live status')
 assert.ok(!chatHistory.includes("attachment.status === 'needs_review'"), 'historical attachment status should not directly control the current action label')
 assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
-assert.ok(app.includes('Confirm all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk confirmation')
+assert.ok(app.includes('Confirm categorized {confirmableDrafts.length}'), 'pending review queues should bulk-confirm only intentionally categorized transactions')
 assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk ignore')
 assert.ok(app.includes('const phrase = `CONFIRM ${ids.length}`'), 'bulk actuals updates should require the exact typed count phrase')
 assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review queue controls should have intentional responsive styling')

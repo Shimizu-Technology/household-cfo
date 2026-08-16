@@ -16,6 +16,7 @@ module HouseholdFinance
     def as_json
       ensure_plans!
       rows = category_rows
+      bank = bank_activity
 
       {
         period_label: period_label,
@@ -25,8 +26,17 @@ module HouseholdFinance
           planned: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) }),
           actual: Money.dollars(rows.sum { |row| row.fetch(:actual_cents) }),
           pending: Money.dollars(rows.sum { |row| row.fetch(:pending_cents) } + uncategorized_pending_cents),
+          pending_non_plaid: Money.dollars(non_plaid_pending_cents),
+          bank_observed: Money.dollars(bank.fetch(:posted_outflow_cents)),
+          bank_needs_review: Money.dollars(bank.fetch(:needs_review_cents)),
+          bank_pending: Money.dollars(bank.fetch(:pending_cents)),
           remaining: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) - row.fetch(:actual_cents) })
         },
+        bank_activity: bank.except(:posted_outflow_cents, :needs_review_cents, :pending_cents).merge(
+          posted_outflow: Money.dollars(bank.fetch(:posted_outflow_cents)),
+          needs_review: Money.dollars(bank.fetch(:needs_review_cents)),
+          pending: Money.dollars(bank.fetch(:pending_cents))
+        ),
         categories: rows.map { |row| category_payload(row) } + uncategorized_pending_payload,
         transactions: transactions_payload,
         pending_drafts: pending_drafts_payload
@@ -144,6 +154,39 @@ module HouseholdFinance
 
     def uncategorized_pending_cents
       pending_sums[nil].to_i
+    end
+
+    def non_plaid_pending_cents
+      household.transaction_drafts.pending.where(occurred_on: start_on..end_on).where.not(source_type: "plaid").sum(:total_amount_cents)
+    end
+
+    def bank_activity
+      @bank_activity ||= begin
+        transactions = household.plaid_transactions.visible.includes(:transaction_draft).where(occurred_on: start_on..end_on).to_a
+        posted_outflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.positive? }
+        pending = transactions.select { |transaction| transaction.pending? && transaction.amount_cents.positive? }
+        inflows = transactions.select { |transaction| !transaction.pending? && transaction.amount_cents.negative? }
+        needs_review = posted_outflows.select do |transaction|
+          draft = transaction.transaction_draft
+          source_changed = transaction.drafted_source_fingerprint.present? && transaction.source_fingerprint != transaction.drafted_source_fingerprint
+          source_changed || (transaction.review_status != "ignored" && draft&.status != "ignored" && (draft.nil? || draft.pending?))
+        end
+        merchants = posted_outflows.group_by { |transaction| transaction.merchant_name.presence || transaction.name }.map do |merchant, grouped|
+          { merchant: merchant, count: grouped.length, amount: Money.dollars(grouped.sum(&:amount_cents)) }
+        end.sort_by { |row| -row.fetch(:amount) }.first(5)
+
+        {
+          posted_outflow_count: posted_outflows.length,
+          posted_outflow_cents: posted_outflows.sum(&:amount_cents),
+          needs_review_count: needs_review.length,
+          needs_review_cents: needs_review.sum(&:amount_cents),
+          pending_count: pending.length,
+          pending_cents: pending.sum(&:amount_cents),
+          inflow_count: inflows.length,
+          inflow: Money.dollars(inflows.sum { |transaction| transaction.amount_cents.abs }),
+          top_merchants: merchants
+        }
+      end
     end
 
     def uncategorized_pending_payload

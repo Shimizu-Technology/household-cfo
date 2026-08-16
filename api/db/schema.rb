@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_14_020000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_16_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -505,6 +505,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_14_020000) do
 
   create_table "plaid_items", force: :cascade do |t|
     t.text "access_token_ciphertext"
+    t.boolean "auto_confirm_trusted_merchants", default: false, null: false
     t.bigint "connected_by_user_id", null: false
     t.datetime "consent_expiration_time"
     t.string "consent_policy_version", null: false

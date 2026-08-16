@@ -2,10 +2,11 @@ module PlaidIntegration
   class TransactionStager
     Result = Data.define(:drafts, :errors)
 
-    def initialize(household:, user:, transaction_ids:)
+    def initialize(household:, user:, transaction_ids:, actor_type: "user")
       @household = household
       @user = user
       @transaction_ids = Array(transaction_ids).map(&:to_i).uniq
+      @actor_type = actor_type.to_s
     end
 
     def call
@@ -25,7 +26,7 @@ module PlaidIntegration
 
     private
 
-    attr_reader :household, :user, :transaction_ids
+    attr_reader :household, :user, :transaction_ids, :actor_type
 
     def stage!(transaction)
       merchant = (transaction.merchant_name.presence || transaction.name).first(120)
@@ -34,6 +35,7 @@ module PlaidIntegration
         category_name: transaction.detailed_category,
         text: [ transaction.primary_category, transaction.detailed_category ].compact.join(" ")
       )
+      category = nil if category&.name&.match?(/\A(?:uncategorized|needs category)\z/i)
       HouseholdFinance::AnnualBudgetManager.new(household, year: transaction.occurred_on.year).ensure_plan!
       draft = household.transaction_drafts.create!(
         occurred_on: transaction.occurred_on,
@@ -56,7 +58,7 @@ module PlaidIntegration
       )
       HouseholdFinance::TransactionDraftMatcher.new(draft).call
       transaction.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: transaction.source_fingerprint)
-      household.household_audit_events.create!(user: user, actor_type: "user", event_type: "plaid_transaction.drafted", auditable_type: "TransactionDraft", auditable_id: draft.id, occurred_at: Time.current, metadata: { plaid_transaction_record_id: transaction.id })
+      household.household_audit_events.create!(user: user, actor_type: actor_type, event_type: "plaid_transaction.drafted", auditable_type: "TransactionDraft", auditable_id: draft.id, occurred_at: Time.current, metadata: { plaid_transaction_record_id: transaction.id, automatic: actor_type == "system" })
       draft
     end
   end

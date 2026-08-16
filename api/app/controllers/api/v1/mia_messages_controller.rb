@@ -397,7 +397,14 @@ module Api
         transaction_draft_answer = nil
 
         unless direct_answer || pending_draft_answer
-          case intent_result.intent
+          # A model can label a repeated, fully specified lookup as "recall" because it
+          # recognizes the topic in history. Re-run explicit current-turn questions
+          # against Rails-owned transaction truth instead of replaying a stale answer.
+          if intent_result.intent == "recall"
+            transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
+          end
+
+          case transaction_lookup_answer ? nil : intent_result.intent
           when "budget_action"
             if intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(

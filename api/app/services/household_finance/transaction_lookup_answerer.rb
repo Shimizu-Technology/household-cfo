@@ -3,6 +3,8 @@ module HouseholdFinance
     FOOD_TERMS = /\b(food|eat|ate|dining|restaurant|restaurants|takeout|coffee|cafe|grocer(?:y|ies)?)\b/i
     LOOKUP_TERMS = /\b(how many|how much|what|show|find|search|list|total|did i|did we)\b/i
     PLANNED_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
+    BANK_ACTIVITY_TERMS = /\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
+    ALL_BANK_ACTIVITY_TERMS = /\b(?:across|all|entire)\b.*\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
 
     def initialize(household, message, today: Date.current)
       @household = household
@@ -17,6 +19,7 @@ module HouseholdFinance
       return nil unless target
 
       return build_merchant_comparison_answer(target.fetch(:labels)) if target.fetch(:type) == :merchant_comparison
+      return build_bank_summary_answer if target.fetch(:type) == :bank_summary
 
       transactions = matching_transactions(target)
       build_answer(target, transactions)
@@ -35,7 +38,7 @@ module HouseholdFinance
     def lookup_target
       return nil if external_cost_question?
 
-      exact_category_target || merchant_comparison_target || merchant_target || food_category_target
+      exact_category_target || merchant_comparison_target || merchant_target || food_category_target || bank_summary_target
     end
 
     def external_cost_question?
@@ -85,6 +88,12 @@ module HouseholdFinance
       { type: :merchant, label: extracted }
     end
 
+    def bank_summary_target
+      return unless message.match?(BANK_ACTIVITY_TERMS)
+
+      { type: :bank_summary, label: "synced bank activity" }
+    end
+
     def matching_transactions(target)
       transactions = base_transactions
       transactions = transactions.select { |transaction| merchant_matches?(transaction.merchant, target.fetch(:label)) } if target.fetch(:type) == :merchant
@@ -93,6 +102,8 @@ module HouseholdFinance
     end
 
     def build_answer(target, transactions)
+      return build_merchant_answer(target, transactions) if target.fetch(:type) == :merchant
+
       total_cents = transactions.sum { |transaction| amount_cents_for(transaction, target) }
       count = transactions.length
       label = target.fetch(:label)
@@ -113,18 +124,57 @@ module HouseholdFinance
       lines.compact.join("\n\n")
     end
 
+    def build_merchant_answer(target, transactions)
+      label = target.fetch(:label)
+      observed = matching_bank_transactions(label, pending: false)
+      bank_pending = matching_bank_transactions(label, pending: true)
+      needs_review = observed.select { |transaction| needs_household_review?(transaction) }
+      confirmed_total = transactions.sum(&:total_amount_cents)
+      observed_total = observed.sum(&:amount_cents)
+
+      lines = [
+        "For #{period_label}, your synced bank activity shows #{observed.length} posted #{label} #{'transaction'.pluralize(observed.length)} totaling #{money(observed_total)}.",
+        "Based on confirmed transactions, I found #{transactions.length} confirmed #{label} #{'transaction'.pluralize(transactions.length)} totaling #{money(confirmed_total)}.",
+        category_breakdown(transactions, target),
+        "#{needs_review.length} posted #{label} #{'transaction'.pluralize(needs_review.length)} totaling #{money(needs_review.sum(&:amount_cents))} still #{needs_review.length == 1 ? 'needs' : 'need'} household review before categorization is final.",
+        bank_pending.any? ? "#{bank_pending.length} bank-pending #{label} #{'transaction'.pluralize(bank_pending.length)} totaling #{money(bank_pending.sum(&:amount_cents))} #{bank_pending.length == 1 ? 'is' : 'are'} shown separately and excluded from posted spending." : "No bank-pending #{label} transactions are waiting in this period."
+      ]
+      lines.compact.join("\n\n")
+    end
+
     def build_merchant_comparison_answer(labels)
       summaries = labels.map do |label|
         transactions = base_transactions.select { |transaction| merchant_matches?(transaction.merchant, label) }
-        cents = transactions.sum(&:total_amount_cents)
-        { label: label, count: transactions.length, cents: cents }
+        observed = matching_bank_transactions(label, pending: false)
+        { label: label, count: transactions.length, cents: transactions.sum(&:total_amount_cents), observed_count: observed.length, observed_cents: observed.sum(&:amount_cents) }
       end
-      winner = summaries.max_by { |summary| summary.fetch(:cents) }
+      winner = if summaries.any? { |summary| summary.fetch(:observed_cents).positive? }
+        summaries.max_by { |summary| summary.fetch(:observed_cents) }
+      else
+        summaries.max_by { |summary| summary.fetch(:cents) }
+      end
+      winner_amount = summaries.any? { |summary| summary.fetch(:observed_cents).positive? } ? winner.fetch(:observed_cents) : winner.fetch(:cents)
       details = summaries.map do |summary|
-        "#{summary.fetch(:label)} #{money(summary.fetch(:cents))} (#{summary.fetch(:count)} #{'time'.pluralize(summary.fetch(:count))})"
+        "#{summary.fetch(:label)} #{money(summary.fetch(:cents))} confirmed / #{money(summary.fetch(:observed_cents))} bank-observed"
       end.to_sentence
 
-      "For #{period_label}, based on confirmed transactions, #{winner.fetch(:label)} is higher at #{money(winner.fetch(:cents))}. Comparison: #{details}. Pending drafts are not counted until you confirm them."
+      "For #{period_label}, #{winner.fetch(:label)} is higher at #{money(winner_amount)}. Comparison: #{details}. Bank-observed and confirmed totals are separated so unreviewed activity is not presented as finalized budget truth."
+    end
+
+    def build_bank_summary_answer
+      posted = base_bank_transactions.reject(&:pending?)
+      pending = base_bank_transactions.select(&:pending?)
+      inflows = posted.select { |transaction| transaction.amount_cents.negative? }
+      outflows = posted.select { |transaction| transaction.amount_cents.positive? }
+      needs_review = outflows.select { |transaction| needs_household_review?(transaction) }
+      confirmed = household.household_transactions.where(source_type: "plaid", status: %w[confirmed reconciled], occurred_on: start_on..end_on)
+
+      [
+        "For #{period_label}, synced bank activity shows #{outflows.length} posted outflows totaling #{money(outflows.sum(&:amount_cents))} and #{inflows.length} inflows totaling #{money(inflows.sum { |transaction| transaction.amount_cents.abs })}.",
+        "Confirmed Plaid-derived household actuals total #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}.",
+        "#{needs_review.length} posted outflows totaling #{money(needs_review.sum(&:amount_cents))} still need household review or source reconciliation.",
+        "#{pending.length} bank-pending #{'transaction'.pluralize(pending.length)} #{pending.length == 1 ? 'is' : 'are'} tracked separately and excluded from posted totals."
+      ].join("\n\n")
     end
 
     def category_breakdown(transactions, target)
@@ -176,7 +226,7 @@ module HouseholdFinance
     end
 
     def known_merchants
-      @known_merchants ||= base_transactions.map(&:merchant).compact.uniq
+      @known_merchants ||= (base_transactions.map(&:merchant) + base_bank_transactions.map { |transaction| transaction.merchant_name.presence || transaction.name }).compact.uniq
     end
 
     def base_transactions
@@ -187,6 +237,29 @@ module HouseholdFinance
         .distinct
         .order(occurred_on: :desc, created_at: :desc)
         .to_a
+    end
+
+    def base_bank_transactions
+      @base_bank_transactions ||= household.plaid_transactions.visible
+        .includes(transaction_draft: :confirmed_transaction)
+        .where(occurred_on: start_on..end_on)
+        .order(occurred_on: :desc, created_at: :desc)
+        .to_a
+    end
+
+    def matching_bank_transactions(label, pending:)
+      base_bank_transactions.select do |transaction|
+        transaction.pending? == pending && transaction.amount_cents.positive? && merchant_matches?(transaction.merchant_name.presence || transaction.name, label)
+      end
+    end
+
+    def needs_household_review?(transaction)
+      draft = transaction.transaction_draft
+      source_changed = transaction.drafted_source_fingerprint.present? && transaction.source_fingerprint != transaction.drafted_source_fingerprint
+      return true if source_changed
+      return false if transaction.review_status == "ignored" || draft&.status == "ignored"
+
+      draft.nil? || draft.pending?
     end
 
     def lookup_categories
@@ -200,7 +273,17 @@ module HouseholdFinance
     end
 
     def range
-      @range ||= SpendingReportQuery.new(message, today: today).range || { start_on: today.beginning_of_month, end_on: today }
+      @range ||= all_bank_activity_range || SpendingReportQuery.new(message, today: today).range || { start_on: today.beginning_of_month, end_on: today }
+    end
+
+    def all_bank_activity_range
+      return unless message.match?(ALL_BANK_ACTIVITY_TERMS)
+
+      dates = [
+        household.plaid_transactions.visible.minimum(:occurred_on),
+        household.household_transactions.minimum(:occurred_on)
+      ].compact
+      { start_on: dates.min || today.beginning_of_month, end_on: [ dates.max, today ].compact.max }
     end
 
     def start_on
@@ -212,6 +295,8 @@ module HouseholdFinance
     end
 
     def period_label
+      return "all available bank history" if message.match?(ALL_BANK_ACTIVITY_TERMS)
+
       if start_on == start_on.beginning_of_month && end_on == start_on.end_of_month
         start_on.strftime("%B %Y")
       elsif start_on == start_on.beginning_of_month && end_on == today

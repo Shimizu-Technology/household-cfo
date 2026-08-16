@@ -3,20 +3,23 @@ module Api
     module Plaid
       class TransactionsController < BaseController
         MAX_PAGE_SIZE = 100
+        ACTIVITY_VIEWS = %w[all needs_review confirmed excluded pending inflow].freeze
 
         before_action :authenticate_user!
 
         def index
-          scope = current_household.plaid_transactions.visible.includes(:plaid_account, :transaction_draft).recent_first
+          scope = activity_scope
           scope = scope.where(plaid_account_id: params[:account_id]) if params[:account_id].present?
-          scope = scope.where(review_status: params[:status]) if params[:status].to_s.in?(PlaidTransaction::REVIEW_STATUSES)
+          scope = apply_search(scope, params[:query])
+          scope = apply_activity_view(scope, params[:view].to_s.presence_in(ACTIVITY_VIEWS) || "all")
           limit = params.fetch(:limit, 50).to_i.clamp(1, MAX_PAGE_SIZE)
           page = params.fetch(:page, 1).to_i.clamp(1, 10_000)
           total = scope.count
-          transactions = scope.offset((page - 1) * limit).limit(limit)
+          transactions = scope.includes(:plaid_account, transaction_draft: [ :budget_category, :transaction_draft_splits, { confirmed_transaction: :budget_categories } ]).recent_first.offset((page - 1) * limit).limit(limit)
           render json: {
             transactions: transactions.map { |transaction| serialize_transaction(transaction) },
-            pagination: { page: page, per_page: limit, total: total, has_more: page * limit < total }
+            pagination: { page: page, per_page: limit, total: total, has_more: page * limit < total },
+            summary: activity_summary
           }
         end
 
@@ -40,7 +43,72 @@ module Api
 
         private
 
+        def activity_scope
+          current_household.plaid_transactions
+            .where("plaid_transactions.removed_at IS NULL OR plaid_transactions.transaction_draft_id IS NOT NULL")
+        end
+
+        def apply_activity_view(scope, view)
+          joined = scope.left_joins(:transaction_draft)
+          case view
+          when "needs_review"
+            joined.where(pending: false).where("amount_cents > 0").where(<<~SQL.squish)
+              plaid_transactions.removed_at IS NOT NULL OR
+              (plaid_transactions.drafted_source_fingerprint IS NOT NULL AND plaid_transactions.source_fingerprint <> plaid_transactions.drafted_source_fingerprint) OR
+              plaid_transactions.review_status = 'unreviewed' OR
+              transaction_drafts.status = 'pending'
+            SQL
+          when "confirmed"
+            joined.where(removed_at: nil, transaction_drafts: { status: %w[confirmed corrected matched] })
+          when "excluded"
+            joined.where("plaid_transactions.review_status = 'ignored' OR transaction_drafts.status = 'ignored'")
+          when "pending"
+            scope.where(pending: true, removed_at: nil)
+          when "inflow"
+            scope.where("amount_cents < 0").where(removed_at: nil)
+          else
+            scope
+          end
+        end
+
+        def apply_search(scope, query)
+          normalized = query.to_s.strip
+          return scope if normalized.blank?
+
+          pattern = "%#{ActiveRecord::Base.sanitize_sql_like(normalized)}%"
+          scope.where("plaid_transactions.name ILIKE :pattern OR plaid_transactions.merchant_name ILIKE :pattern", pattern: pattern)
+        end
+
+        def activity_summary
+          current = current_household.plaid_transactions.visible
+          posted = current.where(pending: false).where("amount_cents > 0")
+          pending = current.where(pending: true).where("amount_cents > 0")
+          inflow = current.where("amount_cents < 0")
+          needs_review = apply_activity_view(activity_scope, "needs_review")
+          confirmed_sources = apply_activity_view(activity_scope, "confirmed")
+          excluded = apply_activity_view(activity_scope, "excluded")
+          confirmed_actuals = current_household.household_transactions.where(source_type: "plaid", status: %w[confirmed reconciled])
+
+          {
+            all_count: activity_scope.count,
+            posted_outflow_count: posted.count,
+            posted_outflow_cents: posted.sum(:amount_cents),
+            pending_count: pending.count,
+            pending_cents: pending.sum(:amount_cents),
+            inflow_count: inflow.count,
+            inflow_cents: inflow.sum(:amount_cents).abs,
+            needs_review_count: needs_review.count,
+            needs_review_cents: needs_review.where("plaid_transactions.removed_at IS NULL").sum(:amount_cents),
+            confirmed_count: confirmed_sources.count,
+            confirmed_actual_count: confirmed_actuals.count,
+            confirmed_cents: confirmed_actuals.sum(:total_amount_cents),
+            excluded_count: excluded.count
+          }
+        end
+
         def serialize_transaction(transaction)
+          draft = transaction.transaction_draft
+          confirmed_transaction = draft&.confirmed_transaction
           {
             id: transaction.id,
             account_id: transaction.plaid_account_id,
@@ -58,8 +126,36 @@ module Api
             review_status: transaction.review_status,
             stageable: transaction.stageable?,
             transaction_draft_id: transaction.transaction_draft_id,
-            source_changed_after_draft: transaction.transaction_draft_id.present? && transaction.drafted_source_fingerprint.present? && transaction.source_fingerprint != transaction.drafted_source_fingerprint
+            transaction_draft_status: draft&.status,
+            confirmed_transaction_id: confirmed_transaction&.id,
+            confirmed_amount_cents: confirmed_transaction&.total_amount_cents,
+            category_names: confirmed_transaction&.budget_categories&.map(&:name)&.uniq.presence || draft_category_names(draft),
+            trust_state: trust_state(transaction, draft),
+            removed: transaction.removed_at.present?,
+            source_changed_after_draft: source_changed?(transaction)
           }
+        end
+
+        def draft_category_names(draft)
+          return [] unless draft
+
+          names = draft.transaction_draft_splits.filter_map { |split| split.category_name.presence || split.budget_category&.name }
+          names.presence || [ draft.budget_category&.name ].compact
+        end
+
+        def trust_state(transaction, draft)
+          return "source_changed" if transaction.removed_at.present? || source_changed?(transaction)
+          return "bank_pending" if transaction.pending?
+          return "money_in" if transaction.amount_cents.negative?
+          return "excluded" if transaction.review_status == "ignored" || draft&.status == "ignored"
+          return "needs_review" if transaction.review_status == "unreviewed" || draft&.status == "pending"
+          return "confirmed" if draft&.status.in?(%w[confirmed corrected matched])
+
+          "bank_observed"
+        end
+
+        def source_changed?(transaction)
+          transaction.transaction_draft_id.present? && transaction.drafted_source_fingerprint.present? && transaction.source_fingerprint != transaction.drafted_source_fingerprint
         end
       end
     end

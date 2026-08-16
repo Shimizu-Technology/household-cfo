@@ -50,6 +50,25 @@ module Api
           render json: { errors: [ e.message ] }, status: :unprocessable_entity
         end
 
+        def update
+          item = current_household.plaid_items.connected.find(params[:id])
+          item.update!(auto_confirm_trusted_merchants: ActiveModel::Type::Boolean.new.cast(params[:auto_confirm_trusted_merchants]))
+          current_household.household_audit_events.create!(
+            user: current_user,
+            actor_type: "user",
+            event_type: "plaid_item.review_preferences_updated",
+            auditable_type: "PlaidItem",
+            auditable_id: item.id,
+            occurred_at: Time.current,
+            metadata: { auto_confirm_trusted_merchants: item.auto_confirm_trusted_merchants }
+          )
+          render json: payload
+        rescue ActiveRecord::RecordNotFound
+          render json: { errors: [ "Bank connection not found" ] }, status: :not_found
+        rescue ActiveRecord::RecordInvalid => e
+          render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+        end
+
         def destroy
           item = current_household.plaid_items.connected.find(params[:id])
           PlaidIntegration::ItemDisconnector.new(item, user: current_user).call
@@ -84,6 +103,7 @@ module Api
             last_synced_at: item.last_synced_at,
             error_message: item.error_message,
             disconnected_at: item.disconnected_at,
+            auto_confirm_trusted_merchants: item.auto_confirm_trusted_merchants,
             accounts: item.plaid_accounts.map do |account|
               {
                 id: account.id,

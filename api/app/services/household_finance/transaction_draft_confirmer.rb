@@ -132,8 +132,9 @@ module HouseholdFinance
         draft.transaction_draft_splits.ordered.map do |split|
           category = split.budget_category
           category ||= category_from_split_name(split)
-          category ||= fallback_category
+          raise InvalidDraftCorrection, "Choose a budget category before confirming this transaction" unless category
           raise InvalidDraftCorrection, archived_category_message unless category.active?
+          raise InvalidDraftCorrection, placeholder_category_message if placeholder_category?(category)
 
           { budget_category: category, amount_cents: split.amount_cents, notes: split.notes }
         end
@@ -180,8 +181,12 @@ module HouseholdFinance
     end
 
     def transaction_category
-      return draft.budget_category if draft.budget_category&.active?
-      return fallback_category if draft.budget_category.nil?
+      if draft.budget_category&.active?
+        raise InvalidDraftCorrection, placeholder_category_message if placeholder_category?(draft.budget_category)
+
+        return draft.budget_category
+      end
+      raise InvalidDraftCorrection, "Choose a budget category before confirming this transaction" if draft.budget_category.nil?
 
       raise InvalidDraftCorrection, archived_category_message
     end
@@ -190,18 +195,12 @@ module HouseholdFinance
       "Budget category is archived. Restore it or choose an active category before confirming."
     end
 
-    def fallback_category
-      annual_budget_manager.ensure_plan!
-      draft.household.budget_categories.active.ordered.first ||
-        restore_archived_uncategorized_category ||
-        annual_budget_manager.create_category!(name: "Uncategorized", stack_key: "discretionary")
+    def placeholder_category?(category)
+      category.name.match?(/\A(?:uncategorized|needs category)\z/i)
     end
 
-    def restore_archived_uncategorized_category
-      category = draft.household.budget_categories.archived.where("LOWER(name) = ?", "uncategorized").ordered.first
-      return unless category
-
-      annual_budget_manager.restore_category!(category)
+    def placeholder_category_message
+      "Choose a specific budget category before confirming this transaction"
     end
 
     def annual_budget_manager

@@ -54,7 +54,7 @@ Rails.application.routes.draw do
         resources :items, only: :update, controller: "document_import_items"
       end
       namespace :plaid do
-        resources :items, only: %i[index destroy] do
+        resources :items, only: %i[index update destroy] do
           collection do
             post :link_token
             post :exchange

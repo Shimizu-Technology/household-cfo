@@ -11,6 +11,7 @@ module PlaidIntegration
 
       sync_accounts!
       sync_transactions!
+      ReviewQueueHydrator.new(plaid_item).call
       plaid_item.update!(status: "active", error_code: nil, error_message: nil, last_synced_at: Time.current, last_successful_update_at: Time.current)
       plaid_item
     rescue Error => e

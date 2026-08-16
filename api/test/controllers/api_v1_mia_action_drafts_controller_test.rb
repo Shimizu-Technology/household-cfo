@@ -218,6 +218,39 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("assistant_message").fetch("content"), "Fixed essentials"
   end
 
+  test "repeated explicit bank lookup classified as recall refreshes Rails owned facts" do
+    user = create_user(email: "mia-model-intent-bank-recall@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    item = household.plaid_items.create!(connected_by_user: user, plaid_item_id: "recall-bank-item", access_token: "recall-secret", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")
+    account = item.plaid_accounts.create!(plaid_account_id: "recall-bank-account", name: "Checking", account_type: "depository")
+    [ [ Date.new(2026, 7, 24), 1_000 ], [ Date.new(2026, 8, 14), 2_000 ] ].each_with_index do |(occurred_on, amount_cents), index|
+      item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "recall-amazon-#{index}", name: "Amazon", merchant_name: "Amazon", occurred_on: occurred_on, amount_cents: amount_cents, pending: false, source_fingerprint: SecureRandom.hex(32))
+    end
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "recall",
+      confidence: 0.99,
+      continuation: true,
+      resolved_message: "How much did I spend at Amazon this month?",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "transaction_lookup", title: "Amazon activity", subject: "Amazon" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages",
+        params: { year: 2026, month: 8, message: "Across my synced bank activity, how many Amazon transactions are there and what do they total?" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "For all available bank history"
+    assert_includes content, "2 posted Amazon transactions totaling $30"
+  end
+
   test "model resolved pending review intent returns the existing card without duplicating it" do
     user = create_user(email: "mia-model-intent-existing-card@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

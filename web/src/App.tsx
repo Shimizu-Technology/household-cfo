@@ -109,7 +109,7 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
+const sections = ['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 const allSections = [...sections, ADMIN_SECTION]
@@ -307,6 +307,7 @@ function App() {
     [documentImports],
   )
   const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
   const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = data?.budget.annual_plan
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
@@ -1955,6 +1956,55 @@ function App() {
         </section>
       )}
 
+      {activeSection === 'Activity' && (
+        <section className="screen-grid activity-screen">
+          <ScreenHeading
+            eyebrow="Activity"
+            title="The bank feed and the household truth—side by side."
+            copy="Mia can read authorized bank activity immediately. You keep control over categorization, exclusions, splits, and what becomes an official budget actual."
+          />
+
+          {isRealWorkspace && auth.currentUser ? (
+            <>
+              {pendingPlaidDrafts.length > 0 && (
+                <article className="panel activity-review-panel">
+                  <TransactionDraftReviewStack
+                    drafts={pendingPlaidDrafts}
+                    isRealWorkspace
+                    compact
+                    action={budgetAction}
+                    categories={activeBudgetPlan?.rows ?? []}
+                    plan={activeBudgetPlan}
+                    eyebrow="Household review"
+                    title="Confirm the category—not whether the bank saw it"
+                    description="Posted transactions are already bank-observed and available to Mia. Confirm the category and any splits to make them official budget actuals."
+                    onUpdate={handleUpdateTransactionDraft}
+                    onMatch={handleMatchTransactionDraft}
+                    onConfirm={handleConfirmTransactionDraft}
+                    onIgnore={handleIgnoreTransactionDraft}
+                    onReopen={handleReopenTransactionDraft}
+                    onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+                    onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+                  />
+                </article>
+              )}
+              <PlaidConnections
+                userId={String(auth.currentUser.id)}
+                variant="activity"
+                onDraftsCreated={async () => {
+                  const payload = await fetchAppData(true)
+                  setData(payload)
+                  setSetupDraft(payload.workspace?.setup_values ?? null)
+                  replaceMiaHistory(payload.mia)
+                }}
+              />
+            </>
+          ) : (
+            <article className="panel empty-state"><strong>Sign in to connect real bank activity.</strong><p>The preview workspace does not request or store financial account access.</p></article>
+          )}
+        </section>
+      )}
+
       {activeSection === 'My Profile' && (
         <section className="screen-grid profile-screen">
           <ScreenHeading
@@ -1989,6 +2039,7 @@ function App() {
           {isRealWorkspace && auth.currentUser && (
             <PlaidConnections
               userId={String(auth.currentUser.id)}
+              variant="connections"
               onDraftsCreated={async () => {
                 const payload = await fetchAppData(true)
                 setData(payload)
@@ -5108,6 +5159,9 @@ function TransactionDraftReviewStack({
   onReopen,
   onBulkConfirm,
   onBulkIgnore,
+  eyebrow = 'Review before applying',
+  title = 'Mia drafted transactions for your approval',
+  description,
 }: {
   drafts: TransactionDraft[]
   isRealWorkspace: boolean
@@ -5124,6 +5178,9 @@ function TransactionDraftReviewStack({
   onReopen: (draft: TransactionDraft) => void
   onBulkConfirm?: (drafts: TransactionDraft[]) => void
   onBulkIgnore?: (drafts: TransactionDraft[]) => void
+  eyebrow?: string
+  title?: string
+  description?: string
 }) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -5148,6 +5205,8 @@ function TransactionDraftReviewStack({
   const filteredPendingDrafts = filteredDrafts.filter((draft) => draft.status === 'pending')
   const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
+  const selectedNeedsCategory = selectedDrafts.some((draft) => !transactionDraftHasCategory(draft))
+  const confirmableDrafts = filteredPendingDrafts.filter(transactionDraftHasCategory)
   const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
   const anyActionBusy = Boolean(action)
   const bulkBusy = action?.startsWith('bulk-') ?? false
@@ -5176,9 +5235,9 @@ function TransactionDraftReviewStack({
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
       <div className="transaction-draft-stack-heading">
         <div>
-          <p className="eyebrow">Review before applying</p>
-          <h4>Mia drafted transactions for your approval</h4>
-          {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
+          <p className="eyebrow">{eyebrow}</p>
+          <h4>{title}</h4>
+          {(compact || description) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         <strong>{drafts.length} review{drafts.length === 1 ? '' : 's'}</strong>
@@ -5221,7 +5280,7 @@ function TransactionDraftReviewStack({
             <span>Select this page</span>
           </label>
           <span>{selectedDrafts.length} selected</span>
-          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+          <button type="button" className="secondary-button" title={selectedNeedsCategory ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || selectedDrafts.length === 0 || selectedNeedsCategory} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
@@ -5235,8 +5294,8 @@ function TransactionDraftReviewStack({
               Clear selection
             </button>
           )}
-          <button type="button" disabled={anyActionBusy} onClick={() => onBulkConfirm(filteredPendingDrafts)}>
-            Confirm all {filteredPendingDrafts.length}
+          <button type="button" disabled={anyActionBusy || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>
+            Confirm categorized {confirmableDrafts.length}
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
             Ignore all {filteredPendingDrafts.length}
@@ -5293,6 +5352,14 @@ type EditableDraftSplit = {
   notes: string
 }
 
+function transactionDraftHasCategory(draft: TransactionDraft) {
+  const intentionalCategory = (name: string | null | undefined) => Boolean(name && !/^(uncategorized|needs category)$/i.test(name.trim()))
+  const splits = draft.splits ?? []
+  if (splits.length > 0) return splits.every((split) => Boolean(split.budget_category_id) && intentionalCategory(split.category_name))
+
+  return Boolean(draft.category_id) && intentionalCategory(draft.category_name)
+}
+
 function TransactionDraftReviewCard({
   draft,
   isRealWorkspace,
@@ -5338,6 +5405,7 @@ function TransactionDraftReviewCard({
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const needsCategoryBeforeConfirm = !transactionDraftHasCategory(draft)
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
   const impactDraft = editing ? {
     ...draft,
@@ -5518,8 +5586,9 @@ function TransactionDraftReviewCard({
 
       {isPending ? (
         <div className="transaction-draft-actions">
+          {needsCategoryBeforeConfirm && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
           {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
-          <button type="button" disabled={actionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          <button type="button" disabled={actionsDisabled || needsCategoryBeforeConfirm || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
