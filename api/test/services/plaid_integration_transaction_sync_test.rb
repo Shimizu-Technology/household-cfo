@@ -36,7 +36,40 @@ class PlaidIntegrationTransactionSyncTest < ActiveSupport::TestCase
     refute @item.plaid_transactions.column_names.any? { |name| name.include?("payload") || name.include?("location") }
   end
 
+  test "keeps the cursor retryable and records a safe error when a transaction account is unavailable" do
+    account = OpenStruct.new(
+      account_id: "account-1", persistent_account_id: nil, name: "Checking", official_name: nil, mask: "4321", type: "depository", subtype: "checking",
+      balances: OpenStruct.new(current: 100, available: 100, limit: nil, iso_currency_code: "USD")
+    )
+    transaction = plaid_transaction("txn-missing-account", 12.34)
+    transaction.account_id = "account-not-returned"
+    response = OpenStruct.new(added: [ transaction ], modified: [], removed: [], next_cursor: "must-not-advance", has_more: false)
+    fake = Object.new
+    fake.define_singleton_method(:accounts_get) { |_request| OpenStruct.new(accounts: [ account ]) }
+    fake.define_singleton_method(:transactions_sync) { |_request| response }
+
+    error = with_client(fake) do
+      assert_raises(PlaidIntegration::Error) { PlaidIntegration::TransactionSync.new(@item).call }
+    end
+
+    assert_equal "PLAID_ACCOUNT_NOT_FOUND", error.code
+    assert_nil @item.reload.sync_cursor
+    assert_equal "error", @item.status
+    assert_equal "PLAID_ACCOUNT_NOT_FOUND", @item.error_code
+    assert_equal "Plaid returned a transaction for an account that is not available yet. Try syncing again.", @item.error_message
+    assert_empty @item.plaid_transactions
+  end
+
   private
+
+  def with_client(fake)
+    singleton = class << PlaidIntegration::Client; self; end
+    original = PlaidIntegration::Client.method(:safely)
+    singleton.define_method(:safely) { |&block| block.call(fake) }
+    yield
+  ensure
+    singleton.define_method(:safely, original)
+  end
 
   def plaid_transaction(id, amount)
     OpenStruct.new(

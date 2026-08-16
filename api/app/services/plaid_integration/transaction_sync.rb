@@ -86,7 +86,14 @@ module PlaidIntegration
     end
 
     def upsert_transaction!(transaction)
-      account = plaid_item.plaid_accounts.find_by!(plaid_account_id: transaction.account_id)
+      account = plaid_item.plaid_accounts.find_by(plaid_account_id: transaction.account_id)
+      unless account
+        raise Error.new(
+          "Plaid returned a transaction for an account that is not available yet. Try syncing again.",
+          code: "PLAID_ACCOUNT_NOT_FOUND"
+        )
+      end
+
       category = transaction.respond_to?(:personal_finance_category) ? transaction.personal_finance_category : nil
       record = plaid_item.plaid_transactions.find_or_initialize_by(plaid_transaction_id: transaction.transaction_id)
       attributes = {
