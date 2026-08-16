@@ -95,7 +95,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
 
-    assert_equal "I recognized this as statement and routed it to private import history.", route_line
+    assert_equal "I recognized this as statement and kept the resolved results in private import history.", route_line
   end
 
   test "mia attachment summary names the actual destinations in a mixed batch" do

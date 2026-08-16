@@ -3397,21 +3397,23 @@ function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialD
 }
 
 function documentReviewResult(documentImport: FinancialDocumentImport) {
-  const transactions = documentImport.transaction_drafts.length
-  const values = documentImport.items.filter((item) => !item.ignored).length
+  const transactions = documentImport.transaction_drafts.filter((draft) => draft.status === 'pending').length
+  const values = documentImport.items.filter((item) => !item.ignored && !item.applied_at).length
   if (transactions > 0 && values > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'} + ${values} household value${values === 1 ? '' : 's'}`
   if (transactions > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'}`
   if (values > 0) return `${values} household value${values === 1 ? '' : 's'}`
   if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Checking file contents'
+  if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Review complete'
   return 'No draft values found'
 }
 
 function documentReviewDestination(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
-  const hasTransactions = documentImport.transaction_drafts.length > 0
-  const hasHouseholdValues = documentImport.items.some((item) => !item.ignored)
+  const hasTransactions = documentImport.transaction_drafts.some((draft) => draft.status === 'pending')
+  const hasHouseholdValues = documentImport.items.some((item) => !item.ignored && !item.applied_at)
   if (hasTransactions && hasHouseholdValues) return 'Transaction + household setup review'
   if (hasTransactions) return 'Transaction review'
   if (hasHouseholdValues) return 'Household setup review'
+  if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Private import history'
   return routingDestinationLabel(documentImport.metadata.routing_destination, resolvedKind)
 }
 
@@ -3421,6 +3423,11 @@ function routingResultExplanation(documentImport: FinancialDocumentImport, resol
   const selectedCopy = selectedKind ? `You selected ${documentKindLabel(selectedKind).toLowerCase()}. ` : ''
   const resultDestination = documentReviewDestination(documentImport, resolvedKind)
   const plannedDestination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+
+  if (resultDestination === 'Private import history' &&
+      (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0)) {
+    return `${selectedCopy}All extracted results are resolved. This upload remains in private import history.`
+  }
 
   if (resultDestination !== plannedDestination) {
     return `${selectedCopy}Mia checked the contents and sent the reviewable results she actually found to ${resultDestination.toLowerCase()}. Nothing changed until you approve it.`

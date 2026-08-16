@@ -678,9 +678,10 @@ test('import review copy follows extracted results when a selected receipt produ
     transaction_drafts: [],
     attempts: [],
   }
+  let activeImport: unknown = householdValueImport
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
-  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [householdValueImport] } }))
-  await page.route('http://api.test/api/v1/document_imports/505', (route) => route.fulfill({ status: 200, json: { document_import: householdValueImport } }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [activeImport] } }))
+  await page.route('http://api.test/api/v1/document_imports/505', (route) => route.fulfill({ status: 200, json: { document_import: activeImport } }))
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'My Profile', exact: true }).click()
 
@@ -691,6 +692,18 @@ test('import review copy follows extracted results when a selected receipt produ
   await expect(result).toContainText('sent the reviewable results she actually found to household setup review')
   await expect(result).toContainText('Nothing changed until you approve it.')
   await expect(result).not.toContainText('Mia honored the document type')
+
+  activeImport = {
+    ...householdValueImport,
+    status: 'applied',
+    applied_at: `${currentYear}-08-16T01:05:00Z`,
+    items: householdValueImport.items.map((item) => ({ ...item, applied_at: `${currentYear}-08-16T01:05:00Z` })),
+  }
+  await page.reload()
+  const resolvedResult = page.locator('.document-routing-summary')
+  await expect(resolvedResult).toContainText('Review complete → Private import history')
+  await expect(resolvedResult).toContainText('All extracted results are resolved.')
+  await expect(resolvedResult).not.toContainText('Nothing changed until you approve it.')
 })
 
 test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {

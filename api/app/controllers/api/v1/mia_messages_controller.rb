@@ -332,6 +332,10 @@ module Api
           return "#{route_line} I found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review: #{labels}. You stay the CFO here: open Review imports to approve or adjust them before anything updates the household plan."
         end
 
+        if document_import_has_results?(document_import)
+          return "#{route_line} All extracted results are resolved, so nothing from this upload is waiting for approval."
+        end
+
         if document_import.status.in?(%w[uploaded processing])
           return "#{route_line} The #{evidence_label(document_import)} is still processing. I’ll show review cards here as soon as the app finishes reading it."
         end
@@ -357,6 +361,10 @@ module Api
         declared_kind = metadata["declared_document_kind"].presence
         planned_destination = metadata["routing_destination"].presence
 
+        if actual_destinations == [ "private_document_review" ] && document_import_has_results?(document_import)
+          return "I recognized this as #{resolved_kind.humanize.downcase} and kept the resolved results in #{destination}."
+        end
+
         if declared_kind.present? && planned_destination.present? && actual_destinations != [ planned_destination ]
           return "You selected this as #{declared_kind.humanize.downcase}. I checked the file and routed the reviewable results I actually found to #{destination}."
         end
@@ -379,6 +387,11 @@ module Api
 
         [ document_import.metadata.to_h["routing_destination"].presence ||
           FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind, "private_document_review") ]
+      end
+
+      def document_import_has_results?(document_import)
+        (document_import.respond_to?(:transaction_drafts) && document_import.transaction_drafts.exists?) ||
+          (document_import.respond_to?(:items) && document_import.items.exists?)
       end
 
       def document_routing_destination_label(destination)
