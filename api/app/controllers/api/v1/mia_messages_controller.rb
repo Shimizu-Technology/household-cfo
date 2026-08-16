@@ -326,7 +326,7 @@ module Api
           return "#{route_line} #{drafted_document_transaction_message(document_import, drafts)}"
         end
 
-        items = document_import.items.where(ignored: false).order(:id).to_a
+        items = document_import.items.where(ignored: false, applied_at: nil).order(:id).to_a
         if items.any?
           labels = items.first(3).map(&:label).to_sentence
           return "#{route_line} I found #{items.length} budget/profile setup value#{'s' unless items.length == 1} for review: #{labels}. You stay the CFO here: open Review imports to approve or adjust them before anything updates the household plan."
@@ -366,13 +366,16 @@ module Api
 
       def document_routing_destinations(document_import)
         destinations = []
-        if document_import.respond_to?(:transaction_drafts) && document_import.transaction_drafts.exists?
+        has_transaction_results = document_import.respond_to?(:transaction_drafts) && document_import.transaction_drafts.exists?
+        has_item_results = document_import.respond_to?(:items) && document_import.items.exists?
+        if has_transaction_results && document_import.transaction_drafts.pending.exists?
           destinations << "transaction_review"
         end
-        if document_import.respond_to?(:items) && document_import.items.where(ignored: false).exists?
+        if has_item_results && document_import.items.where(ignored: false, applied_at: nil).exists?
           destinations << "household_setup_review"
         end
         return destinations if destinations.any?
+        return [ "private_document_review" ] if has_transaction_results || has_item_results
 
         [ document_import.metadata.to_h["routing_destination"].presence ||
           FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind, "private_document_review") ]

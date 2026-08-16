@@ -749,6 +749,63 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await cancelRequest
 })
 
+test('a late spending report cannot overwrite the refresh triggered by a transaction decision', async ({ page }) => {
+  let requestCount = 0
+  let markFirstRequestStarted: (() => void) | undefined
+  const firstRequestStarted = new Promise<void>((resolve) => { markFirstRequestStarted = resolve })
+  const reportCategory = (id: number, name: string, stackKey: string, stackLabel: string, planned: number, actual: number) => ({
+    id, name, stack_key: stackKey, stack_label: stackLabel, planned, actual, pending: 0, remaining: planned - actual, active: true,
+  })
+  const currentMonthNumber = String(new Date().getMonth() + 1).padStart(2, '0')
+  const reportShell = {
+    period_label: `${currentMonth} ${currentYear}`,
+    start_on: `${currentYear}-${currentMonthNumber}-01`,
+    end_on: `${currentYear}-${currentMonthNumber}-28`,
+    transactions: [],
+    pending_drafts: [],
+  }
+
+  await page.route('http://api.test/api/v1/spending_report**', async (route) => {
+    requestCount += 1
+    if (requestCount === 1) {
+      markFirstRequestStarted?.()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return route.fulfill({
+        status: 200,
+        json: { spending_report: { ...reportShell, totals: { planned: 0, actual: 0, pending: 0, remaining: 0 }, categories: [] } },
+      })
+    }
+
+    return route.fulfill({
+      status: 200,
+      json: {
+        spending_report: {
+          ...reportShell,
+          totals: { planned: 5_300, actual: 4_000, pending: 0, remaining: 1_300 },
+          categories: [
+            reportCategory(1, 'Fixed essentials', 'non_discretionary', 'Non-discretionary', 4_000, 3_500),
+            reportCategory(2, 'Dining out', 'discretionary', 'Discretionary', 450, 500),
+            reportCategory(3, 'Expected sinking fund', 'sinking_expected', 'Sinking Fund — Expected', 600, 0),
+            reportCategory(4, 'Unexpected sinking fund', 'sinking_unexpected', 'Sinking Fund — Unexpected', 250, 0),
+          ],
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await firstRequestStarted
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await transactionCard.getByRole('button', { name: 'Confirm' }).click()
+
+  const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await page.waitForTimeout(600)
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+  expect(requestCount).toBeGreaterThanOrEqual(2)
+})
+
 test('failed receipt upload leaves the participant on a retryable private-upload state', async ({ page }) => {
   await page.route('http://api.test/api/v1/document_imports', async (route) => {
     if (route.request().method() === 'POST') return route.fulfill({ status: 422, json: { errors: ['Could not store document in private S3'] } })

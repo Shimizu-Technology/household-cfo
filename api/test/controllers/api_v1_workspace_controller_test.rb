@@ -61,6 +61,43 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "I recognized this as statement and routed it to pending transaction review and household setup review.", route_line
   end
 
+  test "mia attachment route copy sends fully resolved extraction results to import history" do
+    user = create_user(email: "resolved-upload-result@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "applied",
+      filename: "resolved-statement.csv",
+      content_type: "text/csv",
+      byte_size: 100,
+      s3_key: "test/resolved-statement.csv",
+      applied_at: Time.current,
+      metadata: { "routing_resolved_kind" => "statement", "routing_destination" => "transaction_review" }
+    )
+    document_import.items.create!(
+      target_type: "account",
+      label: "Checking",
+      balance_cents: 500_000,
+      confidence: "high",
+      selected: true,
+      applied_at: Time.current
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 8, 1),
+      merchant: "Market",
+      total_amount_cents: 8_425,
+      source_type: "statement",
+      status: "confirmed",
+      raw_input: "Statement row"
+    )
+
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
+
+    assert_equal "I recognized this as statement and routed it to private import history.", route_line
+  end
+
   test "mia attachment summary names the actual destinations in a mixed batch" do
     document_import = Struct.new(:metadata, :document_kind)
     imports = [

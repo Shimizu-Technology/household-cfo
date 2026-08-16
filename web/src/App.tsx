@@ -325,6 +325,7 @@ function App() {
   const voiceChunksRef = useRef<Blob[]>([])
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
+  const spendingReportRequestRef = useRef(0)
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
@@ -444,9 +445,14 @@ function App() {
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
-      if (!isRealWorkspace) setSpendingReport(null)
+      if (!isRealWorkspace) {
+        spendingReportRequestRef.current += 1
+        setSpendingReport(null)
+      }
       return
     }
+
+    const requestId = ++spendingReportRequestRef.current
 
     if (!quiet) {
       setSpendingReportLoading(true)
@@ -455,11 +461,13 @@ function App() {
 
     try {
       const report = await fetchSpendingReport(startsOn, endsOn)
-      setSpendingReport(report)
+      if (requestId === spendingReportRequestRef.current) setSpendingReport(report)
     } catch (caught) {
-      setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      if (requestId === spendingReportRequestRef.current) {
+        setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      }
     } finally {
-      if (!quiet) setSpendingReportLoading(false)
+      if (!quiet && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
     }
   }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
 
@@ -588,17 +596,20 @@ function App() {
 
     const startsOn = selectedBudgetMonthStartsOn
     const endsOn = selectedBudgetMonthEndsOn
+    const requestId = ++spendingReportRequestRef.current
     let cancelled = false
     async function loadSpendingReport() {
       setSpendingReportLoading(true)
       setSpendingReportError(null)
       try {
         const report = await fetchSpendingReport(startsOn, endsOn)
-        if (!cancelled) setSpendingReport(report)
+        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReport(report)
       } catch (caught) {
-        if (!cancelled) setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        if (!cancelled && requestId === spendingReportRequestRef.current) {
+          setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        }
       } finally {
-        if (!cancelled) setSpendingReportLoading(false)
+        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
       }
     }
 
@@ -877,6 +888,7 @@ function App() {
         refreshSpendingReportForBudget(response.budget, responseMonthIndex)
       }
       if (response.spending_report) {
+        spendingReportRequestRef.current += 1
         setSpendingReport(response.spending_report)
       }
       void refreshDocumentImports({ quiet: true })
