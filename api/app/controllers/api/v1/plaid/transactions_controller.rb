@@ -15,7 +15,7 @@ module Api
           limit = params.fetch(:limit, 50).to_i.clamp(1, MAX_PAGE_SIZE)
           page = params.fetch(:page, 1).to_i.clamp(1, 10_000)
           total = scope.count
-          transactions = scope.includes(:plaid_account, transaction_draft: [ :budget_category, :transaction_draft_splits, { confirmed_transaction: :budget_categories } ]).recent_first.offset((page - 1) * limit).limit(limit)
+          transactions = scope.includes(:plaid_account, transaction_draft: [ :budget_category, { transaction_draft_splits: :budget_category }, { confirmed_transaction: :budget_categories } ]).recent_first.offset((page - 1) * limit).limit(limit)
           render json: {
             transactions: transactions.map { |transaction| serialize_transaction(transaction) },
             pagination: { page: page, per_page: limit, total: total, has_more: page * limit < total },

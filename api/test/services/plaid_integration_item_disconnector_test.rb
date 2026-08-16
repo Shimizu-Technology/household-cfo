@@ -10,7 +10,7 @@ class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
     @item.plaid_transactions.create!(plaid_account: @account, transaction_draft: @draft, plaid_transaction_id: "disconnect-transaction", name: "Reviewed merchant", occurred_on: Date.new(2026, 7, 10), amount_cents: 2_500, pending: false, review_status: "drafted", source_fingerprint: SecureRandom.hex(32), drafted_source_fingerprint: SecureRandom.hex(32))
   end
 
-  test "removes the Plaid Item before clearing source data and keeps supervised drafts" do
+  test "removes the Plaid Item and its unapproved pending drafts after Plaid confirms removal" do
     removed_token = nil
     fake = Object.new
     fake.define_singleton_method(:item_remove) { |request| removed_token = request.access_token }
@@ -22,7 +22,7 @@ class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
     assert_nil @item.access_token_ciphertext
     assert_empty @item.plaid_accounts
     assert_empty @item.plaid_transactions
-    assert @draft.reload.persisted?
+    assert_not TransactionDraft.exists?(@draft.id)
     assert_equal "plaid_item.disconnected", @household.household_audit_events.order(:id).last.event_type
   end
 
@@ -53,9 +53,23 @@ class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
     assert_nil @item.access_token_ciphertext
     assert_empty @item.plaid_accounts
     assert_empty @item.plaid_transactions
-    assert @draft.reload.persisted?
+    assert_not TransactionDraft.exists?(@draft.id)
   ensure
     singleton.define_method(:safely, original) if singleton && original
+  end
+
+  test "retains an approved draft while clearing only pending drafts for this Item" do
+    approved_draft = @household.transaction_drafts.create!(occurred_on: Date.new(2026, 7, 9), merchant: "Approved merchant", total_amount_cents: 1_500, source_type: "plaid", status: "confirmed", confidence: 1, draft_payload: { parser: "plaid_transactions_sync_v1" })
+    @item.plaid_transactions.create!(plaid_account: @account, transaction_draft: approved_draft, plaid_transaction_id: "approved-transaction", name: "Approved merchant", occurred_on: Date.new(2026, 7, 9), amount_cents: 1_500, pending: false, review_status: "drafted", source_fingerprint: SecureRandom.hex(32), drafted_source_fingerprint: SecureRandom.hex(32))
+    unrelated_draft = @household.transaction_drafts.create!(occurred_on: Date.new(2026, 7, 8), merchant: "Other bank", total_amount_cents: 900, source_type: "plaid", status: "pending", confidence: 0.8)
+    fake = Object.new
+    fake.define_singleton_method(:item_remove) { |_request| true }
+
+    with_client(fake) { PlaidIntegration::ItemDisconnector.new(@item, user: @user).call }
+
+    assert_not TransactionDraft.exists?(@draft.id)
+    assert TransactionDraft.exists?(approved_draft.id)
+    assert TransactionDraft.exists?(unrelated_draft.id)
   end
 
   test "does not treat an unrelated first-attempt ITEM_NOT_FOUND as a successful removal" do

@@ -60,15 +60,16 @@ module PlaidIntegration
 
     def amount_is_familiar?(draft)
       pattern = MerchantCategoryRule.normalized_pattern(draft.merchant)
-      prior_amounts = plaid_item.household.household_transactions
+      matching_amounts = []
+      plaid_item.household.household_transactions
         .where(source_type: "plaid", status: %w[confirmed reconciled])
-        .order(occurred_on: :desc)
-        .limit(100)
-        .select { |transaction| MerchantCategoryRule.normalized_pattern(transaction.merchant) == pattern }
-        .map(&:total_amount_cents)
-      return false if prior_amounts.length < MIN_CONFIRMATIONS
+        .select(:id, :merchant, :total_amount_cents)
+        .find_each(batch_size: 500) do |transaction|
+          matching_amounts << transaction.total_amount_cents if MerchantCategoryRule.normalized_pattern(transaction.merchant) == pattern
+        end
+      return false if matching_amounts.length < MIN_CONFIRMATIONS
 
-      draft.total_amount_cents <= (prior_amounts.max * MAX_AMOUNT_GROWTH).round
+      draft.total_amount_cents <= (matching_amounts.max * MAX_AMOUNT_GROWTH).round
     end
   end
 end

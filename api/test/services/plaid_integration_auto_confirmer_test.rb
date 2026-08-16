@@ -46,6 +46,24 @@ class PlaidIntegrationAutoConfirmerTest < ActiveSupport::TestCase
     assert draft.reload.pending?
   end
 
+  test "finds familiar merchant history beyond the most recent one hundred transactions" do
+    3.times do |index|
+      transaction = @household.household_transactions.create!(budget_period: @period, occurred_on: Date.new(2026, 1, index + 1), merchant: "Netflix", total_amount_cents: 1_957, source_type: "plaid", status: "confirmed")
+      transaction.transaction_splits.create!(budget_category: @category, amount_cents: 1_957)
+    end
+    101.times do |index|
+      transaction = @household.household_transactions.create!(budget_period: @period, occurred_on: Date.new(2026, 8, 1) + index.days, merchant: "Different Merchant #{index}", total_amount_cents: 500, source_type: "plaid", status: "confirmed")
+      transaction.transaction_splits.create!(budget_category: @category, amount_cents: 500)
+    end
+    @household.merchant_category_rules.create!(budget_category: @category, merchant_pattern: "netflix", confidence: BigDecimal("0.89"), source: "user_confirmed", times_confirmed: 3, last_confirmed_at: Time.current, active: true)
+    source = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "later-netflix", name: "Netflix", merchant_name: "Netflix", occurred_on: Date.new(2026, 8, 16), amount_cents: 1_957, pending: false, source_fingerprint: SecureRandom.hex(32))
+    draft = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ source.id ], actor_type: "system").call.drafts.sole
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      assert_equal 1, PlaidIntegration::AutoConfirmer.new(@item, drafts: [ draft ]).call.length
+    end
+  end
+
   test "never auto confirms into an Uncategorized placeholder" do
     placeholder = @household.budget_categories.create!(name: "Uncategorized", stack_key: "discretionary", active: true, sort_order: 99)
     3.times do |index|
