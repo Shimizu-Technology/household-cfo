@@ -19,12 +19,13 @@ This short guide is for the focused four-person Household CFO validation before 
 The default **Budget** screen should show the selected month's money in, money out, what remains, the four Expense Stack groups, review work, and a compact annual outlook. The dense annual table, income schedule, and category form should not compete with that overview.
 
 1. Open **Budget**. Confirm **Ask Mia to update my plan** and **Manage manually** are visible near the annual budget heading. The full annual table and income editor should not be visible yet.
-2. Choose **Ask Mia to update my plan**. Confirm the app opens **Ask Mia**, focuses the message box, and prefills: **I want to update my budget. Help me make this change safely:** Add your requested change after the colon; nothing changes until you review and apply Mia's proposal.
-3. Return to **Budget** and choose **Manage manually**. The manual manager should appear directly below the annual budget heading—without hunting down the page—and focus **New category**.
-4. In **Add a category**, enter **School Supplies — Manual**, choose **Sinking Fund — Expected**, enter **75**, and choose **Add category**. Confirm it appears in the expected stack.
-5. Open **Manage manually** again and choose **Edit monthly plan**. Confirm the editable 12-month table appears only now. Change one amount, then confirm the other manual-tool buttons, year/month controls, and close control stay unavailable until you choose the clearly labeled save button or **Cancel**. Choosing the already-active **Edit monthly plan** control must not erase your draft.
-6. Open **Manage manually** again and choose **Schedule income**. Confirm the existing income timeline and exact scheduling controls appear in the same focused manager.
-7. Close the manual tools. Open **Monthly activity and transactions** only when you need category pressure or the confirmed ledger.
+2. If the household has a saved debt minimum, confirm the monthly equation explicitly shows **Category plan + Debt minimums = Total money out**. The baseline left and annual cash-flow chart must use that total; debt minimums should not be hidden inside an editable category.
+3. Choose **Ask Mia to update my plan**. Confirm the app opens **Ask Mia**, focuses the message box, and prefills: **I want to update my budget. Help me make this change safely:** Add your requested change after the colon; nothing changes until you review and apply Mia's proposal.
+4. Return to **Budget** and choose **Manage manually**. The manual manager should appear directly below the annual budget heading—without hunting down the page—and focus **New category**.
+5. In **Add a category**, enter **School Supplies — Manual**, choose **Sinking Fund — Expected**, enter **75**, and choose **Add category**. Confirm it appears in the expected stack.
+6. Open **Manage manually** again and choose **Edit monthly plan**. Confirm the editable 12-month table appears only now. Change one amount, then confirm the other manual-tool buttons, year/month controls, and close control stay unavailable until you choose the clearly labeled save button or **Cancel**. Choosing the already-active **Edit monthly plan** control must not erase your draft.
+7. Open **Manage manually** again and choose **Schedule income**. Confirm the existing income timeline and exact scheduling controls appear in the same focused manager.
+8. Close the manual tools. Open **Monthly activity and transactions** only when you need category pressure or the confirmed ledger.
 
 When you switch among Home, Ask Mia, My Profile, Budget, and the other tabs, the destination should begin at the top. On every screen except Home, the Household CFO header should remain compact so the current task is visible without scrolling past the full introduction.
 
@@ -37,9 +38,10 @@ Uploads are not required to have a useful first Mia conversation. They are an im
 1. Use a demo-safe file with no real account or card numbers. From **Home**, choose **Test a private upload**, or attach it in **Ask Mia**.
 2. Upload one supported budget spreadsheet, statement, receipt, screenshot, or pay stub. A Google Drive link is not a file upload; download the file to the device first, then select it in Household CFO.
 3. Wait for its review screen. Extracted profile values begin unselected: review, correct, and explicitly check only the values you want before applying them.
-4. Add files one at a time while learning the review flow. A statement or receipt can create transaction drafts; review possible matches so a purchase is not counted twice.
-5. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls. Removing a source file and deleting an import are separate actions.
-6. If either upload entry point fails or says it could not read the file, stop and submit **Report a problem** with the file type and workflow—but no document contents or financial values.
+4. Read **Review result**. It must name what Mia actually produced—transaction reviews, household setup values, or both—even if that differs from the upload type you selected. The page should explain that nothing changed until you approve it.
+5. Add files one at a time while learning the review flow. A statement or receipt can create transaction drafts; review possible matches so a purchase is not counted twice.
+6. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls. Removing a source file and deleting an import are separate actions.
+7. If either upload entry point fails or says it could not read the file, stop and submit **Report a problem** with the file type and workflow—but no document contents or financial values.
 
 Ignoring every extracted transaction does not make that document an approved source. Until at least one value is applied or one transaction is confirmed, My Profile should say **Not approved yet** and **Review pending**, and Mia should continue to say that no approved document source exists.
 
@@ -70,8 +72,10 @@ Try these on both a computer and your phone when practical:
 - On a phone, confirm **More prompts →** makes it clear that Mia's suggested questions can be swiped horizontally.
 - Ask Mia to create School Supplies under Sinking Fund — Expected for $75 every month; apply the review card, then verify all 12 months in Budget.
 - Confirm Budget defaults to the simple overview; test the Mia CTA and each focused **Manage manually** task without scrolling to discover its controls.
+- Confirm the monthly and annual money-out totals visibly reconcile category plans and debt minimums.
 - Create one typed or voice transaction draft and confirm or ignore it.
 - From both Ask Mia and My Profile, upload one demo-safe supported file; report the exact entry point and generic file type if either path fails.
+- Confirm each completed upload describes the review cards actually produced instead of merely repeating the selected upload type.
 - Preview a private source and close it.
 - Review one proposed budget change and apply or cancel it.
 - Report one demo-safe piece of feedback.

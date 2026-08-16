@@ -13,7 +13,7 @@ const profile = {
 
 const dashboard = {
   summary: {
-    monthly_income: 14_200, fixed_expenses: 6_000, flexible_spend: 1_500, debt_payments: 500,
+    monthly_income: 14_200, fixed_expenses: 6_000, flexible_spend: 1_500, debt_payments: 200,
     savings_rate_percent: 38, runway_months: 0.5, next_safe_to_spend_amount: 0,
     readiness_tone: 'red', readiness_label: 'Red — pause and stabilize basics',
   },
@@ -53,15 +53,17 @@ const annualOutlookMonths = months.map((label, index) => ({
   label,
   starts_on: `${currentYear}-${String(index + 1).padStart(2, '0')}-01`,
   income: index >= 7 ? 15_000 : 14_200,
-  planned_outflow: index === 11 ? 8_300 : 5_300,
-  baseline_surplus: (index >= 7 ? 15_000 : 14_200) - (index === 11 ? 8_300 : 5_300),
+  category_plan: index === 11 ? 8_300 : 5_300,
+  debt_minimums: 200,
+  planned_outflow: index === 11 ? 8_500 : 5_500,
+  baseline_surplus: (index >= 7 ? 15_000 : 14_200) - (index === 11 ? 8_500 : 5_500),
   expected_irregular: index === 11 ? 3_000 : 0,
   expected_contributors: index === 11 ? [{ name: 'Holiday travel', amount: 3_000 }] : [],
 }))
 
 const budget = {
   framework: 'Expense Stack', intro: 'Annual household plan', monthly_income: 14_200,
-  total_monthly_outflow: 5_300, baseline_surplus: 8_900,
+  total_monthly_outflow: 5_500, baseline_surplus: 8_700,
   stacks: [
     { label: 'Non-discretionary', color: 'red', amount: 4_000, description: 'Fixed', examples: [] },
     { label: 'Discretionary', color: 'yellow', amount: 450, description: 'Flexible', examples: [] },
@@ -79,12 +81,13 @@ const budget = {
       { id: 4, name: 'Unexpected sinking fund', stack_key: 'sinking_unexpected', stack_label: 'Sinking Fund — Unexpected', active: true, months: categoryMonths(4, 250, 0), planned_total: 3_000, actual_total: 0 },
     ],
     monthly_income: Object.fromEntries(months.map((_, index) => [index + 1, index >= 7 ? 15_000 : 14_200])),
+    monthly_debt_minimums: 200,
     income_sources: [{
       id: 1, label: 'Primary income', source_type: 'job', base_amount: 14_200, base_cadence: 'monthly',
       schedule_entries: [{ id: 1, entry_type: 'recurring_change', label: null, amount: 15_000, cadence: 'monthly', effective_on: `${currentYear}-08-01` }],
     }],
     annual_outlook: {
-      typical_monthly_outflow: 5_300,
+      typical_monthly_outflow: 5_500,
       months: annualOutlookMonths,
       upcoming_spikes: [{ ...annualOutlookMonths[11], amount_above_typical: 3_000 }],
       next_irregular_month: annualOutlookMonths[11],
@@ -197,6 +200,17 @@ async function mockDemoApi(page: Page) {
     '/api/demo/cfo-filter': cfoFilter,
     '/api/demo/mia/messages': { messages: chatMessages(), oldest_message_id: 1, older_message_count: 0, has_older_messages: false, quick_prompts: ['Can I buy the purse?', 'Why is my readiness Red?', 'Emergency fund or debt first?', 'Can I leave my job?'], disclaimer: 'Education only.' },
     '/api/v1/workspace': realWorkspaceData(false),
+    '/api/v1/spending_report': {
+      spending_report: {
+        period_label: `${currentMonth} ${currentYear}`,
+        start_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-01`,
+        end_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-28`,
+        totals: { planned: 0, actual: 0, pending: 0, remaining: 0 },
+        categories: [],
+        transactions: [],
+        pending_drafts: [],
+      },
+    },
     '/api/v1/document_imports': { document_imports: [] },
     '/api/v1/admin/cohorts': { cohorts: [pilotCohort] },
     '/api/v1/admin/users': { users: [pilotAdminUser] },
@@ -261,6 +275,13 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$115.00')
   await expect(monthSummary).toContainText('Readiness-aware CFO amount—not ordinary budget remaining.')
   await expect(monthSummary).toContainText('$1,710.00 remains after pending review')
+  const homeOutflowBreakdown = monthSummary.getByRole('group', { name: 'Monthly money out breakdown' })
+  await expect(homeOutflowBreakdown).toContainText('Category plan')
+  await expect(homeOutflowBreakdown).toContainText('$5,300.00')
+  await expect(homeOutflowBreakdown).toContainText('Debt minimums')
+  await expect(homeOutflowBreakdown).toContainText('$200.00')
+  await expect(homeOutflowBreakdown).toContainText('Total money out')
+  await expect(homeOutflowBreakdown).toContainText('$5,500.00')
   await expect(monthSummary.locator('.budget-progress-pending')).toBeVisible()
   const pressureRows = await page.locator('.home-financial-visuals .category-pressure-row').allTextContents()
   expect(pressureRows[0]).toContain('Dining out')
@@ -271,8 +292,8 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   const chartDetail = page.locator('.home-financial-visuals .cash-flow-detail-panel')
   await expect(chartDetail).toContainText(`Jan ${currentYear}`)
   await expect(chartDetail).toContainText('$14,200.00')
-  await expect(chartDetail).toContainText('$5,300.00')
-  await expect(chartDetail).toContainText('$8,900.00 remains after planned outflow.')
+  await expect(chartDetail).toContainText('$5,500.00')
+  await expect(chartDetail).toContainText('$8,700.00 remains after planned outflow.')
   await expect(chartDetail).toContainText('No expected irregular categories are planned this month.')
   const decemberChartButton = page.getByRole('button', { name: new RegExp(`Dec ${currentYear}:`) }).first()
   await decemberChartButton.focus()
@@ -354,6 +375,17 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
+  const outflowBreakdown = page.getByRole('group', { name: 'Monthly money out breakdown' })
+  await expect(outflowBreakdown).toContainText('Category plan')
+  await expect(outflowBreakdown).toContainText('$5,300.00')
+  await expect(outflowBreakdown).toContainText('Debt minimums')
+  await expect(outflowBreakdown).toContainText('$200.00')
+  await expect(outflowBreakdown).toContainText('Total money out')
+  await expect(outflowBreakdown).toContainText('$5,500.00')
+  const annualMoneyOut = page.getByLabel('Annual money out breakdown')
+  await expect(annualMoneyOut).toContainText('Annual category plan$63,600.00')
+  await expect(annualMoneyOut).toContainText('Annual debt minimums$2,400.00')
+  await expect(annualMoneyOut).toContainText('Total annual money out$66,000.00')
   await expect(page.getByRole('button', { name: 'Ask Mia to update my plan' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Annual budget table' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Set it once, then schedule what changes.' })).toHaveCount(0)
@@ -589,6 +621,91 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
 })
 
+test('import review copy follows extracted results when a selected receipt produces household values', async ({ page }) => {
+  const householdValueImport = {
+    id: 505,
+    household_id: 77,
+    document_kind: 'receipt',
+    status: 'needs_review',
+    filename: 'profile-screenshot.png',
+    content_type: 'image/png',
+    byte_size: 24_000,
+    document_date: null,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'Mia found one household setup value.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: null,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:00:00Z`,
+    source_available: true,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {
+      declared_document_kind: 'receipt',
+      document_kind_explicit: true,
+      routing_resolved_kind: 'receipt',
+      routing_source: 'participant_selection',
+      routing_destination: 'transaction_review',
+    },
+    items: [{
+      id: 506,
+      target_type: 'expense_item',
+      label: 'Fixed essentials',
+      amount: 3_100,
+      amount_cents: 310_000,
+      balance: null,
+      balance_cents: null,
+      payment: null,
+      payment_cents: null,
+      cadence: 'monthly',
+      source_type: null,
+      stack_key: 'non_discretionary',
+      account_type: null,
+      debt_type: null,
+      confidence: 'high',
+      evidence: 'Profile screenshot',
+      selected: true,
+      ignored: false,
+      applied_at: null,
+      applied_record_type: null,
+      applied_record_id: null,
+      metadata: {},
+    }],
+    transaction_drafts: [],
+    attempts: [],
+  }
+  let activeImport: unknown = householdValueImport
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [activeImport] } }))
+  await page.route('http://api.test/api/v1/document_imports/505', (route) => route.fulfill({ status: 200, json: { document_import: activeImport } }))
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+
+  const result = page.locator('.document-routing-summary')
+  await expect(result).toContainText('Review result')
+  await expect(result).toContainText('1 household value → Household setup review')
+  await expect(result).toContainText('You selected receipt/photo.')
+  await expect(result).toContainText('sent the reviewable results she actually found to household setup review')
+  await expect(result).toContainText('Nothing changed until you approve it.')
+  await expect(result).not.toContainText('Mia honored the document type')
+
+  activeImport = {
+    ...householdValueImport,
+    status: 'applied',
+    applied_at: `${currentYear}-08-16T01:05:00Z`,
+    items: householdValueImport.items.map((item) => ({ ...item, applied_at: `${currentYear}-08-16T01:05:00Z` })),
+  }
+  await page.reload()
+  const resolvedResult = page.locator('.document-routing-summary')
+  await expect(resolvedResult).toContainText('Review complete → Private import history')
+  await expect(resolvedResult).toContainText('All extracted results are resolved.')
+  await expect(resolvedResult).not.toContainText('Nothing changed until you approve it.')
+})
+
 test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
   await page.getByRole('button', { name: 'Admin', exact: true }).click()
@@ -643,6 +760,180 @@ test('real review controls keep transaction and Mia changes behind explicit part
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
   await miaCard.getByRole('button', { name: 'Cancel draft' }).click()
   await cancelRequest
+})
+
+test('a late spending report cannot overwrite the refresh triggered by a transaction decision', async ({ page }) => {
+  let requestCount = 0
+  let markFirstRequestStarted: (() => void) | undefined
+  const firstRequestStarted = new Promise<void>((resolve) => { markFirstRequestStarted = resolve })
+  const reportCategory = (id: number, name: string, stackKey: string, stackLabel: string, planned: number, actual: number) => ({
+    id, name, stack_key: stackKey, stack_label: stackLabel, planned, actual, pending: 0, remaining: planned - actual, active: true,
+  })
+  const currentMonthNumber = String(new Date().getMonth() + 1).padStart(2, '0')
+  const reportShell = {
+    period_label: `${currentMonth} ${currentYear}`,
+    start_on: `${currentYear}-${currentMonthNumber}-01`,
+    end_on: `${currentYear}-${currentMonthNumber}-28`,
+    transactions: [],
+    pending_drafts: [],
+  }
+
+  await page.route('http://api.test/api/v1/spending_report**', async (route) => {
+    requestCount += 1
+    if (requestCount === 1) {
+      markFirstRequestStarted?.()
+      await new Promise((resolve) => setTimeout(resolve, 500))
+      return route.fulfill({
+        status: 200,
+        json: { spending_report: { ...reportShell, totals: { planned: 0, actual: 0, pending: 0, remaining: 0 }, categories: [] } },
+      })
+    }
+
+    return route.fulfill({
+      status: 200,
+      json: {
+        spending_report: {
+          ...reportShell,
+          totals: { planned: 5_300, actual: 4_000, pending: 0, remaining: 1_300 },
+          categories: [
+            reportCategory(1, 'Fixed essentials', 'non_discretionary', 'Non-discretionary', 4_000, 3_500),
+            reportCategory(2, 'Dining out', 'discretionary', 'Discretionary', 450, 500),
+            reportCategory(3, 'Expected sinking fund', 'sinking_expected', 'Sinking Fund — Expected', 600, 0),
+            reportCategory(4, 'Unexpected sinking fund', 'sinking_unexpected', 'Sinking Fund — Unexpected', 250, 0),
+          ],
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await firstRequestStarted
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await transactionCard.getByRole('button', { name: 'Confirm' }).click()
+
+  const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await page.waitForTimeout(600)
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+  expect(requestCount).toBeGreaterThanOrEqual(2)
+})
+
+test('a late Mia response cannot replace the ledger after the participant changes months', async ({ page }) => {
+  const currentMonthIndex = new Date().getMonth()
+  const targetMonthIndex = currentMonthIndex === 11 ? 10 : currentMonthIndex + 1
+  const targetMonthNumber = String(targetMonthIndex + 1).padStart(2, '0')
+  const currentMonthNumber = String(currentMonthIndex + 1).padStart(2, '0')
+  const reportFor = (monthIndex: number, transactionLabel: string) => ({
+    period_label: `${new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date(currentYear, monthIndex, 1))} ${currentYear}`,
+    start_on: `${currentYear}-${String(monthIndex + 1).padStart(2, '0')}-01`,
+    end_on: `${currentYear}-${String(monthIndex + 1).padStart(2, '0')}-28`,
+    totals: { planned: 5_300, actual: 125, pending: 0, remaining: 5_175 },
+    categories: [],
+    transactions: [{ id: monthIndex + 500, occurred_on: `${currentYear}-${String(monthIndex + 1).padStart(2, '0')}-12`, merchant: transactionLabel, amount: 125, amount_cents: 12_500, categories: ['Fixed essentials'], source_type: 'manual' }],
+    pending_drafts: [],
+  })
+  const currentReport = reportFor(currentMonthIndex, 'STALE MIA MONTH')
+  const targetReport = reportFor(targetMonthIndex, 'Selected month transaction')
+  let releaseMiaResponse: (() => void) | undefined
+  const miaResponseReleased = new Promise<void>((resolve) => { releaseMiaResponse = resolve })
+
+  await page.route('http://api.test/api/v1/spending_report**', (route) => {
+    const startOn = new URL(route.request().url()).searchParams.get('start_on')
+    return route.fulfill({ status: 200, json: { spending_report: startOn?.includes(`-${targetMonthNumber}-`) ? targetReport : currentReport } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await miaResponseReleased
+    return route.fulfill({
+      status: 200,
+      json: {
+        user_message: { id: 901, role: 'user', author: 'You', content: 'What should I focus on?', attachments: [] },
+        assistant_message: { id: 902, role: 'assistant', author: 'Mia', content: 'Protect the baseline first.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: { ...currentReport, start_on: `${currentYear}-${currentMonthNumber}-01`, end_on: `${currentYear}-${currentMonthNumber}-28` },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByLabel('Report month').selectOption(String(targetMonthIndex))
+  await page.getByText('Monthly activity and transactions', { exact: true }).click()
+  await expect(page.getByText('Selected month transaction')).toBeVisible()
+
+  const completedMiaResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/mia/messages') && response.request().method() === 'POST')
+  releaseMiaResponse?.()
+  await completedMiaResponse
+  await expect(page.getByText('Selected month transaction')).toBeVisible()
+  await expect(page.getByText('STALE MIA MONTH')).toHaveCount(0)
+})
+
+test('a same-month Mia response cannot undo a newer transaction refresh', async ({ page }) => {
+  const currentMonthNumber = String(new Date().getMonth() + 1).padStart(2, '0')
+  const reportShell = {
+    period_label: `${currentMonth} ${currentYear}`,
+    start_on: `${currentYear}-${currentMonthNumber}-01`,
+    end_on: `${currentYear}-${currentMonthNumber}-28`,
+    categories: [],
+    transactions: [],
+    pending_drafts: [],
+  }
+  const staleReport = { ...reportShell, totals: { planned: 5_300, actual: 0, pending: 75, remaining: 5_225 } }
+  const refreshedReport = {
+    ...reportShell,
+    totals: { planned: 5_300, actual: 4_000, pending: 0, remaining: 1_300 },
+    categories: [
+      { id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary', stack_label: 'Non-discretionary', planned: 4_000, actual: 3_500, pending: 0, remaining: 500, active: true },
+      { id: 2, name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', planned: 450, actual: 500, pending: 0, remaining: -50, active: true },
+      { id: 3, name: 'Expected sinking fund', stack_key: 'sinking_expected', stack_label: 'Sinking Fund — Expected', planned: 600, actual: 0, pending: 0, remaining: 600, active: true },
+      { id: 4, name: 'Unexpected sinking fund', stack_key: 'sinking_unexpected', stack_label: 'Sinking Fund — Unexpected', planned: 250, actual: 0, pending: 0, remaining: 250, active: true },
+    ],
+  }
+  let spendingReportRequests = 0
+  let releaseMiaResponse: (() => void) | undefined
+  const miaResponseReleased = new Promise<void>((resolve) => { releaseMiaResponse = resolve })
+
+  await page.route('http://api.test/api/v1/spending_report**', (route) => {
+    spendingReportRequests += 1
+    return route.fulfill({ status: 200, json: { spending_report: spendingReportRequests > 1 ? refreshedReport : staleReport } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await miaResponseReleased
+    return route.fulfill({
+      status: 200,
+      json: {
+        user_message: { id: 911, role: 'user', author: 'You', content: 'What should I focus on?', attachments: [] },
+        assistant_message: { id: 912, role: 'assistant', author: 'Mia', content: 'Review complete.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: staleReport,
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await transactionCard.getByRole('button', { name: 'Confirm' }).click()
+  const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+
+  const completedMiaResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/mia/messages') && response.request().method() === 'POST')
+  releaseMiaResponse?.()
+  await completedMiaResponse
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$0.00')
 })
 
 test('failed receipt upload leaves the participant on a retryable private-upload state', async ({ page }) => {

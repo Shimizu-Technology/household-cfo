@@ -25,6 +25,23 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     end
   end
 
+  test "annual outlook reconciles editable categories with required debt minimums" do
+    household = create_household
+    household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 720_000, cadence: "monthly")
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 310_000, cadence: "monthly")
+    household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 120_000, cadence: "monthly")
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 500_000, minimum_payment_cents: 17_500)
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data
+    january = plan.fetch(:annual_outlook).fetch(:months).first
+
+    assert_equal 175, plan.fetch(:monthly_debt_minimums)
+    assert_equal 4_300, january.fetch(:category_plan)
+    assert_equal 175, january.fetch(:debt_minimums)
+    assert_equal 4_475, january.fetch(:planned_outflow)
+    assert_equal 2_725, january.fetch(:baseline_surplus)
+  end
+
   test "plan data scopes pending transaction drafts to the viewed budget year" do
     household = create_household
     household.transaction_drafts.create!(

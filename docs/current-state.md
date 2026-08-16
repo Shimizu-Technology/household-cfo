@@ -48,7 +48,7 @@ This section supersedes the older cohort-size and setup/upload-first assumptions
 - Token-bounded conversation continuity and model-backed strict intent resolution.
 - Effective-dated recurring income changes, zero-dollar income endings, and month-specific one-time income.
 - Annual-plan look-ahead for monthly income, planned outflow, baseline surplus, upcoming spending spikes, and expected irregular-expense drivers.
-- A financial cockpit on Home and Budget that separates confirmed actuals from pending review, ranks category pressure, shows Expense Stack usage, and visualizes all 12 months of income versus planned outflow.
+- A financial cockpit on Home and Budget that separates confirmed actuals from pending review, ranks category pressure, shows Expense Stack usage, explicitly reconciles editable category plans plus required debt minimums into total money out, and visualizes all 12 months of income versus that complete planned outflow.
 - A dialogue-first Home path that asks for five household essentials, then takes a newly ready participant directly to Mia with an editable starter question.
 - An optional private-upload pilot path for participants who have a useful file, with explicit review-before-apply and in-app failure reporting.
 - An in-app mobile tester guide and structured, authenticated feedback flow with an optional private screenshot.
@@ -97,7 +97,7 @@ Invitation and sign-in
 → test a demo-safe upload only when useful
 ```
 
-The optional file path accepts budgets, statements, receipts, screenshots, and pay stubs through the same review-before-apply boundary. A successful automated test is not enough: uploads from Ask Mia and My Profile remain unproven until exercised on the custom domain and real phones. See `docs/pilot-tester-guide.md` for participant instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
+The optional file path accepts budgets, statements, receipts, screenshots, and pay stubs through the same review-before-apply boundary. Completed imports describe the reviewable results actually produced—transactions, household setup values, or both—even when those differ from the upload slot the participant selected. A successful automated test is not enough: uploads from Ask Mia and My Profile remain unproven until exercised on the custom domain and real phones. See `docs/pilot-tester-guide.md` for participant instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
 
 Pilot feedback is stored in the participant's authenticated household scope. Its narrative and optional screenshot are never copied into PostHog or shown in the cohort progress screen. Admins review it in a separate private inbox; list responses omit narrative and storage keys, while screenshot access requires a short-lived signed link. Participants are warned not to include financial values, account information, document contents, passwords, or private Mia messages.
 

@@ -325,6 +325,8 @@ function App() {
   const voiceChunksRef = useRef<Blob[]>([])
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
+  const spendingReportRequestRef = useRef(0)
+  const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
@@ -358,6 +360,7 @@ function App() {
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
+  selectedBudgetPeriodRef.current = { startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn }
   useEffect(() => {
     pendingMiaAttachmentsRef.current = pendingMiaAttachments
   }, [pendingMiaAttachments])
@@ -444,9 +447,14 @@ function App() {
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
-      if (!isRealWorkspace) setSpendingReport(null)
+      if (!isRealWorkspace) {
+        spendingReportRequestRef.current += 1
+        setSpendingReport(null)
+      }
       return
     }
+
+    const requestId = ++spendingReportRequestRef.current
 
     if (!quiet) {
       setSpendingReportLoading(true)
@@ -455,11 +463,13 @@ function App() {
 
     try {
       const report = await fetchSpendingReport(startsOn, endsOn)
-      setSpendingReport(report)
+      if (requestId === spendingReportRequestRef.current) setSpendingReport(report)
     } catch (caught) {
-      setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      if (requestId === spendingReportRequestRef.current) {
+        setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      }
     } finally {
-      if (!quiet) setSpendingReportLoading(false)
+      if (!quiet && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
     }
   }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
 
@@ -588,17 +598,20 @@ function App() {
 
     const startsOn = selectedBudgetMonthStartsOn
     const endsOn = selectedBudgetMonthEndsOn
+    const requestId = ++spendingReportRequestRef.current
     let cancelled = false
     async function loadSpendingReport() {
       setSpendingReportLoading(true)
       setSpendingReportError(null)
       try {
         const report = await fetchSpendingReport(startsOn, endsOn)
-        if (!cancelled) setSpendingReport(report)
+        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReport(report)
       } catch (caught) {
-        if (!cancelled) setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        if (!cancelled && requestId === spendingReportRequestRef.current) {
+          setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        }
       } finally {
-        if (!cancelled) setSpendingReportLoading(false)
+        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
       }
     }
 
@@ -832,6 +845,7 @@ function App() {
 
     const messageContent = cleanPrompt || 'Please review this upload.'
     const optimisticMessageId = clientSideId('mia-message')
+    const spendingReportRequestAtSend = spendingReportRequestRef.current
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
@@ -877,7 +891,13 @@ function App() {
         refreshSpendingReportForBudget(response.budget, responseMonthIndex)
       }
       if (response.spending_report) {
-        setSpendingReport(response.spending_report)
+        const visiblePeriod = selectedBudgetPeriodRef.current
+        if (response.spending_report.start_on === visiblePeriod.startsOn &&
+            response.spending_report.end_on === visiblePeriod.endsOn &&
+            spendingReportRequestRef.current === spendingReportRequestAtSend) {
+          spendingReportRequestRef.current += 1
+          setSpendingReport(response.spending_report)
+        }
       }
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
@@ -3365,22 +3385,63 @@ function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialD
   if (!metadata.routing_source) return null
 
   const resolvedKind = metadata.routing_resolved_kind ?? documentImport.document_kind
-  const destination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+  const destination = documentReviewDestination(documentImport, resolvedKind)
   const conflict = Boolean(metadata.routing_requires_confirmation)
+  const result = documentReviewResult(documentImport)
 
   return (
     <div className={`document-routing-summary${conflict ? ' needs-confirmation' : ''}`} role={conflict ? 'alert' : 'note'}>
       <div>
-        <span>{conflict ? 'Routing needs your check' : 'Routed for review'}</span>
-        <strong>{documentKindLabel(resolvedKind)} → {destination}</strong>
+        <span>{conflict ? 'Document type needs your check' : 'Review result'}</span>
+        <strong>{result} → {destination}</strong>
       </div>
       <p>
         {conflict
           ? routingConflictExplanation(metadata, resolvedKind)
-          : routingExplanation(metadata.routing_source)}
+          : routingResultExplanation(documentImport, resolvedKind)}
       </p>
     </div>
   )
+}
+
+function documentReviewResult(documentImport: FinancialDocumentImport) {
+  const transactions = documentImport.transaction_drafts.filter((draft) => draft.status === 'pending').length
+  const values = documentImport.items.filter((item) => !item.ignored && !item.applied_at).length
+  if (transactions > 0 && values > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'} + ${values} household value${values === 1 ? '' : 's'}`
+  if (transactions > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'}`
+  if (values > 0) return `${values} household value${values === 1 ? '' : 's'}`
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Checking file contents'
+  if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Review complete'
+  return 'No draft values found'
+}
+
+function documentReviewDestination(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+  const hasTransactions = documentImport.transaction_drafts.some((draft) => draft.status === 'pending')
+  const hasHouseholdValues = documentImport.items.some((item) => !item.ignored && !item.applied_at)
+  if (hasTransactions && hasHouseholdValues) return 'Transaction + household setup review'
+  if (hasTransactions) return 'Transaction review'
+  if (hasHouseholdValues) return 'Household setup review'
+  if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Private import history'
+  return routingDestinationLabel(documentImport.metadata.routing_destination, resolvedKind)
+}
+
+function routingResultExplanation(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+  const metadata = documentImport.metadata
+  const selectedKind = metadata.declared_document_kind
+  const selectedCopy = selectedKind ? `You selected ${documentKindLabel(selectedKind).toLowerCase()}. ` : ''
+  const resultDestination = documentReviewDestination(documentImport, resolvedKind)
+  const plannedDestination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+
+  if (resultDestination === 'Private import history' &&
+      (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0)) {
+    return `${selectedCopy}All extracted results are resolved. This upload remains in private import history.`
+  }
+
+  if (resultDestination !== plannedDestination) {
+    return `${selectedCopy}Mia checked the contents and sent the reviewable results she actually found to ${resultDestination.toLowerCase()}. Nothing changed until you approve it.`
+  }
+
+  return `${selectedCopy}${routingExplanation(metadata.routing_source)} Nothing changed until you approve it.`
 }
 
 function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind) {
@@ -6018,9 +6079,12 @@ function CurrentMonthActivityPanel({
   error: string | null
 }) {
   const month = plan.months[currentMonthIndex]
+  const visibleSpendingReport = spendingReport?.start_on === month?.starts_on && spendingReport?.end_on === month?.ends_on
+    ? spendingReport
+    : null
   const positions = useMemo(
-    () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
-    [currentMonthIndex, plan, spendingReport],
+    () => budgetPositionsForMonth(plan, currentMonthIndex, visibleSpendingReport),
+    [currentMonthIndex, plan, visibleSpendingReport],
   )
   const totalPending = budgetPositionTotals(positions).pending
 
@@ -6039,7 +6103,7 @@ function CurrentMonthActivityPanel({
         title="Every category, ordered by pressure"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
-      {spendingReport && <SpendingReportLedger report={spendingReport} />}
+      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} />}
     </section>
   )
 }
@@ -6463,7 +6527,7 @@ function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
         <div>
           <p className="eyebrow">Look ahead</p>
           <h4 id="annual-outlook-title">See the expensive months before they arrive.</h4>
-          <p>Income, planned outflow, and baseline surplus use the exact schedule for each month.</p>
+          <p>Total planned outflow combines editable categories with required debt minimums for each month.</p>
         </div>
         <span>{currency.format(outlook.typical_monthly_outflow)} typical planned month</span>
       </div>
@@ -6552,10 +6616,10 @@ function AnnualBudgetPlanner({
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
-  const annualPlanned = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
-  const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
+  const annualCategoryPlan = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
+  const annualDebtMinimums = plan.monthly_debt_minimums * plan.months.length
+  const annualPlannedOutflow = annualCategoryPlan + annualDebtMinimums
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
-  const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
   const currentPositions = useMemo(
     () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
     [currentMonthIndex, plan, spendingReport],
@@ -6878,11 +6942,11 @@ function AnnualBudgetPlanner({
         </section>
       )}
 
-      <div className="annual-budget-summary" aria-label="Annual budget summary">
-        <span><small>Annual planned</small><strong>{currency.format(annualPlanned)}</strong></span>
-        <span><small>Annual actual</small><strong>{currency.format(annualActual)}</strong></span>
-        <span><small>{currentMonth?.label ?? 'Month'} planned</small><strong>{currency.format(currentPlanned)}</strong></span>
-        <span><small>{currentMonth?.label ?? 'Month'} actual</small><strong>{currency.format(currentActual)}</strong></span>
+      <div className="annual-budget-summary" aria-label="Annual money out breakdown">
+        <span><small>Annual category plan</small><strong>{currency.format(annualCategoryPlan)}</strong></span>
+        <span><small>Annual debt minimums</small><strong>{currency.format(annualDebtMinimums)}</strong></span>
+        <span><small>Total annual money out</small><strong>{currency.format(annualPlannedOutflow)}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{currency.format(currentPlanned + plan.monthly_debt_minimums)}</strong></span>
       </div>
 
       <div className="budget-operating-cockpit">
@@ -6892,6 +6956,7 @@ function AnnualBudgetPlanner({
           planned={currentPositionTotals.planned}
           actual={currentPositionTotals.actual}
           pending={currentPositionTotals.pending}
+          debtMinimums={plan.monthly_debt_minimums}
         />
         <ExpenseStackOverview positions={currentPositions} />
       </div>

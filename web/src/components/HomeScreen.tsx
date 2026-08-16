@@ -67,6 +67,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           pending={currentTotals.pending}
           safeToSpend={dashboard.summary.next_safe_to_spend_amount}
           baselineSurplus={budget.baseline_surplus}
+          debtMinimums={currentPlan?.monthly_debt_minimums ?? dashboard.summary.debt_payments}
         />
       </section>
 
