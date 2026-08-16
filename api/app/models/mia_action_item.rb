@@ -1,5 +1,8 @@
 class MiaActionItem < ApplicationRecord
-  ACTION_TYPES = %w[create_category update_category update_allocation archive_category restore_category].freeze
+  ACTION_TYPES = %w[
+    create_category update_category update_allocation archive_category restore_category
+    update_setup_value upsert_income_schedule_entry
+  ].freeze
 
   belongs_to :mia_action_draft, inverse_of: :mia_action_items
 

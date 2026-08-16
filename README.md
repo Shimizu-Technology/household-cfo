@@ -96,7 +96,7 @@ Real-world response prompts live in `api/test/evals/mia_eval_cases.yml`. Multi-t
 
 ## Next product direction
 
-The participant experience now includes supervised Mia actions, effective-dated annual income planning, unified document routing, and a review-first financial cockpit. After Mrs. Mel's August 8 meeting, the current sequence is:
+The participant experience now includes chat-primary supervised Mia actions across household numbers, future income, and budget plans; effective-dated annual income planning; unified document routing; and a review-first financial cockpit. Every conversational write remains a typed draft until participant approval, revalidates at apply time, and keeps the manual My Profile and Budget paths available. After Mrs. Mel's August 8 meeting, the current sequence is:
 
 1. Run a focused four-person, dialogue-first validation before FinCon: five essentials, one useful Mia conversation, and explicit review before any write.
 2. Production-prove both Ask Mia and My Profile uploads with demo-safe spreadsheets and images on real phones; treat the reported unreadable-file path as a release blocker.

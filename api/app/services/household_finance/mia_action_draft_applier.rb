@@ -51,6 +51,10 @@ module HouseholdFinance
         apply_archive_category!(item)
       when "restore_category"
         apply_restore_category!(item)
+      when "update_setup_value"
+        apply_setup_value!(item)
+      when "upsert_income_schedule_entry"
+        apply_income_schedule_entry!(item)
       else
         raise ArgumentError, "Unsupported Mia action item"
       end
@@ -153,6 +157,60 @@ module HouseholdFinance
       manager.restore_category!(category)
     end
 
+    def apply_setup_value!(item)
+      payload = item.payload.deep_symbolize_keys
+      key = payload.fetch(:key).to_sym
+      unless MiaActionDraftHouseholdCommands::SETUP_KEYS.include?(key)
+        raise ArgumentError, "Unsupported household setup field"
+      end
+
+      before = item.before_snapshot.deep_symbolize_keys.fetch(:value)
+      current = DataPresenter.new(household, user: user).setup_values.fetch(key)
+      unless comparable_setup_value(key, current) == comparable_setup_value(key, before)
+        raise StaleDraftError, "Household numbers changed since Mia prepared this review. Ask Mia to draft a fresh update."
+      end
+
+      SetupUpdater.new(household, key => payload.fetch(:value)).call
+    end
+
+    def apply_income_schedule_entry!(item)
+      payload = item.payload.deep_symbolize_keys
+      before = item.before_snapshot.deep_symbolize_keys
+      source = household.income_sources.where(active: true).lock.find(payload.fetch(:income_source_id))
+      if source.label != payload.fetch(:income_source_label)
+        raise StaleDraftError, "The income source changed since Mia prepared this review. Ask Mia to draft a fresh update."
+      end
+
+      effective_on = Date.iso8601(payload.fetch(:effective_on)).beginning_of_month
+      entry_type = payload.fetch(:entry_type)
+      entry_id = payload[:entry_id].to_i
+      entry = entry_id.positive? ? source.income_schedule_entries.lock.find(entry_id) : nil
+      if entry
+        unless entry.effective_on == effective_on && entry.amount_cents == before[:amount_cents].to_i && entry.cadence == before[:cadence]
+          raise StaleDraftError, "The income timeline changed since Mia prepared this review. Ask Mia to draft a fresh update."
+        end
+      elsif entry_type == "recurring_change" && source.income_schedule_entries.lock.exists?(effective_on: effective_on)
+        raise StaleDraftError, "An income change now exists for that month. Ask Mia to draft a fresh update."
+      end
+
+      attributes = {
+        entry_type: entry_type,
+        label: payload[:label].to_s.squish.presence,
+        amount_cents: payload.fetch(:amount_cents).to_i,
+        cadence: payload.fetch(:cadence),
+        effective_on: effective_on
+      }
+      entry ? entry.update!(attributes) : source.income_schedule_entries.create!(attributes)
+    rescue Date::Error
+      raise ArgumentError, "Income schedule date must be valid"
+    end
+
+    def comparable_setup_value(key, value)
+      return value.to_f if MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(key) || key == :target_runway_months
+
+      value.to_s.squish
+    end
+
     def ensure_category_still_matches!(category, before)
       return if before.blank?
       return if category.name == before[:name] && category.stack_key == before[:stack_key] && category.active == before[:active]
@@ -187,6 +245,7 @@ module HouseholdFinance
         occurred_at: Time.current,
         metadata: {
           draft_id: draft.id,
+          draft_type: draft.draft_type,
           title: draft.title,
           item_count: draft.mia_action_items.size,
           items: draft.mia_action_items.map do |item|

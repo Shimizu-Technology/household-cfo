@@ -394,7 +394,7 @@ module HouseholdFinance
 
     def pending_mia_action_drafts_payload(budget_year)
       household.mia_action_drafts.pending.includes(:mia_action_items)
-        .where(year: budget_year.year, draft_type: "budget_edit")
+        .where(year: budget_year.year)
         .recent_first
         .limit(10)
         .map { |draft| MiaActionDraftPresenter.new(draft).call }

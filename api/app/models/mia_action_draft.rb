@@ -1,6 +1,6 @@
 class MiaActionDraft < ApplicationRecord
   STATUSES = %w[pending applied canceled].freeze
-  DRAFT_TYPES = %w[budget_edit].freeze
+  DRAFT_TYPES = %w[budget_edit household_setup income_schedule].freeze
 
   belongs_to :household
   belongs_to :requested_by_user, class_name: "User"

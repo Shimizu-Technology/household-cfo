@@ -32,12 +32,16 @@ module HouseholdFinance
         archived_categories: Array(annual_plan[:archived_categories]).first(MAX_CATEGORIES),
         pending_budget_reviews: pending_budget_reviews,
         pending_transaction_reviews: pending_transaction_reviews,
+        approved_household_setup: approved_household_setup,
+        income_sources: income_sources,
         supported_budget_actions: %w[
           set_allocation increase_allocation decrease_allocation move_allocation
           create_category rename_category reclassify_category archive_category
           restore_category review_pending_action
         ],
         supported_transaction_draft_actions: %w[create_transaction_draft update_transaction_draft ignore_transaction_drafts],
+        supported_household_actions: %w[update_household_setup schedule_income_change review_pending_action],
+        supported_household_setup_fields: MiaActionDraftHouseholdCommands::SETUP_KEYS.map(&:to_s),
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
       }
     end
@@ -116,6 +120,34 @@ module HouseholdFinance
             end
           }.compact
         end
+    end
+
+    def approved_household_setup
+      DataPresenter.new(household).setup_values.slice(*MiaActionDraftHouseholdCommands::SETUP_KEYS).transform_values do |value|
+        value.is_a?(String) ? bounded(value, 500) : value
+      end
+    end
+
+    def income_sources
+      household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).map do |source|
+        {
+          id: source.id,
+          label: bounded(source.label, 120),
+          source_type: source.source_type,
+          base_amount: Money.dollars(source.amount_cents),
+          base_cadence: source.cadence,
+          current_monthly_amount: Money.dollars(IncomeTimeline.recurring_monthly_cents(source, on: Date.current)),
+          schedule_entries: source.income_schedule_entries.sort_by(&:effective_on).last(12).map do |entry|
+            {
+              id: entry.id,
+              entry_type: entry.entry_type,
+              amount: Money.dollars(entry.amount_cents),
+              cadence: entry.cadence,
+              effective_on: entry.effective_on.iso8601
+            }
+          end
+        }
+      end
     end
 
     def bounded(value, limit)

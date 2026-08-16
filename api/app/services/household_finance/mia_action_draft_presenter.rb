@@ -17,6 +17,7 @@ module HouseholdFinance
         created_at: draft.created_at&.iso8601,
         applied_at: draft.applied_at&.iso8601,
         canceled_at: draft.canceled_at&.iso8601,
+        impact: draft.metadata.to_h["impact"],
         items: action_items
       }
     end

@@ -125,6 +125,11 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+const MIA_UPDATE_EXAMPLES = [
+  'My take-home pay is now $6,200 a month.',
+  'My credit card balance is $3,100 and my monthly minimum is $175.',
+  'Set Dining Out to $250 per month beginning next month.',
+]
 
 function mergeLatestMiaMessages(current: MiaMessage[], latestPage: MiaMessage[]) {
   const firstLatestServerId = latestPage.find((message) => message.id)?.id
@@ -812,6 +817,17 @@ function App() {
     if (section !== activeSection) {
       window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
     }
+  }
+
+  function prepareMiaUpdate(prompt: string) {
+    setQuestion(prompt)
+    setMiaError(null)
+    setVoiceNotice(null)
+    requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+  }
+
+  function openManualControls(draft: MiaActionDraft) {
+    switchSection(draft.draft_type === 'household_setup' ? 'My Profile' : 'Budget')
   }
 
   function startManualFirstSession() {
@@ -1831,7 +1847,7 @@ function App() {
           )}
           {(!compactShell || activeSection !== 'Ask Mia') && (
             <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
-              {compactShell ? 'Open Mia' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Ask Mia for the CFO read'}
+              {compactShell ? 'Open Mia' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Tell Mia what changed'}
             </button>
           )}
         </aside>
@@ -1862,8 +1878,8 @@ function App() {
         <section className="screen-grid mia-screen">
           <ScreenHeading
             eyebrow="Ask Mia"
-            title="Ask Mia for the CFO read."
-            copy="Mia uses your approved household context so you can make the next call with the actual numbers in front of you."
+            title="Tell Mia what changed."
+            copy="Update income, savings, debt, goals, or the plan in plain language. Mia prepares a review; you approve before anything changes."
           />
 
           <div className="mia-layout">
@@ -1906,7 +1922,7 @@ function App() {
                 <span className="message-avatar" aria-hidden="true">M</span>
                 <div className="chat-shell-copy">
                   <h3>Ask Mia</h3>
-                  <p>Plain-English coaching while you stay the CFO.</p>
+                  <p>Talk it through or update the plan while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
@@ -1924,6 +1940,21 @@ function App() {
                   >
                     {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
                   </button>
+                </div>
+              </div>
+
+              <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
+                <div>
+                  <span className="eyebrow">Fastest way to update your plan</span>
+                  <strong id="mia-update-guide-title">Say what changed in your own words.</strong>
+                  <small>Mia will show you a review card. Nothing changes until you tap Apply.</small>
+                </div>
+                <div className="mia-update-examples" aria-label="Example updates for Mia">
+                  {MIA_UPDATE_EXAMPLES.map((prompt) => (
+                    <button type="button" key={prompt} onClick={() => prepareMiaUpdate(prompt)} disabled={miaLoading}>
+                      {prompt}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1979,6 +2010,7 @@ function App() {
                   compact
                   onApply={handleApplyMiaActionDraft}
                   onCancel={handleCancelMiaActionDraft}
+                  onEditManually={openManualControls}
                 />
               )}
 
@@ -2058,7 +2090,7 @@ function App() {
                   onKeyDown={handleAskMiaKeyDown}
                   onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Ask Mia or attach evidence...'}
+                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Tell Mia what changed, ask a question, or attach evidence...'}
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
@@ -2213,6 +2245,7 @@ function App() {
               onRestoreCategory={handleRestoreBudgetCategory}
               onApplyMiaActionDraft={handleApplyMiaActionDraft}
               onCancelMiaActionDraft={handleCancelMiaActionDraft}
+              onOpenManualMiaAction={openManualControls}
               onUpdateDraft={handleUpdateTransactionDraft}
               onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
@@ -2647,8 +2680,8 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
         </header>
         <ol className="pilot-guide-steps">
           <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Blank money fields count as $0; you can refine everything later.</p></div></li>
-          <li><span>2</span><div><strong>Start with one real question.</strong><p>Save and send the prepared question about your income, spending, and goal. Mia should answer from the context you just approved.</p></div></li>
-          <li><span>3</span><div><strong>Let Mia draft the next change.</strong><p>Ask her to create or adjust a category, then review the group, amount, and month scope before you apply it. Pending drafts change nothing by themselves.</p></div></li>
+          <li><span>2</span><div><strong>Tell Mia what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Mia can also coach from the context you approved.</p></div></li>
+          <li><span>3</span><div><strong>Review before applying.</strong><p>Mia can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
         </ol>
         <div className="pilot-guide-power-path">
           <strong>Optional upload check</strong>
@@ -5403,6 +5436,7 @@ function MiaActionDraftReviewStack({
   disabledReason,
   onApply,
   onCancel,
+  onEditManually,
 }: {
   drafts: MiaActionDraft[]
   isRealWorkspace: boolean
@@ -5412,13 +5446,14 @@ function MiaActionDraftReviewStack({
   disabledReason?: string
   onApply: (draft: MiaActionDraft) => void
   onCancel: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft) => void
 }) {
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
       <div>
         <p className="eyebrow">Review before applying</p>
-        <h4>Mia drafted budget edits for your approval</h4>
-        {compact && <p>Apply only if the planned-dollar changes are right. Actual spending does not change from these drafts.</p>}
+        <h4>Mia prepared changes for your approval</h4>
+        {compact && <p>Check the before and after. Nothing changes until you explicitly apply a review card.</p>}
         {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
       </div>
       {drafts.map((draft) => (
@@ -5430,6 +5465,7 @@ function MiaActionDraftReviewStack({
           draftActionsDisabled={draftActionsDisabled}
           onApply={onApply}
           onCancel={onCancel}
+          onEditManually={onEditManually}
         />
       ))}
     </div>
@@ -5443,6 +5479,7 @@ function MiaActionDraftReviewCard({
   draftActionsDisabled,
   onApply,
   onCancel,
+  onEditManually,
 }: {
   draft: MiaActionDraft
   isRealWorkspace: boolean
@@ -5450,6 +5487,7 @@ function MiaActionDraftReviewCard({
   draftActionsDisabled: boolean
   onApply: (draft: MiaActionDraft) => void
   onCancel: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft) => void
 }) {
   const isPending = draft.status === 'pending'
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
@@ -5459,7 +5497,10 @@ function MiaActionDraftReviewCard({
       <div className="mia-action-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.title}</strong>
-          <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+          <div className="mia-action-draft-labels">
+            <span className="document-status">{miaActionDraftTypeLabel(draft.draft_type)}</span>
+            <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+          </div>
         </div>
         <p>{draft.summary}</p>
         {draft.rationale && <p>{draft.rationale}</p>}
@@ -5472,24 +5513,61 @@ function MiaActionDraftReviewCard({
             </div>
           ))}
         </div>
-        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft again when you apply it, save a record of the change, and leave actual spending untouched.</small>
+        {draft.impact && <MiaActionImpact impact={draft.impact} />}
+        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft against your latest saved data when you apply it, keep an audit record, and leave actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">
           <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
-            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply budget edit'}
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply reviewed change'}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
             {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
           </button>
+          {onEditManually && (
+            <button type="button" className="secondary-button" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft)}>
+              Open manual controls
+            </button>
+          )}
         </div>
       ) : (
         <div className="mia-action-draft-actions terminal">
-          <span>{draft.status === 'applied' ? 'Applied to planned budget. Actuals did not change.' : 'Canceled. No budget numbers changed.'}</span>
+          <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : 'Canceled. No household numbers changed.'}</span>
         </div>
       )}
     </div>
   )
+}
+
+function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impact']> }) {
+  const rows = [
+    ['Monthly income', impact.before_monthly_income, impact.after_monthly_income],
+    ['Monthly outflow', impact.before_monthly_outflow, impact.after_monthly_outflow],
+    ['Baseline surplus', impact.before_baseline_surplus, impact.after_baseline_surplus],
+  ] as const
+
+  return (
+    <section className="mia-action-impact" aria-label={`${impact.scope ?? 'Monthly plan'} impact`}>
+      <div className="mia-action-impact-heading">
+        <strong>{impact.scope ?? 'Monthly plan'} impact</strong>
+        <span aria-hidden="true">Before → After</span>
+      </div>
+      <div className="mia-action-impact-grid">
+        {rows.map(([label, before, after]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{currency.format(before ?? 0)} <b aria-hidden="true">→</b> {currency.format(after ?? 0)}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
+  if (draftType === 'household_setup') return 'Household numbers'
+  if (draftType === 'income_schedule') return 'Income timeline'
+  return 'Budget plan'
 }
 
 function miaActionDraftRenderKey(draft: MiaActionDraft) {
@@ -6577,6 +6655,7 @@ function AnnualBudgetPlanner({
   onRestoreCategory,
   onApplyMiaActionDraft,
   onCancelMiaActionDraft,
+  onOpenManualMiaAction,
   onUpdateDraft,
   onMatchDraft,
   onConfirmDraft,
@@ -6605,6 +6684,7 @@ function AnnualBudgetPlanner({
   onRestoreCategory: (categoryId: number) => void
   onApplyMiaActionDraft: (draft: MiaActionDraft) => void
   onCancelMiaActionDraft: (draft: MiaActionDraft) => void
+  onOpenManualMiaAction: (draft: MiaActionDraft) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
@@ -6970,6 +7050,7 @@ function AnnualBudgetPlanner({
           draftActionsDisabled={isEditingBudget}
           onApply={onApplyMiaActionDraft}
           onCancel={onCancelMiaActionDraft}
+          onEditManually={onOpenManualMiaAction}
         />
       )}
 

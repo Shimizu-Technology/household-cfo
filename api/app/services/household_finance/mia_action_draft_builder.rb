@@ -1,6 +1,7 @@
 module HouseholdFinance
   class MiaActionDraftBuilder
     include MiaActionDraftStructuredCommands
+    include MiaActionDraftHouseholdCommands
 
     MONEY_PATTERN = /\$?\s*\d[\d,]*(?:\.\d{1,2})?/.freeze
     ACTION_TERMS = /\b(set|change|update|adjust|make|increase|raise|decrease|lower|reduce|move|transfer|shift|add|create|rename|reclassify|recategorize|archive|delete|remove|restore)\b/i
@@ -12,12 +13,13 @@ module HouseholdFinance
     Item = Struct.new(:action_type, :label, :description, :payload, :before_snapshot, :after_snapshot, :target_record_type, :target_record_id, keyword_init: true)
 
     class Proposal
-      attr_reader :household, :user, :year, :title, :summary, :rationale, :source_prompt, :items, :metadata
+      attr_reader :household, :user, :year, :draft_type, :title, :summary, :rationale, :source_prompt, :items, :metadata
 
-      def initialize(household:, user:, year:, title:, summary:, rationale:, source_prompt:, items:, metadata: {})
+      def initialize(household:, user:, year:, title:, summary:, rationale:, source_prompt:, items:, metadata: {}, draft_type: "budget_edit")
         @household = household
         @user = user
         @year = year
+        @draft_type = draft_type
         @title = title
         @summary = summary
         @rationale = rationale
@@ -32,7 +34,7 @@ module HouseholdFinance
             requested_by_user: user,
             source_chat_message: source_chat_message,
             assistant_chat_message: assistant_chat_message,
-            draft_type: "budget_edit",
+            draft_type: draft_type,
             status: "pending",
             year: year,
             title: title,
@@ -411,11 +413,12 @@ module HouseholdFinance
       nil
     end
 
-    def proposal_result(title:, summary:, rationale:, items:, metadata: {})
+    def proposal_result(title:, summary:, rationale:, items:, metadata: {}, draft_type: "budget_edit", year: annual_budget_manager.year)
       proposal = Proposal.new(
         household: household,
         user: user,
-        year: annual_budget_manager.year,
+        year: year,
+        draft_type: draft_type,
         title: title,
         summary: summary,
         rationale: rationale,
@@ -426,8 +429,17 @@ module HouseholdFinance
       Result.new(
         proposal: proposal,
         annual_plan: annual_plan,
-        response: "#{summary} Review the draft card before applying it. Nothing changed in the official budget yet."
+        response: proposal_response(summary, draft_type)
       )
+    end
+
+    def proposal_response(summary, draft_type)
+      unchanged = case draft_type
+      when "budget_edit" then "Nothing changed in the official budget yet."
+      when "income_schedule" then "Nothing changed in your income timeline yet."
+      else "Nothing changed in your approved household numbers yet."
+      end
+      "#{summary} Review the draft card before applying it. #{unchanged}"
     end
 
     def validation_result(response)
