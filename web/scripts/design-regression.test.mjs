@@ -21,7 +21,9 @@ assert.ok(
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
-assert.ok(app.includes('<h1>Household CFO Method</h1>'), 'top-level copy should lead with the Household CFO Method product name')
+assert.ok(app.includes("compactShell ? 'Household CFO' : 'Household CFO Method'"), 'Home should lead with the full product name while task screens use the compact name')
+assert.ok(app.includes('chat-prompts-cue') && app.includes('More prompts →'), 'Mia prompts should disclose horizontal choices')
+assert.ok(css.includes('.shell-header.is-compact'), 'non-Home tasks should use a compact application shell')
 assert.ok(app.includes('Run your home like the C-Suite'), 'hero copy should use Mrs. Mel’s transformation language')
 for (const rejectedCopy of [
   'Mia, your household CFO.',

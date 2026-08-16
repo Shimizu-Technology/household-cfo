@@ -335,6 +335,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.goto('/')
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Why is my readiness Red?' })).toBeVisible()
+  await expect(page.getByText('More prompts →')).toBeVisible()
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
@@ -425,6 +426,8 @@ test('participant navigation remains available after deep scrolling', async ({ p
   expect(top).toBe(0)
   await page.getByRole('button', { name: 'Home', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+  await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
+  await expect(page.locator('.shell-header')).not.toHaveClass(/is-compact/)
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
@@ -455,6 +458,9 @@ test('compact phone layouts keep the status card legible and expose horizontal n
   expect((headingBox?.y ?? 0) + (headingBox?.height ?? 0)).toBeLessThanOrEqual((copyBox?.y ?? 0) + 1)
   await expect(page.getByText('Swipe for more →')).toBeVisible()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
+  await expect(page.getByText('More prompts →')).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -521,13 +527,66 @@ test('incomplete participants get a short first session, private feedback, and a
     flexible_spend: 600,
     business_income: 0,
   })
-  await expect(page.getByText('Your CFO workspace is ready', { exact: true })).toBeVisible()
+  await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
   await expect(page.getByRole('heading', { name: 'Ask Mia for the CFO read.' })).toBeVisible()
   const miaComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
   await expect(miaComposer).toBeFocused()
 
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  const advancedProfile = page.locator('.setup-optional-fields')
+  await expect(advancedProfile).toHaveCount(1)
+  expect(await advancedProfile.evaluate((element: HTMLDetailsElement) => element.open)).toBe(false)
+
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {
+  const ignoredImport = {
+    id: 404,
+    household_id: 77,
+    document_kind: 'statement',
+    status: 'applied',
+    filename: 'ignored-statement.pdf',
+    content_type: 'application/pdf',
+    byte_size: 100,
+    document_date: `${currentYear}-08-01`,
+    period_start_on: `${currentYear}-08-01`,
+    period_end_on: `${currentYear}-08-31`,
+    extracted_summary: 'One transaction was extracted and ignored.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: `${currentYear}-08-16T01:05:00Z`,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:05:00Z`,
+    source_available: true,
+    details_included: false,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [{
+      id: 405,
+      occurred_on: `${currentYear}-08-05`,
+      merchant: 'Ignored purchase',
+      amount: 20,
+      status: 'ignored',
+      category_id: null,
+      category_name: null,
+    }],
+    attempts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [ignoredImport] } }))
+  await page.goto('/?pilot_e2e_role=participant')
+
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await expect(page.getByText('No approved document sources yet. Mia will use manual numbers until you apply extracted values.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await expect(page.getByText('Approved source', { exact: true }).locator('..')).toContainText('Not approved yet')
+  await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
 })
 
 test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {

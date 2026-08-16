@@ -9,10 +9,10 @@ This short guide is for the focused four-person Household CFO validation before 
 3. In the focused kickoff, enter your household name, primary goal, monthly income, fixed essentials, and flexible spending. Estimates are okay. A blank money field is treated as $0 when you save.
 4. Choose **Save and talk to Mia**. The app takes you directly to **Ask Mia** with this editable starter question: “Based on my income, spending, and goal, what should I focus on first this month?”
 5. Send the starter question and confirm Mia answers from the numbers and goal you just saved.
-6. Create your first category through Mia. Type: **Create a School Supplies category under Sinking Fund — Expected and plan $75 every month.**
-7. Review the proposed action card. Confirm the category, Expense Stack group, amount, and all-12-month scope. Nothing should change before you choose **Apply**.
+6. Create your first category through Mia. Type: **Create a School Supplies category under Sinking Fund — Expected and plan $75 every month.** You should not need to supply a year; Mia uses the budget year currently open in the workspace.
+7. Review the proposed action card. Confirm the category, Expense Stack group, amount, current budget year, and all-12-month scope. Nothing should change before you choose **Apply**.
 8. Choose **Apply**, then open **Budget** and confirm School Supplies appears under **Sinking Fund — Expected** with $75 planned in every month.
-9. Return to **My Profile** later if you want to add savings, debt, business income, documents, or other details. Direct Budget editing remains available as a manual fallback, not the required first-session path.
+9. Return to **My Profile** later if you want to add savings, debt, business income, documents, or other details. The advanced fields stay collapsed until you choose **Add details for a stronger CFO read**. Direct Budget editing remains available as a manual fallback, not the required first-session path.
 
 ## Budget simplicity and manual fallback
 
@@ -26,6 +26,8 @@ The default **Budget** screen should show the selected month's money in, money o
 6. Open **Manage manually** again and choose **Schedule income**. Confirm the existing income timeline and exact scheduling controls appear in the same focused manager.
 7. Close the manual tools. Open **Monthly activity and transactions** only when you need category pressure or the confirmed ledger.
 
+When you switch among Home, Ask Mia, My Profile, Budget, and the other tabs, the destination should begin at the top. On every screen except Home, the Household CFO header should remain compact so the current task is visible without scrolling past the full introduction.
+
 Nothing pending changes your approved household numbers. A transaction or budget change takes effect only after you review and confirm or apply it.
 
 ## Optional upload check
@@ -34,10 +36,12 @@ Uploads are not required to have a useful first Mia conversation. They are an im
 
 1. Use a demo-safe file with no real account or card numbers. From **Home**, choose **Test a private upload**, or attach it in **Ask Mia**.
 2. Upload one supported budget spreadsheet, statement, receipt, screenshot, or pay stub. A Google Drive link is not a file upload; download the file to the device first, then select it in Household CFO.
-3. Wait for its review screen and correct anything interpreted incorrectly before applying it.
+3. Wait for its review screen. Extracted profile values begin unselected: review, correct, and explicitly check only the values you want before applying them.
 4. Add files one at a time while learning the review flow. A statement or receipt can create transaction drafts; review possible matches so a purchase is not counted twice.
 5. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls. Removing a source file and deleting an import are separate actions.
 6. If either upload entry point fails or says it could not read the file, stop and submit **Report a problem** with the file type and workflow—but no document contents or financial values.
+
+Ignoring every extracted transaction does not make that document an approved source. Until at least one value is applied or one transaction is confirmed, My Profile should say **Not approved yet** and **Review pending**, and Mia should continue to say that no approved document source exists.
 
 ## Typed and voice Mia
 
@@ -63,6 +67,7 @@ Try these on both a computer and your phone when practical:
 - Confirm zero-value money fields are blank while editing, accept the first digit without producing a leading zero, and save a blank as $0.
 - Save the five setup essentials and confirm the advanced profile and upload areas stay out of the kickoff.
 - Send the prefilled “Based on my income, spending, and goal…” question.
+- On a phone, confirm **More prompts →** makes it clear that Mia's suggested questions can be swiped horizontally.
 - Ask Mia to create School Supplies under Sinking Fund — Expected for $75 every month; apply the review card, then verify all 12 months in Budget.
 - Confirm Budget defaults to the simple overview; test the Mia CTA and each focused **Manage manually** task without scrolling to discover its controls.
 - Create one typed or voice transaction draft and confirm or ignore it.

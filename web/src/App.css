@@ -545,6 +545,42 @@ textarea:focus-visible {
   box-shadow: 0 22px 70px rgba(47, 38, 28, 0.12);
 }
 
+.shell-header.is-compact {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 16px 20px;
+  border-radius: 22px;
+  box-shadow: 0 12px 34px rgba(47, 38, 28, 0.09);
+}
+
+.shell-header.is-compact h1 {
+  margin: 0;
+  font-size: clamp(2rem, 4vw, 3rem);
+  line-height: 1;
+}
+
+.shell-header.is-compact .eyebrow {
+  margin-bottom: 4px;
+}
+
+.shell-header.is-compact .hero-copy,
+.shell-header.is-compact .mia-status-card p {
+  display: none;
+}
+
+.shell-header.is-compact .mia-status-card {
+  grid-template-columns: auto minmax(92px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  min-width: min(430px, 48vw);
+  padding: 9px 10px;
+  box-shadow: none;
+}
+
+.shell-header.is-compact .mia-status-card button {
+  white-space: nowrap;
+}
+
 .hero-panel {
   display: block;
   max-width: 720px;
@@ -2640,6 +2676,48 @@ h3 {
     box-shadow: 0 14px 38px rgba(47, 38, 28, 0.1);
   }
 
+  .shell-header.is-compact {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 18px;
+  }
+
+  .shell-header.is-compact h1 {
+    font-size: 1.72rem;
+  }
+
+  .shell-header.is-compact .eyebrow {
+    max-width: 170px;
+    font-size: 0.56rem;
+  }
+
+  .shell-header.is-compact .mia-status-card {
+    display: flex;
+    min-width: 0;
+    padding: 0;
+    background: transparent;
+  }
+
+  .shell-header.is-compact .mia-status-card .spark,
+  .shell-header.is-compact .mia-status-card strong {
+    display: none;
+  }
+
+  .shell-header.is-compact .account-pill {
+    width: auto;
+    padding: 4px;
+    border-color: rgba(123, 74, 88, 0.16);
+    background: rgba(123, 74, 88, 0.08);
+  }
+
+  .shell-header.is-compact .mia-status-card button {
+    width: auto;
+    min-height: 36px;
+    margin: 0;
+    padding: 8px 11px;
+  }
+
   .hero-copy {
     display: -webkit-box;
     margin-bottom: 0;
@@ -4360,6 +4438,22 @@ h3 {
   -webkit-overflow-scrolling: touch;
 }
 
+.chat-prompts-shell {
+  flex: 0 0 auto;
+  background: #fffdf8;
+}
+
+.chat-prompts-cue {
+  display: block;
+  padding: 0 20px 9px;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: right;
+  text-transform: uppercase;
+}
+
 .chat-prompts::-webkit-scrollbar {
   display: none;
 }
@@ -4990,6 +5084,10 @@ h3 {
 
   .chat-prompts {
     padding: 0 14px 10px;
+  }
+
+  .chat-prompts-cue {
+    padding: 0 14px 9px;
   }
 
   .chat-prompts button {

@@ -337,6 +337,7 @@ function App() {
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
   const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
+  const compactShell = activeSection !== 'Home'
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
@@ -795,6 +796,9 @@ function App() {
     if (section !== 'Ask Mia') setIsChatExpanded(false)
     if (section !== 'My Profile') setFirstSessionUploadOpen(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
+    if (section !== activeSection) {
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
+    }
   }
 
   function startManualFirstSession() {
@@ -1780,13 +1784,13 @@ function App() {
   return (
     <main className="app">
       <SeoManager section={activeSection} />
-      <header className="shell-header">
+      <header className={`shell-header${compactShell ? ' is-compact' : ''}`}>
         <ul className="sr-only" aria-label="Source-derived design requirements">
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
         </ul>
         <div>
           <p className="eyebrow">Household CFO Method powered by VERA</p>
-          <h1>Household CFO Method</h1>
+          <h1>{compactShell ? 'Household CFO' : 'Household CFO Method'}</h1>
           <p className="hero-copy">
             Run your home like the C-Suite — not the unpaid maintenance staff. Build the annual budget,
             track the running totals, and use Mia as your AI coach when the next money decision needs a CFO call.
@@ -1794,7 +1798,7 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>{isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia a useful starting point' : 'Your CFO workspace is ready'}</strong>
+          <strong>{compactShell ? 'Mia is ready' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia a useful starting point' : 'Your CFO workspace is ready'}</strong>
           <p>{isRealWorkspace && !data.workspace?.setup_complete
             ? 'Start with money in, money out, and one goal. Mia can help you make sense of the rest.'
             : `Mia can coach from your approved profile · ${data.dashboard.summary.readiness_label}`}</p>
@@ -1805,9 +1809,11 @@ function App() {
               {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
             </div>
           )}
-          <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
-            {isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Ask Mia for the CFO read'}
-          </button>
+          {(!compactShell || activeSection !== 'Ask Mia') && (
+            <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
+              {compactShell ? 'Open Mia' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Ask Mia for the CFO read'}
+            </button>
+          )}
         </aside>
       </header>
 
@@ -1901,12 +1907,15 @@ function App() {
                 </div>
               </div>
 
-              <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
-                {data.mia.quick_prompts.map((prompt) => (
-                  <button type="button" key={prompt} onClick={() => void handleAskMia(prompt)} disabled={miaLoading}>
-                    {prompt}
-                  </button>
-                ))}
+              <div className="chat-prompts-shell">
+                <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
+                  {data.mia.quick_prompts.map((prompt) => (
+                    <button type="button" key={prompt} onClick={() => void handleAskMia(prompt)} disabled={miaLoading}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+                <span className="chat-prompts-cue" aria-hidden="true">More prompts →</span>
               </div>
 
               <ChatHistory
@@ -2086,7 +2095,6 @@ function App() {
               onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
-              setupComplete={Boolean(data.workspace?.setup_complete)}
               firstSession={isFirstSessionSetup}
             />
           )}
@@ -2873,8 +2881,8 @@ function DocumentImportWorkspace({
       <div className="document-import-summary-row">
         <Metric label="Needs review" value={String(pendingCount)} />
         <Metric label="Total imports" value={String(imports.length)} />
-        <Metric label="Latest source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : 'None yet'} />
-        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : 'Manual'} />
+        <Metric label="Approved source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : imports.length > 0 ? 'Not approved yet' : 'None yet'} />
+        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : imports.length > 0 ? 'Review pending' : 'Manual'} />
       </div>
 
       <div className="document-import-guide">
@@ -4218,15 +4226,22 @@ function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
     .map((item) => item.id)
 }
 
+function importHasApprovedData(documentImport: FinancialDocumentImport) {
+  return documentImport.items.some((item) => Boolean(item.applied_at)) ||
+    documentImport.transaction_drafts.some((draft) => ['confirmed', 'corrected', 'matched'].includes(draft.status))
+}
+
 function latestAppliedImport(imports: FinancialDocumentImport[]) {
   return imports
-    .filter((documentImport) => documentImport.status === 'applied' || documentImport.status === 'partially_applied')
+    .filter((documentImport) =>
+      (documentImport.status === 'applied' || documentImport.status === 'partially_applied') && importHasApprovedData(documentImport),
+    )
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
 function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
   return imports
-    .filter((documentImport) => documentImport.status === 'applied')
+    .filter((documentImport) => documentImport.status === 'applied' && importHasApprovedData(documentImport))
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
@@ -5172,7 +5187,6 @@ function WorkspaceSetupForm({
   editing,
   saving,
   error,
-  setupComplete,
   firstSession,
   onBeginEdit,
   onCancel,
@@ -5184,7 +5198,6 @@ function WorkspaceSetupForm({
   editing: boolean
   saving: boolean
   error: string | null
-  setupComplete: boolean
   firstSession: boolean
   onBeginEdit: () => void
   onCancel: () => void
@@ -5233,7 +5246,7 @@ function WorkspaceSetupForm({
         </div>
       </fieldset>
 
-      {!firstSession && <details className="setup-optional-fields" open={setupComplete || undefined}>
+      {!firstSession && <details className="setup-optional-fields">
         <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, debt, and runway target</small></summary>
         <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
         <div className="setup-field-grid">
