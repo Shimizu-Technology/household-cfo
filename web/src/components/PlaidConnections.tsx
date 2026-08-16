@@ -14,27 +14,52 @@ import {
   type PlaidOverview,
   type PlaidTransaction,
 } from '../api'
+import {
+  clearPlaidOAuthSession,
+  completedPlaidOAuthUrl,
+  isPlaidOAuthReturn,
+  readPlaidOAuthSession,
+  savePlaidOAuthSession,
+} from '../lib/plaidOAuthSession'
 import './PlaidConnections.css'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
 type Props = {
+  userId: string
   onDraftsCreated: () => Promise<void> | void
 }
 
-export function PlaidConnections({ onDraftsCreated }: Props) {
+export function PlaidConnections({ userId, onDraftsCreated }: Props) {
+  const [oauthSession] = useState(() => readPlaidOAuthSession(userId))
+  const oauthReturn = isPlaidOAuthReturn(window.location.href)
+  const missingOAuthSession = oauthReturn && !oauthSession
+  const receivedRedirectUri = oauthReturn && oauthSession ? window.location.href : undefined
   const [overview, setOverview] = useState<PlaidOverview | null>(null)
   const [transactions, setTransactions] = useState<PlaidTransaction[]>([])
   const [transactionPage, setTransactionPage] = useState(1)
   const [hasMoreTransactions, setHasMoreTransactions] = useState(false)
   const [selected, setSelected] = useState<number[]>([])
   const [consent, setConsent] = useState(false)
-  const [linkToken, setLinkToken] = useState<string | null>(null)
-  const [updateItemId, setUpdateItemId] = useState<number | null>(null)
-  const [launchLink, setLaunchLink] = useState(false)
-  const [busy, setBusy] = useState<string | null>('loading')
-  const [error, setError] = useState<string | null>(null)
+  const [linkToken, setLinkToken] = useState<string | null>(oauthSession?.linkToken ?? null)
+  const [updateItemId, setUpdateItemId] = useState<number | null>(oauthSession?.updateItemId ?? null)
+  const [launchLink, setLaunchLink] = useState(Boolean(receivedRedirectUri))
+  const [busy, setBusy] = useState<string | null>(missingOAuthSession ? null : 'loading')
+  const [error, setError] = useState<string | null>(missingOAuthSession ? 'This bank sign-in return could not be resumed. Start the connection again from My Profile.' : null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  const finishOAuthSession = useCallback(() => {
+    clearPlaidOAuthSession(userId)
+    if (isPlaidOAuthReturn(window.location.href)) {
+      window.history.replaceState(null, '', completedPlaidOAuthUrl(window.location.href))
+    }
+  }, [userId])
+
+  useEffect(() => {
+    if (!missingOAuthSession) return
+
+    window.history.replaceState(null, '', completedPlaidOAuthUrl(window.location.href))
+  }, [missingOAuthSession])
 
   const refresh = useCallback(async () => {
     const [nextOverview, nextTransactionsPage] = await Promise.all([fetchPlaidOverview(), fetchPlaidTransactions()])
@@ -72,7 +97,7 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
     try {
       if (updateItemId) {
         await syncPlaidItem(updateItemId)
-        setNotice('Bank sign-in updated and transactions synced.')
+        setNotice('Bank sign-in updated. Transaction sync is running.')
       } else {
         await exchangePlaidPublicToken({
           public_token: publicToken,
@@ -82,24 +107,32 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
         setNotice('Bank connected. Synced expenses stay pending until you draft and approve them.')
       }
       await refresh()
+      if (updateItemId) window.setTimeout(() => void refresh(), 2_500)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not finish the bank connection.')
     } finally {
+      finishOAuthSession()
       setBusy(null)
       setLinkToken(null)
       setUpdateItemId(null)
       setLaunchLink(false)
     }
-  }, [refresh, updateItemId])
+  }, [finishOAuthSession, refresh, updateItemId])
 
-  const onExit = useCallback<PlaidLinkOnExit>(() => {
+  const onExit = useCallback<PlaidLinkOnExit>((linkError, metadata) => {
+    if (linkError) {
+      const message = linkError.display_message || 'The bank connection could not be completed.'
+      const reference = metadata.request_id ? ` Plaid reference: ${metadata.request_id}.` : ''
+      setError(`${message}${reference}`)
+    }
+    finishOAuthSession()
     setLinkToken(null)
     setUpdateItemId(null)
     setLaunchLink(false)
     setBusy(null)
-  }, [])
+  }, [finishOAuthSession])
 
-  const { open, ready } = usePlaidLink({ token: linkToken, onSuccess, onExit })
+  const { open, ready } = usePlaidLink({ token: linkToken, onSuccess, onExit, receivedRedirectUri })
   useEffect(() => {
     if (launchLink && ready) open()
   }, [launchLink, open, ready])
@@ -109,6 +142,7 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
     setError(null)
     try {
       const result = await createPlaidLinkToken(consent)
+      savePlaidOAuthSession({ userId, linkToken: result.link_token, updateItemId: null })
       setLinkToken(result.link_token)
       setLaunchLink(true)
       setBusy('link')
@@ -123,6 +157,7 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
     setError(null)
     try {
       const result = await createPlaidUpdateLinkToken(item.id)
+      savePlaidOAuthSession({ userId, linkToken: result.link_token, updateItemId: item.id })
       setUpdateItemId(item.id)
       setLinkToken(result.link_token)
       setLaunchLink(true)
@@ -254,7 +289,7 @@ export function PlaidConnections({ onDraftsCreated }: Props) {
               <div className="plaid-transaction-list">
                 {reviewable.map((transaction) => (
                   <label className={`plaid-transaction${transaction.pending ? ' is-pending' : ''}`} key={transaction.id}>
-                    <input type="checkbox" disabled={transaction.pending} checked={selected.includes(transaction.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, transaction.id] : current.filter((id) => id !== transaction.id))} />
+                    <input type="checkbox" disabled={!transaction.stageable} checked={selected.includes(transaction.id)} onChange={(event) => setSelected((current) => event.target.checked ? [...current, transaction.id] : current.filter((id) => id !== transaction.id))} />
                     <span className="plaid-transaction-copy"><strong>{transaction.merchant_name || transaction.name}</strong><small>{transaction.occurred_on} · {transaction.account_name}{transaction.pending ? ' · Pending' : transaction.direction === 'inflow' ? ' · Money in' : ''}</small></span>
                     <strong className={transaction.direction === 'inflow' ? 'positive' : ''}>{transaction.direction === 'inflow' ? '+' : ''}{money.format(Math.abs(transaction.amount_cents) / 100)}</strong>
                   </label>

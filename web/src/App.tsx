@@ -225,6 +225,7 @@ function App() {
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
   const [active, setActive] = useState(() => {
+    if (new URLSearchParams(window.location.search).has('oauth_state_id')) return 'My Profile'
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
     return allSections.includes(hashSection) ? hashSection : sections[0]
   })
@@ -1985,8 +1986,9 @@ function App() {
             />
           )}
 
-          {isRealWorkspace && (
+          {isRealWorkspace && auth.currentUser && (
             <PlaidConnections
+              userId={String(auth.currentUser.id)}
               onDraftsCreated={async () => {
                 const payload = await fetchAppData(true)
                 setData(payload)

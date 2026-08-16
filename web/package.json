@@ -8,7 +8,7 @@
     "prebuild": "node scripts/generate-seo-files.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node scripts/design-regression.test.mjs",
+    "test": "node scripts/design-regression.test.mjs && vitest run",
     "test:browser": "playwright test",
     "preview": "vite preview"
   },
@@ -35,6 +35,7 @@
     "globals": "^17.6.0",
     "typescript": "~6.0.2",
     "typescript-eslint": "^8.59.2",
-    "vite": "^8.0.12"
+    "vite": "^8.0.12",
+    "vitest": "^4.1.10"
   }
 }

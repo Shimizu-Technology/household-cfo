@@ -42,6 +42,7 @@ module ActiveSupport
         PLAID_SECRET
         PLAID_DATA_ENCRYPTION_KEY
         PLAID_WEBHOOK_URL
+        PLAID_REDIRECT_URI
       ].each { |key| ENV.delete(key) }
     end
   end

@@ -21,6 +21,10 @@ module PlaidIntegration
       def webhook_url
         ENV["PLAID_WEBHOOK_URL"].presence
       end
+
+      def redirect_uri
+        ENV["PLAID_REDIRECT_URI"].presence
+      end
     end
   end
 end
