@@ -101,6 +101,7 @@ module Api
             environment: item.environment,
             consented_at: item.consented_at,
             last_synced_at: item.last_synced_at,
+            health: PlaidIntegration::ItemHealth.new(item).as_json,
             error_message: item.error_message,
             disconnected_at: item.disconnected_at,
             auto_confirm_trusted_merchants: item.auto_confirm_trusted_merchants,

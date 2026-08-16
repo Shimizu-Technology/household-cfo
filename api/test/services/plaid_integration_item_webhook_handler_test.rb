@@ -47,8 +47,17 @@ class PlaidIntegrationItemWebhookHandlerTest < ActiveSupport::TestCase
   end
 
   test "deletes source data and requests update mode when an account permission is revoked" do
+    pending_draft = @household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Revoked source row",
+      total_amount_cents: 1_000,
+      source_type: "plaid",
+      status: "pending",
+      confidence: 0.8
+    )
     transaction = @item.plaid_transactions.create!(
       plaid_account: @account,
+      transaction_draft: pending_draft,
       plaid_transaction_id: "revoked-transaction",
       name: "Revoked source row",
       occurred_on: Date.current,
@@ -60,8 +69,20 @@ class PlaidIntegrationItemWebhookHandlerTest < ActiveSupport::TestCase
 
     refute PlaidAccount.exists?(@account.id)
     refute PlaidTransaction.exists?(transaction.id)
+    refute TransactionDraft.exists?(pending_draft.id)
     assert_equal "update_required", @item.reload.status
     assert_equal "USER_ACCOUNT_REVOKED", @item.error_code
+  end
+
+  test "preserves approved actuals and unrelated drafts when an account permission is revoked" do
+    approved_draft = @household.transaction_drafts.create!(occurred_on: Date.current, merchant: "Approved source", total_amount_cents: 2_000, source_type: "plaid", status: "confirmed", confidence: 1)
+    unrelated_draft = @household.transaction_drafts.create!(occurred_on: Date.current, merchant: "Other source", total_amount_cents: 3_000, source_type: "plaid", status: "pending", confidence: 0.8)
+    @item.plaid_transactions.create!(plaid_account: @account, transaction_draft: approved_draft, plaid_transaction_id: "approved-revoked-transaction", name: "Approved source", occurred_on: Date.current, amount_cents: 2_000, source_fingerprint: SecureRandom.hex(32))
+
+    call_handler("webhook_code" => "USER_ACCOUNT_REVOKED", "account_id" => @account.plaid_account_id)
+
+    assert TransactionDraft.exists?(approved_draft.id)
+    assert TransactionDraft.exists?(unrelated_draft.id)
   end
 
   test "requests update mode when Plaid detects new accounts" do

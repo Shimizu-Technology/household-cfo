@@ -77,6 +77,17 @@ Privacy defaults in code:
 - Session replay is enabled whenever analytics is enabled and masks all inputs/text.
 - Query strings and source document URLs are redacted before replay/network capture.
 
+## Plaid production approval and launch
+
+Use `docs/security/plaid-production-runbook.md` as the evidence record and `docs/security/plaid-sandbox-test-matrix.md` for pre-launch testing.
+
+1. Publish one Plaid Link customization with Data Transparency Messaging use case **Track and manage your finances**; set its exact name as `PLAID_LINK_CUSTOMIZATION_NAME`.
+2. Confirm every Plaid Dashboard team member shows 2FA **ON**. Clerk MFA is separate and does not satisfy Plaid Dashboard account security.
+3. Set `PLAID_ENV=production`, the Production secret, the independent 32-byte `PLAID_DATA_ENCRYPTION_KEY`, a public HTTPS `PLAID_WEBHOOK_URL` ending in `/api/plaid/webhook`, and the exact HTTPS `PLAID_REDIRECT_URI`. Production startup fails when this set is incomplete.
+4. Keep Transactions as the only requested Plaid product. Do not enable Auth, Identity, Transfer, Signal, or Payments for this launch.
+5. Confirm the scheduled queue owner is running once and the Admin bank-feed ledger shows current health.
+6. After Plaid approval, pilot with Leon's account only. Keep trusted-merchant auto-confirm off, verify balances and transaction lifecycle against the official bank portals, then expand access deliberately.
+
 ## PWA checks
 
 Run after deploy:

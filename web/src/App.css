@@ -1601,6 +1601,97 @@ h3 {
   margin-bottom: 0;
 }
 
+.admin-plaid-health {
+  gap: 16px;
+}
+
+.admin-plaid-health-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
+}
+
+.admin-plaid-health-summary span {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 7px 10px;
+  border-radius: 999px;
+  background: rgba(31, 36, 33, 0.07);
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 850;
+}
+
+.admin-plaid-health-summary span.is-healthy {
+  background: rgba(95, 125, 97, 0.12);
+  color: var(--status-green);
+}
+
+.admin-plaid-health-summary span.is-attention {
+  background: rgba(157, 52, 52, 0.1);
+  color: var(--status-red);
+}
+
+.admin-plaid-health-list {
+  display: grid;
+  gap: 9px;
+}
+
+.admin-plaid-health-row {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 0.8fr) minmax(280px, 1.2fr);
+  gap: 12px;
+  align-items: start;
+  padding: 13px;
+  border: 1px solid rgba(226, 217, 203, 0.86);
+  border-radius: 18px;
+  background: rgba(255, 253, 248, 0.72);
+}
+
+.admin-plaid-health-mark {
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 999px;
+  background: var(--status-green);
+  box-shadow: 0 0 0 5px rgba(95, 125, 97, 0.12);
+}
+
+.admin-plaid-health-row.is-initializing .admin-plaid-health-mark,
+.admin-plaid-health-row.is-disconnecting .admin-plaid-health-mark {
+  background: var(--status-yellow);
+  box-shadow: 0 0 0 5px rgba(184, 135, 22, 0.12);
+}
+
+.admin-plaid-health-row.is-stale .admin-plaid-health-mark,
+.admin-plaid-health-row.is-action_required .admin-plaid-health-mark,
+.admin-plaid-health-row.is-error .admin-plaid-health-mark {
+  background: var(--status-red);
+  box-shadow: 0 0 0 5px rgba(157, 52, 52, 0.12);
+}
+
+.admin-plaid-health-row > div,
+.admin-plaid-health-state {
+  display: grid;
+  gap: 4px;
+}
+
+.admin-plaid-health-row span,
+.admin-plaid-health-row small {
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.admin-plaid-health-row small {
+  font-size: 0.76rem;
+}
+
+.admin-plaid-health-state {
+  justify-items: start;
+}
+
 .admin-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -2081,7 +2172,8 @@ h3 {
   .two-column,
   .mia-layout,
   .admin-layout,
-  .admin-user-row {
+  .admin-user-row,
+  .admin-plaid-health-row {
     grid-template-columns: 1fr;
   }
 

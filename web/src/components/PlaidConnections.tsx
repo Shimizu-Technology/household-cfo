@@ -319,7 +319,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
             <div className="plaid-consent">
               <label>
                 <input type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} />
-                <span>I authorize Household CFO Method to retrieve read-only account balances and transactions through Plaid. I can disconnect at any time.</span>
+                <span>I authorize Household CFO Method to retrieve read-only balances and transactions through Plaid and use limited transaction summaries to answer my Mia questions. I can disconnect at any time.</span>
               </label>
               <a href="/privacy.html" target="_blank" rel="noreferrer">Privacy and bank-data notice</a>
               <button type="button" className="primary-button" disabled={!consent || Boolean(busy)} onClick={() => void connect()}>Connect a bank</button>
@@ -337,6 +337,10 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
                     {item.status === 'update_required' && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
                     <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.status === 'disconnecting'}>Sync now</button>
                     <button type="button" className="danger-button" onClick={() => void runItemAction(item, 'disconnect')} disabled={Boolean(busy)}>{item.status === 'disconnecting' ? 'Finish disconnect' : 'Disconnect'}</button>
+                  </div>
+                  <div className={`plaid-health-strip is-${item.health.state}`} role={item.health.requires_attention ? 'alert' : 'status'}>
+                    <span className="plaid-health-mark" aria-hidden="true" />
+                    <span><strong>{item.health.label}</strong><small>{item.health.message}</small></span>
                   </div>
                   <div className="plaid-accounts">
                     {item.accounts.filter((account) => account.active).map((account) => (
@@ -385,7 +389,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
           )}
 
           <div className="plaid-source-strip">
-            <div>{activeItems.map((item) => <span key={item.id}><strong>{item.institution_name}</strong>{item.last_synced_at ? ` · Synced ${new Date(item.last_synced_at).toLocaleString()}` : ' · Preparing history'}</span>)}</div>
+            <div>{activeItems.map((item) => <span key={item.id}><strong>{item.institution_name}</strong>{item.last_synced_at ? ` · Synced ${new Date(item.last_synced_at).toLocaleString()}` : ' · Preparing history'} · {item.health.label}</span>)}</div>
             {activeItems.map((item) => <button type="button" className="secondary-button" key={item.id} onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy)}>Sync now</button>)}
           </div>
 

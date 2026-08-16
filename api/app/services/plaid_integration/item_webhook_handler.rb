@@ -70,7 +70,11 @@ module PlaidIntegration
       return if account_id.blank?
 
       ApplicationRecord.transaction do
-        item.plaid_accounts.find_by(plaid_account_id: account_id)&.destroy!
+        account = item.plaid_accounts.find_by(plaid_account_id: account_id)
+        if account
+          PendingDraftCleaner.new(household: item.household, transactions: account.plaid_transactions).call
+          account.destroy!
+        end
         require_update!(webhook_code)
       end
     end

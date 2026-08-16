@@ -691,6 +691,37 @@ export type AdminUserInput = {
   send_invitation_email?: boolean
 }
 
+export type PlaidHealthState = 'healthy' | 'initializing' | 'stale' | 'action_required' | 'error' | 'disconnecting' | 'disconnected'
+
+export type PlaidItemHealth = {
+  state: PlaidHealthState
+  label: string
+  message: string
+  requires_attention: boolean
+  last_successful_update_at: string | null
+  stale_after: string
+}
+
+export type AdminPlaidHealth = {
+  summary: {
+    connected: number
+    healthy: number
+    attention_required: number
+  }
+  items: Array<{
+    id: number
+    household: { id: number; name: string }
+    connected_by: { id: number; full_name: string; email: string }
+    institution_name: string
+    environment: 'sandbox' | 'production'
+    status: 'active' | 'update_required' | 'error' | 'disconnecting'
+    error_code: string | null
+    account_count: number
+    connected_at: string
+    health: PlaidItemHealth
+  }>
+}
+
 export type AppData = {
   workspace?: WorkspaceData
   profile: ProfileData
@@ -789,6 +820,10 @@ export async function fetchAdminCohorts(): Promise<AdminCohort[]> {
   return payload.cohorts
 }
 
+export async function fetchAdminPlaidHealth(): Promise<AdminPlaidHealth> {
+  return fetchJson<AdminPlaidHealth>('/api/v1/admin/plaid_health')
+}
+
 export async function createAdminCohort(values: AdminCohortInput): Promise<AdminCohort> {
   const payload = await postJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', { cohort: values })
   return payload.cohort
@@ -840,6 +875,7 @@ export type PlaidItem = {
   environment: 'sandbox' | 'production'
   consented_at: string
   last_synced_at: string | null
+  health: PlaidItemHealth
   error_message: string | null
   disconnected_at: string | null
   auto_confirm_trusted_merchants: boolean

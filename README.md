@@ -79,7 +79,7 @@ Plaid is optional. Without its environment variables, My Profile shows a safe se
 
 For OAuth return testing, register `http://localhost:5173/` in Plaid Dashboard under Developers > API > Allowed redirect URIs. Production must use the exact HTTPS application URL. The React client keeps the short-lived Link token in user-scoped browser storage only long enough to resume the OAuth return, then removes it after success or exit.
 
-Connect through My Profile. Synced rows remain bank-source data: pending charges cannot be reviewed, inflows are informational, and only participant-selected posted expenses become pending transaction drafts. Disconnect calls Plaid Item Remove before deleting the local token, accounts, and unapproved Plaid transactions. See `docs/security/plaid-data-flow.md` for the complete boundary.
+Connect through My Profile. Synced rows remain bank-source data: pending charges and inflows are informational, while posted expenses are prepared automatically as pending review drafts. Mia can query authorized bank activity, but confirmation still controls categorized budget actuals; trusted-merchant auto-confirm is an explicit opt-in and is off by default. Disconnect calls Plaid Item Remove before deleting the local token, accounts, and unapproved Plaid transactions. See `docs/security/plaid-data-flow.md` for the complete data and service-provider boundary.
 
 ## Current state and supporting plans
 

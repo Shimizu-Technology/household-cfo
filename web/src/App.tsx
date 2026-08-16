@@ -35,6 +35,7 @@ import {
   deleteDocumentImportSource,
   deleteIncomeScheduleEntry,
   fetchAdminCohorts,
+  fetchAdminPlaidHealth,
   fetchAdminUsers,
   fetchAppData,
   fetchBudget,
@@ -66,6 +67,7 @@ import type {
   AdminCohort,
   AdminCohortInput,
   AdminCohortStatus,
+  AdminPlaidHealth,
   AdminUser,
   AdminUserInput,
   AdminUserMutationResponse,
@@ -4038,6 +4040,7 @@ const invitationStatuses: InvitationStatus[] = ['pending', 'accepted', 'revoked'
 function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [cohorts, setCohorts] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [plaidHealth, setPlaidHealth] = useState<AdminPlaidHealth>({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] })
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [createDraft, setCreateDraft] = useState<AdminCohortInput>({
     name: '',
@@ -4106,7 +4109,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     setLoading(true)
     setError(null)
     try {
-      const [nextCohorts, nextUsers] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers()])
+      const [nextCohorts, nextUsers, nextPlaidHealth] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers(), fetchAdminPlaidHealth()])
       const requestedCohortId = preferredCohortId === undefined ? selectedCohortIdRef.current : preferredCohortId
       const nextSelectedId = requestedCohortId === null
         ? null
@@ -4118,6 +4121,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       selectedCohortIdRef.current = nextSelectedId
       setCohorts(nextCohorts)
       setUsers(nextUsers)
+      setPlaidHealth(nextPlaidHealth)
       setUserDrafts(adminDraftsForUsers(nextUsers))
       setSelectedCohortId(nextSelectedId)
       setEditDraft(nextSelectedCohort ? cohortDraftFor(nextSelectedCohort) : null)
@@ -4376,6 +4380,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       </div>
 
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
+
+      <PlaidHealthLedger health={plaidHealth} loading={loading} />
 
       <div className="admin-layout">
         <article className="panel admin-card">
@@ -4672,6 +4678,58 @@ function AdminStat({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </article>
   )
+}
+
+function PlaidHealthLedger({ health, loading }: { health: AdminPlaidHealth; loading: boolean }) {
+  return (
+    <article className="panel admin-card admin-plaid-health">
+      <div className="admin-card-heading row-between">
+        <div>
+          <p className="eyebrow">Connection health</p>
+          <h3>Bank feed ledger</h3>
+          <p className="admin-list-summary">Operational metadata only—no balances, transactions, Plaid identifiers, or access credentials.</p>
+        </div>
+        <div className="admin-plaid-health-summary" aria-label="Plaid connection health summary">
+          <span><strong>{health.summary.connected}</strong> connected</span>
+          <span className="is-healthy"><strong>{health.summary.healthy}</strong> current</span>
+          <span className={health.summary.attention_required > 0 ? 'is-attention' : ''}><strong>{health.summary.attention_required}</strong> attention</span>
+        </div>
+      </div>
+
+      {loading && health.items.length === 0 ? (
+        <p className="admin-muted">Checking bank feed health...</p>
+      ) : health.items.length === 0 ? (
+        <p className="admin-muted">No active Plaid connections yet.</p>
+      ) : (
+        <div className="admin-plaid-health-list">
+          {health.items.map((item) => (
+            <article className={`admin-plaid-health-row is-${item.health.state}`} key={item.id}>
+              <span className="admin-plaid-health-mark" aria-hidden="true" />
+              <div>
+                <strong>{item.institution_name}</strong>
+                <span>{item.household.name} · {item.account_count} account{item.account_count === 1 ? '' : 's'} · {item.environment}</span>
+                <small>Connected by {item.connected_by.full_name} · {item.connected_by.email}</small>
+              </div>
+              <div className="admin-plaid-health-state">
+                <AdminBadge value={item.health.label} tone={plaidHealthTone(item.health.state)} />
+                <small>{item.health.message}</small>
+                <small>{item.health.last_successful_update_at ? `Last successful update ${new Date(item.health.last_successful_update_at).toLocaleString()}` : 'No successful update recorded yet.'}</small>
+                {item.error_code && <small>Reference: {item.error_code}</small>}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function plaidHealthTone(state: AdminPlaidHealth['items'][number]['health']['state']): 'green' | 'gold' | 'red' | 'neutral' {
+  if (state === 'healthy') return 'green'
+  if (state === 'initializing' || state === 'disconnecting') return 'gold'
+  if (state === 'stale' || state === 'action_required' || state === 'error') return 'red'
+
+  return 'neutral'
 }
 
 function AdminBadge({ value, tone }: { value: string; tone: 'green' | 'gold' | 'red' | 'neutral' }) {

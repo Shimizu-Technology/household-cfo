@@ -48,18 +48,12 @@ module PlaidIntegration
     def clear_local_data!
       ApplicationRecord.transaction do
         plaid_item.lock!
-        pending_source_drafts.destroy_all
+        PendingDraftCleaner.new(household: plaid_item.household, transactions: plaid_item.plaid_transactions).call
         plaid_item.plaid_transactions.delete_all
         plaid_item.plaid_accounts.delete_all
         plaid_item.update!(access_token: nil, sync_cursor: nil, status: "disconnected", disconnected_at: Time.current, error_code: nil, error_message: nil)
         plaid_item.household.household_audit_events.create!(user: user, actor_type: "user", event_type: "plaid_item.disconnected", auditable_type: "PlaidItem", auditable_id: plaid_item.id, occurred_at: Time.current, metadata: { institution_name: plaid_item.institution_name })
       end
-    end
-
-    def pending_source_drafts
-      plaid_item.household.transaction_drafts.pending
-        .where(source_type: "plaid")
-        .where(id: plaid_item.plaid_transactions.where.not(transaction_draft_id: nil).select(:transaction_draft_id))
     end
   end
 end

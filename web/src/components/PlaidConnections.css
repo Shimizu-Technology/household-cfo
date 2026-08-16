@@ -14,6 +14,12 @@
 .plaid-item > div:first-child { display: flex; flex-wrap: wrap; gap: .55rem; align-items: center; }
 .plaid-item > div:first-child p { flex-basis: 100%; }
 .plaid-item-actions, .plaid-review-actions { display: flex; flex-wrap: wrap; gap: .55rem; justify-content: flex-end; }
+.plaid-health-strip { grid-column: 1 / -1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: .7rem; align-items: start; padding: .75rem .85rem; border: 1px solid #d5e5da; border-radius: .85rem; background: #f0f7f2; color: #245d3a; }
+.plaid-health-strip.is-initializing, .plaid-health-strip.is-disconnecting { border-color: #ead6b5; background: #fff8e9; color: #83510f; }
+.plaid-health-strip.is-stale, .plaid-health-strip.is-action_required, .plaid-health-strip.is-error { border-color: #e4c2ba; background: #fff3ee; color: #923e33; }
+.plaid-health-strip > span:last-child { display: grid; gap: .12rem; }
+.plaid-health-strip small { color: inherit; opacity: .82; line-height: 1.45; }
+.plaid-health-mark { width: .68rem; height: .68rem; margin-top: .32rem; border-radius: 999px; background: currentColor; box-shadow: 0 0 0 4px color-mix(in srgb, currentColor 12%, transparent); }
 .plaid-accounts { grid-column: 1 / -1; display: grid; gap: .35rem; padding-top: .7rem; border-top: 1px solid var(--line); }
 .plaid-accounts > div { display: flex; justify-content: space-between; gap: 1rem; }
 .plaid-automation-toggle { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 1.25rem; padding-top: .85rem; border-top: 1px solid var(--line); cursor: pointer; }

@@ -17,6 +17,7 @@ module PlaidIntegration
           webhook: Configuration.webhook_url
         }
         attributes[:redirect_uri] = Configuration.redirect_uri if Configuration.redirect_uri
+        attributes[:link_customization_name] = Configuration.link_customization_name if Configuration.link_customization_name
         unless plaid_item
           attributes[:products] = [ Plaid::Products::TRANSACTIONS ]
           attributes[:transactions] = Plaid::LinkTokenTransactions.new(days_requested: 730)

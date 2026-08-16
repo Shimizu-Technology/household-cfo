@@ -17,6 +17,7 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     serialized = body.fetch("items").first
     assert_equal "Sandbox Bank", serialized.fetch("institution_name")
+    assert_equal "initializing", serialized.dig("health", "state")
     refute_includes response.body, "server-access-token"
     refute serialized.key?("plaid_item_id")
     refute serialized.key?("access_token_ciphertext")

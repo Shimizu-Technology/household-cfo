@@ -42,6 +42,14 @@ class PlaidIntegrationLinkTokenTest < ActiveSupport::TestCase
     assert_nil request.redirect_uri
   end
 
+  test "uses the published Link customization when configured" do
+    with_environment("PLAID_LINK_CUSTOMIZATION_NAME" => "household-cfo-production") do
+      request = capture_request
+
+      assert_equal "household-cfo-production", request.link_customization_name
+    end
+  end
+
   private
 
   def capture_request(item = nil)
