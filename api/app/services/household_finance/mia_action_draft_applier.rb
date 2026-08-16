@@ -183,6 +183,11 @@ module HouseholdFinance
 
       effective_on = Date.iso8601(payload.fetch(:effective_on)).beginning_of_month
       entry_type = payload.fetch(:entry_type)
+      effective_monthly_cents = IncomeTimeline.recurring_monthly_cents(source, on: effective_on)
+      unless effective_monthly_cents == before.fetch(:effective_monthly_cents).to_i
+        raise StaleDraftError, "The effective income changed since Mia prepared this review. Ask Mia to draft a fresh update."
+      end
+
       entry_id = payload[:entry_id].to_i
       entry = entry_id.positive? ? source.income_schedule_entries.lock.find(entry_id) : nil
       if entry

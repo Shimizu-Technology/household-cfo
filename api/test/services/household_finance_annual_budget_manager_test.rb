@@ -68,6 +68,39 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal [ "Prior Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
   end
 
+  test "household reviews stay visible across budget years while plan-specific reviews stay scoped" do
+    household = create_household
+    user = household.created_by_user
+    household_review = household.mia_action_drafts.create!(
+      requested_by_user: user,
+      draft_type: "household_setup",
+      status: "pending",
+      year: 2026,
+      title: "Update emergency fund",
+      summary: "Review the approved household value."
+    )
+    household.mia_action_drafts.create!(
+      requested_by_user: user,
+      draft_type: "budget_edit",
+      status: "pending",
+      year: 2026,
+      title: "Update the 2026 plan",
+      summary: "Review the budget value."
+    )
+    household.mia_action_drafts.create!(
+      requested_by_user: user,
+      draft_type: "income_schedule",
+      status: "pending",
+      year: 2026,
+      title: "Update 2026 income",
+      summary: "Review the income schedule."
+    )
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2027).plan_data
+
+    assert_equal [ household_review.id ], plan.fetch(:pending_mia_action_drafts).map { |draft| draft.fetch(:id) }
+  end
+
   test "plan data returns more than twenty pending statement drafts for paginated review" do
     household = create_household
     25.times do |index|
