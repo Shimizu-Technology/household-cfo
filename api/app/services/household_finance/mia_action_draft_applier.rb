@@ -183,6 +183,14 @@ module HouseholdFinance
 
       effective_on = Date.iso8601(payload.fetch(:effective_on)).beginning_of_month
       entry_type = payload.fetch(:entry_type)
+      reviewed_schedule = Array(before.fetch(:recurring_schedule_entries)).map(&:deep_symbolize_keys)
+      current_schedule = MiaActionDraftHouseholdCommands.recurring_schedule_snapshot(source, effective_on)
+      unless source.amount_cents == before.fetch(:income_source_amount_cents).to_i &&
+          source.cadence == before.fetch(:income_source_cadence) &&
+          current_schedule == reviewed_schedule
+        raise StaleDraftError, "The income timeline changed since Mia prepared this review. Ask Mia to draft a fresh update."
+      end
+
       effective_monthly_cents = IncomeTimeline.recurring_monthly_cents(source, on: effective_on)
       unless effective_monthly_cents == before.fetch(:effective_monthly_cents).to_i
         raise StaleDraftError, "The effective income changed since Mia prepared this review. Ask Mia to draft a fresh update."

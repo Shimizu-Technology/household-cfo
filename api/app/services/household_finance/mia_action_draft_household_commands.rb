@@ -17,6 +17,20 @@ module HouseholdFinance
       target_runway_months: "Runway target"
     }.freeze
 
+    def self.recurring_schedule_snapshot(source, effective_on)
+      source.income_schedule_entries
+        .select { |entry| entry.entry_type == "recurring_change" && entry.effective_on <= effective_on.end_of_month }
+        .sort_by { |entry| [ entry.effective_on, entry.id ] }
+        .map do |entry|
+          {
+            id: entry.id,
+            amount_cents: entry.amount_cents,
+            cadence: entry.cadence,
+            effective_on: entry.effective_on.iso8601
+          }
+        end
+    end
+
     private
 
     def structured_household_setup_proposal
@@ -87,6 +101,9 @@ module HouseholdFinance
         before_snapshot: {
           income_source_id: source.id,
           income_source_label: source.label,
+          income_source_amount_cents: source.amount_cents,
+          income_source_cadence: source.cadence,
+          recurring_schedule_entries: MiaActionDraftHouseholdCommands.recurring_schedule_snapshot(source, effective_on),
           entry_id: existing_entry&.id,
           amount_cents: existing_entry&.amount_cents,
           cadence: existing_entry&.cadence,

@@ -160,7 +160,7 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
 
     refute apply.success?
-    assert_includes apply.errors.to_sentence, "effective income changed"
+    assert_includes apply.errors.to_sentence, "income timeline changed"
     assert_equal 680_000, source.income_schedule_entries.find_by!(effective_on: Date.new(2026, 10, 1)).amount_cents
     assert_equal "pending", draft.reload.status
   end
@@ -181,7 +181,30 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
 
     refute apply.success?
-    assert_includes apply.errors.to_sentence, "effective income changed"
+    assert_includes apply.errors.to_sentence, "income timeline changed"
+    assert_empty source.income_schedule_entries.where(effective_on: Date.new(2026, 10, 1))
+    assert_equal "pending", draft.reload.status
+  end
+
+  test "rejects an equivalent monthly value when the reviewed source cadence changed" do
+    source = @household.income_sources.find_by!(source_type: "job")
+    result = build_command(
+      type: "schedule_income_change",
+      income_source_id: source.id,
+      income_source_name: source.label,
+      entry_type: "recurring_change",
+      effective_on: "2026-10-01",
+      amount: "7200"
+    )
+    draft = persist(result.proposal)
+    source.update!(amount_cents: 6_000_000, cadence: "annual")
+
+    assert_equal 500_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source.reload, on: Date.new(2026, 10, 1))
+
+    apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+
+    refute apply.success?
+    assert_includes apply.errors.to_sentence, "income timeline changed"
     assert_empty source.income_schedule_entries.where(effective_on: Date.new(2026, 10, 1))
     assert_equal "pending", draft.reload.status
   end
