@@ -8,6 +8,59 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "I recognized this as other and routed it to private import history.", route_line
   end
 
+  test "mia attachment route copy follows the reviewable results rather than a mismatched selected slot" do
+    user = create_user(email: "upload-result@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "profile-screenshot.png",
+      content_type: "image/png",
+      byte_size: 100,
+      s3_key: "test/profile-screenshot.png",
+      metadata: {
+        "declared_document_kind" => "receipt",
+        "routing_resolved_kind" => "receipt",
+        "routing_destination" => "transaction_review"
+      }
+    )
+    document_import.items.create!(target_type: "expense_item", label: "Fixed essentials", amount_cents: 310_000, confidence: "high")
+
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
+
+    assert_equal "You selected this as receipt. I checked the file and routed the reviewable results I actually found to household setup review.", route_line
+  end
+
+  test "mia attachment route copy names both review destinations when extraction produces both result types" do
+    user = create_user(email: "mixed-upload-result@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "mixed-statement.csv",
+      content_type: "text/csv",
+      byte_size: 100,
+      s3_key: "test/mixed-statement.csv",
+      metadata: { "routing_resolved_kind" => "statement", "routing_destination" => "transaction_review" }
+    )
+    document_import.items.create!(target_type: "account", label: "Checking", balance_cents: 500_000, confidence: "high")
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 8, 1),
+      merchant: "Market",
+      total_amount_cents: 8_425,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
+
+    assert_equal "I recognized this as statement and routed it to pending transaction review and household setup review.", route_line
+  end
+
   test "mia attachment summary names the actual destinations in a mixed batch" do
     document_import = Struct.new(:metadata, :document_kind)
     imports = [
@@ -78,6 +131,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 9_200, body.fetch("dashboard").fetch("summary").fetch("monthly_income")
     assert_equal 7_300, body.fetch("budget").fetch("total_monthly_outflow")
     assert_equal 1_900, body.fetch("budget").fetch("baseline_surplus")
+    annual_plan = body.fetch("budget").fetch("annual_plan")
+    current_month = annual_plan.fetch("annual_outlook").fetch("months").fetch(Date.current.month - 1)
+    assert_equal 700, annual_plan.fetch("monthly_debt_minimums")
+    assert_equal 6_600, current_month.fetch("category_plan")
+    assert_equal 700, current_month.fetch("debt_minimums")
+    assert_equal 7_300, current_month.fetch("planned_outflow")
+    assert_equal 1_900, current_month.fetch("baseline_surplus")
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)

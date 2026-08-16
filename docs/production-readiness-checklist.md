@@ -146,6 +146,7 @@ Evidence location:
 - Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
 - Home shows pending transaction/action review counts and the current month inside the annual plan.
 - Budget defaults to money in, money out, remaining, grouped Expense Stack, review work, and annual outlook; the dense annual table, income schedule, and activity ledger remain hidden until explicitly opened.
+- Saved debt minimums appear as an explicit addition beside the editable category plan, and monthly/annual total money out plus baseline left reconcile to that full amount.
 - **Ask Mia to update my plan** opens Ask Mia with the budget-change starter focused and editable.
 - **Manage manually** opens directly below the Budget heading, focuses **New category**, and separates category creation, month-by-month editing, and income scheduling into explicit tasks.
 - Unsaved month-by-month edits cannot be lost by reselecting or switching manual tools, changing the report period, or closing the manager; save and cancel are available beside the table, and closing returns focus to **Manage manually**.
@@ -161,6 +162,7 @@ Evidence location:
 - Ask Mia voice input records, transcribes, puts editable transcript in the composer, and does not auto-confirm actuals.
 - Ask Mia attachment flow creates a reviewable import from a demo-safe spreadsheet and image on the custom domain.
 - My Profile upload flow creates a reviewable import from the same demo-safe file types; a failed read remains retryable and can be reported in-app.
+- A completed import labels the drafts actually produced—transactions, household setup values, or both—and does not claim the selected upload route succeeded when extraction produced a different review type.
 - Admin tab visible only to admins; participant cannot see it.
 - Admin can create cohort, invite participant, resend invite, revoke/remove access.
 - Admin participant rows show only invited, signed in, setup state, pending-review state, and last safe activity; inspect the network response and confirm there are no household names, financial values, documents, messages, transactions, readiness scores, or setup percentages.

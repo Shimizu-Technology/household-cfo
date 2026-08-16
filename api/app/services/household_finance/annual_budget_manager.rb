@@ -40,14 +40,16 @@ module HouseholdFinance
         category_payload(category, periods, allocations_by_category_and_period, actuals)
       end
       monthly_income = monthly_income_by_period(periods)
+      monthly_debt_minimums = Money.dollars(household.debts.sum(:minimum_payment_cents))
 
       {
         year: budget_year.year,
         months: periods.map { |period| period_payload(period) },
         rows: rows,
         monthly_income: monthly_income,
+        monthly_debt_minimums: monthly_debt_minimums,
         income_sources: income_sources_payload,
-        annual_outlook: annual_outlook_payload(periods, rows, monthly_income),
+        annual_outlook: annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
@@ -276,14 +278,15 @@ module HouseholdFinance
       end
     end
 
-    def annual_outlook_payload(periods, rows, monthly_income)
+    def annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums)
       active_rows = rows.select { |row| row[:active] }
       expected_rows = active_rows.select { |row| row[:stack_key] == "sinking_expected" }
 
       month_data = periods.map do |period|
         index = period.starts_on.month - 1
         cells = active_rows.map { |row| row[:months][index] }
-        planned = cells.sum { |cell| cell[:planned] }
+        category_plan = cells.sum { |cell| cell[:planned] }
+        planned_outflow = category_plan + monthly_debt_minimums
         expected = expected_rows.sum { |row| row[:months][index][:planned] }
         contributors = expected_rows
           .filter_map { |row| [ row[:name], row[:months][index][:planned] ] if row[:months][index][:planned].positive? }
@@ -296,8 +299,10 @@ module HouseholdFinance
           label: MONTH_NAMES[index],
           starts_on: period.starts_on.iso8601,
           income: monthly_income.fetch(period.id),
-          planned_outflow: planned,
-          baseline_surplus: monthly_income.fetch(period.id) - planned,
+          category_plan: category_plan,
+          debt_minimums: monthly_debt_minimums,
+          planned_outflow: planned_outflow,
+          baseline_surplus: monthly_income.fetch(period.id) - planned_outflow,
           expected_irregular: expected,
           expected_contributors: contributors
         }

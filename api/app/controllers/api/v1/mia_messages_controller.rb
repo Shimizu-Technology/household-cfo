@@ -299,7 +299,7 @@ module Api
           return "I flagged #{descriptions.to_sentence} for a routing check and preserved your description."
         end
 
-        destinations = document_imports.map { |document_import| document_routing_destination(document_import) }.uniq
+        destinations = document_imports.flat_map { |document_import| document_routing_destinations(document_import) }.uniq
         if destinations.many?
           destination_labels = {
             "transaction_review" => "pending transaction review",
@@ -352,17 +352,38 @@ module Api
           return "You described this as #{resolved_kind.humanize.downcase}, but I detected #{detected_kind.humanize.downcase}. I kept your description and flagged the routing difference for review."
         end
 
-        destination = case document_routing_destination(document_import)
+        actual_destinations = document_routing_destinations(document_import)
+        destination = actual_destinations.map { |value| document_routing_destination_label(value) }.to_sentence
+        declared_kind = metadata["declared_document_kind"].presence
+        planned_destination = metadata["routing_destination"].presence
+
+        if declared_kind.present? && planned_destination.present? && actual_destinations != [ planned_destination ]
+          return "You selected this as #{declared_kind.humanize.downcase}. I checked the file and routed the reviewable results I actually found to #{destination}."
+        end
+
+        "I recognized this as #{resolved_kind.humanize.downcase} and routed it to #{destination}."
+      end
+
+      def document_routing_destinations(document_import)
+        destinations = []
+        if document_import.respond_to?(:transaction_drafts) && document_import.transaction_drafts.exists?
+          destinations << "transaction_review"
+        end
+        if document_import.respond_to?(:items) && document_import.items.where(ignored: false).exists?
+          destinations << "household_setup_review"
+        end
+        return destinations if destinations.any?
+
+        [ document_import.metadata.to_h["routing_destination"].presence ||
+          FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind, "private_document_review") ]
+      end
+
+      def document_routing_destination_label(destination)
+        case destination
         when "transaction_review" then "pending transaction review"
         when "household_setup_review" then "household setup review"
         else "private import history"
         end
-        "I recognized this as #{resolved_kind.humanize.downcase} and routed it to #{destination}."
-      end
-
-      def document_routing_destination(document_import)
-        document_import.metadata.to_h["routing_destination"].presence ||
-          FinancialDocuments::RoutingDecision::DESTINATIONS.fetch(document_import.document_kind, "private_document_review")
       end
 
       def drafted_document_transaction_message(document_import, drafts)

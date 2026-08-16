@@ -404,6 +404,7 @@ export type AnnualBudgetPlan = {
   months: BudgetMonth[]
   rows: BudgetCategoryRow[]
   monthly_income: Record<number, number>
+  monthly_debt_minimums: number
   income_sources: IncomeTimelineSource[]
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
@@ -437,6 +438,8 @@ export type AnnualOutlookMonth = {
   label: string
   starts_on: string
   income: number
+  category_plan: number
+  debt_minimums: number
   planned_outflow: number
   baseline_surplus: number
   expected_irregular: number

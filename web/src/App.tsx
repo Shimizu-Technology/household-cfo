@@ -3365,22 +3365,56 @@ function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialD
   if (!metadata.routing_source) return null
 
   const resolvedKind = metadata.routing_resolved_kind ?? documentImport.document_kind
-  const destination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+  const destination = documentReviewDestination(documentImport, resolvedKind)
   const conflict = Boolean(metadata.routing_requires_confirmation)
+  const result = documentReviewResult(documentImport)
 
   return (
     <div className={`document-routing-summary${conflict ? ' needs-confirmation' : ''}`} role={conflict ? 'alert' : 'note'}>
       <div>
-        <span>{conflict ? 'Routing needs your check' : 'Routed for review'}</span>
-        <strong>{documentKindLabel(resolvedKind)} → {destination}</strong>
+        <span>{conflict ? 'Document type needs your check' : 'Review result'}</span>
+        <strong>{result} → {destination}</strong>
       </div>
       <p>
         {conflict
           ? routingConflictExplanation(metadata, resolvedKind)
-          : routingExplanation(metadata.routing_source)}
+          : routingResultExplanation(documentImport, resolvedKind)}
       </p>
     </div>
   )
+}
+
+function documentReviewResult(documentImport: FinancialDocumentImport) {
+  const transactions = documentImport.transaction_drafts.length
+  const values = documentImport.items.filter((item) => !item.ignored).length
+  if (transactions > 0 && values > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'} + ${values} household value${values === 1 ? '' : 's'}`
+  if (transactions > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'}`
+  if (values > 0) return `${values} household value${values === 1 ? '' : 's'}`
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Checking file contents'
+  return 'No draft values found'
+}
+
+function documentReviewDestination(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+  const hasTransactions = documentImport.transaction_drafts.length > 0
+  const hasHouseholdValues = documentImport.items.some((item) => !item.ignored)
+  if (hasTransactions && hasHouseholdValues) return 'Transaction + household setup review'
+  if (hasTransactions) return 'Transaction review'
+  if (hasHouseholdValues) return 'Household setup review'
+  return routingDestinationLabel(documentImport.metadata.routing_destination, resolvedKind)
+}
+
+function routingResultExplanation(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+  const metadata = documentImport.metadata
+  const selectedKind = metadata.declared_document_kind
+  const selectedCopy = selectedKind ? `You selected ${documentKindLabel(selectedKind).toLowerCase()}. ` : ''
+  const resultDestination = documentReviewDestination(documentImport, resolvedKind)
+  const plannedDestination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+
+  if (resultDestination !== plannedDestination) {
+    return `${selectedCopy}Mia checked the contents and sent the reviewable results she actually found to ${resultDestination.toLowerCase()}. Nothing changed until you approve it.`
+  }
+
+  return `${selectedCopy}${routingExplanation(metadata.routing_source)} Nothing changed until you approve it.`
 }
 
 function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind) {
@@ -6463,7 +6497,7 @@ function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
         <div>
           <p className="eyebrow">Look ahead</p>
           <h4 id="annual-outlook-title">See the expensive months before they arrive.</h4>
-          <p>Income, planned outflow, and baseline surplus use the exact schedule for each month.</p>
+          <p>Total planned outflow combines editable categories with required debt minimums for each month.</p>
         </div>
         <span>{currency.format(outlook.typical_monthly_outflow)} typical planned month</span>
       </div>
@@ -6552,10 +6586,10 @@ function AnnualBudgetPlanner({
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
-  const annualPlanned = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
-  const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
+  const annualCategoryPlan = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
+  const annualDebtMinimums = plan.monthly_debt_minimums * plan.months.length
+  const annualPlannedOutflow = annualCategoryPlan + annualDebtMinimums
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
-  const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
   const currentPositions = useMemo(
     () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
     [currentMonthIndex, plan, spendingReport],
@@ -6878,11 +6912,11 @@ function AnnualBudgetPlanner({
         </section>
       )}
 
-      <div className="annual-budget-summary" aria-label="Annual budget summary">
-        <span><small>Annual planned</small><strong>{currency.format(annualPlanned)}</strong></span>
-        <span><small>Annual actual</small><strong>{currency.format(annualActual)}</strong></span>
-        <span><small>{currentMonth?.label ?? 'Month'} planned</small><strong>{currency.format(currentPlanned)}</strong></span>
-        <span><small>{currentMonth?.label ?? 'Month'} actual</small><strong>{currency.format(currentActual)}</strong></span>
+      <div className="annual-budget-summary" aria-label="Annual money out breakdown">
+        <span><small>Annual category plan</small><strong>{currency.format(annualCategoryPlan)}</strong></span>
+        <span><small>Annual debt minimums</small><strong>{currency.format(annualDebtMinimums)}</strong></span>
+        <span><small>Total annual money out</small><strong>{currency.format(annualPlannedOutflow)}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{currency.format(currentPlanned + plan.monthly_debt_minimums)}</strong></span>
       </div>
 
       <div className="budget-operating-cockpit">
@@ -6892,6 +6926,7 @@ function AnnualBudgetPlanner({
           planned={currentPositionTotals.planned}
           actual={currentPositionTotals.actual}
           pending={currentPositionTotals.pending}
+          debtMinimums={plan.monthly_debt_minimums}
         />
         <ExpenseStackOverview positions={currentPositions} />
       </div>

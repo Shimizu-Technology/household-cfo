@@ -32,6 +32,7 @@ export function MonthPlanSummary({
   pending,
   safeToSpend,
   baselineSurplus,
+  debtMinimums = 0,
 }: {
   label: string
   income: number
@@ -40,9 +41,11 @@ export function MonthPlanSummary({
   pending: number
   safeToSpend?: number
   baselineSurplus?: number
+  debtMinimums?: number
 }) {
   const remaining = planned - actual
   const projected = actual + pending
+  const totalPlannedOutflow = planned + debtMinimums
 
   return (
     <section className="month-plan-summary" aria-label={`${label} plan position`}>
@@ -83,11 +86,21 @@ export function MonthPlanSummary({
           )}
           {baselineSurplus !== undefined && (
             <div>
-              <span>Baseline surplus</span>
+              <span>Baseline left</span>
               <strong>{currency.format(baselineSurplus)}</strong>
-              <small>Expected income less the full planned monthly outflow.</small>
+              <small>Expected income less category plans and required debt minimums.</small>
             </div>
           )}
+        </div>
+      )}
+
+      {debtMinimums > 0 && (
+        <div className="money-out-reconciliation" role="group" aria-label="Monthly money out breakdown">
+          <div><span>Category plan</span><strong>{currency.format(planned)}</strong></div>
+          <i aria-hidden="true">+</i>
+          <div><span>Debt minimums</span><strong>{currency.format(debtMinimums)}</strong></div>
+          <i aria-hidden="true">=</i>
+          <div className="total"><span>Total money out</span><strong>{currency.format(totalPlannedOutflow)}</strong></div>
         </div>
       )}
     </section>
