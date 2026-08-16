@@ -77,6 +77,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "June statement found groceries and a Visa balance.", @document_import.extracted_summary
     assert_equal Date.new(2026, 6, 30), @document_import.period_end_on
     assert_equal 2, @document_import.items.count
+    assert_equal [ false, false ], @document_import.items.order(:id).pluck(:selected)
     assert_equal "succeeded", @document_import.attempts.last.status
     assert_equal({ "total_tokens" => 123 }, @document_import.attempts.last.metadata.fetch("usage"))
     assert_equal "pdf_batches", @document_import.metadata.fetch("extraction_mode")

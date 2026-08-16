@@ -50,6 +50,44 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
     assert invited.last_sign_in_at.present?
   end
 
+  test "Clerk profile name replaces the invitation name without blending fields" do
+    invited = User.create!(
+      clerk_id: "pending_#{SecureRandom.uuid}",
+      email: "profile-name@example.com",
+      first_name: "Admin",
+      last_name: "Placeholder",
+      role: "participant",
+      invitation_status: "pending",
+      invited_at: 1.day.ago
+    )
+
+    get "/api/v1/auth/me", headers: auth_headers("clerk_profile_name_123", "profile-name@example.com", "Ariana", "")
+
+    assert_response :success
+    invited.reload
+    assert_equal "Ariana", invited.first_name
+    assert_nil invited.last_name
+    assert_equal "Ariana", invited.full_name
+  end
+
+  test "later Clerk profile updates preserve name claims that Clerk omits" do
+    user = User.create!(
+      clerk_id: "clerk_existing_profile_123",
+      email: "existing-profile@example.com",
+      first_name: "Old",
+      last_name: "Name",
+      role: "participant",
+      invitation_status: "accepted"
+    )
+
+    get "/api/v1/auth/me", headers: auth_headers(user.clerk_id, user.email, "Updated", "")
+
+    assert_response :success
+    user.reload
+    assert_equal "Updated", user.first_name
+    assert_equal "Name", user.last_name
+  end
+
   test "rejects uninvited Clerk users without creating a local user" do
     get "/api/v1/auth/me", headers: auth_headers("clerk_uninvited_123", "uninvited@example.com")
 

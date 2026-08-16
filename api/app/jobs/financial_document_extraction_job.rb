@@ -60,7 +60,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
       document_import.document_kind = routing.resolved_kind
       document_import.items.where(applied_at: nil).delete_all
       Array(data[:items]).each do |item_attributes|
-        document_import.items.create!(item_attributes)
+        document_import.items.create!(item_attributes.merge(selected: false))
       end
       draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, data[:transaction_drafts]).call
       warnings = Array(data[:warnings]) + Array(draft_result.fetch(:warnings))

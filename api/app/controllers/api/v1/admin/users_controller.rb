@@ -8,7 +8,12 @@ module Api
         def index
           users = users_scope.to_a
           preload_recent_invitation_email_attempts(users)
-          render json: { users: users.map { |user| serialize_user(user) } }
+          progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
+          render json: {
+            users: users.map do |user|
+              serialize_user(user, pilot_progress: progress_by_user_id.fetch(user.id))
+            end
+          }
         end
 
         def create
@@ -162,8 +167,7 @@ module Api
           scope = User.includes(
             :invited_by_user,
             :last_invite_email_sent_by_user,
-            cohort_memberships: :cohort,
-            household_memberships: { household: %i[income_sources expense_items debts accounts goals] }
+            cohort_memberships: :cohort
           )
           unless current_user.admin?
             scope = scope.joins(:cohort_memberships)
@@ -409,21 +413,17 @@ module Api
           }
         end
 
-        def serialize_user(user)
-          household = user.household_memberships.sort_by(&:created_at).first&.household
-          snapshot = household ? HouseholdFinance::SnapshotBuilder.new(household).call : nil
+        def serialize_user(user, pilot_progress: nil)
+          progress = pilot_progress || begin
+            household = user.household_memberships.order(:created_at, :id).first&.household
+            HouseholdFinance::PilotProgressBuilder.new(user, household: household).call
+          end
 
           user.as_api_json.merge(
             invited_by: serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
             cohorts: user.cohort_memberships.sort_by { |membership| membership.cohort.name.downcase }.map { |membership| serialize_membership(membership) },
-            workspace: {
-              household_id: household&.id,
-              household_name: household&.name,
-              setup_complete: snapshot ? snapshot.fetch(:profile_completeness) >= 70 : false,
-              profile_completeness: snapshot ? snapshot.fetch(:profile_completeness) : 0,
-              readiness_label: snapshot ? snapshot.fetch(:readiness_label) : "Not started"
-            }
+            workspace: progress
           )
         end
 

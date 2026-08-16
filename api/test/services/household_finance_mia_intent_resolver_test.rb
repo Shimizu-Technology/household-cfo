@@ -103,6 +103,38 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_empty result.clarification
   end
 
+  test "uses the open budget year when a supported budget action omits its year" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Create School Supplies with $75 every month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Create School Supplies with $75 every month",
+          needs_clarification: true,
+          clarification: "Which budget year should this affect?",
+          topic: { type: "budget_edit", title: "School Supplies category", subject: "School Supplies" },
+          action: default_action.merge(
+            type: "create_category",
+            new_name: "School Supplies",
+            stack_key: "sinking_expected",
+            amount: "75",
+            months: (1..12).to_a,
+            year: 0
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    refute result.clarification?
+    assert_equal 2026, result.action.fetch(:year)
+  end
+
   test "rejects model invented category references and asks for clarification" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Lower that to $3,000",

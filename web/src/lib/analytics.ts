@@ -2,6 +2,7 @@ import type { CapturedNetworkRequest } from 'posthog-js'
 import type { CurrentUser, DocumentImportKind } from '../api'
 
 type AnalyticsProps = Record<string, string | number | boolean | null | undefined>
+export type PilotWorkflow = 'setup' | 'ask_mia' | 'voice' | 'document_upload' | 'document_review' | 'transaction_review' | 'mia_budget_review' | 'feedback'
 type PostHogClient = typeof import('posthog-js').default
 type PostHogConfig = NonNullable<Parameters<PostHogClient['init']>[1]>
 
@@ -109,12 +110,11 @@ export function captureSectionPageview(section: string, props: AnalyticsProps = 
   if (!isAnalyticsEnabled || typeof window === 'undefined') return
 
   captureAnalyticsEvent('$pageview', {
-    $current_url: window.location.href,
+    ...props,
+    $current_url: `${window.location.origin}${window.location.pathname}`,
     $pathname: window.location.pathname,
-    $hash: window.location.hash,
     section: sectionSlug(section),
     route_area: section === 'Admin' ? 'admin' : 'workspace',
-    ...props,
   })
 }
 
@@ -144,6 +144,15 @@ export function trackDocumentUpload(kind: DocumentImportKind, status: 'started' 
     document_kind: kind,
     file_extension: file?.name.split('.').pop()?.toLowerCase() || null,
     size_bucket: file ? fileSizeBucket(file.size) : null,
+  })
+  if (status === 'failed') trackPilotWorkflowFailure('document_upload', 'upload', { document_kind: kind })
+}
+
+export function trackPilotWorkflowFailure(workflow: PilotWorkflow, stage: string, props: AnalyticsProps = {}) {
+  captureAnalyticsEvent('pilot_workflow_failed', {
+    ...props,
+    workflow,
+    stage: sectionSlug(stage),
   })
 }
 

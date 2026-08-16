@@ -27,6 +27,9 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
          as: :json
 
     assert_response :created
+    created_payload = JSON.parse(response.body).fetch("cohort")
+    assert_equal 0, created_payload.fetch("setup_complete_count")
+    assert_not created_payload.key?("members")
     cohort = Cohort.find_by!(name: "Tuesday Pilot")
     cohort.cohort_memberships.create!(user: participant, role: "participant")
 
@@ -40,7 +43,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, row.fetch("participant_count")
   end
 
-  test "cohort index returns setup complete counts without loading full snapshots" do
+  test "cohort index and detail use the same setup complete progress result" do
     admin = create_user(email: "setup-count-admin@example.com", role: "admin")
     participant = create_user(email: "setup-count-member@example.com", role: "participant")
     cohort = Cohort.create!(name: "Setup Count Pilot", status: "active", created_by_user: admin)
@@ -53,6 +56,14 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     row = JSON.parse(response.body).fetch("cohorts").find { |item| item.fetch("name") == "Setup Count Pilot" }
     assert_equal 1, row.fetch("setup_complete_count")
+
+    get "/api/v1/admin/cohorts/#{cohort.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    member = JSON.parse(response.body).dig("cohort", "members").find do |item|
+      item.dig("user", "id") == participant.id
+    end
+    assert_equal row.fetch("setup_complete_count"), member.dig("user", "setup_complete") ? 1 : 0
   end
 
   test "cohort index setup counts use the same first household as user snapshots" do
@@ -72,6 +83,24 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     row = JSON.parse(response.body).fetch("cohorts").find { |item| item.fetch("name") == "Setup Mismatch Pilot" }
     assert_equal 0, row.fetch("setup_complete_count")
+  end
+
+  test "cohort serialization safely ignores a membership whose user is unavailable" do
+    admin = create_user(email: "orphan-safe-admin@example.com", role: "admin")
+    participant = create_user(email: "orphan-safe-member@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Orphan Safe Pilot", status: "active", created_by_user: admin)
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    cohort.cohort_memberships.load
+    membership.define_singleton_method(:user) { nil }
+    controller = Api::V1::Admin::CohortsController.new
+
+    payload = controller.send(:serialize_cohort, cohort, include_members: true)
+    setup_counts = controller.send(:setup_complete_counts_for_cohorts, [ cohort ])
+
+    assert_equal 0, payload.fetch(:member_count)
+    assert_equal 0, payload.fetch(:participant_count)
+    assert_empty payload.fetch(:members)
+    assert_equal 0, setup_counts.fetch(cohort.id)
   end
 
   test "admin can update cohort status and dates" do
@@ -111,6 +140,32 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
     assert_includes response.media_type, "application/json"
     assert JSON.parse(response.body).fetch("errors").first.include?("Couldn't find Cohort")
+  end
+
+  test "cohort show exposes only safe operational progress for each member" do
+    admin = create_user(email: "safe-cohort-admin@example.com", role: "admin")
+    participant = create_user(email: "safe-cohort-member@example.com", role: "participant")
+    cohort = Cohort.create!(name: "Privacy Safe Pilot", status: "active", created_by_user: admin)
+    cohort.cohort_memberships.create!(user: participant, role: "participant")
+    household = create_setup_complete_household(user: participant, name: "Private Household Name")
+    household.household_memberships.create!(user: participant, role: "owner")
+
+    get "/api/v1/admin/cohorts/#{cohort.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    member = JSON.parse(response.body).dig("cohort", "members").find do |item|
+      item.dig("user", "id") == participant.id
+    end.fetch("user")
+
+    assert_equal %w[
+      email full_name has_pending_review_work id invitation_status invited last_safe_activity_at role
+      setup_complete setup_status signed_in
+    ], member.keys.sort
+    assert_equal "complete", member.fetch("setup_status")
+    assert member.fetch("setup_complete")
+    assert_not member.key?("household_name")
+    assert_not member.key?("profile_completeness")
+    assert_not member.key?("readiness")
   end
 
   test "cohort update returns json not found errors" do

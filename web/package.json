@@ -8,7 +8,7 @@
     "prebuild": "node scripts/generate-seo-files.mjs",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "test": "node scripts/design-regression.test.mjs",
+    "test": "node scripts/design-regression.test.mjs && node scripts/privacy-regression.test.mjs",
     "test:browser": "playwright test",
     "preview": "vite preview"
   },

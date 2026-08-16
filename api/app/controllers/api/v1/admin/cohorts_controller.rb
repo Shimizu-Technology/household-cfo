@@ -8,8 +8,8 @@ module Api
 
         def index
           cohorts = Cohort.includes(cohort_list_includes).order(created_at: :desc).to_a
-          setup_counts = setup_complete_counts_for_cohorts(cohorts.map(&:id))
-          render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort, include_setup: false, setup_complete_count: setup_counts.fetch(cohort.id, 0)) } }
+          setup_counts = setup_complete_counts_for_cohorts(cohorts)
+          render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort, setup_complete_count: setup_counts.fetch(cohort.id, 0)) } }
         end
 
         def show
@@ -52,15 +52,15 @@ module Api
         def cohort_includes
           [
             :created_by_user,
-            { cohort_memberships: { user: { household_memberships: { household: %i[income_sources expense_items debts accounts goals] } } } }
+            { cohort_memberships: :user }
           ]
         end
 
-        def serialize_cohort(cohort, include_members: false, include_setup: true, setup_complete_count: nil)
-          memberships = cohort.cohort_memberships.to_a
+        def serialize_cohort(cohort, include_members: false, setup_complete_count: nil)
+          memberships = memberships_with_users(cohort)
           member_users = memberships.map(&:user)
-          setup_complete_by_user_id = include_setup ? member_users.to_h { |user| [ user.id, setup_complete?(user) ] } : {}
-          setup_complete_count ||= include_setup ? setup_complete_by_user_id.values.count(true) : 0
+          progress_by_user_id = include_members ? HouseholdFinance::PilotProgressBatchBuilder.new(member_users).call : {}
+          setup_complete_count ||= progress_by_user_id.values.count { |progress| progress.fetch(:setup_complete) }
           participant_count = memberships.count { |membership| membership.role == "participant" }
           staff_count = memberships.count { |membership| membership.role.in?([ "coach", "admin" ]) }
 
@@ -95,7 +95,7 @@ module Api
                   full_name: membership.user.full_name,
                   role: membership.user.role,
                   invitation_status: membership.user.invitation_status,
-                  setup_complete: setup_complete_by_user_id.fetch(membership.user.id)
+                  **progress_by_user_id.fetch(membership.user.id)
                 }
               }
             end
@@ -104,57 +104,21 @@ module Api
           payload
         end
 
-        def setup_complete_counts_for_cohorts(cohort_ids)
-          return {} if cohort_ids.empty?
+        def setup_complete_counts_for_cohorts(cohorts)
+          memberships_by_cohort_id = cohorts.to_h { |cohort| [ cohort.id, memberships_with_users(cohort) ] }
+          users = memberships_by_cohort_id.values.flatten.map(&:user).uniq(&:id)
+          progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
 
-          sql = ApplicationRecord.sanitize_sql_array([
-            <<~SQL.squish,
-              WITH first_households AS (
-                SELECT user_id, household_id, name, primary_goal
-                FROM (
-                  SELECT
-                    household_memberships.user_id,
-                    households.id AS household_id,
-                    households.name,
-                    households.primary_goal,
-                    ROW_NUMBER() OVER (PARTITION BY household_memberships.user_id ORDER BY household_memberships.created_at ASC, household_memberships.id ASC) AS household_rank
-                  FROM household_memberships
-                  INNER JOIN households ON households.id = household_memberships.household_id
-                  WHERE household_memberships.user_id IN (
-                    SELECT DISTINCT user_id FROM cohort_memberships WHERE cohort_id IN (?)
-                  )
-                ) ranked_households
-                WHERE household_rank = 1
-              )
-              SELECT cohort_memberships.cohort_id, COUNT(DISTINCT cohort_memberships.user_id) AS setup_complete_count
-              FROM cohort_memberships
-              INNER JOIN first_households ON first_households.user_id = cohort_memberships.user_id
-              WHERE cohort_memberships.cohort_id IN (?)
-                AND (
-                  CASE WHEN NULLIF(TRIM(first_households.name), '') IS NOT NULL THEN 1 ELSE 0 END +
-                  CASE WHEN NULLIF(TRIM(first_households.primary_goal), '') IS NOT NULL THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM income_sources WHERE income_sources.household_id = first_households.household_id AND income_sources.active = TRUE AND income_sources.amount_cents > 0) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM expense_items WHERE expense_items.household_id = first_households.household_id AND expense_items.active = TRUE AND expense_items.amount_cents > 0) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE accounts.household_id = first_households.household_id AND accounts.balance_cents > 0) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM debts WHERE debts.household_id = first_households.household_id) OR EXISTS (SELECT 1 FROM accounts WHERE accounts.household_id = first_households.household_id) THEN 1 ELSE 0 END +
-                  CASE WHEN EXISTS (SELECT 1 FROM goals WHERE goals.household_id = first_households.household_id) THEN 1 ELSE 0 END
-                ) >= 5
-              GROUP BY cohort_memberships.cohort_id
-            SQL
-            cohort_ids,
-            cohort_ids
-          ])
-
-          ApplicationRecord.connection.exec_query(sql).to_h do |row|
-            [ row.fetch("cohort_id"), row.fetch("setup_complete_count") ]
+          cohorts.to_h do |cohort|
+            complete_count = memberships_by_cohort_id.fetch(cohort.id).count do |membership|
+              progress_by_user_id.fetch(membership.user.id, {}).fetch(:setup_complete, false)
+            end
+            [ cohort.id, complete_count ]
           end
         end
 
-        def setup_complete?(user)
-          household = user.household_memberships.sort_by(&:created_at).first&.household
-          return false unless household
-
-          HouseholdFinance::SnapshotBuilder.new(household).call.fetch(:profile_completeness) >= 70
+        def memberships_with_users(cohort)
+          cohort.cohort_memberships.to_a.select { |membership| membership.user.present? }
         end
 
         def render_not_found(error)
