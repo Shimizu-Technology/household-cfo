@@ -874,6 +874,68 @@ test('a late Mia response cannot replace the ledger after the participant change
   await expect(page.getByText('STALE MIA MONTH')).toHaveCount(0)
 })
 
+test('a same-month Mia response cannot undo a newer transaction refresh', async ({ page }) => {
+  const currentMonthNumber = String(new Date().getMonth() + 1).padStart(2, '0')
+  const reportShell = {
+    period_label: `${currentMonth} ${currentYear}`,
+    start_on: `${currentYear}-${currentMonthNumber}-01`,
+    end_on: `${currentYear}-${currentMonthNumber}-28`,
+    categories: [],
+    transactions: [],
+    pending_drafts: [],
+  }
+  const staleReport = { ...reportShell, totals: { planned: 5_300, actual: 0, pending: 75, remaining: 5_225 } }
+  const refreshedReport = {
+    ...reportShell,
+    totals: { planned: 5_300, actual: 4_000, pending: 0, remaining: 1_300 },
+    categories: [
+      { id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary', stack_label: 'Non-discretionary', planned: 4_000, actual: 3_500, pending: 0, remaining: 500, active: true },
+      { id: 2, name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', planned: 450, actual: 500, pending: 0, remaining: -50, active: true },
+      { id: 3, name: 'Expected sinking fund', stack_key: 'sinking_expected', stack_label: 'Sinking Fund — Expected', planned: 600, actual: 0, pending: 0, remaining: 600, active: true },
+      { id: 4, name: 'Unexpected sinking fund', stack_key: 'sinking_unexpected', stack_label: 'Sinking Fund — Unexpected', planned: 250, actual: 0, pending: 0, remaining: 250, active: true },
+    ],
+  }
+  let spendingReportRequests = 0
+  let releaseMiaResponse: (() => void) | undefined
+  const miaResponseReleased = new Promise<void>((resolve) => { releaseMiaResponse = resolve })
+
+  await page.route('http://api.test/api/v1/spending_report**', (route) => {
+    spendingReportRequests += 1
+    return route.fulfill({ status: 200, json: { spending_report: spendingReportRequests > 1 ? refreshedReport : staleReport } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await miaResponseReleased
+    return route.fulfill({
+      status: 200,
+      json: {
+        user_message: { id: 911, role: 'user', author: 'You', content: 'What should I focus on?', attachments: [] },
+        assistant_message: { id: 912, role: 'assistant', author: 'Mia', content: 'Review complete.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: staleReport,
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
+  await transactionCard.getByRole('button', { name: 'Confirm' }).click()
+  const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+
+  const completedMiaResponse = page.waitForResponse((response) => response.url().endsWith('/api/v1/mia/messages') && response.request().method() === 'POST')
+  releaseMiaResponse?.()
+  await completedMiaResponse
+  await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$4,000.00')
+  await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$0.00')
+})
+
 test('failed receipt upload leaves the participant on a retryable private-upload state', async ({ page }) => {
   await page.route('http://api.test/api/v1/document_imports', async (route) => {
     if (route.request().method() === 'POST') return route.fulfill({ status: 422, json: { errors: ['Could not store document in private S3'] } })

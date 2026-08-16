@@ -845,6 +845,7 @@ function App() {
 
     const messageContent = cleanPrompt || 'Please review this upload.'
     const optimisticMessageId = clientSideId('mia-message')
+    const spendingReportRequestAtSend = spendingReportRequestRef.current
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
@@ -891,7 +892,9 @@ function App() {
       }
       if (response.spending_report) {
         const visiblePeriod = selectedBudgetPeriodRef.current
-        if (response.spending_report.start_on === visiblePeriod.startsOn && response.spending_report.end_on === visiblePeriod.endsOn) {
+        if (response.spending_report.start_on === visiblePeriod.startsOn &&
+            response.spending_report.end_on === visiblePeriod.endsOn &&
+            spendingReportRequestRef.current === spendingReportRequestAtSend) {
           spendingReportRequestRef.current += 1
           setSpendingReport(response.spending_report)
         }
