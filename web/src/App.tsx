@@ -1300,6 +1300,7 @@ function App() {
       const response = await updateTransactionDraft(draft.id, values)
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
       setData(response.workspace)
+      setDocumentImports((current) => replaceImportTransactionDraft(current, response.transaction_draft))
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -4487,6 +4488,19 @@ function replaceImportItem(imports: FinancialDocumentImport[], documentImportId:
     return {
       ...documentImport,
       items: documentImport.items.map((existing) => (existing.id === item.id ? item : existing)),
+    }
+  })
+}
+
+function replaceImportTransactionDraft(imports: FinancialDocumentImport[], draft: TransactionDraft) {
+  if (!draft.financial_document_import_id) return imports
+
+  return imports.map((documentImport) => {
+    if (documentImport.id !== draft.financial_document_import_id) return documentImport
+
+    return {
+      ...documentImport,
+      transaction_drafts: documentImport.transaction_drafts.map((existing) => (existing.id === draft.id ? draft : existing)),
     }
   })
 }

@@ -329,8 +329,12 @@ module HouseholdFinance
     end
 
     def action_center
-      transaction_reviews = household.transaction_drafts.pending.count
-      action_reviews = household.mia_action_drafts.pending.count
+      current_year = Date.current.year
+      current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
+      transaction_reviews = household.transaction_drafts.pending.where(occurred_on: current_year_range).count
+      action_reviews = household.mia_action_drafts.pending
+        .where("draft_type = :household_setup OR year = :year", household_setup: "household_setup", year: current_year)
+        .count
 
       {
         transaction_review_count: transaction_reviews,
@@ -338,7 +342,7 @@ module HouseholdFinance
         total_review_count: transaction_reviews + action_reviews,
         current_month_label: Date.current.strftime("%B"),
         current_month_index: Date.current.month - 1,
-        current_year: Date.current.year
+        current_year: current_year
       }
     end
 

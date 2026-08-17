@@ -179,6 +179,14 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       source_type: "manual_chat",
       status: "pending"
     )
+    household.transaction_drafts.create!(
+      budget_category: category,
+      merchant: "Historical cafe",
+      occurred_on: Date.current.prev_year,
+      total_amount_cents: 900,
+      source_type: "plaid",
+      status: "pending"
+    )
     household.mia_action_drafts.create!(
       requested_by_user: user,
       year: Date.current.year,
@@ -186,6 +194,14 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       status: "pending",
       title: "Review budget",
       summary: "Review a planned change"
+    )
+    household.mia_action_drafts.create!(
+      requested_by_user: user,
+      year: Date.current.prev_year.year,
+      draft_type: "budget_edit",
+      status: "pending",
+      title: "Historical budget review",
+      summary: "Review an older planned change"
     )
 
     action_center = HouseholdFinance::DataPresenter.new(household, user: user).dashboard.fetch(:action_center)

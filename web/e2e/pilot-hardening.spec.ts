@@ -1068,6 +1068,113 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('receipt category corrections refresh the selected import immediately', async ({ page }) => {
+  const draft = {
+    id: 192,
+    occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-16`,
+    merchant: "Tita's Demo Market",
+    amount: 3.35,
+    amount_cents: 335,
+    status: 'pending',
+    source_type: 'receipt',
+    financial_document_import_id: 701,
+    category_id: null,
+    category_name: null,
+    splits: [{
+      id: 505,
+      budget_category_id: null,
+      category_name: 'Tax',
+      stack_key: null,
+      stack_label: null,
+      amount: 3.35,
+      amount_cents: 335,
+      notes: 'Sales tax',
+      confidence: 0.65,
+      metadata: { category_match_status: 'needs_review', category_match_reason: 'no_strong_match', extracted_category_name: 'Tax' },
+    }],
+    matches: [],
+  }
+  let workspace = realWorkspaceData(true)
+  workspace = {
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: {
+        ...workspace.budget.annual_plan!,
+        pending_transaction_drafts: [draft],
+      },
+    },
+  }
+  const documentImport = {
+    id: 701,
+    household_id: 77,
+    document_kind: 'receipt',
+    status: 'needs_review',
+    filename: 'receipt.png',
+    content_type: 'image/png',
+    byte_size: 24_000,
+    document_date: draft.occurred_on,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'Mia found one transaction draft.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: null,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:00:00Z`,
+    source_available: true,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [draft],
+    attempts: [],
+  }
+
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [documentImport] } }))
+  await page.route('http://api.test/api/v1/transaction_drafts/192', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback()
+    const payload = route.request().postDataJSON().transaction_draft
+    const updatedDraft = {
+      ...draft,
+      category_id: 2,
+      category_name: 'Dining out',
+      splits: payload.splits.map((split: typeof draft.splits[number]) => ({
+        ...split,
+        budget_category_id: split.budget_category_id,
+        category_name: 'Dining out',
+        stack_key: 'discretionary',
+        stack_label: 'Discretionary',
+      })),
+    }
+    workspace = {
+      ...workspace,
+      budget: {
+        ...workspace.budget,
+        annual_plan: {
+          ...workspace.budget.annual_plan!,
+          pending_transaction_drafts: [updatedDraft],
+        },
+      },
+    }
+    return route.fulfill({ status: 200, json: { transaction_draft: updatedDraft, workspace } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
+  await card.getByRole('button', { name: 'Review categories' }).click()
+  await card.getByLabel('Category').selectOption('2')
+  await card.getByRole('button', { name: 'Save draft' }).click()
+
+  await expect(card.getByText(/splits? need/)).toHaveCount(0)
+  await expect(card.locator('.transaction-draft-splits')).toContainText('Dining out')
+  await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled()
+})
+
 test('a late spending report cannot overwrite the refresh triggered by a transaction decision', async ({ page }) => {
   let requestCount = 0
   let markFirstRequestStarted: (() => void) | undefined
