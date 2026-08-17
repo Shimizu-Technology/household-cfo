@@ -5860,7 +5860,7 @@ h3 {
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
 }
 
-.transaction-draft-splits span,
+.transaction-draft-splits article,
 .transaction-match-suggestions > div {
   padding: 8px 10px;
   border: 1px solid rgba(143, 74, 95, 0.14);
@@ -5869,6 +5869,76 @@ h3 {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 800;
+}
+
+.transaction-draft-splits article {
+  display: grid;
+  gap: 3px;
+}
+
+.transaction-draft-splits article strong {
+  color: var(--ink);
+  font-size: 0.8rem;
+}
+
+.transaction-draft-splits article span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.transaction-draft-splits article.needs-category {
+  border-color: rgba(185, 115, 82, 0.34);
+  background: #fff7ed;
+}
+
+.transaction-draft-splits article.needs-category strong {
+  color: var(--mauve);
+}
+
+.transaction-draft-category-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 3px;
+  padding: 12px;
+  border: 1px solid rgba(185, 115, 82, 0.36);
+  border-radius: 15px;
+  background: linear-gradient(135deg, #fff7ed, #fffdf8);
+}
+
+.transaction-draft-category-warning > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.transaction-draft-category-warning strong {
+  color: var(--mauve);
+  font-size: 0.82rem;
+}
+
+.transaction-draft-category-warning p {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 750;
+  line-height: 1.4;
+}
+
+.transaction-draft-category-warning button {
+  flex: 0 0 auto;
+  min-height: 44px;
+  white-space: nowrap;
+}
+
+.transaction-draft-bulk-warning {
+  flex: 1 0 100%;
+  margin: 2px 0 0;
+  color: var(--mauve);
+  font-size: 0.76rem;
+  font-weight: 850;
 }
 
 .transaction-draft-impact {
@@ -7273,6 +7343,14 @@ h3 {
 
   .transaction-draft-splits {
     grid-template-columns: 1fr;
+  }
+
+  .transaction-draft-category-warning {
+    display: grid;
+  }
+
+  .transaction-draft-category-warning button {
+    width: 100%;
   }
 
   .transaction-draft-actions,

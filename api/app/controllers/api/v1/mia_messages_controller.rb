@@ -932,7 +932,8 @@ module Api
               amount: HouseholdFinance::Money.dollars(split.amount_cents),
               amount_cents: split.amount_cents,
               notes: split.notes,
-              confidence: split.confidence
+              confidence: split.confidence,
+              metadata: split.metadata || {}
             }
           end,
           matches: [],

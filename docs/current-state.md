@@ -41,6 +41,7 @@ This section supersedes the older cohort-size and setup/upload-first assumptions
 - Text transaction capture with confirm, edit, ignore, reopen, and audit-safe actuals.
 - Private S3 document imports for budgets, receipts, screenshots, statements, spreadsheets, and pay stubs.
 - Receipt/statement extraction, split drafts, month assignment, matching/deduplication, and merchant/category learning.
+- Uncertainty-aware receipt categorization: line-item evidence takes priority over merchant guesses, unresolved splits remain visibly reviewable, and document transactions cannot be confirmed until every split has an explicit category.
 - Private source preview, expiring download links, source deletion, and import deletion controls.
 - Backend voice transcription with an editable transcript before send.
 - Rails-approved Mia answer packets, model narration, and deterministic fallback.

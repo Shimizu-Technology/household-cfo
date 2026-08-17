@@ -933,6 +933,91 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await cancelRequest
 })
 
+test('uncertain receipt splits stay reviewable and cannot be confirmed until categorized on mobile', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  let workspace = realWorkspaceData(true)
+  const uncertainDraft = {
+    id: 191,
+    occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-16`,
+    merchant: "Tita's Demo Market",
+    amount: 70.25,
+    amount_cents: 7_025,
+    status: 'pending',
+    source_type: 'receipt',
+    financial_document_import_id: 700,
+    category_id: 2,
+    category_name: 'Dining out',
+    splits: [
+      { id: 501, budget_category_id: 2, category_name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 42.15, amount_cents: 4_215, notes: 'Food items', confidence: 0.65, metadata: { category_match_status: 'matched', category_match_reason: 'item_text', extracted_category_name: 'Food' } },
+      { id: 502, budget_category_id: null, category_name: 'Household supplies', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 13.50, amount_cents: 1_350, notes: 'Cleaning products', confidence: 0.65, metadata: { category_match_status: 'needs_review', category_match_reason: 'no_strong_match', extracted_category_name: 'Household supplies' } },
+      { id: 503, budget_category_id: null, category_name: 'Cigarettes', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 11.25, amount_cents: 1_125, notes: 'Tobacco line', confidence: 0.65, metadata: { category_match_status: 'needs_review', category_match_reason: 'no_strong_match', extracted_category_name: 'Cigarettes' } },
+      { id: 504, budget_category_id: null, category_name: 'Tax', stack_key: 'discretionary', stack_label: 'Discretionary', amount: 3.35, amount_cents: 335, notes: 'Sales tax', confidence: 0.65, metadata: { category_match_status: 'needs_review', category_match_reason: 'no_strong_match', extracted_category_name: 'Tax' } },
+    ],
+    matches: [],
+  }
+  workspace = {
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: {
+        ...workspace.budget.annual_plan!,
+        pending_transaction_drafts: [uncertainDraft],
+      },
+    },
+  }
+
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts/191', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback()
+    const payload = route.request().postDataJSON().transaction_draft
+    const categoryNames = new Map([[1, 'Fixed essentials'], [2, 'Dining out'], [3, 'Expected sinking fund'], [4, 'Unexpected sinking fund']])
+    const updatedDraft = {
+      ...uncertainDraft,
+      category_id: payload.splits[0].budget_category_id,
+      category_name: categoryNames.get(payload.splits[0].budget_category_id) ?? null,
+      splits: payload.splits.map((split: typeof uncertainDraft.splits[number]) => ({
+        ...split,
+        budget_category_id: split.budget_category_id,
+        category_name: categoryNames.get(Number(split.budget_category_id)) ?? split.category_name,
+      })),
+    }
+    workspace = {
+      ...workspace,
+      budget: {
+        ...workspace.budget,
+        annual_plan: {
+          ...workspace.budget.annual_plan!,
+          pending_transaction_drafts: [updatedDraft],
+        },
+      },
+    }
+    return route.fulfill({ status: 200, json: { transaction_draft: updatedDraft, workspace } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
+  await expect(card.getByText('3 splits need a category')).toBeVisible()
+  await expect(card.getByText('Cleaning products')).toBeVisible()
+  await expect(card.locator('.transaction-draft-impact-row.needs-category')).toContainText('Needs category$28.10 in this draft')
+  await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeDisabled()
+
+  await card.getByRole('button', { name: 'Review categories' }).click()
+  const categorySelects = card.getByLabel('Category')
+  await expect(categorySelects).toHaveCount(4)
+  await expect(categorySelects.nth(1)).toBeFocused()
+  await categorySelects.nth(1).selectOption('1')
+  await categorySelects.nth(2).selectOption('4')
+  await categorySelects.nth(3).selectOption('2')
+  const updateRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/191') && request.method() === 'PATCH')
+  await card.getByRole('button', { name: 'Save draft' }).click()
+  const request = await updateRequest
+  expect(request.postDataJSON().transaction_draft.splits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 4, 2])
+  await expect(card.getByText(/splits? need/)).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('a late spending report cannot overwrite the refresh triggered by a transaction decision', async ({ page }) => {
   let requestCount = 0
   let markFirstRequestStarted: (() => void) | undefined
