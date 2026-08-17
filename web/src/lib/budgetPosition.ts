@@ -42,12 +42,36 @@ export function budgetPositionsForMonth(
   spendingReport?: SpendingReport | null,
 ): BudgetPosition[] {
   const month = plan.months[monthIndex]
+  const pendingByCategory = pendingAmountsByCategory(plan.pending_transaction_drafts, month)
   const reportMatchesMonth = Boolean(
     spendingReport && month && spendingReport.start_on === month.starts_on && spendingReport.end_on === month.ends_on,
   )
 
-  if (spendingReport && reportMatchesMonth) {
-    return spendingReport.categories.map((category) => ({
+  const reportCategories = reportMatchesMonth && spendingReport
+    ? new Map(spendingReport.categories.map((category) => [category.id, category]))
+    : new Map<number, SpendingReport['categories'][number]>()
+  const planCategoryIds = new Set(plan.rows.map((row) => row.id))
+  const planPositions = plan.rows.map((row) => {
+    const cell = row.months[monthIndex]
+    const reportCategory = reportCategories.get(row.id)
+    const planned = cell?.planned ?? reportCategory?.planned ?? 0
+    const actual = reportCategory?.actual ?? cell?.actual ?? 0
+    return {
+      id: row.id,
+      name: row.name,
+      stackKey: row.stack_key,
+      stackLabel: row.stack_label,
+      planned,
+      actual,
+      pending: reportCategory?.pending ?? pendingByCategory.get(row.id) ?? 0,
+      remaining: planned - actual,
+      active: row.active,
+    }
+  })
+
+  const reportOnlyPositions = Array.from(reportCategories.values())
+    .filter((category) => !planCategoryIds.has(category.id))
+    .map((category) => ({
       id: category.id,
       name: category.name,
       stackKey: category.stack_key,
@@ -58,24 +82,8 @@ export function budgetPositionsForMonth(
       remaining: category.remaining,
       active: category.active ?? true,
     }))
-  }
 
-  const pendingByCategory = pendingAmountsByCategory(plan.pending_transaction_drafts, month)
-
-  return plan.rows.map((row) => {
-    const cell = row.months[monthIndex]
-    return {
-      id: row.id,
-      name: row.name,
-      stackKey: row.stack_key,
-      stackLabel: row.stack_label,
-      planned: cell?.planned ?? 0,
-      actual: cell?.actual ?? 0,
-      pending: pendingByCategory.get(row.id) ?? 0,
-      remaining: cell?.remaining ?? (cell?.planned ?? 0) - (cell?.actual ?? 0),
-      active: row.active,
-    }
-  })
+  return [...planPositions, ...reportOnlyPositions]
 }
 
 export function budgetPositionTotals(positions: BudgetPosition[]): BudgetPositionTotals {
@@ -109,7 +117,7 @@ export function transactionDraftBudgetImpacts(
     if (categoryId === null) {
       return {
         categoryId,
-        categoryName: allocation.categoryName || 'Needs category',
+        categoryName: 'Needs category',
         draftAmount: allocation.amount,
         planned: null,
         actual: null,
@@ -158,7 +166,7 @@ function draftAmountsByCategory(draft: TransactionDraft) {
       const current = amounts.get(categoryId)
       amounts.set(categoryId, {
         amount: (current?.amount ?? 0) + split.amount,
-        categoryName: split.category_name ?? current?.categoryName ?? null,
+        categoryName: categoryId === null ? null : (split.category_name ?? current?.categoryName ?? null),
       })
     })
     return amounts

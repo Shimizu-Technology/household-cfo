@@ -29,8 +29,12 @@ module HouseholdFinance
         structured_restore_category_proposal
       when "review_pending_action"
         structured_existing_draft_result
+      when "update_household_setup"
+        structured_household_setup_proposal
+      when "schedule_income_change"
+        structured_income_schedule_proposal
       else
-        validation_result("I could not safely resolve that budget action. Nothing changed. Please name the category, amount, and month.")
+        validation_result("I could not safely resolve that change. Nothing changed. Tell me the value and when it should take effect.")
       end
     end
 
@@ -229,13 +233,13 @@ module HouseholdFinance
 
     def structured_existing_draft_result
       draft = household.mia_action_drafts.pending.find_by(id: command[:draft_id].to_i)
-      return validation_result("I could not find that pending budget review. Nothing changed; ask me to prepare the edit again.") unless draft
+      return validation_result("I could not find that pending review. Nothing changed; ask me to prepare the change again.") unless draft
 
       MiaActionDraftBuilder::Result.new(
         proposal: nil,
         existing_draft: draft,
         annual_plan: annual_plan,
-        response: "That budget review card is ready below. Use Apply to make the change, or Cancel to leave the budget as it is. Nothing else changed."
+        response: "That review card is ready below. Use Apply to make the change, or Cancel to leave your approved numbers as they are. Nothing else changed."
       )
     end
 

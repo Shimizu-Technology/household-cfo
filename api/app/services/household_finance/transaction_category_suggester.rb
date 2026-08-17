@@ -1,50 +1,93 @@
 module HouseholdFinance
   class TransactionCategorySuggester
+    Suggestion = Data.define(:category, :match_status, :match_reason) do
+      def matched?
+        category.present?
+      end
+    end
+
     DINING_TERMS = /\b(mcdonald|restaurant|bar|coffee|latte|takeout|dining|jollibee|cafe|bakery|lunch|dinner)\b/i
-    GROCERY_TERMS = /\b(pay\s*less|payless|grocery|groceries|supermarket|cost\s*u\s*less|costuless|market)\b/i
+    GROCERY_TERMS = /\b(pay\s*less|payless|grocery|groceries|supermarket|cost\s*u\s*less|costuless|food)\b/i
     TRANSPORT_TERMS = /\b(shell|mobil|76|gas|fuel|transport|transportation)\b/i
     UTILITIES_TERMS = /\b(power|gpa|utility|utilities|water|electric|guam waterworks|internet|docomo|gta)\b/i
     MEDICAL_TERMS = /\b(clinic|medical|doctor|copay|medicine|pharmacy|hospital)\b/i
+    HOUSEHOLD_TERMS = /\b(household|cleaning|detergent|soap|paper towel|toilet paper|supplies)\b/i
+    TOBACCO_TERMS = /\b(cigarette|cigarettes|tobacco|vape|nicotine)\b/i
+    TAX_TERMS = /\b(tax|sales tax)\b/i
+    RELIABLE_HEURISTIC_CONFIDENCE = BigDecimal("0.65")
 
     def initialize(household)
       @household = household
     end
 
-    def call(merchant:, category_name: nil, stack_key: nil, text: nil)
-      categories = active_categories
-      return nil if categories.empty?
+    # Keep the original category-only API for manual Mia transaction drafts.
+    def call(**attributes)
+      suggestion = suggest(**attributes)
+      suggestion.category ||
+        stack_category(active_categories, attributes[:stack_key]) ||
+        active_categories.find { |category| category.stack_key == "discretionary" } ||
+        active_categories.first
+    end
 
-      exact_category(categories, category_name) ||
-        merchant_rule_category(merchant, categories) ||
-        heuristic_category(categories, [ merchant, category_name, text ].compact.join(" "), stack_key) ||
-        stack_category(categories, stack_key) ||
-        categories.find { |category| category.stack_key == "discretionary" } ||
-        categories.first
+    def suggest(merchant:, category_name: nil, stack_key: nil, text: nil, confidence: nil, merchant_fallback: true)
+      categories = active_categories
+      return no_match("no_active_categories") if categories.empty?
+
+      if (category = exact_category(categories, category_name))
+        return matched(category, "exact_category")
+      end
+
+      if heuristic_confident?(confidence) && (category = heuristic_category(categories, [ category_name, text ].compact.join(" ")))
+        return matched(category, "item_text")
+      end
+
+      merchant_rule = merchant_rule_suggestion(merchant, categories)
+      return merchant_rule if merchant_rule
+
+      if merchant_fallback && heuristic_confident?(confidence) && (category = heuristic_category(categories, merchant))
+        return matched(category, "merchant_text")
+      end
+
+      reason = heuristic_confident?(confidence) ? "no_strong_match" : "low_confidence"
+      no_match(reason)
     end
 
     private
 
     attr_reader :household
 
+    def matched(category, reason)
+      Suggestion.new(category: category, match_status: "matched", match_reason: reason)
+    end
+
+    def no_match(reason)
+      Suggestion.new(category: nil, match_status: "needs_review", match_reason: reason)
+    end
+
     def exact_category(categories, category_name)
       name = normalized(category_name)
       return if name.blank?
 
-      categories.find { |category| normalized(category.name) == name } ||
-        categories.find { |category| normalized(category.name).include?(name) || name.include?(normalized(category.name)) }
+      categories.find { |category| normalized(category.name) == name }
     end
 
-    def merchant_rule_category(merchant, categories)
+    def merchant_rule_suggestion(merchant, categories)
       merchant_text = normalized(merchant)
       return if merchant_text.blank?
 
       category_ids = categories.map(&:id)
-      merchant_category_rules.find do |rule|
+      matching_rules = merchant_category_rules.select do |rule|
         next false unless category_ids.include?(rule.budget_category_id)
 
         pattern = normalized(rule.merchant_pattern)
         pattern.present? && (merchant_text.include?(pattern) || pattern.include?(merchant_text))
-      end&.budget_category
+      end
+      return if matching_rules.empty?
+
+      matched_categories = matching_rules.filter_map(&:budget_category).uniq(&:id)
+      return no_match("ambiguous_merchant_history") if matched_categories.many?
+
+      matched(matched_categories.first, "confirmed_merchant_history")
     end
 
     def active_categories
@@ -55,20 +98,24 @@ module HouseholdFinance
       @merchant_category_rules ||= household.merchant_category_rules.active.includes(:budget_category).best_first.to_a
     end
 
-    def heuristic_category(categories, text, stack_key)
+    def heuristic_category(categories, text)
       normalized_text = text.to_s
-      if normalized_text.match?(UTILITIES_TERMS)
-        category_named(categories, /rent|mortgage|fixed|essential|utilities|power|water|internet/) || stack_category(categories, "non_discretionary")
+      if normalized_text.match?(TOBACCO_TERMS)
+        category_named(categories, /cigarette|tobacco|smoking|vape/)
+      elsif normalized_text.match?(HOUSEHOLD_TERMS)
+        category_named(categories, /household|supplies|cleaning|home goods/)
+      elsif normalized_text.match?(TAX_TERMS)
+        category_named(categories, /tax/)
+      elsif normalized_text.match?(UTILITIES_TERMS)
+        category_named(categories, /rent|mortgage|fixed|essential|utilities|power|water|internet/)
       elsif normalized_text.match?(TRANSPORT_TERMS)
         category_named(categories, /gas|transport|fuel|car/)
       elsif normalized_text.match?(GROCERY_TERMS)
-        category_named(categories, /grocery|groceries|food/) || stack_category(categories, "discretionary")
+        category_named(categories, /grocery|groceries|food/)
       elsif normalized_text.match?(DINING_TERMS)
-        category_named(categories, /dining|restaurant|coffee|takeout|food/) || stack_category(categories, "discretionary")
+        category_named(categories, /dining|restaurant|coffee|takeout|food/)
       elsif normalized_text.match?(MEDICAL_TERMS)
-        category_named(categories, /medical|health|copay|unexpected/) || stack_category(categories, "sinking_unexpected")
-      else
-        stack_category(categories, stack_key)
+        category_named(categories, /medical|health|copay|unexpected/)
       end
     end
 
@@ -81,6 +128,14 @@ module HouseholdFinance
       return unless stack.in?(BudgetCategory::STACK_KEYS)
 
       categories.find { |category| category.stack_key == stack }
+    end
+
+    def heuristic_confident?(confidence)
+      return true if confidence.blank?
+
+      BigDecimal(confidence.to_s) >= RELIABLE_HEURISTIC_CONFIDENCE
+    rescue ArgumentError
+      false
     end
 
     def normalized(value)

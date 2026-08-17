@@ -8,6 +8,96 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "I recognized this as other and routed it to private import history.", route_line
   end
 
+  test "mia attachment route copy follows the reviewable results rather than a mismatched selected slot" do
+    user = create_user(email: "upload-result@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "profile-screenshot.png",
+      content_type: "image/png",
+      byte_size: 100,
+      s3_key: "test/profile-screenshot.png",
+      metadata: {
+        "declared_document_kind" => "receipt",
+        "routing_resolved_kind" => "receipt",
+        "routing_destination" => "transaction_review"
+      }
+    )
+    document_import.items.create!(target_type: "expense_item", label: "Fixed essentials", amount_cents: 310_000, confidence: "high")
+
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
+
+    assert_equal "You selected this as receipt. I checked the file and routed the reviewable results I actually found to household setup review.", route_line
+  end
+
+  test "mia attachment route copy names both review destinations when extraction produces both result types" do
+    user = create_user(email: "mixed-upload-result@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "mixed-statement.csv",
+      content_type: "text/csv",
+      byte_size: 100,
+      s3_key: "test/mixed-statement.csv",
+      metadata: { "routing_resolved_kind" => "statement", "routing_destination" => "transaction_review" }
+    )
+    document_import.items.create!(target_type: "account", label: "Checking", balance_cents: 500_000, confidence: "high")
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 8, 1),
+      merchant: "Market",
+      total_amount_cents: 8_425,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "Statement row"
+    )
+
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
+
+    assert_equal "I recognized this as statement and routed it to pending transaction review and household setup review.", route_line
+  end
+
+  test "mia attachment route copy sends fully resolved extraction results to import history" do
+    user = create_user(email: "resolved-upload-result@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "applied",
+      filename: "resolved-statement.csv",
+      content_type: "text/csv",
+      byte_size: 100,
+      s3_key: "test/resolved-statement.csv",
+      applied_at: Time.current,
+      metadata: { "routing_resolved_kind" => "statement", "routing_destination" => "transaction_review" }
+    )
+    document_import.items.create!(
+      target_type: "account",
+      label: "Checking",
+      balance_cents: 500_000,
+      confidence: "high",
+      selected: true,
+      applied_at: Time.current
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 8, 1),
+      merchant: "Market",
+      total_amount_cents: 8_425,
+      source_type: "statement",
+      status: "confirmed",
+      raw_input: "Statement row"
+    )
+
+    route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, document_import)
+
+    assert_equal "I recognized this as statement and kept the resolved results in private import history.", route_line
+  end
+
   test "mia attachment summary names the actual destinations in a mixed batch" do
     document_import = Struct.new(:metadata, :document_kind)
     imports = [
@@ -49,26 +139,28 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
   test "workspace setup saves real household numbers and recalculates dashboard" do
     user = create_user(email: "mel@example.com", first_name: "Mel")
 
-    patch "/api/v1/workspace/setup",
-          params: {
-            workspace: {
-              household_name: "Mendiola Household",
-              primary_goal: "Decide if the purse is in the cards.",
-              primary_income: 8_000,
-              business_income: 1_200,
-              fixed_expenses: 4_500,
-              flexible_spend: 1_300,
-              expected_sinking_fund: 500,
-              unexpected_sinking_fund: 300,
-              emergency_fund: 18_000,
-              other_assets: 12_000,
-              credit_card_debt: 7_000,
-              debt_payment: 700,
-              target_runway_months: 6
-            }
-          },
-          headers: auth_headers(user),
-          as: :json
+    assert_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count", 1) do
+      patch "/api/v1/workspace/setup",
+            params: {
+              workspace: {
+                household_name: "Mendiola Household",
+                primary_goal: "Decide if the purse is in the cards.",
+                primary_income: 8_000,
+                business_income: 1_200,
+                fixed_expenses: 4_500,
+                flexible_spend: 1_300,
+                expected_sinking_fund: 500,
+                unexpected_sinking_fund: 300,
+                emergency_fund: 18_000,
+                other_assets: 12_000,
+                credit_card_debt: 7_000,
+                debt_payment: 700,
+                target_runway_months: 6
+              }
+            },
+            headers: auth_headers(user),
+            as: :json
+    end
 
     assert_response :success
     body = JSON.parse(response.body)
@@ -76,7 +168,40 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 9_200, body.fetch("dashboard").fetch("summary").fetch("monthly_income")
     assert_equal 7_300, body.fetch("budget").fetch("total_monthly_outflow")
     assert_equal 1_900, body.fetch("budget").fetch("baseline_surplus")
+    annual_plan = body.fetch("budget").fetch("annual_plan")
+    current_month = annual_plan.fetch("annual_outlook").fetch("months").fetch(Date.current.month - 1)
+    assert_equal 700, annual_plan.fetch("monthly_debt_minimums")
+    assert_equal 6_600, current_month.fetch("category_plan")
+    assert_equal 700, current_month.fetch("debt_minimums")
+    assert_equal 7_300, current_month.fetch("planned_outflow")
+    assert_equal 1_900, current_month.fetch("baseline_surplus")
     assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
+    setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
+    assert_equal({ "setup_complete" => true }, setup_audit.metadata)
+  end
+
+  test "workspace setup audit failure rolls back changes and returns a safe retry response" do
+    user = create_user(email: "setup-audit-failure@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    original_name = household.name
+    reject_setup_audit = lambda do |audit_event|
+      audit_event.errors.add(:base, "Forced setup audit failure") if audit_event.event_type == "workspace.setup_saved"
+    end
+    HouseholdAuditEvent.set_callback(:validation, :before, reject_setup_audit)
+
+    assert_no_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count") do
+      patch "/api/v1/workspace/setup",
+            params: { workspace: { household_name: "Name that must roll back" } },
+            headers: auth_headers(user),
+            as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_equal [ "We couldn't save your setup right now. Please try again." ], JSON.parse(response.body).fetch("errors")
+    assert_equal original_name, household.reload.name
+    assert_not_includes response.body, "Forced setup audit failure"
+  ensure
+    HouseholdAuditEvent.skip_callback(:validation, :before, reject_setup_audit) if reject_setup_audit
   end
 
   test "workspace setup partial patch preserves omitted financial values" do

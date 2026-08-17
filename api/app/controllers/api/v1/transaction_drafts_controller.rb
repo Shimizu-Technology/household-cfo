@@ -135,11 +135,11 @@ module Api
       end
 
       def confirm_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes, :confidence ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes, :confidence, { metadata: {} } ])
       end
 
       def update_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes, :confidence ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes, :confidence, { metadata: {} } ])
       end
 
       def permitted_draft_params
@@ -251,7 +251,8 @@ module Api
           amount: HouseholdFinance::Money.dollars(split.amount_cents),
           amount_cents: split.amount_cents,
           notes: split.notes,
-          confidence: split.confidence
+          confidence: split.confidence,
+          metadata: split.metadata || {}
         }
       end
 

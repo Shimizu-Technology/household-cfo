@@ -78,7 +78,14 @@ module Api
       end
 
       def applied_message(draft)
-        "Applied Mia’s budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
+        case draft.draft_type
+        when "budget_edit"
+          "Applied Mia’s budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
+        when "income_schedule"
+          "Applied Mia’s reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
+        else
+          "Applied Mia’s reviewed household update: #{applied_summary(draft.summary)} Mia and the Home snapshot now use the approved values."
+        end
       end
 
       def applied_summary(summary)
@@ -88,7 +95,12 @@ module Api
       end
 
       def canceled_message(draft)
-        "Canceled Mia’s budget draft: #{draft.title}. No budget numbers changed."
+        unchanged = case draft.draft_type
+        when "budget_edit" then "No budget numbers changed."
+        when "income_schedule" then "No income timeline changed."
+        else "No approved household numbers changed."
+        end
+        "Canceled Mia’s review draft: #{draft.title}. #{unchanged}"
       end
 
       def serialize_action_draft(draft)

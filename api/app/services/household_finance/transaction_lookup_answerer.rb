@@ -2,9 +2,15 @@ module HouseholdFinance
   class TransactionLookupAnswerer
     FOOD_TERMS = /\b(food|eat|ate|dining|restaurant|restaurants|takeout|coffee|cafe|grocer(?:y|ies)?)\b/i
     LOOKUP_TERMS = /\b(how many|how much|what|show|find|search|list|total|did i|did we)\b/i
+    BANK_SUMMARY_TERMS = /\b(?:summari[sz]e|summary|latest|recent|most recent)\b/i
     PLANNED_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
     BANK_ACTIVITY_TERMS = /\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
     ALL_BANK_ACTIVITY_TERMS = /\b(?:across|all|entire)\b.*\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
+
+    def self.bank_activity_question?(value)
+      message = value.to_s.downcase.squish
+      message.match?(BANK_ACTIVITY_TERMS) && (message.match?(LOOKUP_TERMS) || message.match?(BANK_SUMMARY_TERMS))
+    end
 
     def initialize(household, message, today: Date.current)
       @household = household
@@ -32,7 +38,7 @@ module HouseholdFinance
     def lookup_like?
       return false if message.match?(PLANNED_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|spend)\b/i)
 
-      message.match?(LOOKUP_TERMS)
+      message.match?(LOOKUP_TERMS) || self.class.bank_activity_question?(message)
     end
 
     def lookup_target
@@ -83,7 +89,7 @@ module HouseholdFinance
 
       extracted = message.match(/\b(?:at|from)\s+([a-z0-9'&.\-\s]+?)(?:\s+(?:this|last|in|for|during|between|from|and how|how much|how many)|[?.!]|$)/i)&.[](1)&.squish
       extracted = extracted&.gsub(/\b(today|yesterday)\b/i, "")&.squish
-      return if extracted.blank? || extracted.length > 80
+      return if extracted.blank? || extracted.length > 80 || generic_bank_source_label?(extracted)
 
       { type: :merchant, label: extracted }
     end
@@ -171,10 +177,25 @@ module HouseholdFinance
 
       [
         "For #{period_label}, synced bank activity shows #{outflows.length} posted outflows totaling #{money(outflows.sum(&:amount_cents))} and #{inflows.length} inflows totaling #{money(inflows.sum { |transaction| transaction.amount_cents.abs })}.",
+        recent_outflow_line(outflows),
         "Confirmed Plaid-derived household actuals total #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}.",
         "#{needs_review.length} posted outflows totaling #{money(needs_review.sum(&:amount_cents))} still need household review or source reconciliation.",
         "#{pending.length} bank-pending #{'transaction'.pluralize(pending.length)} #{pending.length == 1 ? 'is' : 'are'} tracked separately and excluded from posted totals."
-      ].join("\n\n")
+      ].compact.join("\n\n")
+    end
+
+    def recent_outflow_line(outflows)
+      return unless message.match?(/\b(?:latest|recent|most recent)\b/i)
+      return "There is no posted outflow in this period." if outflows.empty?
+
+      transaction = outflows.first
+      merchant = transaction.merchant_name.presence || transaction.name
+      review_state = if needs_household_review?(transaction)
+        "It still needs household review and is not included in confirmed budget actuals."
+      else
+        "Its linked review is already resolved."
+      end
+      "Most recent posted outflow: #{merchant} for #{money(transaction.amount_cents)} on #{transaction.occurred_on.strftime('%b %-d, %Y')}. #{review_state}"
     end
 
     def category_breakdown(transactions, target)
@@ -215,6 +236,10 @@ module HouseholdFinance
 
     def merchant_matches?(merchant, target_label)
       normalize(merchant).include?(normalize(target_label)) || normalize(target_label).include?(normalize(merchant))
+    end
+
+    def generic_bank_source_label?(value)
+      normalize(value).match?(/\A(?:my|our|the)?(?:connected|linked|synced)?(?:bank)?accounts?\z/)
     end
 
     def lookup_splits(transaction)

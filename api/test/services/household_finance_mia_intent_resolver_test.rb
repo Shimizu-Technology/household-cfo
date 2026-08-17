@@ -103,6 +103,38 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_empty result.clarification
   end
 
+  test "uses the open budget year when a supported budget action omits its year" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Create School Supplies with $75 every month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Create School Supplies with $75 every month",
+          needs_clarification: true,
+          clarification: "Which budget year should this affect?",
+          topic: { type: "budget_edit", title: "School Supplies category", subject: "School Supplies" },
+          action: default_action.merge(
+            type: "create_category",
+            new_name: "School Supplies",
+            stack_key: "sinking_expected",
+            amount: "75",
+            months: (1..12).to_a,
+            year: 0
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    refute result.clarification?
+    assert_equal 2026, result.action.fetch(:year)
+  end
+
   test "rejects model invented category references and asks for clarification" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Lower that to $3,000",
@@ -324,6 +356,54 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     refute resolver.send(:action_complete?, base_action.merge(type: "move_allocation", target_category_id: 43))
   end
 
+  test "resolves approved household numbers into a supervised setup action" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "My take-home pay is now $6,200 and my emergency fund is $3,500",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: false,
+          resolved_message: "Update current take-home pay and emergency fund",
+          topic: { type: "household_setup", title: "Household number update", subject: "Income and emergency fund" },
+          action: default_action.merge(
+            type: "update_household_setup",
+            setup_updates: default_setup_updates.merge(primary_income: "6200", emergency_fund: "3500")
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert result.household_action?
+    assert_equal "6200", result.action.dig(:setup_updates, :primary_income)
+    assert_equal "3500", result.action.dig(:setup_updates, :emergency_fund)
+  end
+
+  test "accepts a matched future income change and rejects an invented income source" do
+    known = default_action.merge(
+      type: "schedule_income_change",
+      income_source_id: 91,
+      income_source_name: "Primary income",
+      entry_type: "recurring_change",
+      effective_on: "2026-10-01",
+      amount: "7200"
+    )
+    unknown = known.merge(income_source_id: 999, income_source_name: "Imaginary job")
+
+    known_resolver = resolver_for_action("income_action", known)
+    unknown_resolver = resolver_for_action("income_action", unknown)
+
+    assert known_resolver.call.actionable?
+    rejected = unknown_resolver.call
+    refute rejected.actionable?
+    assert rejected.clarification?
+    assert_includes rejected.clarification, "active income source"
+  end
+
   test "returns nil when the provider response is invalid so deterministic fallback can run" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Tell me about my budget",
@@ -353,7 +433,9 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       ],
       archived_categories: [],
       pending_budget_reviews: [],
-      pending_transaction_reviews: []
+      pending_transaction_reviews: [],
+      approved_household_setup: default_setup_updates.merge(primary_income: 5_000, emergency_fund: 2_000),
+      income_sources: [ { id: 91, label: "Primary income", source_type: "job", current_monthly_amount: 5_000 } ]
     }
   end
 
@@ -386,7 +468,44 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       occurred_on: "",
       merchant: "",
       all_pending: false,
-      splits: []
+      splits: [],
+      setup_updates: default_setup_updates,
+      income_source_id: 0,
+      income_source_name: "",
+      entry_type: "",
+      effective_on: "",
+      schedule_label: ""
     }
+  end
+
+  def default_setup_updates
+    {
+      household_name: "",
+      primary_goal: "",
+      primary_income: "",
+      business_income: "",
+      emergency_fund: "",
+      other_assets: "",
+      credit_card_debt: "",
+      debt_payment: "",
+      target_runway_months: ""
+    }
+  end
+
+  def resolver_for_action(intent, action)
+    HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Update my income",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: intent,
+          continuation: false,
+          resolved_message: "Schedule an income change",
+          topic: { type: "income_schedule", title: "Income timeline", subject: "Primary income" },
+          action: action
+        )
+      end
+    )
   end
 end

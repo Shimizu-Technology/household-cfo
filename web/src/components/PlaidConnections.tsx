@@ -27,11 +27,60 @@ import {
 import './PlaidConnections.css'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
+const PLAID_LINK_SCRIPT_URL = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js'
+
+let plaidLinkScriptPromise: Promise<void> | null = null
+
+function plaidLinkIsReady() {
+  return Boolean((window as Window & { Plaid?: unknown }).Plaid)
+}
+
+function loadPlaidLinkScript() {
+  if (plaidLinkIsReady()) return Promise.resolve()
+  if (plaidLinkScriptPromise) return plaidLinkScriptPromise
+
+  plaidLinkScriptPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${PLAID_LINK_SCRIPT_URL}"]`)
+    const script = existing ?? document.createElement('script')
+
+    const cleanup = () => {
+      script.removeEventListener('load', handleLoad)
+      script.removeEventListener('error', handleError)
+    }
+    const handleLoad = () => {
+      cleanup()
+      if (plaidLinkIsReady()) {
+        resolve()
+      } else {
+        plaidLinkScriptPromise = null
+        reject(new Error('Plaid Link loaded without becoming available. Refresh and try again.'))
+      }
+    }
+    const handleError = () => {
+      cleanup()
+      plaidLinkScriptPromise = null
+      if (!existing) script.remove()
+      reject(new Error('Plaid Link could not be loaded. Check your connection and try again.'))
+    }
+
+    script.addEventListener('load', handleLoad, { once: true })
+    script.addEventListener('error', handleError, { once: true })
+
+    if (!existing) {
+      script.src = PLAID_LINK_SCRIPT_URL
+      script.async = true
+      document.body.appendChild(script)
+    }
+  })
+
+  return plaidLinkScriptPromise
+}
 
 type Props = {
   userId: string
   onDraftsCreated: () => Promise<void> | void
   variant?: 'connections' | 'activity'
+  refreshKey?: string
 }
 
 const activityViews: Array<{ id: PlaidActivityView; label: string; count: (summary: PlaidActivitySummary) => number }> = [
@@ -53,7 +102,7 @@ const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
   source_changed: 'Source changed',
 }
 
-export function PlaidConnections({ userId, onDraftsCreated, variant = 'connections' }: Props) {
+export function PlaidConnections({ userId, onDraftsCreated, variant = 'connections', refreshKey = '' }: Props) {
   const [oauthSession] = useState(() => readPlaidOAuthSession(userId))
   const oauthReturn = isPlaidOAuthReturn(window.location.href)
   const missingOAuthSession = oauthReturn && !oauthSession
@@ -71,11 +120,30 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   const [selected, setSelected] = useState<number[]>([])
   const [consent, setConsent] = useState(false)
   const [linkToken, setLinkToken] = useState<string | null>(oauthSession?.linkToken ?? null)
+  const [plaidScriptReady, setPlaidScriptReady] = useState(false)
   const [updateItemId, setUpdateItemId] = useState<number | null>(oauthSession?.updateItemId ?? null)
   const [launchLink, setLaunchLink] = useState(Boolean(receivedRedirectUri))
   const [busy, setBusy] = useState<string | null>(missingOAuthSession ? null : 'loading')
   const [error, setError] = useState<string | null>(missingOAuthSession ? 'This bank sign-in return could not be resumed. Start the connection again from My Profile.' : null)
   const [notice, setNotice] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    if (!linkToken) return () => { cancelled = true }
+
+    void loadPlaidLinkScript()
+      .then(() => {
+        if (!cancelled) setPlaidScriptReady(true)
+      })
+      .catch((reason) => {
+        if (cancelled) return
+        setError(reason instanceof Error ? reason.message : 'Plaid Link could not be loaded.')
+        setBusy(null)
+        setLaunchLink(false)
+      })
+
+    return () => { cancelled = true }
+  }, [linkToken])
 
   const finishOAuthSession = useCallback(() => {
     clearPlaidOAuthSession(userId)
@@ -128,7 +196,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     }
     void load()
     return () => { cancelled = true }
-  }, [activityAccountId, activityQuery, activityView, refresh])
+  }, [activityAccountId, activityQuery, activityView, refresh, refreshKey])
 
   const onSuccess = useCallback<PlaidLinkOnSuccess>(async (publicToken, metadata) => {
     setBusy('link')
@@ -170,11 +238,6 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     setLaunchLink(false)
     setBusy(null)
   }, [finishOAuthSession])
-
-  const { open, ready } = usePlaidLink({ token: linkToken, onSuccess, onExit, receivedRedirectUri })
-  useEffect(() => {
-    if (launchLink && ready) open()
-  }, [launchLink, open, ready])
 
   const connect = async () => {
     setBusy('connect')
@@ -296,10 +359,20 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   const activeItems = overview?.items.filter((item) => item.status !== 'disconnected') ?? []
   const activeAccounts = activeItems.flatMap((item) => item.accounts.filter((account) => account.active))
   const stageable = useMemo(() => transactions.filter((transaction) => transaction.stageable), [transactions])
+  const plaidLinkLauncher = linkToken && plaidScriptReady ? (
+    <PlaidLinkLauncher
+      token={linkToken}
+      receivedRedirectUri={receivedRedirectUri}
+      launch={launchLink}
+      onSuccess={onSuccess}
+      onExit={onExit}
+    />
+  ) : null
 
   if (variant === 'connections') {
     return (
       <section className="panel plaid-workspace" aria-labelledby="bank-connections-heading">
+        {plaidLinkLauncher}
         <div className="plaid-heading">
           <div>
             <span className="eyebrow">Bank connections</span>
@@ -363,6 +436,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
 
   return (
     <section className="panel plaid-workspace plaid-activity" aria-labelledby="bank-activity-heading">
+      {plaidLinkLauncher}
       <div className="plaid-heading">
         <div>
           <span className="eyebrow">Transaction activity</span>
@@ -453,4 +527,26 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       )}
     </section>
   )
+}
+
+function PlaidLinkLauncher({
+  token,
+  receivedRedirectUri,
+  launch,
+  onSuccess,
+  onExit,
+}: {
+  token: string
+  receivedRedirectUri?: string
+  launch: boolean
+  onSuccess: PlaidLinkOnSuccess
+  onExit: PlaidLinkOnExit
+}) {
+  const { open, ready } = usePlaidLink({ token, onSuccess, onExit, receivedRedirectUri })
+
+  useEffect(() => {
+    if (launch && ready) open()
+  }, [launch, open, ready])
+
+  return null
 }

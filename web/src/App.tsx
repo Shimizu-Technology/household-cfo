@@ -1,11 +1,12 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import { HomeScreen } from './components/HomeScreen'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
+import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import {
   AnnualCashFlowChart,
   CategoryPressureList,
@@ -53,6 +54,7 @@ import {
   restoreBudgetCategory,
   saveWorkspaceSetup,
   sendMiaMessage,
+  submitPilotFeedback,
   transcribeMiaVoice,
   updateBudgetAllocation,
   updateAdminCohort,
@@ -92,9 +94,12 @@ import type {
   MiaMessage,
   MiaMessageAttachment,
   MiaMessagesData,
+  PilotFeedbackInput,
+  PilotFeedbackWorkflow,
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
+  TransactionDraftSplit,
   TransactionDraftUpdateInput,
   UserRole,
   WealthData,
@@ -102,7 +107,7 @@ import type {
 } from './api'
 import { SeoManager } from './components/SeoManager'
 import { useAuthContext } from './contexts/authContextValue'
-import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload } from './lib/analytics'
+import { captureAnalyticsEvent, captureSectionPageview, trackDocumentUpload, trackPilotWorkflowFailure } from './lib/analytics'
 
 const currency = new Intl.NumberFormat('en-US', {
   style: 'currency',
@@ -124,6 +129,11 @@ const MIA_ATTACHMENT_PROCESSING_TIMEOUT_MS = 300_000
 const PROCESSING_IMPORT_STATUSES = new Set(['uploaded', 'processing'])
 const REVIEWABLE_IMPORT_STATUSES = new Set(['needs_review', 'partially_applied'])
 const VOICE_MIME_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus']
+const MIA_UPDATE_EXAMPLES = [
+  'My take-home pay is now $6,200 a month.',
+  'My credit card balance is $3,100 and my monthly minimum is $175.',
+  'Set Dining Out to $250 per month beginning next month.',
+]
 
 function mergeLatestMiaMessages(current: MiaMessage[], latestPage: MiaMessage[]) {
   const firstLatestServerId = latestPage.find((message) => message.id)?.id
@@ -218,14 +228,49 @@ const sourceDerivedCopy = [
   'Approved data loaded',
 ]
 
+type WorkspaceSetupMoneyKey = Exclude<keyof WorkspaceSetupValues, 'household_name' | 'primary_goal'>
+type WorkspaceSetupDraft = Omit<WorkspaceSetupValues, WorkspaceSetupMoneyKey> & Record<WorkspaceSetupMoneyKey, string>
+
+const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
+  'primary_income',
+  'business_income',
+  'fixed_expenses',
+  'flexible_spend',
+  'expected_sinking_fund',
+  'unexpected_sinking_fund',
+  'emergency_fund',
+  'other_assets',
+  'credit_card_debt',
+  'debt_payment',
+  'target_runway_months',
+]
+
+function workspaceSetupDraftFromValues(values: WorkspaceSetupValues): WorkspaceSetupDraft {
+  const draft = { ...values } as unknown as WorkspaceSetupDraft
+  workspaceSetupMoneyKeys.forEach((key) => {
+    draft[key] = values[key] === 0 ? '' : String(values[key])
+  })
+  return draft
+}
+
+function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
+  const values = { ...draft } as unknown as WorkspaceSetupValues
+  workspaceSetupMoneyKeys.forEach((key) => {
+    const parsed = Number(draft[key])
+    values[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+  })
+  return values
+}
+
 function App() {
   const auth = useAuthContext()
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
-  const [setupDraft, setSetupDraft] = useState<WorkspaceSetupValues | null>(null)
+  const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
   const [setupSaving, setSetupSaving] = useState(false)
   const [setupError, setSetupError] = useState<string | null>(null)
+  const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [active, setActive] = useState(() => {
     if (new URLSearchParams(window.location.search).has('oauth_state_id')) return 'My Profile'
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
@@ -275,6 +320,8 @@ function App() {
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
+  const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
   const chatStorageKey = useMemo(() => {
     const owner = auth.currentUser?.id ? `user-${auth.currentUser.id}` : 'preview'
     return `${MIA_CHAT_STORAGE_PREFIX}:${owner}`
@@ -288,14 +335,21 @@ function App() {
   const voiceChunksRef = useRef<Blob[]>([])
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
+  const spendingReportRequestRef = useRef(0)
+  const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
-  const shouldUseRealWorkspace = auth.isClerkEnabled
+  const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
+  const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
+  const isFirstSessionSetup = Boolean(isRealWorkspace && !data?.workspace?.setup_complete)
+  const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
+  const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
   const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
+  const compactShell = activeSection !== 'Home'
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
@@ -310,6 +364,9 @@ function App() {
   )
   const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
   const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
+  const plaidActivityRefreshKey = pendingPlaidDrafts
+    .map((draft) => `${draft.id}:${draft.status}:${draft.category_id ?? 'none'}:${draft.category_name ?? ''}:${JSON.stringify(draft.splits ?? [])}`)
+    .join('|')
   const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = data?.budget.annual_plan
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
@@ -317,6 +374,36 @@ function App() {
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
+  selectedBudgetPeriodRef.current = { startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn }
+
+  const resizeMiaComposer = useCallback(() => {
+    const composer = composerRef.current
+    if (!composer) return
+
+    const styles = window.getComputedStyle(composer)
+    const parsedMinimumHeight = Number.parseFloat(styles.minHeight)
+    const parsedMaximumHeight = Number.parseFloat(styles.maxHeight)
+    const minimumHeight = Number.isFinite(parsedMinimumHeight) ? parsedMinimumHeight : 42
+    const maximumHeight = Number.isFinite(parsedMaximumHeight) ? parsedMaximumHeight : 160
+
+    composer.style.height = 'auto'
+    const contentHeight = composer.value ? composer.scrollHeight : minimumHeight
+    composer.style.height = `${Math.min(maximumHeight, Math.max(minimumHeight, contentHeight))}px`
+    composer.style.overflowY = contentHeight > maximumHeight + 1 ? 'auto' : 'hidden'
+  }, [])
+
+  useLayoutEffect(() => {
+    if (activeSection !== 'Ask Mia') return
+    resizeMiaComposer()
+  }, [activeSection, isChatExpanded, question, resizeMiaComposer])
+
+  useEffect(() => {
+    if (activeSection !== 'Ask Mia') return
+
+    window.addEventListener('resize', resizeMiaComposer)
+    return () => window.removeEventListener('resize', resizeMiaComposer)
+  }, [activeSection, resizeMiaComposer])
+
   useEffect(() => {
     pendingMiaAttachmentsRef.current = pendingMiaAttachments
   }, [pendingMiaAttachments])
@@ -346,7 +433,6 @@ function App() {
       workspace_mode: data.workspace?.mode ?? 'demo',
       auth_mode: auth.isClerkEnabled ? 'clerk' : 'preview',
       app_role: auth.currentUser?.role ?? 'preview',
-      profile_complete: data.profile.completeness,
       pending_imports: pendingImportsCount,
       processing_imports: processingImportsCount,
     })
@@ -404,9 +490,14 @@ function App() {
 
   const refreshSpendingReport = useCallback(async ({ startsOn = selectedBudgetMonthStartsOn, endsOn = selectedBudgetMonthEndsOn, quiet = true }: { startsOn?: string | null; endsOn?: string | null; quiet?: boolean } = {}) => {
     if (!isRealWorkspace || !startsOn || !endsOn) {
-      if (!isRealWorkspace) setSpendingReport(null)
+      if (!isRealWorkspace) {
+        spendingReportRequestRef.current += 1
+        setSpendingReport(null)
+      }
       return
     }
+
+    const requestId = ++spendingReportRequestRef.current
 
     if (!quiet) {
       setSpendingReportLoading(true)
@@ -415,11 +506,13 @@ function App() {
 
     try {
       const report = await fetchSpendingReport(startsOn, endsOn)
-      setSpendingReport(report)
+      if (requestId === spendingReportRequestRef.current) setSpendingReport(report)
     } catch (caught) {
-      setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      if (requestId === spendingReportRequestRef.current) {
+        setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+      }
     } finally {
-      if (!quiet) setSpendingReportLoading(false)
+      if (!quiet && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
     }
   }, [isRealWorkspace, selectedBudgetMonthEndsOn, selectedBudgetMonthStartsOn])
 
@@ -442,7 +535,7 @@ function App() {
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(chatStorageKey)
         setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setSetupDraft(payload.workspace?.setup_values ?? null)
+        setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
         setMessages(restoredMessages)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
@@ -531,7 +624,7 @@ function App() {
         if (cancelled) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
-        setSetupDraft((current) => payload.workspace?.setup_values ?? current)
+        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : current)
         replaceMiaHistory(payload.mia)
       })
       .catch(() => {
@@ -548,17 +641,20 @@ function App() {
 
     const startsOn = selectedBudgetMonthStartsOn
     const endsOn = selectedBudgetMonthEndsOn
+    const requestId = ++spendingReportRequestRef.current
     let cancelled = false
     async function loadSpendingReport() {
       setSpendingReportLoading(true)
       setSpendingReportError(null)
       try {
         const report = await fetchSpendingReport(startsOn, endsOn)
-        if (!cancelled) setSpendingReport(report)
+        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReport(report)
       } catch (caught) {
-        if (!cancelled) setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        if (!cancelled && requestId === spendingReportRequestRef.current) {
+          setSpendingReportError(caught instanceof Error ? caught.message : 'Spending report could not be loaded.')
+        }
       } finally {
-        if (!cancelled) setSpendingReportLoading(false)
+        if (!cancelled && requestId === spendingReportRequestRef.current) setSpendingReportLoading(false)
       }
     }
 
@@ -645,6 +741,7 @@ function App() {
     setVoiceRecording(false)
 
     if (chunks.length === 0) {
+      trackPilotWorkflowFailure('voice', 'no_audio')
       setVoiceNotice(null)
       setMiaError("I couldn't hear anything in that recording. Try again or type the note for Mia.")
       return
@@ -655,6 +752,7 @@ function App() {
     try {
       const transcript = (await transcribeMiaVoice(new Blob(chunks, { type: mimeType || 'audio/webm' }))).trim()
       if (!transcript) {
+        trackPilotWorkflowFailure('voice', 'empty_transcript')
         setMiaError("I couldn't turn that recording into text. Try again or type the note for Mia.")
         return
       }
@@ -664,6 +762,7 @@ function App() {
       setMiaError(null)
       window.setTimeout(() => composerRef.current?.focus(), 0)
     } catch (error) {
+      trackPilotWorkflowFailure('voice', 'transcription')
       setMiaError(error instanceof Error ? error.message : 'Voice transcription failed. Try again or type your note for Mia.')
     } finally {
       setVoiceTranscribing(false)
@@ -723,6 +822,7 @@ function App() {
         void handleVoiceRecordingComplete(recorder.mimeType || mimeType || 'audio/webm')
       }
       recorder.onerror = () => {
+        trackPilotWorkflowFailure('voice', 'recording')
         recorder.onstop = null
         voiceChunksRef.current = []
         mediaRecorderRef.current = null
@@ -736,6 +836,7 @@ function App() {
       setVoiceRecording(true)
       setVoiceNotice('Recording. Tap stop when you are done speaking.')
     } catch (error) {
+      trackPilotWorkflowFailure('voice', 'microphone_access')
       stopVoiceStream()
       setVoiceRecording(false)
       setMiaError(error instanceof Error ? error.message : 'Microphone access was blocked. Allow microphone access or type your note for Mia.')
@@ -749,7 +850,38 @@ function App() {
     })
     setActive(section)
     if (section !== 'Ask Mia') setIsChatExpanded(false)
+    if (section !== 'My Profile') setFirstSessionUploadOpen(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
+    if (section !== activeSection) {
+      window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
+    }
+  }
+
+  function prepareMiaUpdate(prompt: string) {
+    setQuestion(prompt)
+    setMiaError(null)
+    setVoiceNotice(null)
+    requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
+  }
+
+  function openManualControls(draft: MiaActionDraft) {
+    switchSection(draft.draft_type === 'household_setup' ? 'My Profile' : 'Budget')
+  }
+
+  function startManualFirstSession() {
+    switchSection('My Profile')
+    setFirstSessionUploadOpen(false)
+    setIsProfileEditing(true)
+    window.setTimeout(() => {
+      setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      setupFormRef.current?.querySelector<HTMLInputElement>('[name="primary_income"]')?.focus({ preventScroll: true })
+    }, 80)
+  }
+
+  function startUploadFirstSession() {
+    switchSection('My Profile')
+    setFirstSessionUploadOpen(true)
+    window.setTimeout(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
   }
 
   async function handleAskMia(prompt = question) {
@@ -767,6 +899,7 @@ function App() {
 
     const messageContent = cleanPrompt || 'Please review this upload.'
     const optimisticMessageId = clientSideId('mia-message')
+    const spendingReportRequestAtSend = spendingReportRequestRef.current
     setMiaLoading(true)
     setMiaError(null)
     setQuestion('')
@@ -812,7 +945,13 @@ function App() {
         refreshSpendingReportForBudget(response.budget, responseMonthIndex)
       }
       if (response.spending_report) {
-        setSpendingReport(response.spending_report)
+        const visiblePeriod = selectedBudgetPeriodRef.current
+        if (response.spending_report.start_on === visiblePeriod.startsOn &&
+            response.spending_report.end_on === visiblePeriod.endsOn &&
+            spendingReportRequestRef.current === spendingReportRequestAtSend) {
+          spendingReportRequestRef.current += 1
+          setSpendingReport(response.spending_report)
+        }
       }
       void refreshDocumentImports({ quiet: true })
       const userMessageWithPreviews = attachLocalPreviewsToMessage(response.user_message, readyAttachments)
@@ -829,6 +968,7 @@ function App() {
         })
       }
     } catch (caught) {
+      trackPilotWorkflowFailure('ask_mia', 'send')
       captureAnalyticsEvent('mia_message_failed', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
@@ -853,7 +993,7 @@ function App() {
   }
 
   function handleAskMiaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey) return
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
 
     event.preventDefault()
     void handleAskMia()
@@ -1053,6 +1193,7 @@ function App() {
     } catch (caught) {
       if (appliedChanges > 0) setData((current) => current ? { ...current, budget: latestBudget } : current)
       setBudgetError(caught instanceof Error ? `${caught.message} Some earlier changes may have saved; refresh before retrying.` : 'Budget edits could not be saved. Some earlier changes may have saved; refresh before retrying.')
+      throw caught
     } finally {
       setBudgetAction(null)
     }
@@ -1111,7 +1252,9 @@ function App() {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'applied' })
     } catch (caught) {
+      trackPilotWorkflowFailure('mia_budget_review', 'apply')
       const message = caught instanceof Error ? caught.message : 'Mia action draft could not be applied.'
       setBudgetError(message)
       setMiaError(message)
@@ -1136,7 +1279,9 @@ function App() {
         draft_type: draft.draft_type,
         item_count: draft.items.length,
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'mia_budget_action', resolution: 'canceled' })
     } catch (caught) {
+      trackPilotWorkflowFailure('mia_budget_review', 'cancel')
       const message = caught instanceof Error ? caught.message : 'Mia action draft could not be canceled.'
       setBudgetError(message)
       setMiaError(message)
@@ -1185,7 +1330,9 @@ function App() {
       captureAnalyticsEvent('transaction_draft_confirmed', {
         source_type: draft.source_type ?? 'manual_chat',
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'confirmed' })
     } catch (caught) {
+      trackPilotWorkflowFailure('transaction_review', 'confirm')
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be confirmed.'
       setBudgetError(message)
       setDocumentsError(message)
@@ -1211,7 +1358,9 @@ function App() {
       captureAnalyticsEvent('transaction_draft_ignored', {
         source_type: draft.source_type ?? 'manual_chat',
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft', resolution: 'ignored' })
     } catch (caught) {
+      trackPilotWorkflowFailure('transaction_review', 'ignore')
       const message = caught instanceof Error ? caught.message : 'Transaction draft could not be ignored.'
       setBudgetError(message)
       setDocumentsError(message)
@@ -1252,9 +1401,10 @@ function App() {
       replaceMiaHistory(workspace.mia)
       captureAnalyticsEvent(`transaction_drafts_bulk_${resolution}`, {
         draft_count: ids.length,
-        amount_bucket: transactionBulkAmountBucket(total),
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'transaction_draft_bulk', resolution, draft_count: ids.length })
     } catch (caught) {
+      trackPilotWorkflowFailure('transaction_review', `bulk_${resolution}`)
       const message = caught instanceof Error ? caught.message : `Transaction reviews could not be ${resolution === 'confirm' ? 'confirmed' : 'ignored'}.`
       setBudgetError(message)
       setDocumentsError(message)
@@ -1476,7 +1626,7 @@ function App() {
         try {
           const refreshed = await fetchAppData(isRealWorkspace)
           setData(refreshed)
-          setSetupDraft(refreshed.workspace?.setup_values ?? setupDraft)
+          setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values) : setupDraft)
           replaceMiaHistory(refreshed.mia)
           setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
         } catch {
@@ -1508,7 +1658,7 @@ function App() {
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData(response.workspace)
-      setSetupDraft(response.workspace.workspace?.setup_values ?? setupDraft)
+      setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
@@ -1517,7 +1667,9 @@ function App() {
         selected_count: itemIds.length,
         resulting_status: response.document_import.status,
       })
+      captureAnalyticsEvent('pilot_review_completed', { review_type: 'document_import', resolution: 'applied' })
     } catch (caught) {
+      trackPilotWorkflowFailure('document_review', 'apply', { document_kind: documentImport.document_kind })
       captureAnalyticsEvent('document_import_apply_failed', {
         document_kind: documentImport.document_kind,
         selected_count: itemIds.length,
@@ -1604,12 +1756,13 @@ function App() {
     event.preventDefault()
     if (!setupDraft || setupSaving) return
 
+    const wasSetupComplete = Boolean(data?.workspace?.setup_complete)
     setSetupSaving(true)
     setSetupError(null)
     try {
-      const payload = await saveWorkspaceSetup(setupDraft)
+      const payload = await saveWorkspaceSetup(workspaceSetupValuesFromDraft(setupDraft))
       setData(payload)
-      setSetupDraft(payload.workspace?.setup_values ?? setupDraft)
+      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : setupDraft)
       setBudgetView((current) => {
         const responseYear = payload.budget.annual_plan?.year
         if (!responseYear) return current
@@ -1621,7 +1774,13 @@ function App() {
         setup_complete: payload.workspace?.setup_complete ?? false,
         workspace_mode: payload.workspace?.mode ?? 'real',
       })
+      if (!wasSetupComplete && payload.workspace?.setup_complete) {
+        setQuestion('Based on my income, spending, and goal, what should I focus on first this month?')
+        switchSection('Ask Mia')
+        window.setTimeout(() => composerRef.current?.focus(), 80)
+      }
     } catch (caught) {
+      trackPilotWorkflowFailure('setup', 'save')
       captureAnalyticsEvent('workspace_setup_save_failed')
       setSetupError(caught instanceof Error ? caught.message : 'Your numbers could not be saved. Please try again.')
     } finally {
@@ -1630,20 +1789,18 @@ function App() {
   }
 
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
-    if (!isProfileEditing) return
+    if (!isProfileEditing && !isFirstSessionSetup) return
 
     setSetupError(null)
     setSetupDraft((current) => {
       if (!current) return current
-      if (key === 'household_name' || key === 'primary_goal') return { ...current, [key]: value }
-
-      return { ...current, [key]: Number(value) || 0 }
+      return { ...current, [key]: value }
     })
   }
 
   function cancelProfileEditing() {
     setSetupError(null)
-    setSetupDraft(data?.workspace?.setup_values ?? setupDraft)
+    setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values) : setupDraft)
     setIsProfileEditing(false)
   }
 
@@ -1701,13 +1858,13 @@ function App() {
   return (
     <main className="app">
       <SeoManager section={activeSection} />
-      <header className="shell-header">
+      <header className={`shell-header${compactShell ? ' is-compact' : ''}`}>
         <ul className="sr-only" aria-label="Source-derived design requirements">
           {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
         </ul>
         <div>
           <p className="eyebrow">Household CFO Method powered by VERA</p>
-          <h1>Household CFO Method</h1>
+          <h1>{compactShell ? 'Household CFO' : 'Household CFO Method'}</h1>
           <p className="hero-copy">
             Run your home like the C-Suite — not the unpaid maintenance staff. Build the annual budget,
             track the running totals, and use Mia as your AI coach when the next money decision needs a CFO call.
@@ -1715,37 +1872,52 @@ function App() {
         </div>
         <aside className="mia-status-card">
           <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>Your CFO workspace is ready</strong>
-          <p>Mia can coach from {data.profile.completeness}% profile completeness · {data.dashboard.summary.readiness_label}</p>
+          <strong>{compactShell ? 'Mia is ready' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia a useful starting point' : 'Your CFO workspace is ready'}</strong>
+          <p>{isRealWorkspace && !data.workspace?.setup_complete
+            ? 'Start with money in, money out, and one goal. Mia can help you make sense of the rest.'
+            : `Mia can coach from your approved profile · ${data.dashboard.summary.readiness_label}`}</p>
           {auth.currentUser && (
             <div className="account-pill">
               <span>{auth.currentUser.full_name}</span>
               <small>{auth.currentUser.role}</small>
-              <UserButton afterSignOutUrl="/" />
+              {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
             </div>
           )}
-          <button type="button" onClick={() => switchSection('Ask Mia')}>Ask Mia for the CFO read</button>
+          {(!compactShell || activeSection !== 'Ask Mia') && (
+            <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
+              {compactShell ? 'Open Mia' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Tell Mia what changed'}
+            </button>
+          )}
         </aside>
       </header>
 
       <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
 
+      {isRealWorkspace && activeSection !== ADMIN_SECTION && (
+        <PilotSupportBar onOpenGuide={() => setPilotGuideOpen(true)} onOpenFeedback={() => setPilotFeedbackOpen(true)} />
+      )}
+
       {activeSection === 'Home' && (
-        <HomeScreen
-          dashboard={data.dashboard}
-          budget={data.budget}
-          onAskMia={() => switchSection('Ask Mia')}
-          onReviewTransactions={() => switchSection('Budget')}
-          onReviewMiaActions={() => switchSection('Ask Mia')}
-        />
+        <>
+          {isRealWorkspace && !data.workspace?.setup_complete && (
+            <FirstSessionCard onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
+          )}
+          <HomeScreen
+            dashboard={data.dashboard}
+            budget={data.budget}
+            onAskMia={() => switchSection('Ask Mia')}
+            onReviewTransactions={() => switchSection('Budget')}
+            onReviewMiaActions={() => switchSection('Ask Mia')}
+          />
+        </>
       )}
 
       {activeSection === 'Ask Mia' && (
         <section className="screen-grid mia-screen">
           <ScreenHeading
             eyebrow="Ask Mia"
-            title="Ask Mia for the CFO read."
-            copy="Mia uses your approved household context so you can make the next call with the actual numbers in front of you."
+            title="Tell Mia what changed."
+            copy="Update income, savings, debt, goals, or the plan in plain language. Mia prepares a review; you approve before anything changes."
           />
 
           <div className="mia-layout">
@@ -1788,7 +1960,7 @@ function App() {
                 <span className="message-avatar" aria-hidden="true">M</span>
                 <div className="chat-shell-copy">
                   <h3>Ask Mia</h3>
-                  <p>Plain-English coaching while you stay the CFO.</p>
+                  <p>Talk it through or update the plan while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
@@ -1809,12 +1981,30 @@ function App() {
                 </div>
               </div>
 
-              <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
-                {data.mia.quick_prompts.map((prompt) => (
-                  <button type="button" key={prompt} onClick={() => void handleAskMia(prompt)} disabled={miaLoading}>
-                    {prompt}
-                  </button>
-                ))}
+              <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
+                <div>
+                  <span className="eyebrow">Fastest way to update your plan</span>
+                  <strong id="mia-update-guide-title">Say what changed in your own words.</strong>
+                  <small>Mia will show you a review card. Nothing changes until you tap Apply.</small>
+                </div>
+                <div className="mia-update-examples" aria-label="Example updates for Mia">
+                  {MIA_UPDATE_EXAMPLES.map((prompt) => (
+                    <button type="button" key={prompt} onClick={() => prepareMiaUpdate(prompt)} disabled={miaLoading}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="chat-prompts-shell">
+                <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
+                  {data.mia.quick_prompts.map((prompt) => (
+                    <button type="button" key={prompt} onClick={() => void handleAskMia(prompt)} disabled={miaLoading}>
+                      {prompt}
+                    </button>
+                  ))}
+                </div>
+                <span className="chat-prompts-cue" aria-hidden="true">More prompts →</span>
               </div>
 
               <ChatHistory
@@ -1858,6 +2048,7 @@ function App() {
                   compact
                   onApply={handleApplyMiaActionDraft}
                   onCancel={handleCancelMiaActionDraft}
+                  onEditManually={openManualControls}
                 />
               )}
 
@@ -1937,11 +2128,13 @@ function App() {
                   onKeyDown={handleAskMiaKeyDown}
                   onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Ask Mia or attach evidence...'}
+                  aria-describedby="mia-composer-instructions"
+                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Message Mia…'}
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
                 />
+                <span id="mia-composer-instructions" className="sr-only">Press Enter to send. Press Shift and Enter for a new line. Mia will not change approved numbers without a review.</span>
                 <button
                   className="send-button"
                   type="submit"
@@ -1993,10 +2186,11 @@ function App() {
               <PlaidConnections
                 userId={String(auth.currentUser.id)}
                 variant="activity"
+                refreshKey={plaidActivityRefreshKey}
                 onDraftsCreated={async () => {
                   const payload = await fetchAppData(true)
                   setData(payload)
-                  setSetupDraft(payload.workspace?.setup_values ?? null)
+                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
                   replaceMiaHistory(payload.mia)
                 }}
               />
@@ -2008,50 +2202,59 @@ function App() {
       )}
 
       {activeSection === 'My Profile' && (
-        <section className="screen-grid profile-screen">
+        <section className={`screen-grid profile-screen${isFocusedFirstSessionSetup ? ' first-session-setup-screen' : ''}`}>
           <ScreenHeading
-            eyebrow="My Profile"
-            title={data.profile.household.name}
-            copy={data.profile.household.primary_goal}
+            eyebrow={isFirstSessionUpload ? 'Optional pilot check' : isFocusedFirstSessionSetup ? 'Your Mia kickoff' : 'My Profile'}
+            title={isFirstSessionUpload ? 'Test one private file without changing your numbers.' : isFocusedFirstSessionSetup ? 'Give Mia the basics for a useful first answer.' : data.profile.household.name}
+            copy={isFirstSessionUpload ? 'Upload demo-safe evidence, review every extracted draft, and apply only what is right. You can return to the five-field kickoff at any time.' : isFocusedFirstSessionSetup ? 'Best estimates are enough. Add money in, essential spending, flexible spending, and one goal; Mia will help you make sense of the rest.' : data.profile.household.primary_goal}
           />
 
-          <article className="panel completeness-card">
-            <div>
-              <span>Profile completeness</span>
-              <strong>{data.profile.completeness}%</strong>
+          {isFirstSessionUpload && (
+            <div className="first-session-upload-return">
+              <button type="button" className="secondary-button" onClick={startManualFirstSession}>Return to starting numbers</button>
             </div>
-            <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
-            <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
-          </article>
+          )}
 
-          {isRealWorkspace && setupDraft && (
+          {!isFirstSessionSetup && (
+            <article className="panel completeness-card">
+              <div>
+                <span>Profile completeness</span>
+                <strong>{data.profile.completeness}%</strong>
+              </div>
+              <div className="progress-track"><span style={{ width: `${data.profile.completeness}%` }} /></div>
+              <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
+            </article>
+          )}
+
+          {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
             <WorkspaceSetupForm
               formRef={setupFormRef}
               values={setupDraft}
-              editing={isProfileEditing}
+              editing={isProfileEditing || isFirstSessionSetup}
               saving={setupSaving}
               error={setupError}
               onBeginEdit={() => setIsProfileEditing(true)}
               onCancel={cancelProfileEditing}
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
+              firstSession={isFirstSessionSetup}
             />
           )}
 
-          {isRealWorkspace && auth.currentUser && (
+          {isRealWorkspace && auth.currentUser && !isFirstSessionSetup && (
             <PlaidConnections
               userId={String(auth.currentUser.id)}
               variant="connections"
               onDraftsCreated={async () => {
                 const payload = await fetchAppData(true)
                 setData(payload)
-                setSetupDraft(payload.workspace?.setup_values ?? null)
+                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
                 replaceMiaHistory(payload.mia)
               }}
             />
           )}
 
-          <DocumentImportWorkspace
+          {(!isFirstSessionSetup || isFirstSessionUpload) && <DocumentImportWorkspace
             sectionRef={documentImportsRef}
             isRealWorkspace={Boolean(isRealWorkspace)}
             imports={documentImports}
@@ -2083,9 +2286,9 @@ function App() {
             onDeleteSource={handleDeleteDocumentSource}
             onDeleteImport={handleDeleteDocumentImport}
             onOpenSource={handleOpenDocumentSource}
-          />
+          />}
 
-          <div className="profile-section-grid">
+          {!isFirstSessionSetup && <div className="profile-section-grid">
             {data.profile.sections.map((section) => (
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
@@ -2101,7 +2304,7 @@ function App() {
                 ))}
               </article>
             ))}
-          </div>
+          </div>}
         </section>
       )}
 
@@ -2109,7 +2312,7 @@ function App() {
         <section className="screen-grid budget-screen">
           <ScreenHeading
             eyebrow="Budget"
-            title="Build the annual plan, then keep the monthly truth current."
+            title="Know what came in, what went out, and what is left."
             copy={data.budget.intro}
           />
 
@@ -2136,10 +2339,16 @@ function App() {
               onDeleteIncomeScheduleEntry={handleDeleteIncomeScheduleEntry}
               onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
+              onAskMia={() => {
+                setQuestion('I want to update my budget. Help me make this change safely: ')
+                switchSection('Ask Mia')
+                window.setTimeout(() => composerRef.current?.focus(), 80)
+              }}
               onArchiveCategory={handleArchiveBudgetCategory}
               onRestoreCategory={handleRestoreBudgetCategory}
               onApplyMiaActionDraft={handleApplyMiaActionDraft}
               onCancelMiaActionDraft={handleCancelMiaActionDraft}
+              onOpenManualMiaAction={openManualControls}
               onUpdateDraft={handleUpdateTransactionDraft}
               onMatchDraft={handleMatchTransactionDraft}
               onConfirmDraft={handleConfirmTransactionDraft}
@@ -2155,10 +2364,6 @@ function App() {
             </article>
           )}
 
-          <article className="panel coach-panel">
-            <h3>Custom categories matter</h3>
-            <p>{data.budget.custom_categories_note}</p>
-          </article>
         </section>
       )}
 
@@ -2274,6 +2479,15 @@ function App() {
 
       {previewAttachment && (
         <LocalAttachmentPreview attachment={previewAttachment} onClose={() => setPreviewAttachment(null)} />
+      )}
+
+      {pilotGuideOpen && <PilotGuideDialog onClose={() => setPilotGuideOpen(false)} />}
+      {pilotFeedbackOpen && (
+        <PilotFeedbackDialog
+          initialWorkflow={pilotFeedbackWorkflowForSection(activeSection)}
+          onClose={() => setPilotFeedbackOpen(false)}
+          onSubmit={submitPilotFeedback}
+        />
       )}
     </main>
   )
@@ -2431,6 +2645,232 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
       <p className="eyebrow">{eyebrow}</p>
       <h2>{title}</h2>
       <p>{copy}</p>
+    </div>
+  )
+}
+
+function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => void; onUpload: () => void; onGuide: () => void }) {
+  return (
+    <section className="first-session-card" aria-labelledby="first-session-title">
+      <div className="first-session-heading">
+        <div>
+          <p className="eyebrow">Your first Mia session</p>
+          <h2 id="first-session-title">Start with money in, money out.</h2>
+          <p>Give Mia five essentials, then bring her one real money question. You do not need every account, tab, or statement today.</p>
+        </div>
+        <button type="button" className="secondary-button" onClick={onGuide}>Read the 3-minute guide</button>
+      </div>
+      <div className="first-session-paths">
+        <article>
+          <span>Recommended</span>
+          <h3>Give Mia your starting numbers</h3>
+          <p>Add monthly income, essential bills, flexible spending, and one goal. After you save, we will take you directly to Mia.</p>
+          <button type="button" onClick={onManual}>Give Mia my starting numbers</button>
+        </article>
+        <article className="first-session-path-secondary">
+          <span>Optional pilot check</span>
+          <h3>Use a file only if it helps</h3>
+          <p>Try a demo-safe budget, statement, pay stub, or receipt. Report any failure; no extracted draft changes your numbers until you approve it.</p>
+          <button type="button" className="secondary-button" onClick={onUpload}>Test a private upload</button>
+        </article>
+      </div>
+    </section>
+  )
+}
+
+function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
+  return (
+    <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
+      <span><ShieldIcon /> Private uploads require household access. Feedback stays outside product analytics.</span>
+      <div>
+        <button type="button" className="secondary-button" onClick={onOpenGuide}><GuideIcon /> Tester guide</button>
+        <button type="button" className="secondary-button" onClick={onOpenFeedback}><FeedbackIcon /> Report a problem</button>
+      </div>
+    </aside>
+  )
+}
+
+const pilotFeedbackOptions: Array<{ value: PilotFeedbackWorkflow; label: string }> = [
+  { value: 'sign_in', label: 'Sign in or invitation' },
+  { value: 'home', label: 'Home or next action' },
+  { value: 'setup', label: 'Household setup' },
+  { value: 'ask_mia', label: 'Ask Mia' },
+  { value: 'voice', label: 'Voice entry' },
+  { value: 'budget', label: 'Budget or annual plan' },
+  { value: 'transaction_review', label: 'Transaction review' },
+  { value: 'receipt_upload', label: 'Receipt upload' },
+  { value: 'statement_upload', label: 'Statement upload' },
+  { value: 'document_upload', label: 'Other document upload' },
+  { value: 'private_document', label: 'Preview, download, or delete' },
+  { value: 'admin', label: 'Cohort administration' },
+  { value: 'other', label: 'Something else' },
+]
+
+function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow {
+  if (section === 'Ask Mia') return 'ask_mia'
+  if (section === 'My Profile') return 'setup'
+  if (section === 'Budget') return 'budget'
+  if (section === ADMIN_SECTION) return 'admin'
+  if (section === 'Home') return 'home'
+  return 'other'
+}
+
+function usePilotDialog(onClose: () => void) {
+  const dialogRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
+
+  useEffect(() => {
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const dialog = dialogRef.current
+    const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
+    const focusFrame = window.requestAnimationFrame(() => (focusableElements()[0] ?? dialog)?.focus())
+
+    function handleKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onCloseRef.current()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const elements = focusableElements()
+      if (elements.length === 0) {
+        event.preventDefault()
+        dialog?.focus()
+        return
+      }
+
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => {
+      window.cancelAnimationFrame(focusFrame)
+      document.removeEventListener('keydown', handleKeyDown)
+      previousFocus?.focus()
+    }
+  }, [])
+
+  return dialogRef
+}
+
+function PilotGuideDialog({ onClose }: { onClose: () => void }) {
+  const dialogRef = usePilotDialog(onClose)
+
+  return (
+    <div className="pilot-dialog-overlay" role="presentation">
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close tester guide" onClick={onClose} />
+      <section ref={dialogRef} className="pilot-dialog pilot-guide-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-guide-title" tabIndex={-1}>
+        <header>
+          <div>
+            <p className="eyebrow">Pilot tester guide</p>
+            <h2 id="pilot-guide-title">A clear first Mia session in three moves.</h2>
+          </div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </header>
+        <ol className="pilot-guide-steps">
+          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Blank money fields count as $0; you can refine everything later.</p></div></li>
+          <li><span>2</span><div><strong>Tell Mia what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Mia can also coach from the context you approved.</p></div></li>
+          <li><span>3</span><div><strong>Review before applying.</strong><p>Mia can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
+        </ol>
+        <div className="pilot-guide-power-path">
+          <strong>Optional upload check</strong>
+          <p>If a file would save time, try one demo-safe budget, statement, receipt, or pay stub. Review extracted setup values before applying them and report any failed read from Ask Mia or My Profile.</p>
+        </div>
+        <footer>
+          <ShieldIcon />
+          <p>Use Report a problem if you get stuck. Avoid typing account numbers or financial values into the report, and crop screenshots to the problem area.</p>
+        </footer>
+      </section>
+    </div>
+  )
+}
+
+function PilotFeedbackDialog({
+  initialWorkflow,
+  onClose,
+  onSubmit,
+}: {
+  initialWorkflow: PilotFeedbackWorkflow
+  onClose: () => void
+  onSubmit: (values: PilotFeedbackInput) => Promise<{ id: number; screenshot_attached: boolean }>
+}) {
+  const dialogRef = usePilotDialog(onClose)
+  const [workflow, setWorkflow] = useState<PilotFeedbackWorkflow>(initialWorkflow)
+  const [attempted, setAttempted] = useState('')
+  const [expected, setExpected] = useState('')
+  const [actual, setActual] = useState('')
+  const [screenshot, setScreenshot] = useState<File | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [receiptId, setReceiptId] = useState<number | null>(null)
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!attempted.trim() || !expected.trim() || !actual.trim()) {
+      setError('Describe what you attempted, what you expected, and what happened.')
+      return
+    }
+    if (screenshot && screenshot.size > 5 * 1024 * 1024) {
+      setError('Screenshot must be 5 MB or smaller.')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+    try {
+      const receipt = await onSubmit({ workflow, attempted: attempted.trim(), expected: expected.trim(), actual: actual.trim(), screenshot })
+      captureAnalyticsEvent('pilot_feedback_report_submitted', { workflow, screenshot_attached: receipt.screenshot_attached })
+      setReceiptId(receipt.id)
+    } catch (caught) {
+      trackPilotWorkflowFailure('feedback', 'submit', { workflow })
+      setError(caught instanceof Error ? caught.message : 'Feedback could not be submitted. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="pilot-dialog-overlay" role="presentation">
+      <button type="button" className="pilot-dialog-backdrop" aria-label="Close feedback form" onClick={onClose} />
+      <section ref={dialogRef} className="pilot-dialog pilot-feedback-dialog" role="dialog" aria-modal="true" aria-labelledby="pilot-feedback-title" tabIndex={-1}>
+        <header>
+          <div><p className="eyebrow">Pilot support</p><h2 id="pilot-feedback-title">Report what got in your way.</h2></div>
+          <button type="button" className="secondary-button" onClick={onClose}>Close</button>
+        </header>
+        {receiptId ? (
+          <div className="pilot-feedback-success" role="status">
+            <FeedbackIcon />
+            <strong>Report received.</strong>
+            <p>Reference #{receiptId}. Your written details and optional screenshot were not sent to analytics.</p>
+            <button type="button" onClick={onClose}>Return to Household CFO</button>
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            <p className="pilot-privacy-note"><ShieldIcon /> Do not include account numbers, exact financial values, document contents, passwords, or private Mia messages. Crop screenshots to the problem area.</p>
+            <label><span>Screen or workflow</span><select value={workflow} onChange={(event) => setWorkflow(event.currentTarget.value as PilotFeedbackWorkflow)}>{pilotFeedbackOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></label>
+            <label><span>What did you attempt?</span><textarea rows={3} maxLength={2000} value={attempted} onChange={(event) => setAttempted(event.currentTarget.value)} /></label>
+            <label><span>What did you expect?</span><textarea rows={3} maxLength={2000} value={expected} onChange={(event) => setExpected(event.currentTarget.value)} /></label>
+            <label><span>What happened instead?</span><textarea rows={3} maxLength={2000} value={actual} onChange={(event) => setActual(event.currentTarget.value)} /></label>
+            <label className="pilot-screenshot-field"><span>Optional cropped screenshot</span><input type="file" accept=".jpg,.jpeg,.png,.webp,image/jpeg,image/png,image/webp" onChange={(event) => setScreenshot(event.currentTarget.files?.[0] ?? null)} /><small>{screenshot ? `${screenshot.name} · ${Math.ceil(screenshot.size / 1024)} KB` : 'JPG, PNG, or WebP · 5 MB maximum'}</small></label>
+            {error && <p className="setup-error" role="alert">{error}</p>}
+            <button type="submit" disabled={saving}>{saving ? 'Submitting privately' : 'Submit report'}</button>
+          </form>
+        )}
+      </section>
     </div>
   )
 }
@@ -2597,8 +3037,8 @@ function DocumentImportWorkspace({
       <div className="document-import-summary-row">
         <Metric label="Needs review" value={String(pendingCount)} />
         <Metric label="Total imports" value={String(imports.length)} />
-        <Metric label="Latest source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : 'None yet'} />
-        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : 'Manual'} />
+        <Metric label="Approved source" value={latestApplied ? documentKindLabel(latestApplied.document_kind) : imports.length > 0 ? 'Not approved yet' : 'None yet'} />
+        <Metric label="Freshness" value={latestApplied ? importPeriodLabel(latestApplied) : imports.length > 0 ? 'Review pending' : 'Manual'} />
       </div>
 
       <div className="document-import-guide">
@@ -3081,22 +3521,63 @@ function DocumentRoutingSummary({ documentImport }: { documentImport: FinancialD
   if (!metadata.routing_source) return null
 
   const resolvedKind = metadata.routing_resolved_kind ?? documentImport.document_kind
-  const destination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+  const destination = documentReviewDestination(documentImport, resolvedKind)
   const conflict = Boolean(metadata.routing_requires_confirmation)
+  const result = documentReviewResult(documentImport)
 
   return (
     <div className={`document-routing-summary${conflict ? ' needs-confirmation' : ''}`} role={conflict ? 'alert' : 'note'}>
       <div>
-        <span>{conflict ? 'Routing needs your check' : 'Routed for review'}</span>
-        <strong>{documentKindLabel(resolvedKind)} → {destination}</strong>
+        <span>{conflict ? 'Document type needs your check' : 'Review result'}</span>
+        <strong>{result} → {destination}</strong>
       </div>
       <p>
         {conflict
           ? routingConflictExplanation(metadata, resolvedKind)
-          : routingExplanation(metadata.routing_source)}
+          : routingResultExplanation(documentImport, resolvedKind)}
       </p>
     </div>
   )
+}
+
+function documentReviewResult(documentImport: FinancialDocumentImport) {
+  const transactions = documentImport.transaction_drafts.filter((draft) => draft.status === 'pending').length
+  const values = documentImport.items.filter((item) => !item.ignored && !item.applied_at).length
+  if (transactions > 0 && values > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'} + ${values} household value${values === 1 ? '' : 's'}`
+  if (transactions > 0) return `${transactions} transaction${transactions === 1 ? '' : 's'}`
+  if (values > 0) return `${values} household value${values === 1 ? '' : 's'}`
+  if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Checking file contents'
+  if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Review complete'
+  return 'No draft values found'
+}
+
+function documentReviewDestination(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+  const hasTransactions = documentImport.transaction_drafts.some((draft) => draft.status === 'pending')
+  const hasHouseholdValues = documentImport.items.some((item) => !item.ignored && !item.applied_at)
+  if (hasTransactions && hasHouseholdValues) return 'Transaction + household setup review'
+  if (hasTransactions) return 'Transaction review'
+  if (hasHouseholdValues) return 'Household setup review'
+  if (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0) return 'Private import history'
+  return routingDestinationLabel(documentImport.metadata.routing_destination, resolvedKind)
+}
+
+function routingResultExplanation(documentImport: FinancialDocumentImport, resolvedKind: DocumentImportKind) {
+  const metadata = documentImport.metadata
+  const selectedKind = metadata.declared_document_kind
+  const selectedCopy = selectedKind ? `You selected ${documentKindLabel(selectedKind).toLowerCase()}. ` : ''
+  const resultDestination = documentReviewDestination(documentImport, resolvedKind)
+  const plannedDestination = routingDestinationLabel(metadata.routing_destination, resolvedKind)
+
+  if (resultDestination === 'Private import history' &&
+      (documentImport.transaction_drafts.length > 0 || documentImport.items.length > 0)) {
+    return `${selectedCopy}All extracted results are resolved. This upload remains in private import history.`
+  }
+
+  if (resultDestination !== plannedDestination) {
+    return `${selectedCopy}Mia checked the contents and sent the reviewable results she actually found to ${resultDestination.toLowerCase()}. Nothing changed until you approve it.`
+  }
+
+  return `${selectedCopy}${routingExplanation(metadata.routing_source)} Nothing changed until you approve it.`
 }
 
 function routingConflictExplanation(metadata: FinancialDocumentImport['metadata'], resolvedKind: DocumentImportKind) {
@@ -3942,15 +4423,22 @@ function selectedApplyItemIds(documentImport: FinancialDocumentImport) {
     .map((item) => item.id)
 }
 
+function importHasApprovedData(documentImport: FinancialDocumentImport) {
+  return documentImport.items.some((item) => Boolean(item.applied_at)) ||
+    documentImport.transaction_drafts.some((draft) => ['confirmed', 'corrected', 'matched'].includes(draft.status))
+}
+
 function latestAppliedImport(imports: FinancialDocumentImport[]) {
   return imports
-    .filter((documentImport) => documentImport.status === 'applied' || documentImport.status === 'partially_applied')
+    .filter((documentImport) =>
+      (documentImport.status === 'applied' || documentImport.status === 'partially_applied') && importHasApprovedData(documentImport),
+    )
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
 function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
   return imports
-    .filter((documentImport) => documentImport.status === 'applied')
+    .filter((documentImport) => documentImport.status === 'applied' && importHasApprovedData(documentImport))
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
@@ -4041,6 +4529,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [cohorts, setCohorts] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
   const [plaidHealth, setPlaidHealth] = useState<AdminPlaidHealth>({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] })
+  const [plaidHealthError, setPlaidHealthError] = useState<string | null>(null)
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [createDraft, setCreateDraft] = useState<AdminCohortInput>({
     name: '',
@@ -4052,8 +4541,6 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [editDraft, setEditDraft] = useState<AdminCohortInput | null>(null)
   const [inviteDraft, setInviteDraft] = useState<AdminUserInput>({
     email: '',
-    first_name: '',
-    last_name: '',
     role: 'participant',
     cohort_id: '',
     send_invitation_email: true,
@@ -4109,7 +4596,16 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     setLoading(true)
     setError(null)
     try {
-      const [nextCohorts, nextUsers, nextPlaidHealth] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers(), fetchAdminPlaidHealth()])
+      const [nextCohorts, nextUsers, plaidHealthResult] = await Promise.all([
+        fetchAdminCohorts(),
+        fetchAdminUsers(),
+        fetchAdminPlaidHealth()
+          .then((value) => ({ value, error: null }))
+          .catch(() => ({
+            value: { summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] } satisfies AdminPlaidHealth,
+            error: 'Bank connection health is temporarily unavailable. Cohorts and invitations are still available.',
+          })),
+      ])
       const requestedCohortId = preferredCohortId === undefined ? selectedCohortIdRef.current : preferredCohortId
       const nextSelectedId = requestedCohortId === null
         ? null
@@ -4121,7 +4617,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       selectedCohortIdRef.current = nextSelectedId
       setCohorts(nextCohorts)
       setUsers(nextUsers)
-      setPlaidHealth(nextPlaidHealth)
+      setPlaidHealth(plaidHealthResult.value)
+      setPlaidHealthError(plaidHealthResult.error)
       setUserDrafts(adminDraftsForUsers(nextUsers))
       setSelectedCohortId(nextSelectedId)
       setEditDraft(nextSelectedCohort ? cohortDraftFor(nextSelectedCohort) : null)
@@ -4217,14 +4714,12 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     try {
       const response = await createAdminUser({
         email: inviteDraft.email.trim(),
-        first_name: inviteDraft.first_name?.trim(),
-        last_name: inviteDraft.last_name?.trim(),
         role: inviteRole,
         cohort_id: cohortId || undefined,
         send_invitation_email: inviteDraft.send_invitation_email ?? true,
       })
       setNotice(`${response.user.email} ${inviteActionNotice(response)}${cohortId ? ' and assigned to the selected cohort' : ' as an admin'}. ${inviteDeliveryNotice(response)}`)
-      setInviteDraft({ email: '', first_name: '', last_name: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
+      setInviteDraft({ email: '', role: 'participant', cohort_id: selectedCohortId ? String(selectedCohortId) : '', send_invitation_email: true })
       await loadAdminData()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Invite could not be created.')
@@ -4381,7 +4876,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
 
-      <PlaidHealthLedger health={plaidHealth} loading={loading} />
+      <PlaidHealthLedger health={plaidHealth} loading={loading} error={plaidHealthError} />
+      <PilotFeedbackInbox />
 
       <div className="admin-layout">
         <article className="panel admin-card">
@@ -4510,14 +5006,6 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               <input type="email" value={inviteDraft.email ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))} placeholder="name@example.com" />
             </label>
             <label className="admin-field">
-              <span>First name</span>
-              <input value={inviteDraft.first_name ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, first_name: event.target.value }))} />
-            </label>
-            <label className="admin-field">
-              <span>Last name</span>
-              <input value={inviteDraft.last_name ?? ''} onChange={(event) => setInviteDraft((current) => ({ ...current, last_name: event.target.value }))} />
-            </label>
-            <label className="admin-field">
               <span>Role</span>
               <select value={inviteRole} onChange={(event) => setInviteDraft((current) => ({ ...current, role: event.target.value as UserRole }))}>
                 {userRoles.map((role) => <option key={role} value={role}>{titleize(role)}</option>)}
@@ -4538,7 +5026,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
               />
               <span>Send invite email now</span>
             </label>
-            <p className="admin-field-note wide">Admins can manage across cohorts without assignment. Active coaches and participants must belong to at least one cohort.</p>
+            <p className="admin-field-note wide">Names come from the invited person's Clerk account after first sign-in. Admins can manage across cohorts without assignment; active coaches and participants must belong to at least one cohort.</p>
             <button type="submit" disabled={inviteSaving}>{inviteSaving ? 'Creating invite' : 'Create invite'}</button>
           </form>
         </article>
@@ -4616,12 +5104,15 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                       <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
                       <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
                       <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />
-                      <AdminBadge value={`${user.workspace.profile_completeness}% setup`} tone={user.workspace.setup_complete ? 'green' : 'neutral'} />
+                      <AdminBadge value={pilotSetupLabel(user.workspace.setup_status)} tone={user.workspace.setup_complete ? 'green' : user.workspace.setup_status === 'started' ? 'gold' : 'neutral'} />
+                      <AdminBadge value={user.workspace.signed_in ? 'Signed in' : 'Not signed in'} tone={user.workspace.signed_in ? 'green' : 'neutral'} />
+                      {user.workspace.has_pending_review_work && <AdminBadge value="Review waiting" tone="gold" />}
                     </div>
                     <p>{user.cohorts.map((membership) => membership.cohort.name).join(', ') || (user.role === 'admin' ? 'No cohort assigned; admin can work across cohorts' : 'No cohort assigned yet')}</p>
                     {user.invite_email.last_attempted_at && (
                       <p className="admin-email-line">Last email attempt: {shortDateTime(user.invite_email.last_attempted_at)}{user.invite_email.error ? ` · ${user.invite_email.error}` : ''}</p>
                     )}
+                    <p className="admin-email-line">Last safe activity: {user.workspace.last_safe_activity_at ? shortDateTime(user.workspace.last_safe_activity_at) : 'No participant activity yet'}</p>
                   </div>
 
                   <div className="admin-user-controls">
@@ -4680,7 +5171,7 @@ function AdminStat({ label, value }: { label: string; value: string }) {
   )
 }
 
-function PlaidHealthLedger({ health, loading }: { health: AdminPlaidHealth; loading: boolean }) {
+function PlaidHealthLedger({ health, loading, error }: { health: AdminPlaidHealth; loading: boolean; error: string | null }) {
   return (
     <article className="panel admin-card admin-plaid-health">
       <div className="admin-card-heading row-between">
@@ -4695,6 +5186,8 @@ function PlaidHealthLedger({ health, loading }: { health: AdminPlaidHealth; load
           <span className={health.summary.attention_required > 0 ? 'is-attention' : ''}><strong>{health.summary.attention_required}</strong> attention</span>
         </div>
       </div>
+
+      {error && <p className="admin-alert error" role="status">{error}</p>}
 
       {loading && health.items.length === 0 ? (
         <p className="admin-muted">Checking bank feed health...</p>
@@ -4834,7 +5327,7 @@ function compareAdminUsers(left: AdminUser, right: AdminUser, sort: UserSortKey)
   if (sort === 'email_asc') return left.email.localeCompare(right.email)
   if (sort === 'role_asc') return compareTextThenName(left.role, right.role, left, right)
   if (sort === 'status_asc') return compareTextThenName(left.invitation_status, right.invitation_status, left, right)
-  if (sort === 'setup_desc') return right.workspace.profile_completeness - left.workspace.profile_completeness || compareByName(left, right)
+  if (sort === 'setup_desc') return pilotSetupRank(right.workspace.setup_status) - pilotSetupRank(left.workspace.setup_status) || compareByName(left, right)
   if (sort === 'invite_desc') return sortableTime(right.invite_email.last_attempted_at) - sortableTime(left.invite_email.last_attempted_at) || compareByName(left, right)
 
   return compareByName(left, right)
@@ -4850,6 +5343,18 @@ function compareByName(left: AdminUser, right: AdminUser) {
 
 function sortableTime(value: string | null) {
   return value ? new Date(value).getTime() : 0
+}
+
+function pilotSetupRank(status: AdminUser['workspace']['setup_status']) {
+  if (status === 'complete') return 2
+  if (status === 'started') return 1
+  return 0
+}
+
+function pilotSetupLabel(status: AdminUser['workspace']['setup_status']) {
+  if (status === 'complete') return 'Setup complete'
+  if (status === 'started') return 'Setup started'
+  return 'Setup not started'
 }
 
 function inviteActionNotice(response: AdminUserMutationResponse) {
@@ -4934,13 +5439,6 @@ function monthIndexFromIsoDate(value: string) {
   return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
 }
 
-function transactionBulkAmountBucket(amount: number) {
-  if (amount < 100) return 'under_100'
-  if (amount < 1_000) return '100_to_999'
-  if (amount < 5_000) return '1000_to_4999'
-  return '5000_plus'
-}
-
 function messageLengthBucket(length: number) {
   if (length < 80) return 'under_80'
   if (length < 250) return '80_249'
@@ -4954,31 +5452,35 @@ function WorkspaceSetupForm({
   editing,
   saving,
   error,
+  firstSession,
   onBeginEdit,
   onCancel,
   onChange,
   onSubmit,
 }: {
   formRef?: Ref<HTMLFormElement>
-  values: WorkspaceSetupValues
+  values: WorkspaceSetupDraft
   editing: boolean
   saving: boolean
   error: string | null
+  firstSession: boolean
   onBeginEdit: () => void
   onCancel: () => void
   onChange: (key: keyof WorkspaceSetupValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }) {
   return (
-    <form ref={formRef} className="panel setup-form" onSubmit={onSubmit}>
+    <form ref={formRef} className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
-          <p className="eyebrow">Real workspace</p>
-          <h3>{editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
-          <p>{editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
+          <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Real workspace'}</p>
+          <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
+          <p>{firstSession ? 'Use your best monthly estimates. Blank money fields count as $0, and you can refine everything later.' : editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
         </div>
         <div className="setup-form-actions">
-          {editing ? (
+          {firstSession ? (
+            <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save and talk to Mia'}</button>
+          ) : editing ? (
             <>
               <button type="button" className="secondary-button" disabled={saving} onClick={onCancel}>Cancel</button>
               <button type="submit" disabled={saving}>{saving ? 'Saving' : 'Save numbers'}</button>
@@ -4989,52 +5491,58 @@ function WorkspaceSetupForm({
         </div>
       </div>
 
-      <div className="setup-field-grid">
-        <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
-          <span>Household name</span>
-          <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
-          <small>The name Mia should use for this household.</small>
-        </label>
-        <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
-          <span>Primary goal</span>
-          <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
-          <small>Write the goal, worry, or decision Mia should coach around. This box grows for longer notes.</small>
-        </label>
-        <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
-        <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
-        <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-        <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
-        <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
-        <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
-        <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
-        <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-        <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
-        <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
-        <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
-          <span>Target runway months</span>
-          <input
-            type="number"
-            min="0"
-            step="0.5"
-            name="target_runway_months"
-            value={values.target_runway_months}
-            disabled={!editing}
-            onChange={(event) => onChange('target_runway_months', event.target.value)}
-          />
-          <small>How many months of expenses you want protected before bigger moves.</small>
-        </label>
-      </div>
+      <fieldset className="setup-fieldset">
+        <legend>Essential first-session information</legend>
+        <p>Use your best monthly estimate. Saving these five fields is enough to begin; details below can wait.</p>
+        <div className="setup-field-grid">
+          <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
+            <span>Household name</span>
+            <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
+            <small>The name Mia should use for this household.</small>
+          </label>
+          <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
+            <span>Primary goal</span>
+            <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
+            <small>Write the goal, worry, or decision Mia should coach around.</small>
+          </label>
+          <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+          <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+          <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+        </div>
+      </fieldset>
+
+      {!firstSession && <details className="setup-optional-fields">
+        <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, debt, and runway target</small></summary>
+        <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
+        <div className="setup-field-grid">
+          <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+          <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
+          <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
+          <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
+          <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
+          <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
+          <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+          <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
+            <span>Target runway months</span>
+            <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={!editing && values.target_runway_months === '' ? '0' : values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
+            <small>How many months of expenses you want protected before bigger moves.</small>
+          </label>
+        </div>
+      </details>}
 
       {error && <p className="setup-error" role="alert">{error}</p>}
     </form>
   )
 }
 
-function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: number; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: string; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
-      <input name={name} type="number" min="0" step="1" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+      <span className="money-input-shell">
+        <span aria-hidden="true">$</span>
+        <input name={name} type="number" inputMode="decimal" min="0" step="1" placeholder="0" value={disabled && value === '' ? '0' : value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+      </span>
       <small>{help}</small>
     </label>
   )
@@ -5099,6 +5607,7 @@ function MiaActionDraftReviewStack({
   disabledReason,
   onApply,
   onCancel,
+  onEditManually,
 }: {
   drafts: MiaActionDraft[]
   isRealWorkspace: boolean
@@ -5108,13 +5617,14 @@ function MiaActionDraftReviewStack({
   disabledReason?: string
   onApply: (draft: MiaActionDraft) => void
   onCancel: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft) => void
 }) {
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
       <div>
         <p className="eyebrow">Review before applying</p>
-        <h4>Mia drafted budget edits for your approval</h4>
-        {compact && <p>Apply only if the planned-dollar changes are right. Actual spending does not change from these drafts.</p>}
+        <h4>Mia prepared changes for your approval</h4>
+        {compact && <p>Check the before and after. Nothing changes until you explicitly apply a review card.</p>}
         {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
       </div>
       {drafts.map((draft) => (
@@ -5126,6 +5636,7 @@ function MiaActionDraftReviewStack({
           draftActionsDisabled={draftActionsDisabled}
           onApply={onApply}
           onCancel={onCancel}
+          onEditManually={onEditManually}
         />
       ))}
     </div>
@@ -5139,6 +5650,7 @@ function MiaActionDraftReviewCard({
   draftActionsDisabled,
   onApply,
   onCancel,
+  onEditManually,
 }: {
   draft: MiaActionDraft
   isRealWorkspace: boolean
@@ -5146,6 +5658,7 @@ function MiaActionDraftReviewCard({
   draftActionsDisabled: boolean
   onApply: (draft: MiaActionDraft) => void
   onCancel: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft) => void
 }) {
   const isPending = draft.status === 'pending'
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
@@ -5155,7 +5668,10 @@ function MiaActionDraftReviewCard({
       <div className="mia-action-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.title}</strong>
-          <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+          <div className="mia-action-draft-labels">
+            <span className="document-status">{miaActionDraftTypeLabel(draft.draft_type)}</span>
+            <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+          </div>
         </div>
         <p>{draft.summary}</p>
         {draft.rationale && <p>{draft.rationale}</p>}
@@ -5168,24 +5684,61 @@ function MiaActionDraftReviewCard({
             </div>
           ))}
         </div>
-        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft again when you apply it, save a record of the change, and leave actual spending untouched.</small>
+        {draft.impact && <MiaActionImpact impact={draft.impact} />}
+        <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft against your latest saved data when you apply it, keep an audit record, and leave actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">
           <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
-            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply budget edit'}
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply reviewed change'}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
             {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
           </button>
+          {onEditManually && (
+            <button type="button" className="secondary-button" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft)}>
+              Open manual controls
+            </button>
+          )}
         </div>
       ) : (
         <div className="mia-action-draft-actions terminal">
-          <span>{draft.status === 'applied' ? 'Applied to planned budget. Actuals did not change.' : 'Canceled. No budget numbers changed.'}</span>
+          <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : 'Canceled. No household numbers changed.'}</span>
         </div>
       )}
     </div>
   )
+}
+
+function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impact']> }) {
+  const rows = [
+    ['Monthly income', impact.before_monthly_income, impact.after_monthly_income],
+    ['Monthly outflow', impact.before_monthly_outflow, impact.after_monthly_outflow],
+    ['Baseline surplus', impact.before_baseline_surplus, impact.after_baseline_surplus],
+  ] as const
+
+  return (
+    <section className="mia-action-impact" aria-label={`${impact.scope ?? 'Monthly plan'} impact`}>
+      <div className="mia-action-impact-heading">
+        <strong>{impact.scope ?? 'Monthly plan'} impact</strong>
+        <span aria-hidden="true">Before → After</span>
+      </div>
+      <div className="mia-action-impact-grid">
+        {rows.map(([label, before, after]) => (
+          <div key={label}>
+            <span>{label}</span>
+            <strong>{currency.format(before ?? 0)} <b aria-hidden="true">→</b> {currency.format(after ?? 0)}</strong>
+          </div>
+        ))}
+      </div>
+    </section>
+  )
+}
+
+function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
+  if (draftType === 'household_setup') return 'Household numbers'
+  if (draftType === 'income_schedule') return 'Income timeline'
+  return 'Budget plan'
 }
 
 function miaActionDraftRenderKey(draft: MiaActionDraft) {
@@ -5263,8 +5816,9 @@ function TransactionDraftReviewStack({
   const filteredPendingDrafts = filteredDrafts.filter((draft) => draft.status === 'pending')
   const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
-  const selectedNeedsCategory = selectedDrafts.some((draft) => !transactionDraftHasCategory(draft))
-  const confirmableDrafts = filteredPendingDrafts.filter(transactionDraftHasCategory)
+  const selectedDraftsNeedingCategory = selectedDrafts.filter(transactionDraftNeedsCategory)
+  const filteredDraftsNeedingCategory = filteredPendingDrafts.filter(transactionDraftNeedsCategory)
+  const confirmableDrafts = filteredPendingDrafts.filter((draft) => !transactionDraftNeedsCategory(draft))
   const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
   const anyActionBusy = Boolean(action)
   const bulkBusy = action?.startsWith('bulk-') ?? false
@@ -5338,7 +5892,7 @@ function TransactionDraftReviewStack({
             <span>Select this page</span>
           </label>
           <span>{selectedDrafts.length} selected</span>
-          <button type="button" className="secondary-button" title={selectedNeedsCategory ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || selectedDrafts.length === 0 || selectedNeedsCategory} onClick={() => onBulkConfirm(selectedDrafts)}>
+          <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
@@ -5358,6 +5912,11 @@ function TransactionDraftReviewStack({
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
             Ignore all {filteredPendingDrafts.length}
           </button>
+          {filteredDraftsNeedingCategory.length > 0 && (
+            <p className="transaction-draft-bulk-warning" role="status">
+              {filteredDraftsNeedingCategory.length} review{filteredDraftsNeedingCategory.length === 1 ? '' : 's'} need categorizing before bulk confirmation.
+            </p>
+          )}
         </div>
       )}
 
@@ -5408,14 +5967,8 @@ type EditableDraftSplit = {
   category_name: string
   stack_key: BudgetStackKey | ''
   notes: string
-}
-
-function transactionDraftHasCategory(draft: TransactionDraft) {
-  const intentionalCategory = (name: string | null | undefined) => Boolean(name && !/^(uncategorized|needs category)$/i.test(name.trim()))
-  const splits = draft.splits ?? []
-  if (splits.length > 0) return splits.every((split) => Boolean(split.budget_category_id) && intentionalCategory(split.category_name))
-
-  return Boolean(draft.category_id) && intentionalCategory(draft.category_name)
+  confidence: number | string | null
+  metadata: Record<string, unknown>
 }
 
 function TransactionDraftReviewCard({
@@ -5453,6 +6006,7 @@ function TransactionDraftReviewCard({
   const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [editError, setEditError] = useState<string | null>(null)
+  const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const isPending = draft.status === 'pending'
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
@@ -5463,7 +6017,13 @@ function TransactionDraftReviewCard({
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
-  const needsCategoryBeforeConfirm = !transactionDraftHasCategory(draft)
+  const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
+  const needsCategoryReview = splitsNeedingCategory.length > 0
+  const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
+  const categoryWarningCopy = draft.financial_document_import_id
+    ? 'Mia kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.'
+    : 'Mia could not confidently match this purchase. Choose where it belongs before it changes your actuals.'
+  const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
   const impactDraft = editing ? {
     ...draft,
@@ -5482,6 +6042,7 @@ function TransactionDraftReviewCard({
       amount_cents: Math.round(Number(split.amount || 0) * 100),
       notes: split.notes || null,
       confidence: draft.splits?.find((candidate) => candidate.id === split.id)?.confidence ?? null,
+      metadata: split.metadata,
     })),
   } satisfies TransactionDraft : draft
   const budgetImpacts = plan ? transactionDraftBudgetImpacts(plan, impactDraft) : []
@@ -5511,7 +6072,7 @@ function TransactionDraftReviewCard({
   function addSplit() {
     setSplits((current) => ([
       ...current,
-      { amount: '', budget_category_id: '', category_name: '', stack_key: '', notes: '' },
+      { amount: '', budget_category_id: '', category_name: '', stack_key: '', notes: '', confidence: null, metadata: {} },
     ]))
   }
 
@@ -5541,6 +6102,8 @@ function TransactionDraftReviewCard({
           category_name: split.category_name || null,
           stack_key: split.stack_key || null,
           notes: split.notes || null,
+          confidence: split.confidence,
+          metadata: split.metadata,
         })),
       })
       setEditing(false)
@@ -5562,13 +6125,33 @@ function TransactionDraftReviewCard({
           <strong>{draft.merchant}</strong>
           <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
         </div>
-        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {draft.category_name ?? 'Needs category'}</p>
+        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (draft.category_name ?? 'Needs category')}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
-              <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</span>
+              <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
+                <strong>{split.budget_category_id ? split.category_name : 'Needs category'} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
+                {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
+                  <span>{[
+                    !split.budget_category_id && extractedCategoryLabel(split) ? `Mia read “${extractedCategoryLabel(split)}”` : null,
+                    split.notes,
+                  ].filter(Boolean).join(' · ')}</span>
+                )}
+              </article>
             ))}
           </div>
+        )}
+        {isPending && needsCategoryReview && (
+          <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
+            <div>
+              <strong>{splitsNeedingCategory.length} split{splitsNeedingCategory.length === 1 ? '' : 's'} need{splitsNeedingCategory.length === 1 ? 's' : ''} a category</strong>
+              <p>{categoryWarningCopy}</p>
+            </div>
+            {!editing && onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled} onClick={() => {
+              beginEditing()
+              window.requestAnimationFrame(() => window.requestAnimationFrame(() => firstMissingCategoryRef.current?.focus()))
+            }}>Review categories</button>}
+          </section>
         )}
         {plan && budgetImpacts.length > 0 && (
           <TransactionDraftBudgetImpactPanel occurredOn={impactDraft.occurred_on} impacts={budgetImpacts} editing={editing} />
@@ -5619,7 +6202,7 @@ function TransactionDraftReviewCard({
                       category_name: category?.name ?? split.category_name,
                       stack_key: category?.stack_key ?? split.stack_key,
                     })
-                  }}>
+                  }} ref={index === firstMissingSplitIndex ? firstMissingCategoryRef : undefined}>
                     <option value="">Needs category</option>
                     {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </select>
@@ -5644,9 +6227,9 @@ function TransactionDraftReviewCard({
 
       {isPending ? (
         <div className="transaction-draft-actions">
-          {needsCategoryBeforeConfirm && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
+          {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
           {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
-          <button type="button" disabled={actionsDisabled || needsCategoryBeforeConfirm || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          <button type="button" aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
@@ -5767,7 +6350,7 @@ function exactMoneyNumber(value: number, cents?: number | null) {
 function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
   const splits = draft.splits && draft.splits.length > 0
     ? draft.splits
-    : [{ id: undefined, amount: draft.amount, amount_cents: draft.amount_cents ?? null, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null }]
+    : [{ id: undefined, amount: draft.amount, amount_cents: draft.amount_cents ?? null, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null, confidence: null, metadata: {} }]
 
   return splits.map((split) => ({
     id: split.id,
@@ -5776,7 +6359,28 @@ function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
     category_name: split.category_name ?? '',
     stack_key: split.stack_key ?? '',
     notes: split.notes ?? '',
+    confidence: split.confidence ?? null,
+    metadata: split.metadata ?? {},
   }))
+}
+
+function transactionDraftNeedsCategory(draft: TransactionDraft) {
+  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some(transactionDraftSplitNeedsCategory)
+  return !draft.category_id || placeholderCategoryName(draft.category_name)
+}
+
+function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit) {
+  return !split.budget_category_id || placeholderCategoryName(split.category_name)
+}
+
+function placeholderCategoryName(name: string | null | undefined) {
+  return !name?.trim() || /^(uncategorized|needs category)$/i.test(name.trim())
+}
+
+function extractedCategoryLabel(split: TransactionDraftSplit) {
+  const extracted = split.metadata?.extracted_category_name
+  if (typeof extracted === 'string' && extracted.trim()) return extracted.trim()
+  return split.category_name?.trim() || null
 }
 
 function CurrentMonthActivityPanel({
@@ -5793,9 +6397,12 @@ function CurrentMonthActivityPanel({
   error: string | null
 }) {
   const month = plan.months[currentMonthIndex]
+  const visibleSpendingReport = spendingReport?.start_on === month?.starts_on && spendingReport?.end_on === month?.ends_on
+    ? spendingReport
+    : null
   const positions = useMemo(
-    () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
-    [currentMonthIndex, plan, spendingReport],
+    () => budgetPositionsForMonth(plan, currentMonthIndex, visibleSpendingReport),
+    [currentMonthIndex, plan, visibleSpendingReport],
   )
   const totalPending = budgetPositionTotals(positions).pending
 
@@ -5814,7 +6421,7 @@ function CurrentMonthActivityPanel({
         title="Every category, ordered by pressure"
         eyebrow={`${month?.label ?? 'Selected month'} category view`}
       />
-      {spendingReport && <SpendingReportLedger report={spendingReport} />}
+      {visibleSpendingReport && <SpendingReportLedger report={visibleSpendingReport} />}
     </section>
   )
 }
@@ -6238,7 +6845,7 @@ function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
         <div>
           <p className="eyebrow">Look ahead</p>
           <h4 id="annual-outlook-title">See the expensive months before they arrive.</h4>
-          <p>Income, planned outflow, and baseline surplus use the exact schedule for each month.</p>
+          <p>Total planned outflow combines editable categories with required debt minimums for each month.</p>
         </div>
         <span>{currency.format(outlook.typical_monthly_outflow)} typical planned month</span>
       </div>
@@ -6283,10 +6890,12 @@ function AnnualBudgetPlanner({
   onDeleteIncomeScheduleEntry,
   onBudgetViewChange,
   onSaveBudgetEdits,
+  onAskMia,
   onArchiveCategory,
   onRestoreCategory,
   onApplyMiaActionDraft,
   onCancelMiaActionDraft,
+  onOpenManualMiaAction,
   onUpdateDraft,
   onMatchDraft,
   onConfirmDraft,
@@ -6310,10 +6919,12 @@ function AnnualBudgetPlanner({
   onDeleteIncomeScheduleEntry: (entry: IncomeScheduleEntry) => void
   onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
+  onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
   onApplyMiaActionDraft: (draft: MiaActionDraft) => void
   onCancelMiaActionDraft: (draft: MiaActionDraft) => void
+  onOpenManualMiaAction: (draft: MiaActionDraft) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
@@ -6325,10 +6936,10 @@ function AnnualBudgetPlanner({
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
-  const annualPlanned = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
-  const annualActual = plan.rows.reduce((sum, row) => sum + row.actual_total, 0)
+  const annualCategoryPlan = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
+  const annualDebtMinimums = plan.monthly_debt_minimums * plan.months.length
+  const annualPlannedOutflow = annualCategoryPlan + annualDebtMinimums
   const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
-  const currentActual = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0)
   const currentPositions = useMemo(
     () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
     [currentMonthIndex, plan, spendingReport],
@@ -6346,6 +6957,10 @@ function AnnualBudgetPlanner({
     allocationDrafts: {},
     categoryDrafts: {},
   })
+  const [manualTool, setManualTool] = useState<'category' | 'monthly' | 'income' | null>(null)
+  const manualManagerRef = useRef<HTMLElement | null>(null)
+  const manualTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const newCategoryInputRef = useRef<HTMLInputElement | null>(null)
   const allocationDrafts = useMemo(
     () => budgetEditState.signature === planSignature ? budgetEditState.allocationDrafts : {},
     [budgetEditState.allocationDrafts, budgetEditState.signature, planSignature],
@@ -6356,10 +6971,10 @@ function AnnualBudgetPlanner({
   )
   const isEditingBudget = budgetEditState.signature === planSignature && budgetEditState.isEditing
   const isSavingBudgetEdits = action === 'save-budget-edits'
-  const editableBudget = isRealWorkspace && isEditingBudget && !isSavingBudgetEdits
   const allocationChanges = useMemo(() => budgetAllocationChanges(plan.rows, allocationDrafts), [allocationDrafts, plan.rows])
   const categoryChanges = useMemo(() => budgetCategoryChanges(plan.rows, categoryDrafts), [categoryDrafts, plan.rows])
   const totalBudgetChanges = allocationChanges.length + categoryChanges.length
+  const hasUnsavedBudgetChanges = isEditingBudget && totalBudgetChanges > 0
   const archivedCategories = plan.archived_categories ?? []
   const today = new Date()
   const currentCalendarYear = today.getFullYear()
@@ -6378,10 +6993,19 @@ function AnnualBudgetPlanner({
   async function saveBudgetEdits() {
     if (totalBudgetChanges === 0) {
       cancelBudgetEdit()
+      setManualTool(null)
+      window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
       return
     }
 
-    await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
+    try {
+      await onSaveBudgetEdits({ allocations: allocationChanges, categories: categoryChanges })
+      cancelBudgetEdit()
+      setManualTool(null)
+      window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
+    } catch {
+      // The parent keeps the server-owned error visible and the drafts available to retry.
+    }
   }
 
   function updateAllocationDraft(month: BudgetCategoryMonth, value: string) {
@@ -6413,23 +7037,39 @@ function AnnualBudgetPlanner({
     })
   }
 
-  function renderBudgetEditActions() {
-    if (!isRealWorkspace) return null
+  function focusManualManager(tool: 'category' | 'monthly' | 'income') {
+    window.setTimeout(() => {
+      manualManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      if (tool === 'category') newCategoryInputRef.current?.focus({ preventScroll: true })
+      else manualManagerRef.current?.focus({ preventScroll: true })
+    }, 0)
+  }
 
-    return (
-      <div className="annual-plan-edit-actions">
-        {isEditingBudget ? (
-          <>
-            <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelBudgetEdit}>Cancel</button>
-            <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
-              {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
-            </button>
-          </>
-        ) : (
-          <button type="button" onClick={beginBudgetEdit}>Edit annual budget</button>
-        )}
-      </div>
-    )
+  function openManualManager() {
+    cancelBudgetEdit()
+    setManualTool('category')
+    focusManualManager('category')
+  }
+
+  function selectManualTool(tool: 'category' | 'monthly' | 'income') {
+    if (tool === manualTool || (hasUnsavedBudgetChanges && tool !== 'monthly')) return
+    if (tool === 'monthly') beginBudgetEdit()
+    else cancelBudgetEdit()
+    setManualTool(tool)
+    focusManualManager(tool)
+  }
+
+  function closeManualManager() {
+    if (hasUnsavedBudgetChanges) return
+    cancelBudgetEdit()
+    setManualTool(null)
+    window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
+  }
+
+  function cancelAndCloseManualManager() {
+    cancelBudgetEdit()
+    setManualTool(null)
+    window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
   }
 
   return (
@@ -6437,39 +7077,196 @@ function AnnualBudgetPlanner({
       <div className="annual-budget-heading">
         <div>
           <p className="eyebrow">Annual budget · {plan.year}</p>
-          <h3>Year view with month-to-date truth</h3>
-          <p>Plan the whole year, then let manual entries, receipts, and statements fill the actuals for each month.</p>
+          <h3>Money in, money out, and what is left.</h3>
+          <p>Use Mia for the fastest update, or open the manual tools when you want exact control.</p>
           <div className="budget-view-controls" aria-label="Budget report period controls">
-            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year - 1, currentMonthIndex)}>Previous year</button>
             {!isViewingCurrentYear && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This year</button>
             )}
             <label>
               <span className="sr-only">Report month</span>
-              <select value={currentMonthIndex} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
+              <select value={currentMonthIndex} disabled={hasUnsavedBudgetChanges} onChange={(event) => onBudgetViewChange(plan.year, Number(event.currentTarget.value))}>
                 {plan.months.map((month, index) => <option value={index} key={month.id}>{month.label}</option>)}
               </select>
             </label>
             {isViewingCurrentYear && !isViewingCurrentMonth && (
-              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
+              <button type="button" className="secondary-button current-period-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(currentCalendarYear, currentCalendarMonthIndex)}>This month</button>
             )}
-            <button type="button" className="secondary-button" disabled={action === 'load-budget-year'} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
+            <button type="button" className="secondary-button" disabled={action === 'load-budget-year' || hasUnsavedBudgetChanges} onClick={() => onBudgetViewChange(plan.year + 1, currentMonthIndex)}>Next year</button>
           </div>
         </div>
         <div className="annual-budget-actions">
           <span>{plan.rows.length} categories</span>
-          <span>{plan.pending_transaction_drafts.length} pending transaction drafts</span>
-          {(plan.pending_mia_action_drafts ?? []).length > 0 && <span>{(plan.pending_mia_action_drafts ?? []).length} Mia action drafts</span>}
-          {renderBudgetEditActions()}
+          <span>{plan.pending_transaction_drafts.length + (plan.pending_mia_action_drafts ?? []).length} awaiting review</span>
+          <div className="budget-primary-actions">
+            <button type="button" onClick={onAskMia}>Ask Mia to update my plan</button>
+            {isRealWorkspace && <button type="button" ref={manualTriggerRef} className="secondary-button" aria-controls="budget-manual-manager" aria-expanded={manualTool !== null} disabled={manualTool !== null} onClick={openManualManager}>{manualTool ? 'Manual tools open' : 'Manage manually'}</button>}
+          </div>
         </div>
       </div>
 
-      <div className="annual-budget-metrics">
-        <Metric label={`${currentMonth?.label ?? 'Month'} income`} value={currency.format(currentMonthIncome)} />
-        <Metric label={`${currentMonth?.label ?? 'Month'} planned`} value={currency.format(currentPlanned)} />
-        <Metric label={`${currentMonth?.label ?? 'Month'} actual`} value={currency.format(currentActual)} />
-        <Metric label="Annual planned" value={currency.format(annualPlanned)} />
-        <Metric label="Annual actual" value={currency.format(annualActual)} />
+      {manualTool && (
+        <section id="budget-manual-manager" className="budget-manual-manager" aria-labelledby="budget-manual-manager-title" ref={manualManagerRef} tabIndex={-1}>
+          <div className="budget-manual-manager-heading">
+            <div>
+              <p className="eyebrow">Manual budget tools</p>
+              <h4 id="budget-manual-manager-title">What do you want to change?</h4>
+              <p>Choose one focused task. Your full annual controls stay here when you need them.</p>
+            </div>
+            <button type="button" className="secondary-button" disabled={hasUnsavedBudgetChanges} onClick={closeManualManager}>Close manual tools</button>
+          </div>
+
+          <div className="budget-manual-tabs" role="group" aria-label="Manual budget tools">
+            <button type="button" aria-pressed={manualTool === 'category'} disabled={hasUnsavedBudgetChanges} onClick={() => selectManualTool('category')}>Add a category</button>
+            <button type="button" aria-pressed={manualTool === 'monthly'} onClick={() => selectManualTool('monthly')}>Edit monthly plan</button>
+            <button type="button" aria-pressed={manualTool === 'income'} disabled={hasUnsavedBudgetChanges} onClick={() => selectManualTool('income')}>Schedule income</button>
+          </div>
+
+          {error && <p className="setup-error" role="alert">{error}</p>}
+
+          {manualTool === 'category' && (
+            <div className="budget-manual-tool">
+              <div className="budget-manual-tool-intro">
+                <strong>Add one spending category</strong>
+                <span>Give it a household-friendly name, choose its Expense Stack group, and set the amount you expect each month.</span>
+              </div>
+              <form className="annual-category-form" onSubmit={onCreateCategory}>
+                <label>
+                  <span>New category</span>
+                  <input ref={newCategoryInputRef} value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={action === 'create-category'} />
+                </label>
+                <label>
+                  <span>Expense Stack group</span>
+                  <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={action === 'create-category'}>
+                    <option value="non_discretionary">Non-discretionary</option>
+                    <option value="discretionary">Discretionary</option>
+                    <option value="sinking_expected">Sinking Fund — Expected</option>
+                    <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
+                  </select>
+                </label>
+                <label>
+                  <span>Monthly plan</span>
+                  <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={action === 'create-category'} />
+                </label>
+                <button type="submit" disabled={action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
+              </form>
+            </div>
+          )}
+
+          {manualTool === 'income' && (
+            <div className="budget-manual-tool">
+              <AnnualIncomePlanner
+                key={`${plan.year}:${plan.income_sources.map((source) => source.id).join(':')}`}
+                plan={plan}
+                isRealWorkspace={isRealWorkspace}
+                action={action}
+                onSave={onSaveIncomeScheduleEntry}
+                onDelete={onDeleteIncomeScheduleEntry}
+              />
+            </div>
+          )}
+
+          {manualTool === 'monthly' && (
+            <div className="budget-manual-tool">
+              <div className="annual-budget-editor-toolbar">
+                <div>
+                  <p className="eyebrow">Month-by-month plan</p>
+                  <strong>Change category names, groups, or monthly amounts.</strong>
+                  <span aria-live="polite">{totalBudgetChanges > 0 ? `${totalBudgetChanges} unsaved change${totalBudgetChanges === 1 ? '' : 's'}. Save or cancel before switching tools.` : 'The table scrolls sideways on smaller screens.'}</span>
+                </div>
+                <div className="annual-plan-edit-actions">
+                  <button type="button" className="secondary-button" disabled={isSavingBudgetEdits} onClick={cancelAndCloseManualManager}>Cancel</button>
+                  <button type="button" disabled={isSavingBudgetEdits} onClick={() => void saveBudgetEdits()}>
+                    {isSavingBudgetEdits ? 'Saving' : totalBudgetChanges > 0 ? `Save ${totalBudgetChanges} change${totalBudgetChanges === 1 ? '' : 's'}` : 'Done'}
+                  </button>
+                </div>
+              </div>
+
+              <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
+                <table className="annual-budget-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Category</th>
+                      {plan.months.map((month, index) => (
+                        <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
+                      ))}
+                      <th scope="col">Year</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {plan.rows.length === 0 ? (
+                      <tr><td colSpan={14}>Add a category to start building the annual plan.</td></tr>
+                    ) : plan.rows.map((row) => (
+                      <tr key={row.id}>
+                        <th scope="row">
+                          <CategoryEditCell
+                            row={row}
+                            draft={categoryDraftValue(row, categoryDrafts)}
+                            hasPendingDrafts={plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
+                            action={action}
+                            onChange={(value) => updateCategoryDraft(row, value)}
+                            onArchive={() => onArchiveCategory(row)}
+                          />
+                        </th>
+                        {row.months.map((month, index) => {
+                          const allocationMissing = !month.allocation_id || month.allocation_missing
+                          const draftValue = allocationDraftValue(month, allocationDrafts)
+                          const draftedAmount = Number(draftValue || 0)
+                          const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
+                          return (
+                            <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
+                              {row.active && !allocationMissing ? (
+                                <input
+                                  key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
+                                  aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  value={draftValue}
+                                  data-dirty={hasDraftChange ? 'true' : undefined}
+                                  onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
+                                />
+                              ) : (
+                                <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
+                              )}
+                              <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
+                            </td>
+                          )
+                        })}
+                        <td><strong>{currency.format(row.planned_total)}</strong><small>{currency.format(row.actual_total)} actual</small></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {archivedCategories.length > 0 && (
+                <details className="archived-categories-panel">
+                  <summary><span>Archived categories</span><strong>{archivedCategories.length}</strong></summary>
+                  <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
+                  <div className="archived-category-list">
+                    {archivedCategories.map((category) => (
+                      <div className="archived-category-row" key={category.id}>
+                        <div><strong>{category.name}</strong><span>{category.stack_label}</span></div>
+                        <button type="button" className="secondary-button" disabled={action === `restore-category:${category.id}`} onClick={() => onRestoreCategory(category.id)}>
+                          {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          )}
+        </section>
+      )}
+
+      <div className="annual-budget-summary" aria-label="Annual money out breakdown">
+        <span><small>Annual category plan</small><strong>{currency.format(annualCategoryPlan)}</strong></span>
+        <span><small>Annual debt minimums</small><strong>{currency.format(annualDebtMinimums)}</strong></span>
+        <span><small>Total annual money out</small><strong>{currency.format(annualPlannedOutflow)}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{currency.format(currentPlanned + plan.monthly_debt_minimums)}</strong></span>
       </div>
 
       <div className="budget-operating-cockpit">
@@ -6479,20 +7276,10 @@ function AnnualBudgetPlanner({
           planned={currentPositionTotals.planned}
           actual={currentPositionTotals.actual}
           pending={currentPositionTotals.pending}
+          debtMinimums={plan.monthly_debt_minimums}
         />
         <ExpenseStackOverview positions={currentPositions} />
       </div>
-
-      <AnnualIncomePlanner
-        key={`${plan.year}:${plan.income_sources.map((source) => source.id).join(':')}`}
-        plan={plan}
-        isRealWorkspace={isRealWorkspace}
-        action={action}
-        onSave={onSaveIncomeScheduleEntry}
-        onDelete={onDeleteIncomeScheduleEntry}
-      />
-
-      <AnnualOutlookPanel plan={plan} />
 
       {(plan.pending_mia_action_drafts ?? []).length > 0 && (
         <MiaActionDraftReviewStack
@@ -6503,6 +7290,7 @@ function AnnualBudgetPlanner({
           draftActionsDisabled={isEditingBudget}
           onApply={onApplyMiaActionDraft}
           onCancel={onCancelMiaActionDraft}
+          onEditManually={onOpenManualMiaAction}
         />
       )}
 
@@ -6525,158 +7313,21 @@ function AnnualBudgetPlanner({
         />
       )}
 
-      <CurrentMonthActivityPanel
-        plan={plan}
-        currentMonthIndex={currentMonthIndex}
-        spendingReport={spendingReport}
-        loading={spendingReportLoading}
-        error={spendingReportError}
-      />
+      <AnnualOutlookPanel plan={plan} />
 
-      <div className="annual-budget-editor-toolbar">
-        <div>
-          <p className="eyebrow">Annual plan editor</p>
-          <strong>{isEditingBudget ? 'Editing is on' : 'Budget is read-only'}</strong>
-          <span>{isEditingBudget ? 'Change monthly cells, rename categories, or add a new row below.' : 'Turn on editing when you want to change the annual plan.'}</span>
-        </div>
-        {renderBudgetEditActions()}
-      </div>
-
-      {isEditingBudget ? (
-        <form className="annual-category-form" onSubmit={onCreateCategory}>
-          <label>
-            <span>New category</span>
-            <input value={newCategory.name} placeholder="Groceries, Dining out, Travel" onChange={(event) => onNewCategoryChange({ ...newCategory, name: event.target.value })} disabled={!editableBudget} />
-          </label>
-          <label>
-            <span>Stack</span>
-            <select value={newCategory.stack_key} onChange={(event) => onNewCategoryChange({ ...newCategory, stack_key: event.target.value as BudgetStackKey })} disabled={!editableBudget}>
-              <option value="non_discretionary">Non-discretionary</option>
-              <option value="discretionary">Discretionary</option>
-              <option value="sinking_expected">Sinking Fund — Expected</option>
-              <option value="sinking_unexpected">Sinking Fund — Unexpected</option>
-            </select>
-          </label>
-          <label>
-            <span>Monthly plan</span>
-            <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={!editableBudget} />
-          </label>
-          <button type="submit" disabled={!editableBudget || action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
-        </form>
-      ) : (
-        <p className="annual-edit-hint">Click Edit annual budget to add categories or change monthly planned amounts.</p>
-      )}
-
-      {error && <p className="setup-error" role="alert">{error}</p>}
-
-      <div className="annual-budget-table-wrap" role="region" aria-label="Annual budget table" tabIndex={0}>
-        <table className="annual-budget-table">
-          <thead>
-            <tr>
-              <th scope="col">Category</th>
-              {plan.months.map((month, index) => (
-                <th scope="col" className={index === currentMonthIndex ? 'current-month' : ''} key={month.id}>{month.label}</th>
-              ))}
-              <th scope="col">Year</th>
-            </tr>
-          </thead>
-          <tbody>
-            {plan.rows.length === 0 ? (
-              <tr>
-                <td colSpan={14}>Add a category to start building the annual plan.</td>
-              </tr>
-            ) : plan.rows.map((row) => (
-              <tr key={row.id}>
-                <th scope="row">
-                  {editableBudget && row.active ? (
-                    <CategoryEditCell
-                      row={row}
-                      draft={categoryDraftValue(row, categoryDrafts)}
-                      hasPendingDrafts={plan.pending_transaction_drafts.some((draft) => draft.category_id === row.id)}
-                      action={action}
-                      onChange={(value) => updateCategoryDraft(row, value)}
-                      onArchive={() => onArchiveCategory(row)}
-                    />
-                  ) : (
-                    <>
-                      <strong>{row.name}</strong>
-                      <span>{row.stack_label}{row.active ? '' : ' · Archived'}</span>
-                    </>
-                  )}
-                </th>
-                {row.months.map((month, index) => {
-                  const allocationMissing = !month.allocation_id || month.allocation_missing
-                  const draftValue = allocationDraftValue(month, allocationDrafts)
-                  const draftedAmount = Number(draftValue || 0)
-                  const hasDraftChange = !allocationMissing && draftedAmount !== month.planned
-
-                  return (
-                    <td className={index === currentMonthIndex ? 'current-month' : ''} key={month.allocation_id ?? `missing-${month.period_id}`}>
-                      {editableBudget && row.active && !allocationMissing ? (
-                        <input
-                          key={`${month.allocation_id ?? month.period_id}:${month.planned}`}
-                          aria-label={`${row.name} planned for ${plan.months[index]?.label}`}
-                          type="number"
-                          min="0"
-                          step="1"
-                          value={draftValue}
-                          data-dirty={hasDraftChange ? 'true' : undefined}
-                          onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
-                        />
-                      ) : (
-                        <strong className="annual-planned-readonly">{currency.format(month.planned)}</strong>
-                      )}
-                      <small>{allocationMissing ? 'Allocation needs repair' : `${currency.format(month.actual)} actual`}</small>
-                    </td>
-                  )
-                })}
-                <td>
-                  <strong>{currency.format(row.planned_total)}</strong>
-                  <small>{currency.format(row.actual_total)} actual</small>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {archivedCategories.length > 0 && (
-        <details className="archived-categories-panel">
-          <summary>
-            <span>Archived categories</span>
-            <strong>{archivedCategories.length}</strong>
-          </summary>
-          <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
-          <div className="archived-category-list">
-            {archivedCategories.map((category) => (
-              <div className="archived-category-row" key={category.id}>
-                <div>
-                  <strong>{category.name}</strong>
-                  <span>{category.stack_label}</span>
-                </div>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  disabled={!editableBudget || action === `restore-category:${category.id}`}
-                  onClick={() => onRestoreCategory(category.id)}
-                >
-                  {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}
-                </button>
-              </div>
-            ))}
-          </div>
-          {!editableBudget && <small>Click Edit annual budget to restore archived categories.</small>}
-        </details>
-      )}
-
-      {plan.recent_transactions.length > 0 && (
-        <TransactionLedger
-          title="Recent confirmed transactions"
-          transactions={plan.recent_transactions}
-          emptyMessage="No confirmed transactions for this budget year yet."
-          pageSize={8}
+      <details className="budget-detail-disclosure">
+        <summary>
+          <span><strong>Monthly activity and transactions</strong><small>See category pressure, confirmed spending, and the ledger.</small></span>
+          <b>{currentPositions.length} categories</b>
+        </summary>
+        <CurrentMonthActivityPanel
+          plan={plan}
+          currentMonthIndex={currentMonthIndex}
+          spendingReport={spendingReport}
+          loading={spendingReportLoading}
+          error={spendingReportError}
         />
-      )}
+      </details>
     </article>
   )
 }
@@ -6745,6 +7396,24 @@ function ShieldIcon() {
     <svg viewBox="0 0 24 24" role="img" aria-label="Secure access">
       <path d="M12 2.7 19 5.4v5.25c0 4.45-2.8 8.5-7 10.05-4.2-1.55-7-5.6-7-10.05V5.4l7-2.7Z" />
       <path d="m8.9 12.05 2 2 4.2-4.45" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function GuideIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M5 4.5h9.5A2.5 2.5 0 0 1 17 7v12H7.5A2.5 2.5 0 0 1 5 16.5v-12Z" className="icon-stroke" />
+      <path d="M7.5 16.5H17M9 8h4.5M9 11h5.5" className="icon-stroke" />
+    </svg>
+  )
+}
+
+function FeedbackIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M4.5 5.5h15v10.25h-8L7.5 19v-3.25h-3V5.5Z" className="icon-stroke" />
+      <path d="M8 9h8M8 12h5" className="icon-stroke" />
     </svg>
   )
 }

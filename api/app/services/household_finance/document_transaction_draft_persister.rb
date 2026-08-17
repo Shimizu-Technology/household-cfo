@@ -101,6 +101,7 @@ module HouseholdFinance
       raw_splits = Array(draft_payload[:splits]).first(MAX_SPLITS)
       raw_splits = [ { amount: Money.dollars(total_amount_cents), category_name: draft_payload[:category_name], stack_key: draft_payload[:stack_key], notes: draft_payload[:evidence] } ] if raw_splits.empty?
 
+      multiple_splits = raw_splits.length > 1
       raw_splits.filter_map do |raw_split|
         split = raw_split.is_a?(Hash) ? raw_split.deep_symbolize_keys : {}
         amount_cents = Money.cents(split[:amount].to_s)
@@ -109,20 +110,28 @@ module HouseholdFinance
 
         category_name = sanitized_text(split[:category_name] || split[:label], max_length: 120)
         stack_key = normalized_stack_key(split[:stack_key])
-        category = category_suggester.call(
+        confidence = normalized_decimal(split[:confidence])
+        suggestion = category_suggester.suggest(
           merchant: merchant,
           category_name: category_name,
           stack_key: stack_key,
-          text: [ split[:notes], draft_payload[:evidence], draft_payload[:raw_description] ].compact.join(" ")
+          text: [ split[:notes], split[:line_label] ].compact.join(" "),
+          confidence: confidence,
+          merchant_fallback: !multiple_splits
         )
+        category = suggestion.category
         {
           amount_cents: amount_cents,
           budget_category: category,
           category_name: category_name.presence || category&.name,
           stack_key: stack_key || category&.stack_key,
           notes: sanitized_text(split[:notes] || draft_payload[:evidence], max_length: 500),
-          confidence: normalized_decimal(split[:confidence]),
-          metadata: split.slice(:line_label, :row_number, :sku, :source_label).compact
+          confidence: confidence,
+          metadata: split.slice(:line_label, :row_number, :sku, :source_label).compact.merge(
+            category_match_status: suggestion.match_status,
+            category_match_reason: suggestion.match_reason,
+            extracted_category_name: category_name.presence
+          ).compact
         }
       end
     end

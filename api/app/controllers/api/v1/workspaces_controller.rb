@@ -1,6 +1,8 @@
 module Api
   module V1
     class WorkspacesController < BaseController
+      class SetupAuditError < StandardError; end
+
       before_action :authenticate_user!
 
       def show
@@ -8,13 +10,32 @@ module Api
       end
 
       def setup
-        HouseholdFinance::SetupUpdater.new(current_household, setup_params).call
-        render_current_workspace
+        workspace_data = nil
+        current_household.transaction do
+          HouseholdFinance::SetupUpdater.new(current_household, setup_params).call
+          workspace_data = current_workspace_data
+          record_setup_save!(workspace_data.dig(:workspace, :setup_complete))
+        end
+        render json: workspace_data
+      rescue SetupAuditError
+        render json: { errors: [ "We couldn't save your setup right now. Please try again." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
       private
+
+      def record_setup_save!(setup_complete)
+        current_household.household_audit_events.create!(
+          user: current_user,
+          actor_type: "user",
+          event_type: "workspace.setup_saved",
+          metadata: { setup_complete: setup_complete },
+          occurred_at: Time.current
+        )
+      rescue ActiveRecord::RecordInvalid => e
+        raise SetupAuditError, e.message
+      end
 
       def setup_params
         params.require(:workspace).permit(

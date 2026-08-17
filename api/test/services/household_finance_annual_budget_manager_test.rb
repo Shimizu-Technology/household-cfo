@@ -25,6 +25,23 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     end
   end
 
+  test "annual outlook reconciles editable categories with required debt minimums" do
+    household = create_household
+    household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 720_000, cadence: "monthly")
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 310_000, cadence: "monthly")
+    household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 120_000, cadence: "monthly")
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 500_000, minimum_payment_cents: 17_500)
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data
+    january = plan.fetch(:annual_outlook).fetch(:months).first
+
+    assert_equal 175, plan.fetch(:monthly_debt_minimums)
+    assert_equal 4_300, january.fetch(:category_plan)
+    assert_equal 175, january.fetch(:debt_minimums)
+    assert_equal 4_475, january.fetch(:planned_outflow)
+    assert_equal 2_725, january.fetch(:baseline_surplus)
+  end
+
   test "plan data scopes pending transaction drafts to the viewed budget year" do
     household = create_household
     household.transaction_drafts.create!(
@@ -49,6 +66,39 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
 
     assert_equal [ "Current Cafe" ], current_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
     assert_equal [ "Prior Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
+  end
+
+  test "household reviews stay visible across budget years while plan-specific reviews stay scoped" do
+    household = create_household
+    user = household.created_by_user
+    household_review = household.mia_action_drafts.create!(
+      requested_by_user: user,
+      draft_type: "household_setup",
+      status: "pending",
+      year: 2026,
+      title: "Update emergency fund",
+      summary: "Review the approved household value."
+    )
+    household.mia_action_drafts.create!(
+      requested_by_user: user,
+      draft_type: "budget_edit",
+      status: "pending",
+      year: 2026,
+      title: "Update the 2026 plan",
+      summary: "Review the budget value."
+    )
+    household.mia_action_drafts.create!(
+      requested_by_user: user,
+      draft_type: "income_schedule",
+      status: "pending",
+      year: 2026,
+      title: "Update 2026 income",
+      summary: "Review the income schedule."
+    )
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2027).plan_data
+
+    assert_equal [ household_review.id ], plan.fetch(:pending_mia_action_drafts).map { |draft| draft.fetch(:id) }
   end
 
   test "plan data returns more than twenty pending statement drafts for paginated review" do

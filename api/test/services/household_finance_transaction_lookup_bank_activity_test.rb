@@ -44,14 +44,30 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     assert_includes answer, "2 posted Amazon transactions totaling $30"
   end
 
+  test "connected account summary reports the most recent posted outflow without treating the account as a merchant" do
+    plaid_transaction("older-outflow", 1_000, occurred_on: Date.new(2026, 8, 12), merchant: "Corner Store")
+    plaid_transaction("recent-outflow", 433, occurred_on: Date.new(2026, 8, 14), merchant: "Starbucks")
+
+    answer = HouseholdFinance::TransactionLookupAnswerer.new(
+      @household,
+      "What bank-observed activity do you see from my connected account? Summarize the most recent posted outflow, and do not change any numbers.",
+      today: Date.new(2026, 8, 16)
+    ).call
+
+    assert_includes answer, "synced bank activity shows 2 posted outflows totaling $14.33"
+    assert_includes answer, "Most recent posted outflow: Starbucks for $4.33 on Aug 14, 2026"
+    assert_includes answer, "still needs household review and is not included in confirmed budget actuals"
+    assert_not_includes answer, "my connected account transactions"
+  end
+
   private
 
-  def plaid_transaction(id, amount_cents, pending: false, occurred_on: Date.new(2026, 8, 14))
+  def plaid_transaction(id, amount_cents, pending: false, occurred_on: Date.new(2026, 8, 14), merchant: "Amazon")
     @item.plaid_transactions.create!(
       plaid_account: @account,
       plaid_transaction_id: id,
-      name: "Amazon",
-      merchant_name: "Amazon",
+      name: merchant,
+      merchant_name: merchant,
       occurred_on: occurred_on,
       amount_cents: amount_cents,
       pending: pending,

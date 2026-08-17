@@ -834,6 +834,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
   test "document transaction draft update and confirm creates split actuals with source lineage" do
     document_import = create_import!(status: "needs_review", document_kind: "receipt")
     dining = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
+    tips = @household.budget_categories.create!(name: "Tips", stack_key: "discretionary", sort_order: 2)
     draft = document_import.transaction_drafts.create!(
       household: @household,
       occurred_on: Date.new(2026, 7, 5),
@@ -851,7 +852,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
           amount: "18.00",
           splits: [
             { amount: "13.75", budget_category_id: dining.id, notes: "Meal" },
-            { amount: "4.25", category_name: "Tips", stack_key: "discretionary", notes: "Tip" }
+            { amount: "4.25", budget_category_id: tips.id, notes: "Tip" }
           ]
         }
       },
@@ -871,7 +872,6 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal document_import.id, transaction.source_import_id
     assert_equal "receipt", transaction.source_type
     assert_equal 1_800, transaction.total_amount_cents
-    tips = @household.budget_categories.find_by!(name: "Tips")
     assert_equal [ [ dining.id, 1_375 ], [ tips.id, 425 ] ], transaction.transaction_splits.order(:id).pluck(:budget_category_id, :amount_cents)
     assert_equal "confirmed", draft.reload.status
     assert_equal "applied", document_import.reload.status

@@ -20,6 +20,7 @@ class Household < ApplicationRecord
   has_many :household_audit_events, dependent: :destroy
   has_many :plaid_items, dependent: :destroy
   has_many :plaid_transactions, through: :plaid_items
+  has_many :pilot_feedback_reports, dependent: :destroy
 
   validates :name, presence: true, length: { maximum: 120 }
   validates :primary_goal, length: { maximum: 500 }, allow_blank: true

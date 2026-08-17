@@ -2,6 +2,35 @@ require "test_helper"
 require "tempfile"
 
 class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
+  test "receipt prompt requires line-specific category evidence and preserves uncertainty" do
+    user = User.create!(clerk_id: "clerk_extractor_category_prompt", email: "extractor-category-prompt@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Extractor Category Prompt Household")
+    household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "uploaded",
+      filename: "mixed-receipt.png",
+      content_type: "image/png",
+      byte_size: 4,
+      s3_key: "household-cfo/test/mixed-receipt.png"
+    )
+    file = Tempfile.new([ "mixed-receipt", ".png" ])
+    file.binmode
+    file.write("test")
+    file.flush
+
+    prompt = FinancialDocuments::Extractor.new(api_key: "test-key").send(:user_content, document_import, file.path).first.fetch(:text)
+
+    assert_equal "financial_document_extraction_v5", FinancialDocuments::Extractor::PROMPT_VERSION
+    assert_includes prompt, "Categorize each split from its own line items"
+    assert_includes prompt, "never apply the merchant's usual category to every split"
+    assert_includes prompt, "participant will choose the category during review"
+  ensure
+    file&.close!
+  end
+
   test "data URLs are base64 encoded in chunks without changing payload" do
     file = Tempfile.new("document-source")
     file.binmode

@@ -75,7 +75,10 @@ Privacy defaults in code:
 - Autocapture is off; only safe product events are tracked.
 - User identification sends app role/status only, not email/name/financial values.
 - Session replay is enabled whenever analytics is enabled and masks all inputs/text.
-- Query strings and source document URLs are redacted before replay/network capture.
+- Product page views omit query strings and fragments; replay/network capture redacts query strings and source document URLs.
+- Pilot feedback narrative and screenshots are sent only to the authenticated Rails feedback endpoint, never to PostHog.
+
+The allowed pilot events and coach-visibility boundary are defined in `docs/pilot-analytics-contract.md`. Before deploy, run `npm test` in `web`; its privacy regression check fails if forbidden financial/content properties return to the tracked funnel.
 
 ## Plaid production approval and launch
 
@@ -125,6 +128,8 @@ If production uploads fail with `Failed to fetch` or a generic browser network e
 
 ## Full production smoke test
 
+For the August pre-FinCon release, the acceptance boundary is the focused four-person validation: a participant can save money in, money out, and one goal; move directly into a useful Mia conversation; and report a blocker without putting private content in analytics. Uploads remain a release blocker until the Ask Mia and My Profile paths are each proven with a demo-safe spreadsheet and image on the custom domain and a real phone.
+
 For each deploy, record the date, deployed commit, tester, account/cohort, desktop browser, real phone/browser, and links to screenshots/log evidence. A checked item without that evidence is not considered production-proven.
 
 ```text
@@ -140,18 +145,55 @@ Evidence location:
 - Clerk sign-in/sign-out.
 - Invited participant lands in the real workspace.
 - Uninvited account is denied.
+- Incomplete participant sees **Give Mia a useful starting point**, opens the focused five-field kickoff from **Give Mia my starting numbers**, and can open the mobile tester guide.
+- Zero-value money fields are blank while editing, accept the first digit without a leading zero, and normalize a blank field to $0 on save.
+- Saving the kickoff opens Ask Mia with **Based on my income, spending, and goal, what should I focus on first this month?** ready to send.
+- Admin invite creation asks for email, role, and cohort—not a duplicate participant name—and Clerk supplies the display name after sign-in.
+- Five-essential setup saves successfully without requiring business, wealth, or debt details, then opens Ask Mia with an editable starter question.
+- Optional upload path remains available for budget, statement, receipt, pay-stub, and document checks without competing with the primary Mia path.
+- **Report a problem** accepts screen/workflow, attempted, expected, actual, and an optional cropped screenshot; the report response and analytics contain no narrative or private storage key.
+- Admin **Pilot feedback inbox** defaults to new reports, opens private detail only on selection, generates screenshot links that expire after five minutes, and records reviewed/resolved/reopened status changes in the household audit trail.
 - Home/Budget/Wealth/CFO Filter/Optionality render from saved data.
 - Home readiness color, safe-to-spend amount, coach read, and suggested Mia readiness prompt all describe the same approved status.
 - Home shows pending transaction/action review counts and the current month inside the annual plan.
+- Budget defaults to money in, money out, remaining, grouped Expense Stack, review work, and annual outlook; the dense annual table, income schedule, and activity ledger remain hidden until explicitly opened.
+- Saved debt minimums appear as an explicit addition beside the editable category plan, and monthly/annual total money out plus baseline left reconcile to that full amount.
+- **Ask Mia to update my plan** opens Ask Mia with the budget-change starter focused and editable.
+- **Manage manually** opens directly below the Budget heading, focuses **New category**, and separates category creation, month-by-month editing, and income scheduling into explicit tasks.
+- Unsaved month-by-month edits cannot be lost by reselecting or switching manual tools, changing the report period, or closing the manager; save and cancel are available beside the table, and closing returns focus to **Manage manually**.
 - My Profile manual setup saves and refreshes Mia context.
 - Excel budget template downloads.
 - Private document upload → review → edit → apply.
 - Applied corrections update saved household numbers.
 - Source preview/download/delete work only from explicit controls.
 - Ask Mia persists chat and uses approved context.
+- Ask Mia turns “Create a School Supplies category under Sinking Fund — Expected and plan $75 every month” into a pending review card; applying it creates the correct category and all 12 monthly allocations, while canceling leaves the plan unchanged.
 - Ask Mia resolves a multi-turn reference correctly: ask for the largest category, request “lower that to $3,000 for July,” ask what you were discussing, then say “yes, please do that”; the same category/month/amount must remain active and only a review card may be prepared.
 - Existing pending review cards are reused instead of duplicated, and model/provider failure asks for an exact restatement instead of guessing.
 - Ask Mia voice input records, transcribes, puts editable transcript in the composer, and does not auto-confirm actuals.
-- Ask Mia attachment flow creates a reviewable import.
+- Ask Mia attachment flow creates a reviewable import from a demo-safe spreadsheet and image on the custom domain.
+- My Profile upload flow creates a reviewable import from the same demo-safe file types; a failed read remains retryable and can be reported in-app.
+- A completed import labels the drafts actually produced—transactions, household setup values, or both—and does not claim the selected upload route succeeded when extraction produced a different review type.
 - Admin tab visible only to admins; participant cannot see it.
 - Admin can create cohort, invite participant, resend invite, revoke/remove access.
+- Admin participant rows show only invited, signed in, setup state, pending-review state, and last safe activity; inspect the network response and confirm there are no household names, financial values, documents, messages, transactions, readiness scores, or setup percentages.
+- Admin feedback list responses contain only workflow, status, screenshot-present state, reporter identity, and timestamps; confirm narrative and private storage keys appear only in the authorized detail/link requests and never in cohort progress or analytics.
+
+## Pilot workflow matrix
+
+Run the representative workflows below on desktop, a real phone, and the automated 390-pixel and 320-pixel projects. Use demo-safe fixtures in production.
+
+| Workflow | Required boundary/evidence |
+| --- | --- |
+| Invite, sign-in, access | Participant cannot access admin routes or another household; admin role does not expose participant financial content. |
+| Manual setup and annual plan | Five essentials save; Budget stays simple by default; focused category, month-by-month, and income tools open near the heading; annual months and allocations persist. |
+| Typed and voice capture | Both create pending review only; voice transcript is editable before send. |
+| Receipt/document upload | Failure is retryable; success leads to explicit review; source controls require explicit action. |
+| Statement matching | Multi-month assignment is correct; existing matches prevent duplicate confirmed actuals. |
+| Transaction review | Edit/confirm/ignore are explicit and affect only the selected household. |
+| Mia budget action | Review card preserves category/month/amount; apply/cancel is explicit; no action occurs from narration alone. |
+| Private source controls | Preview/download links expire and authorize the current household; remove/delete choices are distinguishable and recoverable where promised. |
+| Pilot feedback | Narrative and screenshot remain outside analytics and cohort progress; invalid/disguised images are rejected; only admins can read detail, obtain five-minute screenshot links, and auditably change review status. |
+| Cohort progress | Invited, signed-in, setup state, pending review, and safe last activity match known test-account state. |
+
+Record failures with the in-app feedback form using only demo-safe descriptions. A local automated pass is necessary but does not replace real iOS Safari and Android Chrome evidence.
