@@ -217,6 +217,13 @@ const pilotFeedbackDetail = {
   screenshot: { filename: 'ask-mia-error.png', content_type: 'image/png', byte_size: 18_432 },
 }
 
+const emptyPlaidSummary = {
+  all_count: 0, posted_outflow_count: 0, posted_outflow_cents: 0,
+  pending_count: 0, pending_cents: 0, inflow_count: 0, inflow_cents: 0,
+  needs_review_count: 0, needs_review_cents: 0, confirmed_count: 0,
+  confirmed_actual_count: 0, confirmed_cents: 0, excluded_count: 0,
+}
+
 function chatMessages(count = 125) {
   return Array.from({ length: count }, (_, index) => ({
     id: index + 1,
@@ -297,6 +304,18 @@ async function mockDemoApi(page: Page) {
   })
 }
 
+async function mockEmptyPlaidState(page: Page, configured: boolean) {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({
+    status: 200,
+    json: { configured, environment: configured ? 'sandbox' : null, consent_policy_version: '2026-08-17', items: [] },
+  }))
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => route.fulfill({
+    status: 200,
+    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary },
+  }))
+}
+
 test.beforeEach(async ({ page }) => {
   await mockDemoApi(page)
   await page.addInitScript((messages) => {
@@ -304,13 +323,90 @@ test.beforeEach(async ({ page }) => {
   }, chatMessages(100))
 })
 
+test('participant workflow remains usable when Plaid is not configured', async ({ page }) => {
+  await mockEmptyPlaidState(page, false)
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await expect(page.getByText('Plaid setup is not enabled on this server yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await expect(page.getByText('No bank activity yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Budget', exact: true })).toBeVisible()
+})
+
+test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
+  await mockEmptyPlaidState(page, true)
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await expect(page.getByText('No bank is connected yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toBeDisabled()
+  await expect(page.getByRole('checkbox', { name: /I authorize Household CFO Method/ })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await expect(page.getByText('No bank activity yet.')).toBeVisible()
+})
+
+test('account selection keeps activity cards and row totals in the same scope', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({
+    status: 200,
+    json: {
+      configured: true,
+      environment: 'sandbox',
+      consent_policy_version: '2026-08-17',
+      items: [{
+        id: 7,
+        institution_name: 'Sandbox Bank',
+        status: 'active',
+        environment: 'sandbox',
+        consented_at: '2026-08-17T00:00:00Z',
+        last_synced_at: '2026-08-17T01:00:00Z',
+        health: { state: 'healthy', label: 'Healthy', message: 'Bank activity is current.', requires_attention: false, last_successful_update_at: '2026-08-17T01:00:00Z', stale_after: '2026-08-18T01:00:00Z' },
+        error_message: null,
+        disconnected_at: null,
+        auto_confirm_trusted_merchants: false,
+        accounts: [
+          { id: 11, name: 'Checking', official_name: null, mask: '1234', type: 'depository', subtype: 'checking', current_balance_cents: 200_000, available_balance_cents: 190_000, currency: 'USD', active: true },
+          { id: 12, name: 'Savings', official_name: null, mask: '4321', type: 'depository', subtype: 'savings', current_balance_cents: 500_000, available_balance_cents: 500_000, currency: 'USD', active: true },
+        ],
+      }],
+    },
+  }))
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => {
+    const accountId = new URL(route.request().url()).searchParams.get('account_id')
+    const checkingOnly = accountId === '11'
+    return route.fulfill({
+      status: 200,
+      json: {
+        transactions: [],
+        pagination: { page: 1, per_page: 100, total: checkingOnly ? 1 : 2, has_more: false },
+        summary: {
+          ...emptyPlaidSummary,
+          all_count: checkingOnly ? 1 : 2,
+          posted_outflow_count: checkingOnly ? 1 : 2,
+          posted_outflow_cents: checkingOnly ? 4_200 : 14_100,
+          confirmed_count: checkingOnly ? 1 : 2,
+          confirmed_actual_count: checkingOnly ? 1 : 2,
+          confirmed_cents: checkingOnly ? 4_200 : 14_100,
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  const summary = page.getByLabel('Bank activity summary')
+  await expect(summary.getByText('$141.00')).toHaveCount(2)
+
+  await page.getByLabel('Account').selectOption('11')
+  await expect(summary.getByText('$42.00')).toHaveCount(2)
+  await expect(page.getByRole('heading', { name: '1 transaction' })).toBeVisible()
+})
+
 test('Plaid Link loads once and opens once after explicit consent', async ({ page }) => {
-  const emptySummary = {
-    all_count: 0, posted_outflow_count: 0, posted_outflow_cents: 0,
-    pending_count: 0, pending_cents: 0, inflow_count: 0, inflow_cents: 0,
-    needs_review_count: 0, needs_review_cents: 0, confirmed_count: 0,
-    confirmed_actual_count: 0, confirmed_cents: 0, excluded_count: 0,
-  }
 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({
@@ -319,7 +415,7 @@ test('Plaid Link loads once and opens once after explicit consent', async ({ pag
   }))
   await page.route('http://api.test/api/v1/plaid/transactions**', (route) => route.fulfill({
     status: 200,
-    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptySummary },
+    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary },
   }))
   await page.route('http://api.test/api/v1/plaid/items/link_token', (route) => route.fulfill({
     status: 200,

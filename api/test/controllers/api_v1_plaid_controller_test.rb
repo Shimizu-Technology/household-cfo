@@ -56,7 +56,9 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
   test "transaction listing filters by merchant search and household account" do
     matching = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "amazon-one", name: "AMAZON MARKETPLACE", merchant_name: "Amazon", occurred_on: Date.new(2026, 7, 10), amount_cents: 4_200, pending: false, source_fingerprint: SecureRandom.hex(32))
     other_account = @item.plaid_accounts.create!(plaid_account_id: "account-savings", name: "Savings", mask: "4321", account_type: "depository")
-    @item.plaid_transactions.create!(plaid_account: other_account, plaid_transaction_id: "amazon-two", name: "Amazon transfer", occurred_on: Date.new(2026, 7, 11), amount_cents: 9_900, pending: false, source_fingerprint: SecureRandom.hex(32))
+    other_transaction = @item.plaid_transactions.create!(plaid_account: other_account, plaid_transaction_id: "amazon-two", name: "Amazon transfer", occurred_on: Date.new(2026, 7, 11), amount_cents: 9_900, pending: false, source_fingerprint: SecureRandom.hex(32))
+    confirm_plaid_transaction(matching)
+    confirm_plaid_transaction(other_transaction)
 
     get "/api/v1/plaid/transactions", params: { query: "amazon", account_id: @account.id }, headers: auth_headers(@user)
 
@@ -64,6 +66,13 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     payload = JSON.parse(response.body)
     assert_equal [ matching.id ], payload.fetch("transactions").map { |row| row.fetch("id") }
     assert_equal 1, payload.dig("pagination", "total")
+    assert_equal 1, payload.dig("summary", "all_count")
+    assert_equal 1, payload.dig("summary", "posted_outflow_count")
+    assert_equal 4_200, payload.dig("summary", "posted_outflow_cents")
+    assert_equal 1, payload.dig("summary", "confirmed_count")
+    assert_equal 1, payload.dig("summary", "confirmed_actual_count")
+    assert_equal 4_200, payload.dig("summary", "confirmed_cents")
+    assert_equal 0, payload.dig("summary", "needs_review_count")
   end
 
   test "ignoring transactions is all-or-nothing for a mixed valid and invalid batch" do
@@ -140,6 +149,32 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
       consented_at: Time.current,
       consent_policy_version: "test"
     )
+  end
+
+  def confirm_plaid_transaction(plaid_transaction)
+    occurred_on = plaid_transaction.occurred_on
+    budget_year = @household.budget_years.find_or_create_by!(year: occurred_on.year) { |year| year.status = "active" }
+    period = budget_year.budget_periods.find_or_create_by!(starts_on: occurred_on.beginning_of_month) do |budget_period|
+      budget_period.ends_on = occurred_on.end_of_month
+      budget_period.status = "open"
+    end
+    actual = @household.household_transactions.create!(
+      budget_period: period,
+      occurred_on: occurred_on,
+      merchant: plaid_transaction.merchant_name.presence || plaid_transaction.name,
+      total_amount_cents: plaid_transaction.amount_cents,
+      source_type: "plaid",
+      status: "confirmed"
+    )
+    draft = @household.transaction_drafts.create!(
+      occurred_on: occurred_on,
+      merchant: actual.merchant,
+      total_amount_cents: actual.total_amount_cents,
+      source_type: "plaid",
+      status: "confirmed",
+      confirmed_transaction: actual
+    )
+    plaid_transaction.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: plaid_transaction.source_fingerprint)
   end
 
   def auth_headers(user)

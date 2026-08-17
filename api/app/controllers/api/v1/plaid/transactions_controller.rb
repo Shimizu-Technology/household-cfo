@@ -8,8 +8,8 @@ module Api
         before_action :authenticate_user!
 
         def index
-          scope = activity_scope
-          scope = scope.where(plaid_account_id: params[:account_id]) if params[:account_id].present?
+          account_id = params[:account_id].presence
+          scope = scope_for_account(activity_scope, account_id)
           scope = apply_search(scope, params[:query])
           scope = apply_activity_view(scope, params[:view].to_s.presence_in(ACTIVITY_VIEWS) || "all")
           limit = params.fetch(:limit, 50).to_i.clamp(1, MAX_PAGE_SIZE)
@@ -19,7 +19,7 @@ module Api
           render json: {
             transactions: transactions.map { |transaction| serialize_transaction(transaction) },
             pagination: { page: page, per_page: limit, total: total, has_more: page * limit < total },
-            summary: activity_summary
+            summary: activity_summary(account_id: account_id)
           }
         end
 
@@ -87,18 +87,25 @@ module Api
           scope.where("plaid_transactions.name ILIKE :pattern OR plaid_transactions.merchant_name ILIKE :pattern", pattern: pattern)
         end
 
-        def activity_summary
-          current = current_household.plaid_transactions.visible
+        def scope_for_account(scope, account_id)
+          return scope if account_id.blank?
+
+          scope.where(plaid_transactions: { plaid_account_id: account_id })
+        end
+
+        def activity_summary(account_id: nil)
+          current = scope_for_account(current_household.plaid_transactions.visible, account_id)
+          account_activity = scope_for_account(activity_scope, account_id)
           posted = current.where(pending: false).where("amount_cents > 0")
           pending = current.where(pending: true).where("amount_cents > 0")
           inflow = current.where("amount_cents < 0")
-          needs_review = apply_activity_view(activity_scope, "needs_review")
-          confirmed_sources = apply_activity_view(activity_scope, "confirmed")
-          excluded = apply_activity_view(activity_scope, "excluded")
-          confirmed_actuals = current_household.household_transactions.where(source_type: "plaid", status: %w[confirmed reconciled])
+          needs_review = apply_activity_view(account_activity, "needs_review")
+          confirmed_sources = apply_activity_view(account_activity, "confirmed")
+          excluded = apply_activity_view(account_activity, "excluded")
+          confirmed_actuals = confirmed_actuals_for(confirmed_sources, account_id: account_id)
 
           {
-            all_count: activity_scope.count,
+            all_count: account_activity.count,
             posted_outflow_count: posted.count,
             posted_outflow_cents: posted.sum(:amount_cents),
             pending_count: pending.count,
@@ -112,6 +119,16 @@ module Api
             confirmed_cents: confirmed_actuals.sum(:total_amount_cents),
             excluded_count: excluded.count
           }
+        end
+
+        def confirmed_actuals_for(confirmed_sources, account_id: nil)
+          actuals = current_household.household_transactions.where(source_type: "plaid", status: %w[confirmed reconciled])
+          return actuals if account_id.blank?
+
+          linked_drafts = TransactionDraft.where(id: confirmed_sources.select("plaid_transactions.transaction_draft_id"))
+          linked_by_confirmation = actuals.where(id: linked_drafts.select(:confirmed_transaction_id))
+          linked_by_match = actuals.where(id: linked_drafts.select(:matched_transaction_id))
+          linked_by_confirmation.or(linked_by_match)
         end
 
         def serialize_transaction(transaction)
