@@ -16,7 +16,7 @@ class PlaidStaleItemRecoveryJob < ApplicationJob
     cutoff = Time.current - STALE_AFTER
     initial_cutoff = Time.current - INITIAL_SYNC_GRACE_PERIOD
 
-    PlaidItem.where(status: "active").where(
+    PlaidItem.where(status: %w[active error]).where(
       "last_successful_update_at < :cutoff OR (last_successful_update_at IS NULL AND created_at < :initial_cutoff)",
       cutoff: cutoff,
       initial_cutoff: initial_cutoff

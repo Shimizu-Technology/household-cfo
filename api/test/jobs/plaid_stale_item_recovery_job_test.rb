@@ -8,16 +8,18 @@ class PlaidStaleItemRecoveryJobTest < ActiveJob::TestCase
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
   end
 
-  test "queues only stale active items" do
+  test "queues stale active and retryable error items" do
     stale = create_item("stale", status: "active", last_successful_update_at: 2.days.ago)
+    errored = create_item("errored", status: "error", last_successful_update_at: 2.days.ago)
     create_item("fresh", status: "active", last_successful_update_at: 1.hour.ago)
     create_item("repair", status: "update_required", last_successful_update_at: 2.days.ago)
     initializing = create_item("initializing", status: "active", last_successful_update_at: nil)
 
-    assert_enqueued_jobs 1, only: PlaidTransactionSyncJob do
+    assert_enqueued_jobs 2, only: PlaidTransactionSyncJob do
       PlaidStaleItemRecoveryJob.perform_now
     end
     assert_enqueued_with(job: PlaidTransactionSyncJob, args: [ stale.id ])
+    assert_enqueued_with(job: PlaidTransactionSyncJob, args: [ errored.id ])
   end
 
   private

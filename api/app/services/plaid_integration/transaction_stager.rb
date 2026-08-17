@@ -13,7 +13,7 @@ module PlaidIntegration
       raise Error, "Select at least one posted expense" if transaction_ids.empty?
 
       drafts = ApplicationRecord.transaction do
-        transactions = household.plaid_transactions.where(id: transaction_ids).includes(:plaid_account).lock.to_a
+        transactions = household.plaid_transactions.where(id: transaction_ids).lock.to_a
         raise Error, "One or more bank transactions were not found" unless transactions.length == transaction_ids.length
         raise Error, "Only unreviewed, posted expenses can be drafted" unless transactions.all?(&:stageable?)
 
