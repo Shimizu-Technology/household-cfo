@@ -4988,8 +4988,10 @@ h3 {
 }
 
 .mia-chat-shell .ask-row textarea {
+  height: 42px;
   min-height: 42px;
-  max-height: 118px;
+  max-height: 160px;
+  overflow-y: hidden;
   padding: 11px 4px;
   border: 0;
   outline: none;
@@ -4997,6 +4999,7 @@ h3 {
   background: transparent;
   color: var(--ink);
   line-height: 1.45;
+  overscroll-behavior: contain;
 }
 
 .mia-chat-shell .ask-row .composer-attach,
@@ -5240,8 +5243,12 @@ h3 {
   .mia-chat-shell .ask-row {
     grid-template-columns: 44px 44px minmax(0, 1fr) 44px;
     gap: 6px;
-    align-items: center;
+    align-items: end;
     padding: 10px;
+  }
+
+  .mia-chat-shell .ask-row textarea {
+    max-height: 140px;
   }
 
   .mia-chat-shell.is-expanded .ask-row {

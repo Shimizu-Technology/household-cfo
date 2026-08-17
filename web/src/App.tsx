@@ -1,5 +1,5 @@
 import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
-import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import { HomeScreen } from './components/HomeScreen'
 import { ParticipantTabs } from './components/ParticipantTabs'
@@ -366,6 +366,35 @@ function App() {
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
   selectedBudgetPeriodRef.current = { startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn }
+
+  const resizeMiaComposer = useCallback(() => {
+    const composer = composerRef.current
+    if (!composer) return
+
+    const styles = window.getComputedStyle(composer)
+    const parsedMinimumHeight = Number.parseFloat(styles.minHeight)
+    const parsedMaximumHeight = Number.parseFloat(styles.maxHeight)
+    const minimumHeight = Number.isFinite(parsedMinimumHeight) ? parsedMinimumHeight : 42
+    const maximumHeight = Number.isFinite(parsedMaximumHeight) ? parsedMaximumHeight : 160
+
+    composer.style.height = 'auto'
+    const contentHeight = composer.value ? composer.scrollHeight : minimumHeight
+    composer.style.height = `${Math.min(maximumHeight, Math.max(minimumHeight, contentHeight))}px`
+    composer.style.overflowY = contentHeight > maximumHeight + 1 ? 'auto' : 'hidden'
+  }, [])
+
+  useLayoutEffect(() => {
+    if (activeSection !== 'Ask Mia') return
+    resizeMiaComposer()
+  }, [activeSection, isChatExpanded, question, resizeMiaComposer])
+
+  useEffect(() => {
+    if (activeSection !== 'Ask Mia') return
+
+    window.addEventListener('resize', resizeMiaComposer)
+    return () => window.removeEventListener('resize', resizeMiaComposer)
+  }, [activeSection, resizeMiaComposer])
+
   useEffect(() => {
     pendingMiaAttachmentsRef.current = pendingMiaAttachments
   }, [pendingMiaAttachments])
@@ -955,7 +984,7 @@ function App() {
   }
 
   function handleAskMiaKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (event.key !== 'Enter' || event.shiftKey) return
+    if (event.key !== 'Enter' || event.shiftKey || event.nativeEvent.isComposing) return
 
     event.preventDefault()
     void handleAskMia()
@@ -2090,11 +2119,13 @@ function App() {
                   onKeyDown={handleAskMiaKeyDown}
                   onPaste={handleMiaPaste}
                   aria-label="Ask Mia"
-                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Tell Mia what changed, ask a question, or attach evidence...'}
+                  aria-describedby="mia-composer-instructions"
+                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Message Mia…'}
                   rows={1}
                   maxLength={MIA_MESSAGE_MAX_LENGTH}
                   ref={composerRef}
                 />
+                <span id="mia-composer-instructions" className="sr-only">Press Enter to send. Press Shift and Enter for a new line. Mia will not change approved numbers without a review.</span>
                 <button
                   className="send-button"
                   type="submit"

@@ -457,6 +457,86 @@ test('chat-first Mia reviews household, income, and budget writes without bypass
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 })
 
+test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its controls', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  const sendButton = page.getByRole('button', { name: 'Send message to Mia' })
+  const attachmentButton = page.getByRole('button', { name: 'Attach receipt, screenshot, statement, or budget file' })
+  const voiceButton = page.getByRole('button', { name: 'Record voice note for Mia' })
+  const initialHeight = await composer.evaluate((element) => element.getBoundingClientRect().height)
+
+  await composer.fill('Change my budget,\nthen show me the effect.')
+  const wrappedMetrics = await composer.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return {
+      height: element.getBoundingClientRect().height,
+      maxHeight: Number.parseFloat(styles.maxHeight),
+      overflowY: styles.overflowY,
+    }
+  })
+  expect(wrappedMetrics.height).toBeGreaterThan(initialHeight)
+  expect(wrappedMetrics.height).toBeLessThanOrEqual(wrappedMetrics.maxHeight)
+  expect(wrappedMetrics.overflowY).toBe('hidden')
+
+  const composerLayout = await page.locator('.mia-chat-shell .ask-row').evaluate((row) => {
+    const rectFor = (selector: string) => {
+      const element = row.querySelector(selector)
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing composer element: ${selector}`)
+      const rect = element.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width }
+    }
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      attach: rectFor('.composer-attach'),
+      voice: rectFor('.composer-voice'),
+      textarea: rectFor('textarea'),
+      send: rectFor('.send-button'),
+    }
+  })
+  for (const element of [composerLayout.attach, composerLayout.voice, composerLayout.textarea, composerLayout.send]) {
+    expect(element.left).toBeGreaterThanOrEqual(0)
+    expect(element.right).toBeLessThanOrEqual(composerLayout.viewportWidth + 1)
+  }
+  expect(composerLayout.attach.right).toBeLessThanOrEqual(composerLayout.voice.left)
+  expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.textarea.left)
+  expect(composerLayout.textarea.right).toBeLessThanOrEqual(composerLayout.send.left)
+  expect(Math.abs(composerLayout.attach.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(composerLayout.voice.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(composerLayout.send.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+
+  await composer.fill(Array.from({ length: 30 }, (_, index) => `Line ${index + 1}: review this planned change before applying it.`).join('\n'))
+  const cappedMetrics = await composer.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      maxHeight: Number.parseFloat(styles.maxHeight),
+      overflowY: styles.overflowY,
+    }
+  })
+  expect(cappedMetrics.clientHeight).toBeLessThanOrEqual(cappedMetrics.maxHeight)
+  expect(cappedMetrics.scrollHeight).toBeGreaterThan(cappedMetrics.clientHeight)
+  expect(cappedMetrics.overflowY).toBe('auto')
+  await expect(sendButton).toBeVisible()
+  await expect(attachmentButton).toBeVisible()
+  await expect(voiceButton).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+  await composer.fill('First line')
+  await composer.press('Shift+Enter')
+  await composer.type('Second line')
+  await expect(composer).toHaveValue('First line\nSecond line')
+
+  await composer.fill('')
+  const clearedMetrics = await composer.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    overflowY: getComputedStyle(element).overflowY,
+  }))
+  expect(clearedMetrics.height).toBeLessThanOrEqual(initialHeight + 1)
+  expect(clearedMetrics.overflowY).toBe('hidden')
+})
+
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
