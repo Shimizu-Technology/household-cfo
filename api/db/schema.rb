@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_07_17_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_17_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -457,7 +457,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_17_000000) do
     t.index ["household_id"], name: "index_mia_action_drafts_on_household_id"
     t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
     t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
-    t.check_constraint "draft_type::text = 'budget_edit'::text", name: "mia_action_drafts_type_valid"
+    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying]::text[])", name: "mia_action_drafts_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'canceled'::character varying]::text[])", name: "mia_action_drafts_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "mia_action_drafts_year_reasonable"
   end
@@ -479,7 +479,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_07_17_000000) do
     t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
-    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying]::text[])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying]::text[])", name: "mia_action_items_action_type_valid"
   end
 
   create_table "pilot_feedback_reports", force: :cascade do |t|

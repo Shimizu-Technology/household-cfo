@@ -190,7 +190,7 @@ module Api
       end
 
       def action_draft_persistence_failure_message
-        "I understood the budget edit, but I could not prepare the review card. Nothing changed in the official budget. Please try again or edit the annual budget directly."
+        "I understood the requested change, but I could not prepare the review card. Nothing changed in your approved household numbers. Please try again or use the manual controls."
       end
 
       def serialize_chat_message(message, author: nil)
@@ -435,7 +435,7 @@ module Api
 
         unless direct_answer || pending_draft_answer
           case intent_result.intent
-          when "budget_action"
+          when "budget_action", "household_action", "income_action"
             if intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(
                 current_household,

@@ -374,7 +374,14 @@ export type SpendingReport = {
 
 export type MiaActionItem = {
   id: number
-  action_type: 'create_category' | 'update_category' | 'update_allocation' | 'archive_category' | 'restore_category'
+  action_type:
+    | 'create_category'
+    | 'update_category'
+    | 'update_allocation'
+    | 'archive_category'
+    | 'restore_category'
+    | 'update_setup_value'
+    | 'upsert_income_schedule_entry'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -387,7 +394,7 @@ export type MiaActionItem = {
 export type MiaActionDraft = {
   id: number
   status: 'pending' | 'applied' | 'canceled'
-  draft_type: 'budget_edit'
+  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule'
   year: number
   title: string
   summary: string
@@ -396,6 +403,15 @@ export type MiaActionDraft = {
   created_at: string | null
   applied_at: string | null
   canceled_at: string | null
+  impact?: {
+    scope?: string
+    before_monthly_income?: number
+    after_monthly_income?: number
+    before_monthly_outflow?: number
+    after_monthly_outflow?: number
+    before_baseline_surplus?: number
+    after_baseline_surplus?: number
+  } | null
   items: MiaActionItem[]
 }
 

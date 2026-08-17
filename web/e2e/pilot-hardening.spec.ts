@@ -120,7 +120,48 @@ const miaBudgetDraft = {
   title: 'Move more into the unexpected sinking fund',
   summary: 'Mia drafted a planned-budget change for review.', rationale: 'Keep actual spending unchanged.', source_prompt: null,
   created_at: '2026-07-17T00:00:00Z', applied_at: null, canceled_at: null,
+  impact: {
+    scope: `${currentShortMonth} ${currentYear}`, before_monthly_income: 14_200, after_monthly_income: 14_200,
+    before_monthly_outflow: 5_500, after_monthly_outflow: 5_650,
+    before_baseline_surplus: 8_700, after_baseline_surplus: 8_550,
+  },
   items: [{ id: 711, action_type: 'update_allocation', target_record_type: 'BudgetCategory', target_record_id: 4, label: 'Unexpected sinking fund', description: 'Increase the monthly plan after review.', payload: { changes: [{ month: 8 }] }, before_snapshot: {}, after_snapshot: {} }],
+}
+
+const miaHouseholdDraft = {
+  id: 72, status: 'pending', draft_type: 'household_setup', year: currentYear,
+  title: 'Update an approved household number', summary: 'Mia prepared one household change for your review.',
+  rationale: 'These values shape Mia’s coaching and stay unchanged until approved.', source_prompt: 'My emergency fund is now $8,500.',
+  created_at: '2026-08-17T00:00:00Z', applied_at: null, canceled_at: null,
+  impact: {
+    scope: 'Current monthly snapshot', before_monthly_income: 14_200, after_monthly_income: 14_200,
+    before_monthly_outflow: 5_500, after_monthly_outflow: 5_500,
+    before_baseline_surplus: 8_700, after_baseline_surplus: 8_700,
+  },
+  items: [{
+    id: 721, action_type: 'update_setup_value', target_record_type: 'Household', target_record_id: 77,
+    label: 'Emergency fund', description: '$5,000.00 → $8,500.00', payload: { key: 'emergency_fund', value: 8_500 },
+    before_snapshot: { key: 'emergency_fund', value: 5_000, display: '$5,000.00' },
+    after_snapshot: { key: 'emergency_fund', value: 8_500, display: '$8,500.00' },
+  }],
+}
+
+const miaIncomeDraft = {
+  id: 73, status: 'pending', draft_type: 'income_schedule', year: currentYear,
+  title: 'Schedule an income change', summary: `Mia prepared setting Primary income to $15,500 per month beginning October ${currentYear}.`,
+  rationale: 'The income timeline changes only after approval.', source_prompt: null,
+  created_at: '2026-08-17T00:00:00Z', applied_at: null, canceled_at: null,
+  impact: {
+    scope: `October ${currentYear}`, before_monthly_income: 15_000, after_monthly_income: 15_500,
+    before_monthly_outflow: 5_500, after_monthly_outflow: 5_500,
+    before_baseline_surplus: 9_500, after_baseline_surplus: 10_000,
+  },
+  items: [{
+    id: 731, action_type: 'upsert_income_schedule_entry', target_record_type: 'IncomeSource', target_record_id: 1,
+    label: 'Set Primary income to $15,500.00 per month', description: `Beginning October ${currentYear}: $15,000.00 → $15,500.00 per month.`,
+    payload: { income_source_id: 1, entry_type: 'recurring_change', amount_cents: 1_550_000, effective_on: `${currentYear}-10-01` },
+    before_snapshot: { effective_monthly_cents: 1_500_000 }, after_snapshot: { effective_monthly_cents: 1_550_000 },
+  }],
 }
 
 function realWorkspaceData(setupComplete = false) {
@@ -371,6 +412,131 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(page.locator('.chat-history-load')).toHaveCount(0)
 })
 
+test('chat-first Mia reviews household, income, and budget writes without bypassing approval', async ({ page }) => {
+  const baseWorkspace = realWorkspaceData(true)
+  const workspace = {
+    ...baseWorkspace,
+    budget: {
+      ...baseWorkspace.budget,
+      annual_plan: {
+        ...baseWorkspace.budget.annual_plan,
+        pending_mia_action_drafts: [miaHouseholdDraft, miaIncomeDraft, miaBudgetDraft],
+      },
+    },
+  }
+  await page.route('http://api.test/api/v1/workspace', async (route) => route.fulfill({ status: 200, json: workspace }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
+  await expect(page.getByText('Nothing changes until you tap Apply.')).toBeVisible()
+
+  const example = page.getByRole('button', { name: 'My take-home pay is now $6,200 a month.' })
+  await example.click()
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(composer).toHaveValue('My take-home pay is now $6,200 a month.')
+  await expect(composer).toBeFocused()
+
+  const householdCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Update an approved household number' })
+  const incomeCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Schedule an income change' })
+  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await expect(householdCard).toContainText('Household numbers')
+  await expect(householdCard).toContainText('$5,000.00 → $8,500.00')
+  await expect(incomeCard).toContainText('Income timeline')
+  await expect(incomeCard).toContainText(`October ${currentYear}`)
+  await expect(budgetCard).toContainText('Budget plan')
+  await expect(budgetCard).toContainText('leave actual spending untouched')
+
+  for (const card of [householdCard, incomeCard, budgetCard]) {
+    await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
+    await expect(card.getByRole('button', { name: 'Cancel draft' })).toBeEnabled()
+    await expect(card.getByRole('button', { name: 'Open manual controls' })).toBeEnabled()
+  }
+
+  await householdCard.getByRole('button', { name: 'Open manual controls' }).click()
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
+})
+
+test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its controls', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  const sendButton = page.getByRole('button', { name: 'Send message to Mia' })
+  const attachmentButton = page.getByRole('button', { name: 'Attach receipt, screenshot, statement, or budget file' })
+  const voiceButton = page.getByRole('button', { name: 'Record voice note for Mia' })
+  const initialHeight = await composer.evaluate((element) => element.getBoundingClientRect().height)
+
+  await composer.fill('Change my budget,\nthen show me the effect.')
+  const wrappedMetrics = await composer.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return {
+      height: element.getBoundingClientRect().height,
+      maxHeight: Number.parseFloat(styles.maxHeight),
+      overflowY: styles.overflowY,
+    }
+  })
+  expect(wrappedMetrics.height).toBeGreaterThan(initialHeight)
+  expect(wrappedMetrics.height).toBeLessThanOrEqual(wrappedMetrics.maxHeight)
+  expect(wrappedMetrics.overflowY).toBe('hidden')
+
+  const composerLayout = await page.locator('.mia-chat-shell .ask-row').evaluate((row) => {
+    const rectFor = (selector: string) => {
+      const element = row.querySelector(selector)
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing composer element: ${selector}`)
+      const rect = element.getBoundingClientRect()
+      return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width }
+    }
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      attach: rectFor('.composer-attach'),
+      voice: rectFor('.composer-voice'),
+      textarea: rectFor('textarea'),
+      send: rectFor('.send-button'),
+    }
+  })
+  for (const element of [composerLayout.attach, composerLayout.voice, composerLayout.textarea, composerLayout.send]) {
+    expect(element.left).toBeGreaterThanOrEqual(0)
+    expect(element.right).toBeLessThanOrEqual(composerLayout.viewportWidth + 1)
+  }
+  expect(composerLayout.attach.right).toBeLessThanOrEqual(composerLayout.voice.left)
+  expect(composerLayout.voice.right).toBeLessThanOrEqual(composerLayout.textarea.left)
+  expect(composerLayout.textarea.right).toBeLessThanOrEqual(composerLayout.send.left)
+  expect(Math.abs(composerLayout.attach.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(composerLayout.voice.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+  expect(Math.abs(composerLayout.send.bottom - composerLayout.textarea.bottom)).toBeLessThanOrEqual(1)
+
+  await composer.fill(Array.from({ length: 30 }, (_, index) => `Line ${index + 1}: review this planned change before applying it.`).join('\n'))
+  const cappedMetrics = await composer.evaluate((element) => {
+    const styles = getComputedStyle(element)
+    return {
+      clientHeight: element.clientHeight,
+      scrollHeight: element.scrollHeight,
+      maxHeight: Number.parseFloat(styles.maxHeight),
+      overflowY: styles.overflowY,
+    }
+  })
+  expect(cappedMetrics.clientHeight).toBeLessThanOrEqual(cappedMetrics.maxHeight)
+  expect(cappedMetrics.scrollHeight).toBeGreaterThan(cappedMetrics.clientHeight)
+  expect(cappedMetrics.overflowY).toBe('auto')
+  await expect(sendButton).toBeVisible()
+  await expect(attachmentButton).toBeVisible()
+  await expect(voiceButton).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+
+  await composer.fill('First line')
+  await composer.press('Shift+Enter')
+  await composer.type('Second line')
+  await expect(composer).toHaveValue('First line\nSecond line')
+
+  await composer.fill('')
+  const clearedMetrics = await composer.evaluate((element) => ({
+    height: element.getBoundingClientRect().height,
+    overflowY: getComputedStyle(element).overflowY,
+  }))
+  expect(clearedMetrics.height).toBeLessThanOrEqual(initialHeight + 1)
+  expect(clearedMetrics.overflowY).toBe('hidden')
+})
+
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
@@ -493,6 +659,11 @@ test('compact phone layouts keep the status card legible and expose horizontal n
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
   await expect(page.getByText('More prompts →')).toBeVisible()
+  const chatBox = await page.locator('.mia-chat-shell').boundingBox()
+  const contextBox = await page.locator('.mia-context').boundingBox()
+  expect(chatBox).not.toBeNull()
+  expect(contextBox).not.toBeNull()
+  expect(chatBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(contextBox?.y ?? 0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -512,7 +683,7 @@ test('incomplete participants get a short first session, private feedback, and a
 
   await page.getByRole('button', { name: 'Read the 3-minute guide' }).click()
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()
-  await expect(page.getByText('Pending drafts change nothing by themselves.')).toBeVisible()
+  await expect(page.getByText(/pending drafts change nothing until you explicitly apply them/i)).toBeVisible()
   await expect(page.getByRole('dialog').getByRole('button', { name: 'Close' })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).not.toBeVisible()
@@ -560,7 +731,7 @@ test('incomplete participants get a short first session, private feedback, and a
     business_income: 0,
   })
   await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
-  await expect(page.getByRole('heading', { name: 'Ask Mia for the CFO read.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   const miaComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
   await expect(miaComposer).toBeFocused()
@@ -754,7 +925,7 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await confirmRequest
 
   const miaCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
-  await expect(miaCard.getByRole('button', { name: 'Apply budget edit' })).toBeEnabled()
+  await expect(miaCard.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
   await expect(miaCard.getByRole('button', { name: 'Cancel draft' })).toBeEnabled()
   await expect(miaCard).toContainText('leave actual spending untouched')
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')

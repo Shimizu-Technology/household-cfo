@@ -12,6 +12,7 @@ const budgetVisuals = readFileSync(resolve(__dirname, '../src/components/BudgetV
 const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPosition.ts'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
+const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 
 const expectedNav = "['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
@@ -23,6 +24,9 @@ assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to 
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
 assert.ok(app.includes("compactShell ? 'Household CFO' : 'Household CFO Method'"), 'Home should lead with the full product name while task screens use the compact name')
 assert.ok(app.includes('chat-prompts-cue') && app.includes('More prompts →'), 'Mia prompts should disclose horizontal choices')
+assert.ok(app.includes('resizeMiaComposer'), 'Mia composer should grow and shrink with typed or programmatically inserted text')
+assert.ok(css.includes('max-height: 160px') && css.includes('overflow-y: hidden'), 'Mia composer should cap before switching to internal scrolling')
+assert.ok(html.includes('<meta name="mobile-web-app-capable" content="yes" />'), 'installable mobile app markup should use the current capability flag')
 assert.ok(css.includes('.shell-header.is-compact'), 'non-Home tasks should use a compact application shell')
 assert.ok(app.includes('Run your home like the C-Suite'), 'hero copy should use Mrs. Mel’s transformation language')
 for (const rejectedCopy of [

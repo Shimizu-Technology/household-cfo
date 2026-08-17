@@ -47,9 +47,14 @@ Ignoring every extracted transaction does not make that document an approved sou
 
 ## Typed and voice Mia
 
-- Type a question or transaction in **Ask Mia**. Mia may prepare a draft, but does not silently change approved numbers.
+- Open **Ask Mia** and confirm the conversation is the primary, left-hand experience on a computer and the first experience on a phone. The approved-context card remains available after it.
+- Choose one example under **Fastest way to update your plan**. It should fill the message box without sending so you can correct the wording first.
+- Type a message long enough to wrap across several lines. The message box should grow with the text, keep the attachment, voice, and send controls anchored along its bottom edge, then stop growing and scroll internally after roughly five to six lines. Deleting the text should shrink it back to one line. **Shift + Enter** adds a line break on a computer; **Enter** sends.
+- Type a question, transaction, or household change in **Ask Mia**. Mia may prepare a draft, but does not silently change approved numbers.
 - For voice, allow microphone access, speak, stop the recording, and review the editable transcript before sending it.
-- For a proposed budget change, review the category, Expense Stack group, month scope, and amount on the action card. Choose **Apply** only when it is correct; otherwise restate the request or choose **Cancel**.
+- For a proposed change, review its type, every item, and the monthly **Before → After** impact. Choose **Apply reviewed change** only when it is correct; choose **Cancel draft** to discard it, or **Open manual controls** to use the matching My Profile or Budget interface.
+- After Mia prepares a household-number change, manually edit that same value before applying the card. Applying the now-stale card must fail safely and preserve the newer manual value.
+- Ask Mia to update a category, set a current household value such as emergency savings or credit-card debt, and schedule a recurring or one-time income change. Each request must stop at a review card before writing.
 
 ## If something fails
 
@@ -70,7 +75,13 @@ Try these on both a computer and your phone when practical:
 - Save the five setup essentials and confirm the advanced profile and upload areas stay out of the kickoff.
 - Send the prefilled “Based on my income, spending, and goal…” question.
 - On a phone, confirm **More prompts →** makes it clear that Mia's suggested questions can be swiped horizontally.
+- On a phone, confirm the three update examples swipe horizontally, each target is easy to tap, and selecting one only fills the composer.
+- On a phone, type and delete a multi-line message. Confirm the composer grows and shrinks without pushing its icon controls off-screen or introducing horizontal page scrolling.
 - Ask Mia to create School Supplies under Sinking Fund — Expected for $75 every month; apply the review card, then verify all 12 months in Budget.
+- Ask Mia: **My emergency fund is now $8,500 and my credit card balance is $3,100.** Confirm both proposed values and the cash-flow impact appear on one review card; apply it and verify My Profile and Wealth.
+- Ask Mia to change an existing income source beginning a named future month, then test a one-time payment in a different month. Confirm the review card names the source, month, and amount and that Budget's income timeline changes only after approval.
+- Ask Mia to set a future recurring income source to **$0** and confirm the review describes an ending—not a deletion of historical income.
+- Create a review card, change the same saved value manually, and then apply the old card. Confirm the app rejects it as stale and keeps the newer value.
 - Confirm Budget defaults to the simple overview; test the Mia CTA and each focused **Manage manually** task without scrolling to discover its controls.
 - Confirm the monthly and annual money-out totals visibly reconcile category plans and debt minimums.
 - Create one typed or voice transaction draft and confirm or ignore it.

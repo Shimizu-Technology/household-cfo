@@ -1,6 +1,6 @@
 # Household CFO current state
 
-Updated: 2026-08-14
+Updated: 2026-08-17
 
 This is the canonical implementation-status document for Household CFO Method. Product briefs and older PR roadmaps remain useful historical context, but this file is the source of truth for what is built, merged, locally proven, production-proven, and still conceptual.
 
@@ -44,7 +44,8 @@ This section supersedes the older cohort-size and setup/upload-first assumptions
 - Private source preview, expiring download links, source deletion, and import deletion controls.
 - Backend voice transcription with an editable transcript before send.
 - Rails-approved Mia answer packets, model narration, and deterministic fallback.
-- Supervised Mia action drafts for allocation and category changes with review-before-apply.
+- Supervised Mia action drafts for allocation/category changes, approved household numbers and goals, and effective-dated recurring or one-time income with review-before-apply.
+- A chat-primary Ask Mia surface with editable example updates, before/after impact cards, stale-review rejection, and a direct escape hatch to the matching manual controls.
 - Token-bounded conversation continuity and model-backed strict intent resolution.
 - Effective-dated recurring income changes, zero-dollar income endings, and month-specific one-time income.
 - Annual-plan look-ahead for monthly income, planned outflow, baseline surplus, upcoming spending spikes, and expected irregular-expense drivers.
@@ -97,6 +98,8 @@ Invitation and sign-in
 → test a demo-safe upload only when useful
 ```
 
+After setup, Ask Mia is the fastest supported update path: participants can describe approved household-number changes, budget-plan changes, and future income changes conversationally. Mia never writes from the message alone. It prepares a typed review card, shows the before/after monthly impact, revalidates the underlying records at apply time, and preserves My Profile and Budget as complete manual alternatives.
+
 The optional file path accepts budgets, statements, receipts, screenshots, and pay stubs through the same review-before-apply boundary. Completed imports describe the reviewable results actually produced—transactions, household setup values, or both—even when those differ from the upload slot the participant selected. A successful automated test is not enough: uploads from Ask Mia and My Profile remain unproven until exercised on the custom domain and real phones. See `docs/pilot-tester-guide.md` for participant instructions and `docs/pilot-analytics-contract.md` for the event and coach-visibility privacy contract.
 
 Pilot feedback is stored in the participant's authenticated household scope. Its narrative and optional screenshot are never copied into PostHog or shown in the cohort progress screen. Admins review it in a separate private inbox; list responses omit narrative and storage keys, while screenshot access requires a short-lived signed link. Participants are warned not to include financial values, account information, document contents, passwords, or private Mia messages.
@@ -108,7 +111,7 @@ Do not mark these complete from unit tests or local browser checks alone:
 - Phone receipt screenshot → extraction → review → confirm → actuals on the custom domain.
 - Multi-month statement → correct periods → match/dedupe → month close on the custom domain.
 - Real phone voice → editable transcript → pending draft only.
-- Multi-turn Mia budget change → review card → apply/cancel in production.
+- Multi-turn Mia household, income, or budget change → review card → apply/cancel in production.
 - Private preview/download/delete authorization in production.
 - Participant/admin isolation using representative production accounts.
 - Real iOS Safari and Android Chrome behavior.
@@ -140,8 +143,8 @@ These require product approval rather than engineering inference:
 
 ## Next sequence
 
-1. Deploy the bounded PR #48 pilot-readiness release and complete the signed-in production smoke checklist with representative participant and admin accounts.
+1. Production-prove chat-primary supervised household, income, and budget changes on desktop and real phones, including stale-review rejection and manual-control escape paths.
 2. Give the dialogue-first tester guide to the focused four-person group and observe whether each person can reach a useful Mia exchange without being taught the tabs.
-3. Reproduce and resolve the reported Ask Mia and My Profile upload failures; record real phone/browser evidence for supported spreadsheet and image paths.
-4. Record production evidence for voice, statement matching, private document controls, supervised Mia changes, participant/admin isolation, and in-app feedback follow-up.
-5. Use those findings to define the separate FinCon coach demonstration and coach-platform foundation. Keep Plaid integration in its own PR and sequence after this pilot-readiness work.
+3. Continue real-device evidence for Ask Mia and My Profile uploads with supported spreadsheets and images.
+4. Record production evidence for voice, statement matching, private document controls, participant/admin isolation, and in-app feedback follow-up.
+5. Use those findings to define the separate FinCon coach demonstration and coach-platform foundation. Keep coach persona and configurable participant modules as the next distinct product track.

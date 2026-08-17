@@ -134,7 +134,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           <p className="eyebrow">One next move</p>
           <h3>{dashboard.coach_read.title}</h3>
           <p>{dashboard.coach_read.body}</p>
-          <button type="button" onClick={onAskMia}>Ask Mia for my next move</button>
+          <button type="button" onClick={onAskMia}>Tell Mia what changed</button>
         </article>
         <div className="card-list">
           {dashboard.alerts.map((alert) => (
