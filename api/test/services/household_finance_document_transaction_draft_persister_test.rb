@@ -68,6 +68,34 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     assert_equal 0, TransactionDraftSplit.joins(:transaction_draft).where(transaction_drafts: { financial_document_import_id: @document_import.id }).count
   end
 
+  test "keeps mixed receipt lines unresolved instead of applying the merchant category to every split" do
+    groceries = @household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 2)
+    payload = {
+      occurred_on: "2026-07-05",
+      merchant: "Tita's Demo Market",
+      total_amount: "70.25",
+      source_type: "receipt",
+      confidence: "medium",
+      evidence: "Four receipt groups",
+      splits: [
+        { amount: "42.15", category_name: "Food", notes: "Food items", confidence: "medium" },
+        { amount: "13.50", category_name: "Household supplies", notes: "Cleaning products", confidence: "medium" },
+        { amount: "11.25", category_name: "Cigarettes", notes: "Tobacco line", confidence: "medium" },
+        { amount: "3.35", category_name: "Tax", notes: "Sales tax", confidence: "medium" }
+      ]
+    }
+
+    result = HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, [ payload ]).call
+
+    assert_equal 1, result.fetch(:created_count)
+    assert_empty result.fetch(:warnings)
+    splits = @document_import.transaction_drafts.find_by!(merchant: "Tita's Demo Market").transaction_draft_splits.ordered
+    assert_equal [ groceries.id, nil, nil, nil ], splits.pluck(:budget_category_id)
+    assert_equal %w[matched needs_review needs_review needs_review], splits.map { |split| split.metadata.fetch("category_match_status") }
+    assert_equal "Household supplies", splits.second.metadata.fetch("extracted_category_name")
+    assert_equal "no_strong_match", splits.second.metadata.fetch("category_match_reason")
+  end
+
   private
 
   def with_failing_matcher

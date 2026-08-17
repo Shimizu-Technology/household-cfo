@@ -96,6 +96,7 @@ import type {
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
+  TransactionDraftSplit,
   TransactionDraftUpdateInput,
   UserRole,
   WealthData,
@@ -5670,6 +5671,8 @@ function TransactionDraftReviewStack({
   const filteredPendingDrafts = filteredDrafts.filter((draft) => draft.status === 'pending')
   const visiblePendingDrafts = visibleDrafts.filter((draft) => draft.status === 'pending')
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
+  const selectedDraftsNeedingCategory = selectedDrafts.filter(transactionDraftNeedsCategory)
+  const filteredDraftsNeedingCategory = filteredPendingDrafts.filter(transactionDraftNeedsCategory)
   const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
   const anyActionBusy = Boolean(action)
   const bulkBusy = action?.startsWith('bulk-') ?? false
@@ -5743,7 +5746,7 @@ function TransactionDraftReviewStack({
             <span>Select this page</span>
           </label>
           <span>{selectedDrafts.length} selected</span>
-          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
@@ -5757,12 +5760,17 @@ function TransactionDraftReviewStack({
               Clear selection
             </button>
           )}
-          <button type="button" disabled={anyActionBusy} onClick={() => onBulkConfirm(filteredPendingDrafts)}>
+          <button type="button" disabled={anyActionBusy || filteredDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(filteredPendingDrafts)}>
             Confirm all {filteredPendingDrafts.length}
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
             Ignore all {filteredPendingDrafts.length}
           </button>
+          {filteredDraftsNeedingCategory.length > 0 && (
+            <p className="transaction-draft-bulk-warning" role="status">
+              {filteredDraftsNeedingCategory.length} review{filteredDraftsNeedingCategory.length === 1 ? '' : 's'} need categorizing before bulk confirmation.
+            </p>
+          )}
         </div>
       )}
 
@@ -5813,6 +5821,8 @@ type EditableDraftSplit = {
   category_name: string
   stack_key: BudgetStackKey | ''
   notes: string
+  confidence: number | string | null
+  metadata: Record<string, unknown>
 }
 
 function TransactionDraftReviewCard({
@@ -5850,6 +5860,7 @@ function TransactionDraftReviewCard({
   const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
   const [editError, setEditError] = useState<string | null>(null)
+  const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
   const isPending = draft.status === 'pending'
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
@@ -5860,6 +5871,13 @@ function TransactionDraftReviewCard({
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const splitsNeedingCategory = (draft.splits ?? []).filter((split) => !split.budget_category_id)
+  const needsCategoryReview = splitsNeedingCategory.length > 0
+  const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
+  const categoryWarningCopy = draft.financial_document_import_id
+    ? 'Mia kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.'
+    : 'Mia could not confidently match this purchase. Choose where it belongs before it changes your actuals.'
+  const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id)
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
   const impactDraft = editing ? {
     ...draft,
@@ -5878,6 +5896,7 @@ function TransactionDraftReviewCard({
       amount_cents: Math.round(Number(split.amount || 0) * 100),
       notes: split.notes || null,
       confidence: draft.splits?.find((candidate) => candidate.id === split.id)?.confidence ?? null,
+      metadata: split.metadata,
     })),
   } satisfies TransactionDraft : draft
   const budgetImpacts = plan ? transactionDraftBudgetImpacts(plan, impactDraft) : []
@@ -5907,7 +5926,7 @@ function TransactionDraftReviewCard({
   function addSplit() {
     setSplits((current) => ([
       ...current,
-      { amount: '', budget_category_id: '', category_name: '', stack_key: '', notes: '' },
+      { amount: '', budget_category_id: '', category_name: '', stack_key: '', notes: '', confidence: null, metadata: {} },
     ]))
   }
 
@@ -5937,6 +5956,8 @@ function TransactionDraftReviewCard({
           category_name: split.category_name || null,
           stack_key: split.stack_key || null,
           notes: split.notes || null,
+          confidence: split.confidence,
+          metadata: split.metadata,
         })),
       })
       setEditing(false)
@@ -5958,13 +5979,33 @@ function TransactionDraftReviewCard({
           <strong>{draft.merchant}</strong>
           <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
         </div>
-        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {draft.category_name ?? 'Needs category'}</p>
+        <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (draft.category_name ?? 'Needs category')}</p>
         {(draft.splits ?? []).length > 0 && (
           <div className="transaction-draft-splits">
             {(draft.splits ?? []).map((split) => (
-              <span key={split.id}>{split.category_name ?? 'Needs category'} {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</span>
+              <article className={!split.budget_category_id ? 'needs-category' : ''} key={split.id}>
+                <strong>{split.budget_category_id ? split.category_name : 'Needs category'} · {currency.format(exactMoneyNumber(split.amount, split.amount_cents))}</strong>
+                {(split.notes || (!split.budget_category_id && extractedCategoryLabel(split))) && (
+                  <span>{[
+                    !split.budget_category_id && extractedCategoryLabel(split) ? `Mia read “${extractedCategoryLabel(split)}”` : null,
+                    split.notes,
+                  ].filter(Boolean).join(' · ')}</span>
+                )}
+              </article>
             ))}
           </div>
+        )}
+        {isPending && needsCategoryReview && (
+          <section className="transaction-draft-category-warning" id={categoryWarningId} role="status">
+            <div>
+              <strong>{splitsNeedingCategory.length} split{splitsNeedingCategory.length === 1 ? '' : 's'} need{splitsNeedingCategory.length === 1 ? 's' : ''} a category</strong>
+              <p>{categoryWarningCopy}</p>
+            </div>
+            {!editing && onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled} onClick={() => {
+              beginEditing()
+              window.requestAnimationFrame(() => window.requestAnimationFrame(() => firstMissingCategoryRef.current?.focus()))
+            }}>Review categories</button>}
+          </section>
         )}
         {plan && budgetImpacts.length > 0 && (
           <TransactionDraftBudgetImpactPanel occurredOn={impactDraft.occurred_on} impacts={budgetImpacts} editing={editing} />
@@ -6015,7 +6056,7 @@ function TransactionDraftReviewCard({
                       category_name: category?.name ?? split.category_name,
                       stack_key: category?.stack_key ?? split.stack_key,
                     })
-                  }}>
+                  }} ref={index === firstMissingSplitIndex ? firstMissingCategoryRef : undefined}>
                     <option value="">Needs category</option>
                     {activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
                   </select>
@@ -6041,7 +6082,7 @@ function TransactionDraftReviewCard({
       {isPending ? (
         <div className="transaction-draft-actions">
           {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
-          <button type="button" disabled={actionsDisabled || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
+          <button type="button" aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `ignore-draft:${draft.id}`} onClick={() => onIgnore(draft)}>
@@ -6162,7 +6203,7 @@ function exactMoneyNumber(value: number, cents?: number | null) {
 function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
   const splits = draft.splits && draft.splits.length > 0
     ? draft.splits
-    : [{ id: undefined, amount: draft.amount, amount_cents: draft.amount_cents ?? null, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null }]
+    : [{ id: undefined, amount: draft.amount, amount_cents: draft.amount_cents ?? null, budget_category_id: draft.category_id, category_name: draft.category_name, stack_key: null, notes: null, confidence: null, metadata: {} }]
 
   return splits.map((split) => ({
     id: split.id,
@@ -6171,7 +6212,20 @@ function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
     category_name: split.category_name ?? '',
     stack_key: split.stack_key ?? '',
     notes: split.notes ?? '',
+    confidence: split.confidence ?? null,
+    metadata: split.metadata ?? {},
   }))
+}
+
+function transactionDraftNeedsCategory(draft: TransactionDraft) {
+  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some((split) => !split.budget_category_id)
+  return !draft.category_id
+}
+
+function extractedCategoryLabel(split: TransactionDraftSplit) {
+  const extracted = split.metadata?.extracted_category_name
+  if (typeof extracted === 'string' && extracted.trim()) return extracted.trim()
+  return split.category_name?.trim() || null
 }
 
 function CurrentMonthActivityPanel({

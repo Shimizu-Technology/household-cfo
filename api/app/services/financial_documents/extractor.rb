@@ -10,7 +10,7 @@ require "uri"
 module FinancialDocuments
   class Extractor
     OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
-    PROMPT_VERSION = "financial_document_extraction_v4"
+    PROMPT_VERSION = "financial_document_extraction_v5"
     SCHEMA_VERSION = "financial_document_json_object_v2"
     DEFAULT_MODEL = "google/gemini-2.5-flash"
     MAX_ITEMS = 60
@@ -284,8 +284,8 @@ module FinancialDocuments
         Use transaction_drafts for receipt/photo/statement/screenshot transaction rows that should become actuals only after the participant confirms them.
         Each item must include: target_type, label, amount, balance, payment, cadence, source_type, stack_key, account_type, debt_type, confidence, evidence, metadata.
         Each transaction_draft must include occurred_on, merchant, total_amount, and splits. It may include source_type, category_name, stack_key, confidence, evidence, raw_description, external_id, and warnings when known; omit unknown optional fields to keep large statements compact.
-        Each transaction split must include amount. It may include category_name, stack_key, notes, and confidence when known.
-        For receipts/photos, create one transaction_draft and split it when line items clearly belong in different categories, for example groceries plus cigarettes.
+        Each transaction split must include amount. It may include category_name, stack_key, notes, and confidence when known. Use an active budget category name exactly only when the line-item evidence supports it. Otherwise preserve a concise extracted label or null category_name and use low confidence; the participant will choose the category during review.
+        For receipts/photos, create one transaction_draft and split it when line items clearly belong in different categories, for example groceries plus cigarettes. Categorize each split from its own line items; never apply the merchant's usual category to every split merely because the merchant is a grocery store or market.
         For statements or transaction screenshots, create one transaction_draft per visible debit, withdrawal, or subtraction row, including purchases, fees, checks, outgoing person-to-person payments, debt payments, and outgoing transfers. Do not omit a debit merely because its category or transfer purpose is unclear; add a warning so the participant can ignore or classify it. Exclude deposits and credits. Do not mistake a running balance, statement total, or summary amount for a transaction.
         For bank statements, use the posted date in the transaction table's Date column as occurred_on. Keep a different authorization date in raw_description or evidence instead of replacing the posted date.
         If transaction rows omit the year, infer it from the statement date, statement period, or page header and apply statement-boundary year rollover consistently. Ignore copyright years, footer years, browser chrome, reference numbers, and unrelated dates. Never guess an older year solely because the row shows only month and day; use participant upload context and the server reference date only to resolve a genuinely recent-statement reference such as "past month."

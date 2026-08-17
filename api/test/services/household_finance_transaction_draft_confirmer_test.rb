@@ -1,6 +1,45 @@
 require "test_helper"
 
 class HouseholdFinanceTransactionDraftConfirmerTest < ActiveSupport::TestCase
+  test "document receipt confirmation requires an explicit category for every split" do
+    user = create_user
+    household = create_household(user)
+    groceries = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "mixed-receipt.png",
+      content_type: "image/png",
+      byte_size: 100,
+      s3_key: "household-cfo/test/mixed-receipt.png"
+    )
+    draft = document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 5),
+      merchant: "Tita's Demo Market",
+      total_amount_cents: 1_125,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "Tobacco line"
+    )
+    split = draft.transaction_draft_splits.create!(amount_cents: 1_125, category_name: "Cigarettes", stack_key: "discretionary")
+
+    result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
+
+    refute result.success?
+    assert_includes result.errors, "Choose a category for every receipt or document split before confirming."
+    assert_equal "pending", draft.reload.status
+    assert_equal 0, household.household_transactions.count
+
+    split.update!(budget_category: groceries)
+    confirmed = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
+
+    assert confirmed.success?, confirmed.errors.to_sentence
+    assert_equal groceries.id, confirmed.transaction.transaction_splits.first.budget_category_id
+  end
+
   test "confirmation reuses category created by a concurrent draft confirmation" do
     user = create_user
     household = create_household(user)

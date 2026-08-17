@@ -131,6 +131,9 @@ module HouseholdFinance
       splits = if draft.transaction_draft_splits.exists?
         draft.transaction_draft_splits.ordered.map do |split|
           category = split.budget_category
+          if draft.financial_document_import_id.present? && category.nil?
+            raise InvalidDraftCorrection, "Choose a category for every receipt or document split before confirming."
+          end
           category ||= category_from_split_name(split)
           category ||= fallback_category
           raise InvalidDraftCorrection, archived_category_message unless category.active?

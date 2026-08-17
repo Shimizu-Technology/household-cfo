@@ -117,7 +117,7 @@ export function transactionDraftBudgetImpacts(
     if (categoryId === null) {
       return {
         categoryId,
-        categoryName: allocation.categoryName || 'Needs category',
+        categoryName: 'Needs category',
         draftAmount: allocation.amount,
         planned: null,
         actual: null,
@@ -166,7 +166,7 @@ function draftAmountsByCategory(draft: TransactionDraft) {
       const current = amounts.get(categoryId)
       amounts.set(categoryId, {
         amount: (current?.amount ?? 0) + split.amount,
-        categoryName: split.category_name ?? current?.categoryName ?? null,
+        categoryName: categoryId === null ? null : (split.category_name ?? current?.categoryName ?? null),
       })
     })
     return amounts

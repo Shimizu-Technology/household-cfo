@@ -40,8 +40,9 @@ Uploads are not required to have a useful first Mia conversation. They are an im
 3. Wait for its review screen. Extracted profile values begin unselected: review, correct, and explicitly check only the values you want before applying them.
 4. Read **Review result**. It must name what Mia actually produced—transaction reviews, household setup values, or both—even if that differs from the upload type you selected. The page should explain that nothing changed until you approve it.
 5. Add files one at a time while learning the review flow. A statement or receipt can create transaction drafts; review possible matches so a purchase is not counted twice.
-6. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls. Removing a source file and deleting an import are separate actions.
-7. If either upload entry point fails or says it could not read the file, stop and submit **Report a problem** with the file type and workflow—but no document contents or financial values.
+6. If a receipt split says **Needs category**, Mia preserved the line instead of guessing. Tap **Review categories**, choose an existing category for every unresolved split, and save. **Confirm** stays unavailable until every split has a category; ignoring the draft still leaves actuals unchanged.
+7. Use the explicit **Preview**, **Download**, **Remove source**, and **Delete import** controls. Removing a source file and deleting an import are separate actions.
+8. If either upload entry point fails or says it could not read the file, stop and submit **Report a problem** with the file type and workflow—but no document contents or financial values.
 
 Ignoring every extracted transaction does not make that document an approved source. Until at least one value is applied or one transaction is confirmed, My Profile should say **Not approved yet** and **Review pending**, and Mia should continue to say that no approved document source exists.
 
