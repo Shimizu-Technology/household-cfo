@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePlaidLink, type PlaidLinkOnExit, type PlaidLinkOnSuccess } from 'react-plaid-link'
 import {
   createPlaidLinkToken,
@@ -24,10 +24,13 @@ import {
   readPlaidOAuthSession,
   savePlaidOAuthSession,
 } from '../lib/plaidOAuthSession'
+import { plaidSyncOutcome } from '../lib/plaidSyncWatch'
 import './PlaidConnections.css'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const PLAID_LINK_SCRIPT_URL = 'https://cdn.plaid.com/link/v2/stable/link-initialize.js'
+const PLAID_SYNC_POLL_INTERVAL_MS = 2_500
+const PLAID_SYNC_MAX_ATTEMPTS = 24
 
 let plaidLinkScriptPromise: Promise<void> | null = null
 
@@ -81,6 +84,13 @@ type Props = {
   onDraftsCreated: () => Promise<void> | void
   variant?: 'connections' | 'activity'
   refreshKey?: string
+  reviewYear?: number
+  onOpenBudget?: () => void
+}
+
+type PlaidSyncWatch = {
+  itemId: number
+  baselineLastSyncedAt: string | null
 }
 
 const activityViews: Array<{ id: PlaidActivityView; label: string; count: (summary: PlaidActivitySummary) => number }> = [
@@ -102,7 +112,8 @@ const trustLabels: Record<PlaidTransaction['trust_state'], string> = {
   source_changed: 'Source changed',
 }
 
-export function PlaidConnections({ userId, onDraftsCreated, variant = 'connections', refreshKey = '' }: Props) {
+export function PlaidConnections({ userId, onDraftsCreated, variant = 'connections', refreshKey = '', reviewYear = new Date().getFullYear(), onOpenBudget }: Props) {
+  const onDraftsCreatedRef = useRef(onDraftsCreated)
   const [oauthSession] = useState(() => readPlaidOAuthSession(userId))
   const oauthReturn = isPlaidOAuthReturn(window.location.href)
   const missingOAuthSession = oauthReturn && !oauthSession
@@ -126,6 +137,13 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   const [busy, setBusy] = useState<string | null>(missingOAuthSession ? null : 'loading')
   const [error, setError] = useState<string | null>(missingOAuthSession ? 'This bank sign-in return could not be resumed. Start the connection again from My Profile.' : null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [syncWatch, setSyncWatch] = useState<PlaidSyncWatch | null>(null)
+  const syncWatchItemId = syncWatch?.itemId ?? null
+  const syncWatchBaselineLastSyncedAt = syncWatch?.baselineLastSyncedAt ?? null
+
+  useEffect(() => {
+    onDraftsCreatedRef.current = onDraftsCreated
+  }, [onDraftsCreated])
 
   useEffect(() => {
     let cancelled = false
@@ -161,7 +179,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
   const refresh = useCallback(async () => {
     const [nextOverview, nextTransactionsPage] = await Promise.all([
       fetchPlaidOverview(),
-      fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId }),
+      fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear }),
     ])
     const nextTransactions = nextTransactionsPage.transactions
     setOverview(nextOverview)
@@ -171,7 +189,87 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     setActivityTotal(nextTransactionsPage.pagination.total)
     setActivitySummary(nextTransactionsPage.summary)
     setSelected((current) => current.filter((id) => nextTransactions.some((transaction) => transaction.id === id && transaction.stageable)))
-  }, [activityAccountId, activityQuery, activityView])
+  }, [activityAccountId, activityQuery, activityView, reviewYear])
+
+  useEffect(() => {
+    if (syncWatchItemId == null) return
+
+    let cancelled = false
+    let inFlight = false
+    let attempts = 0
+    let timeoutId: number | null = null
+
+    const stop = () => {
+      if (timeoutId != null) window.clearTimeout(timeoutId)
+      timeoutId = null
+    }
+    const schedule = () => {
+      stop()
+      timeoutId = window.setTimeout(() => void poll(), PLAID_SYNC_POLL_INTERVAL_MS)
+    }
+    const poll = async () => {
+      if (cancelled || inFlight) return
+      if (document.visibilityState !== 'visible') return
+
+      inFlight = true
+      try {
+        const nextOverview = await fetchPlaidOverview()
+        if (cancelled) return
+
+        setOverview(nextOverview)
+        const item = nextOverview.items.find((candidate) => candidate.id === syncWatchItemId)
+        const outcome = plaidSyncOutcome(item, syncWatchBaselineLastSyncedAt)
+
+        if (outcome === 'complete') {
+          await Promise.all([refresh(), onDraftsCreatedRef.current()])
+          if (cancelled) return
+          setSyncWatch(null)
+          setNotice('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')
+          return
+        }
+
+        if (outcome === 'failed' || outcome === 'missing') {
+          setSyncWatch(null)
+          setError(item?.error_message || 'The bank connection could not finish syncing. Review the connection status and try again.')
+          return
+        }
+
+        attempts += 1
+        if (attempts >= PLAID_SYNC_MAX_ATTEMPTS) {
+          await Promise.all([refresh(), onDraftsCreatedRef.current()])
+          if (cancelled) return
+          setSyncWatch(null)
+          setNotice('The bank accepted the sync request, but the final update is taking longer than expected. You can keep using Household CFO and retry Sync now if the feed does not update.')
+          return
+        }
+
+        schedule()
+      } catch (reason) {
+        if (cancelled) return
+        attempts += 1
+        if (attempts >= PLAID_SYNC_MAX_ATTEMPTS) {
+          setSyncWatch(null)
+          setError(reason instanceof Error ? reason.message : 'Could not verify that the bank sync finished.')
+          return
+        }
+        schedule()
+      } finally {
+        inFlight = false
+      }
+    }
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') void poll()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+    void poll()
+
+    return () => {
+      cancelled = true
+      stop()
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [refresh, syncWatchBaselineLastSyncedAt, syncWatchItemId])
 
   useEffect(() => {
     let cancelled = false
@@ -179,7 +277,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       try {
         const [nextOverview, nextTransactionsPage] = await Promise.all([
           fetchPlaidOverview(),
-          fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId }),
+          fetchPlaidTransactions(1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear }),
         ])
         if (cancelled) return
         setOverview(nextOverview)
@@ -196,25 +294,29 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     }
     void load()
     return () => { cancelled = true }
-  }, [activityAccountId, activityQuery, activityView, refresh, refreshKey])
+  }, [activityAccountId, activityQuery, activityView, refresh, refreshKey, reviewYear])
 
   const onSuccess = useCallback<PlaidLinkOnSuccess>(async (publicToken, metadata) => {
     setBusy('link')
     setError(null)
     try {
       if (updateItemId) {
-        await syncPlaidItem(updateItemId)
+        const nextOverview = await syncPlaidItem(updateItemId)
+        const item = nextOverview.items.find((candidate) => candidate.id === updateItemId)
+        setOverview(nextOverview)
+        setSyncWatch({ itemId: updateItemId, baselineLastSyncedAt: item?.last_synced_at ?? null })
         setNotice('Bank sign-in updated. Transaction sync is running.')
       } else {
-        await exchangePlaidPublicToken({
+        const result = await exchangePlaidPublicToken({
           public_token: publicToken,
           institution_id: metadata.institution?.institution_id,
           institution_name: metadata.institution?.name,
         })
-        setNotice('Bank connected. Posted expenses will enter household review automatically; official actuals will not change until approval.')
+        setOverview(result.plaid)
+        setSyncWatch({ itemId: result.item.id, baselineLastSyncedAt: result.item.last_synced_at })
+        setNotice('Bank connected. Preparing transaction history now; official actuals will not change until you approve them.')
       }
       await refresh()
-      if (updateItemId) window.setTimeout(() => void refresh(), 2_500)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Could not finish the bank connection.')
     } finally {
@@ -276,21 +378,10 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     setError(null)
     try {
       if (action === 'sync') {
-        await syncPlaidItem(item.id)
+        const nextOverview = await syncPlaidItem(item.id)
+        setOverview(nextOverview)
+        setSyncWatch({ itemId: item.id, baselineLastSyncedAt: item.last_synced_at })
         setNotice('Sync is running. Posted expenses will move into household review as the bank feed finishes updating.')
-        const previousSync = item.last_synced_at
-        for (let attempt = 0; attempt < 6; attempt += 1) {
-          await new Promise((resolve) => window.setTimeout(resolve, 2_500))
-          const nextOverview = await fetchPlaidOverview()
-          const syncedItem = nextOverview.items.find((candidate) => candidate.id === item.id)
-          if (syncedItem?.last_synced_at && syncedItem.last_synced_at !== previousSync) {
-            await Promise.all([refresh(), onDraftsCreated()])
-            setNotice('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')
-            return
-          }
-        }
-        await Promise.all([refresh(), onDraftsCreated()])
-        setNotice('The bank accepted the sync request, but its final update is still processing. This view will refresh when you return.')
       } else {
         await disconnectPlaidItem(item.id)
         setNotice('Bank disconnected and Plaid source data removed.')
@@ -343,7 +434,7 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
     setBusy('older')
     setError(null)
     try {
-      const next = await fetchPlaidTransactions(transactionPage + 1, activityView, { query: activityQuery, accountId: activityAccountId })
+      const next = await fetchPlaidTransactions(transactionPage + 1, activityView, { query: activityQuery, accountId: activityAccountId, reviewYear })
       setTransactions((current) => [...current, ...next.transactions])
       setTransactionPage(next.pagination.page)
       setHasMoreTransactions(next.pagination.has_more)
@@ -404,11 +495,11 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
                   <div>
                     <strong>{item.institution_name}</strong>
                     <span className={`plaid-status is-${item.status}`}>{item.status.replace('_', ' ')}</span>
-                    <p>{item.last_synced_at ? `Last synced ${new Date(item.last_synced_at).toLocaleString()}` : 'Initial history is still being prepared.'}</p>
+                    <p>{syncWatch?.itemId === item.id ? 'Preparing transaction history now. You can keep using Household CFO while this finishes.' : item.last_synced_at ? `Last synced ${new Date(item.last_synced_at).toLocaleString()}` : 'Initial history is still being prepared.'}</p>
                   </div>
                   <div className="plaid-item-actions">
                     {item.status === 'update_required' && <button type="button" onClick={() => void repair(item)} disabled={Boolean(busy)}>Reconnect</button>}
-                    <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || item.status === 'disconnecting'}>Sync now</button>
+                    <button type="button" onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || syncWatch?.itemId === item.id || item.status === 'disconnecting'}>{syncWatch?.itemId === item.id ? 'Syncing…' : 'Sync now'}</button>
                     <button type="button" className="danger-button" onClick={() => void runItemAction(item, 'disconnect')} disabled={Boolean(busy)}>{item.status === 'disconnecting' ? 'Finish disconnect' : 'Disconnect'}</button>
                   </div>
                   <div className={`plaid-health-strip is-${item.health.state}`} role={item.health.requires_attention ? 'alert' : 'status'}>
@@ -454,17 +545,23 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       ) : (
         <>
           {activitySummary && (
-            <div className="plaid-activity-summary" aria-label="Bank activity summary">
-              <article className="is-observed"><span>Bank-observed spending</span><strong>{money.format(activitySummary.posted_outflow_cents / 100)}</strong><small>{activitySummary.posted_outflow_count} posted outflows</small></article>
-              <article className="is-confirmed"><span>Confirmed actuals</span><strong>{money.format(activitySummary.confirmed_cents / 100)}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
-              <article className="is-review"><span>Needs review</span><strong>{money.format(activitySummary.needs_review_cents / 100)}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
-              <article><span>Bank pending</span><strong>{money.format(activitySummary.pending_cents / 100)}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
-            </div>
+            <>
+              <div className="plaid-activity-summary" aria-label="Bank activity summary">
+                <article className="is-observed"><span>Bank-observed spending</span><strong>{money.format(activitySummary.posted_outflow_cents / 100)}</strong><small>{activitySummary.posted_outflow_count} posted outflows</small></article>
+                <article className="is-confirmed"><span>Confirmed actuals</span><strong>{money.format(activitySummary.confirmed_cents / 100)}</strong><small>{activitySummary.confirmed_actual_count} approved ledger transactions</small></article>
+                <article className="is-review"><span>Needs review · all history</span><strong>{money.format(activitySummary.needs_review_cents / 100)}</strong><small>{activitySummary.needs_review_count} decisions waiting</small></article>
+                <article><span>Bank pending</span><strong>{money.format(activitySummary.pending_cents / 100)}</strong><small>{activitySummary.pending_count} not posted yet</small></article>
+              </div>
+              <div className="plaid-review-scope" role="status">
+                <span><strong>{activitySummary.review_year_needs_review_count ?? activitySummary.needs_review_count} in the {activitySummary.review_year ?? reviewYear} budget-year queue.</strong>{(activitySummary.other_years_needs_review_count ?? 0) > 0 ? ` ${activitySummary.other_years_needs_review_count} older decision${activitySummary.other_years_needs_review_count === 1 ? '' : 's'} remain available in their budget years.` : ' All waiting decisions are in this budget year.'}</span>
+                {onOpenBudget && <button type="button" onClick={onOpenBudget}>Review by budget year</button>}
+              </div>
+            </>
           )}
 
           <div className="plaid-source-strip">
-            <div>{activeItems.map((item) => <span key={item.id}><strong>{item.institution_name}</strong>{item.last_synced_at ? ` · Synced ${new Date(item.last_synced_at).toLocaleString()}` : ' · Preparing history'} · {item.health.label}</span>)}</div>
-            {activeItems.map((item) => <button type="button" className="secondary-button" key={item.id} onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy)}>Sync now</button>)}
+            <div>{activeItems.map((item) => <span key={item.id}><strong>{item.institution_name}</strong>{syncWatch?.itemId === item.id ? ' · Syncing now' : item.last_synced_at ? ` · Synced ${new Date(item.last_synced_at).toLocaleString()}` : ' · Preparing history'} · {item.health.label}</span>)}</div>
+            {activeItems.map((item) => <button type="button" className="secondary-button" key={item.id} onClick={() => void runItemAction(item, 'sync')} disabled={Boolean(busy) || syncWatch?.itemId === item.id}>{syncWatch?.itemId === item.id ? 'Syncing…' : `Sync ${item.institution_name}`}</button>)}
           </div>
 
           <nav className="plaid-activity-tabs" aria-label="Transaction activity filters">

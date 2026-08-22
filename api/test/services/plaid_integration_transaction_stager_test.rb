@@ -52,6 +52,37 @@ class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
     refute income.stageable?
   end
 
+  test "keeps transfer-like activity uncategorized instead of forcing the only category" do
+    transaction = plaid_transaction(
+      amount_cents: 100_000,
+      name: "CD DEPOSIT .INITIAL.",
+      primary_category: "TRANSFER_OUT",
+      detailed_category: "TRANSFER_OUT_ACCOUNT_TRANSFER"
+    )
+
+    result = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ transaction.id ]).call
+
+    draft = result.drafts.first
+    assert_nil draft.budget_category
+    assert_nil draft.transaction_draft_splits.first.budget_category
+    assert_equal "needs_review", draft.draft_payload.fetch("category_match_status")
+    assert_equal "no_strong_match", draft.draft_payload.fetch("category_match_reason")
+  end
+
+  test "uses Plaid fast-food taxonomy when a matching household category exists" do
+    dining = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Dining out", stack_key: "discretionary", monthly_amount: 250)
+    transaction = plaid_transaction(
+      amount_cents: 1_200,
+      name: "KFC",
+      primary_category: "FOOD_AND_DRINK",
+      detailed_category: "FOOD_AND_DRINK_FAST_FOOD"
+    )
+
+    result = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ transaction.id ]).call
+
+    assert_equal dining, result.drafts.first.budget_category
+  end
+
   test "cannot stage another household's bank transaction" do
     transaction = plaid_transaction(amount_cents: 1_000, name: "Other household")
     other_user = User.create!(clerk_id: "other_#{SecureRandom.hex(6)}", email: "other-plaid@example.com", role: "participant", invitation_status: "accepted")
@@ -65,7 +96,7 @@ class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
 
   private
 
-  def plaid_transaction(amount_cents:, name:, pending: false)
+  def plaid_transaction(amount_cents:, name:, pending: false, primary_category: nil, detailed_category: nil)
     @item.plaid_transactions.create!(
       plaid_account: @account,
       plaid_transaction_id: "transaction-#{SecureRandom.hex(5)}",
@@ -73,6 +104,8 @@ class PlaidIntegrationTransactionStagerTest < ActiveSupport::TestCase
       occurred_on: Date.new(2026, 7, 10),
       amount_cents: amount_cents,
       pending: pending,
+      primary_category: primary_category,
+      detailed_category: detailed_category,
       source_fingerprint: SecureRandom.hex(32)
     )
   end

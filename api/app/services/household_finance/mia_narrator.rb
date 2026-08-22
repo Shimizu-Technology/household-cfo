@@ -199,6 +199,9 @@ module HouseholdFinance
       return :missing_pending_review_boundary if missing_pending_review_boundary?(content)
       return :missing_readiness_direct_answer if missing_readiness_direct_answer?(content)
       return :missing_readiness_basis if missing_readiness_basis?(content)
+      return :missing_top_merchant_breakdown if missing_top_merchant_breakdown?(content)
+      return :contradicts_positive_surplus if contradicts_positive_surplus?(content)
+      return :missing_positive_surplus_basis if missing_positive_surplus_basis?(content)
 
       nil
     end
@@ -282,6 +285,35 @@ module HouseholdFinance
 
       approved_tokens = fallback_response.scan(/\$[\d,]+(?:\.\d{1,2})?|\b\d+(?:\.\d+)?\s+months?\b/i).uniq
       approved_tokens.any? && approved_tokens.none? { |token| content.downcase.include?(token.downcase) }
+    end
+
+    def missing_top_merchant_breakdown?(content)
+      line = fallback_response.split(/\n\s*\n/).find { |part| part.start_with?("Top merchants by posted outflow:") }
+      return false unless line
+
+      merchant_names = line
+        .delete_prefix("Top merchants by posted outflow:")
+        .delete_suffix(".")
+        .split(";")
+        .filter_map { |entry| entry.split(" — ", 2).first.to_s.squish.presence }
+      merchant_names.any? { |merchant| !content.downcase.include?(merchant.downcase) }
+    end
+
+    def contradicts_positive_surplus?(content)
+      return false unless positive_surplus_focus_answer?
+
+      content.match?(/\b(?:create|build|produce|find|establish)\s+(?:a\s+)?surplus\b|\b(?:monthly\s+)?(?:cash flow|baseline)\s+(?:is\s+)?(?:short|negative|in deficit)\b/i)
+    end
+
+    def missing_positive_surplus_basis?(content)
+      match = fallback_response.match(/baseline surplus is already positive by (\$[\d,]+(?:\.\d{1,2})?)/i)
+      return false unless match
+
+      !content.include?(match[1]) || !content.match?(/\b(?:surplus|cash flow)\b.{0,80}\b(?:already|existing|positive|protect|keep)\b|\b(?:already|existing|positive|protect|keep)\b.{0,80}\b(?:surplus|cash flow)\b/i)
+    end
+
+    def positive_surplus_focus_answer?
+      fallback_response.match?(/baseline surplus is already positive by \$[\d,]+(?:\.\d{1,2})?/i)
     end
 
     def readiness_status_question?

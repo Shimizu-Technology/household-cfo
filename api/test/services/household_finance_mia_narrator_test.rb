@@ -265,6 +265,44 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "falls back when transaction narration omits a requested merchant breakdown" do
+    response = ok_response(
+      choices: [
+        { message: { content: "August has $120 in four posted outflows, and all four still need household review." } }
+      ]
+    )
+    fallback = "For August 2026, synced bank activity shows 4 posted outflows totaling $120.\n\nTop merchants by posted outflow: Amazon — $75 (2 transactions); Pay-Less — $40 (1 transaction); Coffee Slut — $5 (1 transaction).\n\n4 posted outflows totaling $120 still need household review or source reconciliation."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How much bank spending is there, how many need review, and what are the top merchants?",
+        answer_packet: { kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write" },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "falls back when coaching narration reverses or omits an approved positive surplus" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Reduce your outflow first to create a surplus, then start building runway." } }
+      ]
+    )
+    fallback = "Your first focus this month is protecting the surplus you already have, not creating one. Based on approved household numbers, baseline surplus is already positive by $1,900."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Based on my income, spending, and goal, what should I focus on first this month?",
+        answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
   test "falls back when a pending transaction narration omits the actuals boundary" do
     response = ok_response(
       choices: [

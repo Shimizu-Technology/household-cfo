@@ -6,7 +6,7 @@ module HouseholdFinance
       end
     end
 
-    DINING_TERMS = /\b(mcdonald|restaurant|bar|coffee|latte|takeout|dining|jollibee|cafe|bakery|lunch|dinner)\b/i
+    DINING_TERMS = /\b(mcdonald|restaurant|bar|coffee|latte|takeout|dining|jollibee|cafe|bakery|lunch|dinner|fast\s*food)\b/i
     GROCERY_TERMS = /\b(pay\s*less|payless|grocery|groceries|supermarket|cost\s*u\s*less|costuless|food)\b/i
     TRANSPORT_TERMS = /\b(shell|mobil|76|gas|fuel|transport|transportation)\b/i
     UTILITIES_TERMS = /\b(power|gpa|utility|utilities|water|electric|guam waterworks|internet|docomo|gta)\b/i
@@ -99,7 +99,7 @@ module HouseholdFinance
     end
 
     def heuristic_category(categories, text)
-      normalized_text = text.to_s
+      normalized_text = normalized(text)
       if normalized_text.match?(TOBACCO_TERMS)
         category_named(categories, /cigarette|tobacco|smoking|vape/)
       elsif normalized_text.match?(HOUSEHOLD_TERMS)
@@ -110,10 +110,10 @@ module HouseholdFinance
         category_named(categories, /rent|mortgage|fixed|essential|utilities|power|water|internet/)
       elsif normalized_text.match?(TRANSPORT_TERMS)
         category_named(categories, /gas|transport|fuel|car/)
-      elsif normalized_text.match?(GROCERY_TERMS)
-        category_named(categories, /grocery|groceries|food/)
       elsif normalized_text.match?(DINING_TERMS)
         category_named(categories, /dining|restaurant|coffee|takeout|food/)
+      elsif normalized_text.match?(GROCERY_TERMS)
+        category_named(categories, /grocery|groceries|food/)
       elsif normalized_text.match?(MEDICAL_TERMS)
         category_named(categories, /medical|health|copay|unexpected/)
       end

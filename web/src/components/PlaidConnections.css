@@ -54,6 +54,10 @@
 .plaid-activity-summary article.is-observed::after { background: #e5eaf8; }
 .plaid-activity-summary article.is-confirmed::after { background: #dceee2; }
 .plaid-activity-summary article.is-review::after { background: #f4e3c8; }
+
+.plaid-review-scope { display: flex; gap: 1rem; align-items: center; justify-content: space-between; margin-top: -.4rem; padding: .8rem 1rem; border: 1px solid rgba(123, 74, 88, .13); border-radius: 1rem; background: #fffaf1; color: var(--muted); }
+.plaid-review-scope strong { color: var(--ink); }
+.plaid-review-scope button { flex: 0 0 auto; }
 .plaid-activity-summary span { color: var(--ink-soft); font-size: .78rem; font-weight: 800; text-transform: uppercase; letter-spacing: .055em; }
 .plaid-activity-summary strong { align-self: end; font-family: var(--font-display); font-size: clamp(1.45rem, 2.5vw, 2.25rem); line-height: 1; }
 .plaid-activity-summary small { color: var(--ink-soft); }
@@ -79,7 +83,8 @@
   .plaid-item-actions, .plaid-review-actions { justify-content: stretch; }
   .plaid-item-actions button, .plaid-review-actions button { flex: 1 1 9rem; }
   .plaid-activity-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .plaid-source-strip, .plaid-automation-toggle { align-items: flex-start; flex-direction: column; }
+  .plaid-source-strip, .plaid-automation-toggle, .plaid-review-scope { align-items: flex-start; flex-direction: column; }
+  .plaid-review-scope button { width: 100%; }
   .plaid-activity-tools { grid-template-columns: 1fr 1fr; }
   .plaid-activity-tools label:first-child { grid-column: 1 / -1; }
   .plaid-transaction { grid-template-columns: auto minmax(0, 1fr) auto; }

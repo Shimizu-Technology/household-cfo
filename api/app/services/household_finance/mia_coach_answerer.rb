@@ -10,6 +10,7 @@ module HouseholdFinance
     ].freeze
     READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:(?:out of\s+)?(?:the\s+)?red|(?:to|into)\s+(?:the\s+)?(?:yellow|green))\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b|\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(?:red|yellow|green)\b/i.freeze
     READINESS_STATUS_PATTERN = /\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(red|yellow|green)\b/i.freeze
+    MONTHLY_FOCUS_PATTERN = /\b(?:what should (?:i|we) focus on|what(?:'s| is) (?:my|our) (?:first |top )?priority|where should (?:i|we) start)\b.*\b(?:this month|income|spending|goal)\b/i.freeze
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
     ESSENTIAL_PURCHASE_TERMS = /\b(?:groceries|grocery|food|medicine|medication|rent|mortgage|power|water|utilities|utility|insurance|gas|daycare|childcare|school|tuition|diapers|formula|doctor|medical|dental)\b/i.freeze
@@ -44,7 +45,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -271,6 +272,29 @@ module HouseholdFinance
       end
 
       "#{status_line} Monthly cash flow is positive and runway is #{runway} months, meeting the saved #{target_runway_months.round(1)}-month target. Green means protect the result rather than treating it as permission for a permanent spending increase. Next CFO move: reconcile current actuals and keep expected expenses funded before adding a new commitment."
+    end
+
+    def monthly_focus_answer
+      return nil unless normalized_message.match?(MONTHLY_FOCUS_PATTERN)
+
+      facts = snapshot
+      income_cents = facts.fetch(:monthly_income_cents)
+      outflow_cents = facts.fetch(:total_outflow_cents)
+      if income_cents.zero? || outflow_cents.zero?
+        return "I do not have enough approved income and outflow data to choose a first monthly focus yet. Add monthly income, fixed bills, debt minimums, liquid cash, and the main expected expenses first. Next CFO move: complete those profile numbers, then ask this question again so the priority comes from the household picture instead of a guess."
+      end
+
+      surplus_cents = facts.fetch(:baseline_surplus_cents)
+      if surplus_cents.positive?
+        transfer_cents = recommended_runway_transfer_cents(surplus_cents)
+        return "Your first focus this month is protecting the surplus you already have, not creating one. Based on approved household numbers, monthly income is #{money(income_cents)}, monthly outflow is #{money(outflow_cents)}, and baseline surplus is already positive by #{money(surplus_cents)}. Because readiness is #{facts.fetch(:readiness_label)} with #{facts.fetch(:runway_months)} months of runway, let essential and expected bills clear first, review pending bank activity, then direct about #{money(transfer_cents)} of the remaining surplus toward runway. Next CFO move: verify the next three due bills and keep new wants from consuming that existing surplus."
+      end
+
+      if surplus_cents.negative?
+        return "Your first focus this month is closing the #{money(surplus_cents.abs)} monthly baseline shortfall before adding new wants. Based on approved household numbers, monthly income is #{money(income_cents)} and monthly outflow is #{money(outflow_cents)}. Protect roof, food, utilities, medical needs, and debt minimums first, then reduce or renegotiate one lower-priority outflow. Next CFO move: name the next three due bills and the one flexible expense you can pause this month."
+      end
+
+      "Your first focus this month is protecting breakeven and building a small buffer before adding new wants. Based on approved household numbers, monthly income and monthly outflow are both #{money(income_cents)}. Review pending bank activity, protect essential and expected bills, then choose one flexible expense to reduce so the household has positive margin. Next CFO move: verify the next three due bills and choose the first expense that can create breathing room."
     end
 
     def readiness_follow_up?

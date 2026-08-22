@@ -6,6 +6,7 @@ module HouseholdFinance
     PLANNED_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
     BANK_ACTIVITY_TERMS = /\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
     ALL_BANK_ACTIVITY_TERMS = /\b(?:across|all|entire)\b.*\b(?:bank|plaid|synced|account activity|bank activity|bank feed)\b/i
+    TOP_MERCHANT_TERMS = /\b(?:top|largest|highest|biggest)\s+(?:merchant|merchants|payee|payees)\b/i
 
     def self.bank_activity_question?(value)
       message = value.to_s.downcase.squish
@@ -178,6 +179,7 @@ module HouseholdFinance
       [
         "For #{period_label}, synced bank activity shows #{outflows.length} posted outflows totaling #{money(outflows.sum(&:amount_cents))} and #{inflows.length} inflows totaling #{money(inflows.sum { |transaction| transaction.amount_cents.abs })}.",
         recent_outflow_line(outflows),
+        top_bank_merchants_line(outflows),
         "Confirmed Plaid-derived household actuals total #{money(confirmed.sum(:total_amount_cents))} across #{confirmed.count} #{'transaction'.pluralize(confirmed.count)}.",
         "#{needs_review.length} posted outflows totaling #{money(needs_review.sum(&:amount_cents))} still need household review or source reconciliation.",
         "#{pending.length} bank-pending #{'transaction'.pluralize(pending.length)} #{pending.length == 1 ? 'is' : 'are'} tracked separately and excluded from posted totals."
@@ -196,6 +198,23 @@ module HouseholdFinance
         "Its linked review is already resolved."
       end
       "Most recent posted outflow: #{merchant} for #{money(transaction.amount_cents)} on #{transaction.occurred_on.strftime('%b %-d, %Y')}. #{review_state}"
+    end
+
+    def top_bank_merchants_line(outflows)
+      return unless message.match?(TOP_MERCHANT_TERMS)
+      return "There are no posted outflow merchants in this period." if outflows.empty?
+
+      breakdown = Hash.new { |hash, key| hash[key] = { cents: 0, count: 0 } }
+      outflows.each do |transaction|
+        merchant = transaction.merchant_name.presence || transaction.name
+        breakdown[merchant][:cents] += transaction.amount_cents
+        breakdown[merchant][:count] += 1
+      end
+      merchants = breakdown.sort_by { |merchant, values| [ -values.fetch(:cents), merchant.to_s.downcase ] }.first(3).map do |merchant, values|
+        "#{merchant} — #{money(values.fetch(:cents))} (#{values.fetch(:count)} #{'transaction'.pluralize(values.fetch(:count))})"
+      end
+
+      "Top merchants by posted outflow: #{merchants.join('; ')}."
     end
 
     def category_breakdown(transactions, target)

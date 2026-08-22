@@ -1046,6 +1046,10 @@ export type PlaidActivitySummary = {
   inflow_cents: number
   needs_review_count: number
   needs_review_cents: number
+  review_year?: number
+  review_year_needs_review_count?: number
+  review_year_needs_review_cents?: number
+  other_years_needs_review_count?: number
   confirmed_count: number
   confirmed_actual_count: number
   confirmed_cents: number
@@ -1064,9 +1068,13 @@ export async function createPlaidUpdateLinkToken(itemId: number): Promise<{ link
   return postJson(`/api/v1/plaid/items/${itemId}/update_link_token`, {})
 }
 
-export async function exchangePlaidPublicToken(values: { public_token: string; institution_id?: string | null; institution_name?: string | null }): Promise<PlaidOverview> {
-  const payload = await postJson<{ plaid: PlaidOverview }>('/api/v1/plaid/items/exchange', values)
-  return payload.plaid
+export type PlaidExchangeResult = {
+  item: PlaidItem
+  plaid: PlaidOverview
+}
+
+export async function exchangePlaidPublicToken(values: { public_token: string; institution_id?: string | null; institution_name?: string | null }): Promise<PlaidExchangeResult> {
+  return postJson<PlaidExchangeResult>('/api/v1/plaid/items/exchange', values)
 }
 
 export async function syncPlaidItem(itemId: number): Promise<PlaidOverview> {
@@ -1086,11 +1094,12 @@ export type PlaidTransactionsPage = {
 export async function fetchPlaidTransactions(
   page = 1,
   view: PlaidActivityView = 'all',
-  filters: { query?: string; accountId?: number | null } = {},
+  filters: { query?: string; accountId?: number | null; reviewYear?: number } = {},
 ): Promise<PlaidTransactionsPage> {
-  const query = new URLSearchParams({ limit: '100', page: String(page), view })
+  const query = new URLSearchParams({ limit: '50', page: String(page), view })
   if (filters.query) query.set('query', filters.query)
   if (filters.accountId) query.set('account_id', String(filters.accountId))
+  if (filters.reviewYear) query.set('review_year', String(filters.reviewYear))
   return fetchJson<PlaidTransactionsPage>(`/api/v1/plaid/transactions?${query}`)
 }
 

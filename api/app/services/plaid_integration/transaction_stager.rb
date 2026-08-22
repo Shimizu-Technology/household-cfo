@@ -30,12 +30,12 @@ module PlaidIntegration
 
     def stage!(transaction)
       merchant = (transaction.merchant_name.presence || transaction.name).first(120)
-      category = HouseholdFinance::TransactionCategorySuggester.new(household).call(
+      suggestion = HouseholdFinance::TransactionCategorySuggester.new(household).suggest(
         merchant: merchant,
-        category_name: transaction.detailed_category,
-        text: [ transaction.primary_category, transaction.detailed_category ].compact.join(" ")
+        text: [ transaction.primary_category, transaction.detailed_category ].compact.join(" "),
+        confidence: BigDecimal("0.80")
       )
-      category = nil if category&.name&.match?(/\A(?:uncategorized|needs category)\z/i)
+      category = suggestion.category
       HouseholdFinance::AnnualBudgetManager.new(household, year: transaction.occurred_on.year).ensure_plan!
       draft = household.transaction_drafts.create!(
         occurred_on: transaction.occurred_on,
@@ -44,17 +44,23 @@ module PlaidIntegration
         budget_category: category,
         source_type: "plaid",
         status: "pending",
-        confidence: BigDecimal("0.80"),
+        confidence: category ? BigDecimal("0.80") : BigDecimal("0.00"),
         raw_input: "Bank-connected transaction for participant review",
-        draft_payload: { parser: "plaid_transactions_sync_v1" }
+        draft_payload: {
+          parser: "plaid_transactions_sync_v1",
+          category_match_status: suggestion.match_status,
+          category_match_reason: suggestion.match_reason,
+          plaid_primary_category: transaction.primary_category,
+          plaid_detailed_category: transaction.detailed_category
+        }
       )
       draft.transaction_draft_splits.create!(
         budget_category: category,
         amount_cents: transaction.amount_cents,
         category_name: category&.name,
         stack_key: category&.stack_key,
-        confidence: BigDecimal("0.80"),
-        metadata: { source: "plaid" }
+        confidence: category ? BigDecimal("0.80") : BigDecimal("0.00"),
+        metadata: { source: "plaid", category_match_reason: suggestion.match_reason }
       )
       HouseholdFinance::TransactionDraftMatcher.new(draft).call
       transaction.update!(transaction_draft: draft, review_status: "drafted", drafted_source_fingerprint: transaction.source_fingerprint)

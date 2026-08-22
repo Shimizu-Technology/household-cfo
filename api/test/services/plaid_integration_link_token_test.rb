@@ -13,6 +13,7 @@ class PlaidIntegrationLinkTokenTest < ActiveSupport::TestCase
 
       assert_equal "http://localhost:5173/", request.redirect_uri
       assert_equal [ Plaid::Products::TRANSACTIONS ], request.products
+      assert_equal 90, request.transactions.days_requested
     end
   end
 

@@ -2188,6 +2188,8 @@ function App() {
                 userId={String(auth.currentUser.id)}
                 variant="activity"
                 refreshKey={plaidActivityRefreshKey}
+                reviewYear={selectedBudgetYear}
+                onOpenBudget={() => switchSection('Budget')}
                 onDraftsCreated={async () => {
                   const payload = await fetchAppData(true)
                   setData(payload)

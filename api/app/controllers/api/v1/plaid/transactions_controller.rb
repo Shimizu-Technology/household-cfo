@@ -14,12 +14,13 @@ module Api
           scope = apply_activity_view(scope, params[:view].to_s.presence_in(ACTIVITY_VIEWS) || "all")
           limit = params.fetch(:limit, 50).to_i.clamp(1, MAX_PAGE_SIZE)
           page = params.fetch(:page, 1).to_i.clamp(1, 10_000)
+          review_year = params.fetch(:review_year, Date.current.year).to_i.clamp(2000, 2100)
           total = scope.count
           transactions = scope.includes(:plaid_account, transaction_draft: [ :budget_category, { transaction_draft_splits: :budget_category }, { confirmed_transaction: :budget_categories } ]).recent_first.offset((page - 1) * limit).limit(limit)
           render json: {
             transactions: transactions.map { |transaction| serialize_transaction(transaction) },
             pagination: { page: page, per_page: limit, total: total, has_more: page * limit < total },
-            summary: activity_summary(account_id: account_id)
+            summary: activity_summary(account_id: account_id, review_year: review_year)
           }
         end
 
@@ -93,13 +94,15 @@ module Api
           scope.where(plaid_transactions: { plaid_account_id: account_id })
         end
 
-        def activity_summary(account_id: nil)
+        def activity_summary(account_id: nil, review_year: Date.current.year)
           current = scope_for_account(current_household.plaid_transactions.visible, account_id)
           account_activity = scope_for_account(activity_scope, account_id)
           posted = current.where(pending: false).where("amount_cents > 0")
           pending = current.where(pending: true).where("amount_cents > 0")
           inflow = current.where("amount_cents < 0")
           needs_review = apply_activity_view(account_activity, "needs_review")
+          year_range = Date.new(review_year, 1, 1)..Date.new(review_year, 12, 31)
+          year_needs_review = needs_review.where(occurred_on: year_range)
           confirmed_sources = apply_activity_view(account_activity, "confirmed")
           excluded = apply_activity_view(account_activity, "excluded")
           confirmed_actuals = confirmed_actuals_for(confirmed_sources, account_id: account_id)
@@ -114,6 +117,10 @@ module Api
             inflow_cents: inflow.sum(:amount_cents).abs,
             needs_review_count: needs_review.count,
             needs_review_cents: needs_review.where("plaid_transactions.removed_at IS NULL").sum(:amount_cents),
+            review_year: review_year,
+            review_year_needs_review_count: year_needs_review.count,
+            review_year_needs_review_cents: year_needs_review.where("plaid_transactions.removed_at IS NULL").sum(:amount_cents),
+            other_years_needs_review_count: needs_review.where.not(occurred_on: year_range).count,
             confirmed_count: confirmed_sources.count,
             confirmed_actual_count: confirmed_actuals.count,
             confirmed_cents: confirmed_actuals.sum(:total_amount_cents),

@@ -15,7 +15,7 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     plaid_transaction("pending-amazon", 500, pending: true)
 
     draft = PlaidIntegration::TransactionStager.new(household: @household, user: @user, transaction_ids: [ confirmed_source.id ]).call.drafts.sole
-    result = HouseholdFinance::TransactionDraftConfirmer.new(draft).call
+    result = HouseholdFinance::TransactionDraftConfirmer.new(draft, { budget_category_id: @category.id }).call
     assert result.success?
 
     answer = HouseholdFinance::TransactionLookupAnswerer.new(
@@ -58,6 +58,23 @@ class HouseholdFinanceTransactionLookupBankActivityTest < ActiveSupport::TestCas
     assert_includes answer, "Most recent posted outflow: Starbucks for $4.33 on Aug 14, 2026"
     assert_includes answer, "still needs household review and is not included in confirmed budget actuals"
     assert_not_includes answer, "my connected account transactions"
+  end
+
+  test "multi-part bank summary includes the requested top merchants" do
+    plaid_transaction("amazon-one", 5_000, merchant: "Amazon")
+    plaid_transaction("amazon-two", 2_500, merchant: "Amazon")
+    plaid_transaction("payless", 4_000, merchant: "Pay-Less")
+    plaid_transaction("coffee", 500, merchant: "Coffee Slut")
+
+    answer = HouseholdFinance::TransactionLookupAnswerer.new(
+      @household,
+      "How much bank-observed spending do I have in August 2026, how many transactions still need review, and what are the top merchants? Do not change anything.",
+      today: Date.new(2026, 8, 16)
+    ).call
+
+    assert_includes answer, "4 posted outflows totaling $120"
+    assert_includes answer, "4 posted outflows totaling $120 still need household review"
+    assert_includes answer, "Top merchants by posted outflow: Amazon — $75 (2 transactions); Pay-Less — $40 (1 transaction); Coffee Slut — $5 (1 transaction)."
   end
 
   private

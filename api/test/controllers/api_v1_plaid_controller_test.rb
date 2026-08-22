@@ -51,6 +51,22 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "page" => 1, "per_page" => 50, "total" => 1, "has_more" => false }, payload.fetch("pagination"))
     assert_equal 1, payload.fetch("summary").fetch("needs_review_count")
     assert_equal 4_200, payload.fetch("summary").fetch("posted_outflow_cents")
+    assert_equal Date.current.year, payload.dig("summary", "review_year")
+  end
+
+  test "transaction summary reconciles all-history and selected-year review counts" do
+    current = @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "current-review", name: "Current purchase", occurred_on: Date.new(2026, 7, 10), amount_cents: 4_200, pending: false, source_fingerprint: SecureRandom.hex(32))
+    @item.plaid_transactions.create!(plaid_account: @account, plaid_transaction_id: "older-review", name: "Older purchase", occurred_on: Date.new(2025, 7, 10), amount_cents: 9_900, pending: false, source_fingerprint: SecureRandom.hex(32))
+
+    get "/api/v1/plaid/transactions", params: { review_year: 2026 }, headers: auth_headers(@user)
+
+    assert_response :success
+    summary = JSON.parse(response.body).fetch("summary")
+    assert_equal 2, summary.fetch("needs_review_count")
+    assert_equal 2026, summary.fetch("review_year")
+    assert_equal 1, summary.fetch("review_year_needs_review_count")
+    assert_equal current.amount_cents, summary.fetch("review_year_needs_review_cents")
+    assert_equal 1, summary.fetch("other_years_needs_review_count")
   end
 
   test "transaction listing filters by merchant search and household account" do

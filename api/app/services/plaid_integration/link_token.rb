@@ -1,5 +1,7 @@
 module PlaidIntegration
   class LinkToken
+    INITIAL_HISTORY_DAYS = 90
+
     def initialize(household:, user:, plaid_item: nil)
       @household = household
       @user = user
@@ -20,7 +22,7 @@ module PlaidIntegration
         attributes[:link_customization_name] = Configuration.link_customization_name if Configuration.link_customization_name
         unless plaid_item
           attributes[:products] = [ Plaid::Products::TRANSACTIONS ]
-          attributes[:transactions] = Plaid::LinkTokenTransactions.new(days_requested: 730)
+          attributes[:transactions] = Plaid::LinkTokenTransactions.new(days_requested: INITIAL_HISTORY_DAYS)
         end
         request = Plaid::LinkTokenCreateRequest.new(**attributes)
         client.link_token_create(request).link_token

@@ -428,6 +428,7 @@ test('Plaid Link loads once and opens once after explicit consent', async ({ pag
       window.__plaidScriptLoads = (window.__plaidScriptLoads || 0) + 1;
       window.Plaid = {
         create: function (config) {
+          window.__plaidConfig = config;
           setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
           return {
             open: function () { window.__plaidOpenCount = (window.__plaidOpenCount || 0) + 1; },
@@ -448,6 +449,83 @@ test('Plaid Link loads once and opens once after explicit consent', async ({ pag
   await expect.poll(() => page.evaluate(() => (window as Window & { __plaidOpenCount?: number }).__plaidOpenCount ?? 0)).toBe(1)
   expect(await page.evaluate(() => document.querySelectorAll('script[src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"]').length)).toBe(1)
   expect(await page.evaluate(() => (window as Window & { __plaidScriptLoads?: number }).__plaidScriptLoads)).toBe(1)
+})
+
+test('initial Plaid sync refreshes the workspace when transaction history is ready', async ({ page }) => {
+  let workspaceRequests = 0
+  let connected = false
+  let overviewRequestsAfterExchange = 0
+  const initialItem = {
+    id: 17,
+    institution_name: 'Sandbox Bank',
+    status: 'active',
+    environment: 'sandbox',
+    consented_at: '2026-08-22T00:00:00Z',
+    last_synced_at: null,
+    health: { state: 'initializing', label: 'Preparing history', message: 'The first transaction history sync is still being prepared.', requires_attention: false, last_successful_update_at: null, stale_after: '2026-08-23T00:00:00Z' },
+    error_message: null,
+    disconnected_at: null,
+    auto_confirm_trusted_merchants: false,
+    accounts: [],
+  }
+  const completedItem = {
+    ...initialItem,
+    last_synced_at: '2026-08-22T01:00:00Z',
+    health: { ...initialItem.health, state: 'healthy', label: 'Feed current', message: 'Plaid has updated this connection within the expected window.', last_successful_update_at: '2026-08-22T01:00:00Z' },
+  }
+
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    workspaceRequests += 1
+    return route.fulfill({ status: 200, json: realWorkspaceData(true) })
+  })
+  await page.route('http://api.test/api/v1/plaid/items', (route) => {
+    if (!connected) return route.fulfill({ status: 200, json: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [] } })
+    overviewRequestsAfterExchange += 1
+    const synced = overviewRequestsAfterExchange >= 2
+    return route.fulfill({ status: 200, json: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [synced ? completedItem : initialItem] } })
+  })
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => route.fulfill({
+    status: 200,
+    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary },
+  }))
+  await page.route('http://api.test/api/v1/plaid/items/link_token', (route) => route.fulfill({
+    status: 200,
+    json: { link_token: 'link-sandbox-test', consent_policy_version: '2026-08-17' },
+  }))
+  await page.route('http://api.test/api/v1/plaid/items/exchange', (route) => {
+    connected = true
+    return route.fulfill({
+      status: 201,
+      json: { item: initialItem, plaid: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [initialItem] } },
+    })
+  })
+  await page.route('https://cdn.plaid.com/link/v2/stable/link-initialize.js', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: `
+      window.Plaid = {
+        create: function (config) {
+          window.__plaidConfig = config;
+          setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
+          return { open: function () {}, submit: function () {}, exit: function (_options, callback) { if (callback) callback(); }, destroy: function () {} };
+        }
+      };
+    `,
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
+  await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __plaidConfig?: unknown }).__plaidConfig))).toBe(true)
+  await page.evaluate(() => {
+    const plaidConfig = (window as Window & { __plaidConfig?: { onSuccess: (token: string, metadata: { institution: { institution_id: string; name: string } }) => void } }).__plaidConfig
+    plaidConfig?.onSuccess('public-sandbox-test', { institution: { institution_id: 'ins_17', name: 'Sandbox Bank' } })
+  })
+
+  await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
+  await expect(page.getByText(/Last synced/)).toBeVisible()
+  await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
 })
 
 test('Home centers review work and keeps Red guidance internally consistent', async ({ page }) => {
