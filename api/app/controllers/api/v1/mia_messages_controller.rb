@@ -434,7 +434,18 @@ module Api
         transaction_draft_answer = nil
 
         unless direct_answer || pending_draft_answer
-          case intent_result.intent
+          if HouseholdFinance::TransactionLookupAnswerer.bank_activity_question?(content)
+            transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
+          end
+
+          # A model can label a repeated, fully specified lookup as "recall" because it
+          # recognizes the topic in history. Re-run explicit current-turn questions
+          # against Rails-owned transaction truth instead of replaying a stale answer.
+          if transaction_lookup_answer.nil? && intent_result.intent == "recall"
+            transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
+          end
+
+          case transaction_lookup_answer ? nil : intent_result.intent
           when "budget_action", "household_action", "income_action"
             if intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(
@@ -569,7 +580,10 @@ module Api
 
         routed_content = followup.message
         pending_draft_answer = pending_guardrail_answer(routed_content)
-        action_result = pending_draft_answer ? nil : HouseholdFinance::MiaActionDraftBuilder.new(
+        transaction_lookup_answer = if pending_draft_answer.nil? && HouseholdFinance::TransactionLookupAnswerer.bank_activity_question?(routed_content)
+          HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
+        end
+        action_result = (pending_draft_answer || transaction_lookup_answer) ? nil : HouseholdFinance::MiaActionDraftBuilder.new(
           current_household,
           routed_content,
           user: current_user,
@@ -583,8 +597,8 @@ module Api
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param
         )
-        coach_answer = (pending_draft_answer || action_result) ? nil : followup.direct_answer || coach_answerer.call
-        transaction_lookup_answer = (coach_answer || pending_draft_answer || action_result) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
+        coach_answer = (pending_draft_answer || transaction_lookup_answer || action_result) ? nil : followup.direct_answer || coach_answerer.call
+        transaction_lookup_answer ||= (coach_answer || pending_draft_answer || action_result) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
         pending_draft_answer ||= (transaction_lookup_answer || coach_answer || action_result) ? nil : HouseholdFinance::PendingDraftAnswerer.new(current_household, routed_content).call
         spending_report = (pending_draft_answer || transaction_lookup_answer || coach_answer || action_result) ? nil : spending_report_for(routed_content)
         annual_plan = action_result&.annual_plan || (coach_answer ? coach_answerer.prepared_annual_plan : nil)

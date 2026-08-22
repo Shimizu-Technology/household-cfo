@@ -5,6 +5,7 @@ import { HomeScreen } from './components/HomeScreen'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
+import { PlaidConnections } from './components/PlaidConnections'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import {
   AnnualCashFlowChart,
@@ -35,6 +36,7 @@ import {
   deleteDocumentImportSource,
   deleteIncomeScheduleEntry,
   fetchAdminCohorts,
+  fetchAdminPlaidHealth,
   fetchAdminUsers,
   fetchAppData,
   fetchBudget,
@@ -67,6 +69,7 @@ import type {
   AdminCohort,
   AdminCohortInput,
   AdminCohortStatus,
+  AdminPlaidHealth,
   AdminUser,
   AdminUserInput,
   AdminUserMutationResponse,
@@ -113,7 +116,7 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
+const sections = ['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 const allSections = [...sections, ADMIN_SECTION]
@@ -269,6 +272,7 @@ function App() {
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [active, setActive] = useState(() => {
+    if (new URLSearchParams(window.location.search).has('oauth_state_id')) return 'My Profile'
     const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
     return allSections.includes(hashSection) ? hashSection : sections[0]
   })
@@ -359,6 +363,10 @@ function App() {
     [documentImports],
   )
   const pendingTransactionDrafts = data?.budget.annual_plan?.pending_transaction_drafts ?? []
+  const pendingPlaidDrafts = pendingTransactionDrafts.filter((draft) => draft.source_type === 'plaid')
+  const plaidActivityRefreshKey = pendingPlaidDrafts
+    .map((draft) => `${draft.id}:${draft.status}:${draft.category_id ?? 'none'}:${draft.category_name ?? ''}:${JSON.stringify(draft.splits ?? [])}`)
+    .join('|')
   const pendingMiaActionDrafts = data?.budget.annual_plan?.pending_mia_action_drafts ?? []
   const activeBudgetPlan = data?.budget.annual_plan
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
@@ -1292,6 +1300,7 @@ function App() {
       const response = await updateTransactionDraft(draft.id, values)
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
       setData(response.workspace)
+      setDocumentImports((current) => replaceImportTransactionDraft(current, response.transaction_draft))
       if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
       refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
       void refreshDocumentImports({ quiet: true })
@@ -2143,6 +2152,58 @@ function App() {
         </section>
       )}
 
+      {activeSection === 'Activity' && (
+        <section className="screen-grid activity-screen">
+          <ScreenHeading
+            eyebrow="Activity"
+            title="Review what changed before it becomes household truth."
+            copy="Manual reports work today. If bank connections become available, authorized activity will appear here too. You always control what becomes an official budget actual."
+          />
+
+          {isRealWorkspace && auth.currentUser ? (
+            <>
+              {pendingPlaidDrafts.length > 0 && (
+                <article className="panel activity-review-panel">
+                  <TransactionDraftReviewStack
+                    drafts={pendingPlaidDrafts}
+                    isRealWorkspace
+                    compact
+                    action={budgetAction}
+                    categories={activeBudgetPlan?.rows ?? []}
+                    plan={activeBudgetPlan}
+                    eyebrow="Household review"
+                    title="Confirm the category—not whether the bank saw it"
+                    description="Posted transactions are already bank-observed and available to Mia. Confirm the category and any splits to make them official budget actuals."
+                    onUpdate={handleUpdateTransactionDraft}
+                    onMatch={handleMatchTransactionDraft}
+                    onConfirm={handleConfirmTransactionDraft}
+                    onIgnore={handleIgnoreTransactionDraft}
+                    onReopen={handleReopenTransactionDraft}
+                    onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+                    onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+                  />
+                </article>
+              )}
+              <PlaidConnections
+                userId={String(auth.currentUser.id)}
+                variant="activity"
+                refreshKey={plaidActivityRefreshKey}
+                reviewYear={selectedBudgetYear}
+                onOpenBudget={() => switchSection('Budget')}
+                onDraftsCreated={async () => {
+                  const payload = await fetchAppData(true)
+                  setData(payload)
+                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+                  replaceMiaHistory(payload.mia)
+                }}
+              />
+            </>
+          ) : (
+            <article className="panel empty-state"><strong>Sign in to connect real bank activity.</strong><p>The preview workspace does not request or store financial account access.</p></article>
+          )}
+        </section>
+      )}
+
       {activeSection === 'My Profile' && (
         <section className={`screen-grid profile-screen${isFocusedFirstSessionSetup ? ' first-session-setup-screen' : ''}`}>
           <ScreenHeading
@@ -2180,6 +2241,19 @@ function App() {
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
               firstSession={isFirstSessionSetup}
+            />
+          )}
+
+          {isRealWorkspace && auth.currentUser && !isFirstSessionSetup && (
+            <PlaidConnections
+              userId={String(auth.currentUser.id)}
+              variant="connections"
+              onDraftsCreated={async () => {
+                const payload = await fetchAppData(true)
+                setData(payload)
+                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+                replaceMiaHistory(payload.mia)
+              }}
             />
           )}
 
@@ -2307,7 +2381,11 @@ function App() {
           <div className="metric-row">
             <Metric label="Net worth" value={currency.format(data.wealth.summary.net_worth)} />
             <Metric label="Liquid net worth" value={currency.format(data.wealth.summary.liquid_net_worth)} />
-            <Metric label="Retirement projection" value={currency.format(data.wealth.summary.retirement_projection)} />
+            <Metric
+              label="10-year contribution outlook"
+              value={currency.format(data.wealth.summary.retirement_projection)}
+              detail="Current retirement balance plus 10 years of today’s monthly wealth-building amount. Excludes market growth, taxes, fees, and inflation."
+            />
             <Metric label="Monthly wealth building" value={currency.format(data.wealth.summary.monthly_wealth_building)} />
           </div>
 
@@ -4420,6 +4498,19 @@ function replaceImportItem(imports: FinancialDocumentImport[], documentImportId:
   })
 }
 
+function replaceImportTransactionDraft(imports: FinancialDocumentImport[], draft: TransactionDraft) {
+  if (!draft.financial_document_import_id) return imports
+
+  return imports.map((documentImport) => {
+    if (documentImport.id !== draft.financial_document_import_id) return documentImport
+
+    return {
+      ...documentImport,
+      transaction_drafts: documentImport.transaction_drafts.map((existing) => (existing.id === draft.id ? draft : existing)),
+    }
+  })
+}
+
 function statusExplainer(documentImport: FinancialDocumentImport) {
   if (documentImport.status === 'uploaded' || documentImport.status === 'processing') return 'Extraction is in progress. Draft values will appear here when Mia finishes reading the source.'
   if (documentImport.status === 'failed') return 'Mia could not extract reliable draft values from this upload. You can delete it or reprocess if the source is still available.'
@@ -4457,6 +4548,8 @@ const invitationStatuses: InvitationStatus[] = ['pending', 'accepted', 'revoked'
 function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [cohorts, setCohorts] = useState<AdminCohort[]>([])
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [plaidHealth, setPlaidHealth] = useState<AdminPlaidHealth>({ summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] })
+  const [plaidHealthError, setPlaidHealthError] = useState<string | null>(null)
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(null)
   const [createDraft, setCreateDraft] = useState<AdminCohortInput>({
     name: '',
@@ -4523,7 +4616,16 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     setLoading(true)
     setError(null)
     try {
-      const [nextCohorts, nextUsers] = await Promise.all([fetchAdminCohorts(), fetchAdminUsers()])
+      const [nextCohorts, nextUsers, plaidHealthResult] = await Promise.all([
+        fetchAdminCohorts(),
+        fetchAdminUsers(),
+        fetchAdminPlaidHealth()
+          .then((value) => ({ value, error: null }))
+          .catch(() => ({
+            value: { summary: { connected: 0, healthy: 0, attention_required: 0 }, items: [] } satisfies AdminPlaidHealth,
+            error: 'Bank connection health is temporarily unavailable. Cohorts and invitations are still available.',
+          })),
+      ])
       const requestedCohortId = preferredCohortId === undefined ? selectedCohortIdRef.current : preferredCohortId
       const nextSelectedId = requestedCohortId === null
         ? null
@@ -4535,6 +4637,8 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       selectedCohortIdRef.current = nextSelectedId
       setCohorts(nextCohorts)
       setUsers(nextUsers)
+      setPlaidHealth(plaidHealthResult.value)
+      setPlaidHealthError(plaidHealthResult.error)
       setUserDrafts(adminDraftsForUsers(nextUsers))
       setSelectedCohortId(nextSelectedId)
       setEditDraft(nextSelectedCohort ? cohortDraftFor(nextSelectedCohort) : null)
@@ -4792,6 +4896,7 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
       <RoleMatrix open={roleMatrixOpen} onToggle={setRoleMatrixOpen} />
 
+      <PlaidHealthLedger health={plaidHealth} loading={loading} error={plaidHealthError} />
       <PilotFeedbackInbox />
 
       <div className="admin-layout">
@@ -5084,6 +5189,60 @@ function AdminStat({ label, value }: { label: string; value: string }) {
       <strong>{value}</strong>
     </article>
   )
+}
+
+function PlaidHealthLedger({ health, loading, error }: { health: AdminPlaidHealth; loading: boolean; error: string | null }) {
+  return (
+    <article className="panel admin-card admin-plaid-health">
+      <div className="admin-card-heading row-between">
+        <div>
+          <p className="eyebrow">Connection health</p>
+          <h3>Bank feed ledger</h3>
+          <p className="admin-list-summary">Operational metadata only—no balances, transactions, Plaid identifiers, or access credentials.</p>
+        </div>
+        <div className="admin-plaid-health-summary" aria-label="Plaid connection health summary">
+          <span><strong>{health.summary.connected}</strong> connected</span>
+          <span className="is-healthy"><strong>{health.summary.healthy}</strong> current</span>
+          <span className={health.summary.attention_required > 0 ? 'is-attention' : ''}><strong>{health.summary.attention_required}</strong> attention</span>
+        </div>
+      </div>
+
+      {error && <p className="admin-alert error" role="status">{error}</p>}
+
+      {loading && health.items.length === 0 ? (
+        <p className="admin-muted">Checking bank feed health...</p>
+      ) : health.items.length === 0 ? (
+        <p className="admin-muted">No active Plaid connections yet.</p>
+      ) : (
+        <div className="admin-plaid-health-list">
+          {health.items.map((item) => (
+            <article className={`admin-plaid-health-row is-${item.health.state}`} key={item.id}>
+              <span className="admin-plaid-health-mark" aria-hidden="true" />
+              <div>
+                <strong>{item.institution_name}</strong>
+                <span>{item.household.name} · {item.account_count} account{item.account_count === 1 ? '' : 's'} · {item.environment}</span>
+                <small>Connected by {item.connected_by.full_name} · {item.connected_by.email}</small>
+              </div>
+              <div className="admin-plaid-health-state">
+                <AdminBadge value={item.health.label} tone={plaidHealthTone(item.health.state)} />
+                <small>{item.health.message}</small>
+                <small>{item.health.last_successful_update_at ? `Last successful update ${new Date(item.health.last_successful_update_at).toLocaleString()}` : 'No successful update recorded yet.'}</small>
+                {item.error_code && <small>Reference: {item.error_code}</small>}
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </article>
+  )
+}
+
+function plaidHealthTone(state: AdminPlaidHealth['items'][number]['health']['state']): 'green' | 'gold' | 'red' | 'neutral' {
+  if (state === 'healthy') return 'green'
+  if (state === 'initializing' || state === 'disconnecting') return 'gold'
+  if (state === 'stale' || state === 'action_required' || state === 'error') return 'red'
+
+  return 'neutral'
 }
 
 function AdminBadge({ value, tone }: { value: string; tone: 'green' | 'gold' | 'red' | 'neutral' }) {
@@ -5631,6 +5790,9 @@ function TransactionDraftReviewStack({
   onReopen,
   onBulkConfirm,
   onBulkIgnore,
+  eyebrow = 'Review before applying',
+  title = 'Mia drafted transactions for your approval',
+  description,
 }: {
   drafts: TransactionDraft[]
   isRealWorkspace: boolean
@@ -5647,6 +5809,9 @@ function TransactionDraftReviewStack({
   onReopen: (draft: TransactionDraft) => void
   onBulkConfirm?: (drafts: TransactionDraft[]) => void
   onBulkIgnore?: (drafts: TransactionDraft[]) => void
+  eyebrow?: string
+  title?: string
+  description?: string
 }) {
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -5673,6 +5838,7 @@ function TransactionDraftReviewStack({
   const selectedDrafts = filteredPendingDrafts.filter((draft) => selectedIds.has(draft.id))
   const selectedDraftsNeedingCategory = selectedDrafts.filter(transactionDraftNeedsCategory)
   const filteredDraftsNeedingCategory = filteredPendingDrafts.filter(transactionDraftNeedsCategory)
+  const confirmableDrafts = filteredPendingDrafts.filter((draft) => !transactionDraftNeedsCategory(draft))
   const allVisibleSelected = visiblePendingDrafts.length > 0 && visiblePendingDrafts.every((draft) => selectedIds.has(draft.id))
   const anyActionBusy = Boolean(action)
   const bulkBusy = action?.startsWith('bulk-') ?? false
@@ -5701,9 +5867,9 @@ function TransactionDraftReviewStack({
     <div className={`transaction-draft-stack ${compact ? 'compact' : ''}`}>
       <div className="transaction-draft-stack-heading">
         <div>
-          <p className="eyebrow">Review before applying</p>
-          <h4>Mia drafted transactions for your approval</h4>
-          {compact && <p>Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.</p>}
+          <p className="eyebrow">{eyebrow}</p>
+          <h4>{title}</h4>
+          {(compact || description) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
         <strong>{drafts.length} review{drafts.length === 1 ? '' : 's'}</strong>
@@ -5746,7 +5912,7 @@ function TransactionDraftReviewStack({
             <span>Select this page</span>
           </label>
           <span>{selectedDrafts.length} selected</span>
-          <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
+          <button type="button" className="secondary-button" title={selectedDraftsNeedingCategory.length > 0 ? 'Choose a category for every selected transaction first.' : undefined} disabled={anyActionBusy || selectedDrafts.length === 0 || selectedDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(selectedDrafts)}>
             Confirm selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy || selectedDrafts.length === 0} onClick={() => onBulkIgnore(selectedDrafts)}>
@@ -5760,8 +5926,8 @@ function TransactionDraftReviewStack({
               Clear selection
             </button>
           )}
-          <button type="button" disabled={anyActionBusy || filteredDraftsNeedingCategory.length > 0} onClick={() => onBulkConfirm(filteredPendingDrafts)}>
-            Confirm all {filteredPendingDrafts.length}
+          <button type="button" disabled={anyActionBusy || confirmableDrafts.length === 0} onClick={() => onBulkConfirm(confirmableDrafts)}>
+            Confirm categorized {confirmableDrafts.length}
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
             Ignore all {filteredPendingDrafts.length}
@@ -5871,13 +6037,13 @@ function TransactionDraftReviewCard({
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
-  const splitsNeedingCategory = (draft.splits ?? []).filter((split) => !split.budget_category_id)
+  const splitsNeedingCategory = (draft.splits ?? []).filter(transactionDraftSplitNeedsCategory)
   const needsCategoryReview = splitsNeedingCategory.length > 0
   const categoryWarningId = `transaction-draft-${draft.id}-category-warning`
   const categoryWarningCopy = draft.financial_document_import_id
     ? 'Mia kept the receipt or document detail but did not guess. Choose where each item belongs before it changes your actuals.'
     : 'Mia could not confidently match this purchase. Choose where it belongs before it changes your actuals.'
-  const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id)
+  const firstMissingSplitIndex = splits.findIndex((split) => !split.budget_category_id || placeholderCategoryName(split.category_name))
   const reopenDisabled = !isRealWorkspace || draftActionsDisabled || isPending
   const impactDraft = editing ? {
     ...draft,
@@ -6081,6 +6247,7 @@ function TransactionDraftReviewCard({
 
       {isPending ? (
         <div className="transaction-draft-actions">
+          {needsCategoryReview && <span className="transaction-draft-disabled-reason">Choose a category before confirming this as a budget actual.</span>}
           {onUpdate && <button type="button" className="secondary-button" disabled={actionsDisabled || saving} onClick={editing ? closeEditing : beginEditing}>{editing ? 'Close edit' : 'Edit'}</button>}
           <button type="button" aria-describedby={needsCategoryReview ? categoryWarningId : undefined} disabled={actionsDisabled || needsCategoryReview || action === `confirm-draft:${draft.id}`} onClick={() => onConfirm(draft)}>
             {action === `confirm-draft:${draft.id}` ? 'Confirming' : 'Confirm'}
@@ -6218,8 +6385,16 @@ function editableSplitsForDraft(draft: TransactionDraft): EditableDraftSplit[] {
 }
 
 function transactionDraftNeedsCategory(draft: TransactionDraft) {
-  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some((split) => !split.budget_category_id)
-  return !draft.category_id
+  if ((draft.splits ?? []).length > 0) return (draft.splits ?? []).some(transactionDraftSplitNeedsCategory)
+  return !draft.category_id || placeholderCategoryName(draft.category_name)
+}
+
+function transactionDraftSplitNeedsCategory(split: TransactionDraftSplit) {
+  return !split.budget_category_id || placeholderCategoryName(split.category_name)
+}
+
+function placeholderCategoryName(name: string | null | undefined) {
+  return !name?.trim() || /^(uncategorized|needs category)$/i.test(name.trim())
 }
 
 function extractedCategoryLabel(split: TransactionDraftSplit) {

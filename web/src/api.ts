@@ -763,6 +763,37 @@ export type AdminUserInput = {
   send_invitation_email?: boolean
 }
 
+export type PlaidHealthState = 'healthy' | 'initializing' | 'stale' | 'action_required' | 'error' | 'disconnecting' | 'disconnected'
+
+export type PlaidItemHealth = {
+  state: PlaidHealthState
+  label: string
+  message: string
+  requires_attention: boolean
+  last_successful_update_at: string | null
+  stale_after: string
+}
+
+export type AdminPlaidHealth = {
+  summary: {
+    connected: number
+    healthy: number
+    attention_required: number
+  }
+  items: Array<{
+    id: number
+    household: { id: number; name: string }
+    connected_by: { id: number; full_name: string; email: string }
+    institution_name: string
+    environment: 'sandbox' | 'production'
+    status: 'active' | 'update_required' | 'error' | 'disconnecting'
+    error_code: string | null
+    account_count: number
+    connected_at: string
+    health: PlaidItemHealth
+  }>
+}
+
 export type AppData = {
   workspace?: WorkspaceData
   profile: ProfileData
@@ -908,6 +939,10 @@ export async function fetchAdminCohorts(): Promise<AdminCohort[]> {
   return payload.cohorts
 }
 
+export async function fetchAdminPlaidHealth(): Promise<AdminPlaidHealth> {
+  return fetchJson<AdminPlaidHealth>('/api/v1/admin/plaid_health')
+}
+
 export async function createAdminCohort(values: AdminCohortInput): Promise<AdminCohort> {
   const payload = await postJson<{ cohort: AdminCohort }>('/api/v1/admin/cohorts', { cohort: values })
   return payload.cohort
@@ -937,6 +972,151 @@ export async function updateAdminUser(id: number, values: AdminUserInput): Promi
 
 export async function resendAdminUserInvitation(id: number): Promise<AdminUserMutationResponse> {
   return postJson<AdminUserMutationResponse>(`/api/v1/admin/users/${id}/resend_invitation`, {})
+}
+
+export type PlaidAccount = {
+  id: number
+  name: string
+  official_name: string | null
+  mask: string | null
+  type: string
+  subtype: string | null
+  current_balance_cents: number | null
+  available_balance_cents: number | null
+  currency: string | null
+  active: boolean
+}
+
+export type PlaidItem = {
+  id: number
+  institution_name: string
+  status: 'active' | 'update_required' | 'error' | 'disconnecting' | 'disconnected'
+  environment: 'sandbox' | 'production'
+  consented_at: string
+  last_synced_at: string | null
+  health: PlaidItemHealth
+  error_message: string | null
+  disconnected_at: string | null
+  auto_confirm_trusted_merchants: boolean
+  accounts: PlaidAccount[]
+}
+
+export type PlaidOverview = {
+  configured: boolean
+  environment: 'sandbox' | 'production' | null
+  consent_policy_version: string
+  items: PlaidItem[]
+}
+
+export type PlaidTransaction = {
+  id: number
+  account_id: number
+  account_name: string
+  account_mask: string | null
+  name: string
+  merchant_name: string | null
+  occurred_on: string
+  authorized_on: string | null
+  amount_cents: number
+  pending: boolean
+  direction: 'outflow' | 'inflow'
+  primary_category: string | null
+  detailed_category: string | null
+  review_status: 'unreviewed' | 'drafted' | 'ignored'
+  stageable: boolean
+  transaction_draft_id: number | null
+  transaction_draft_status: 'pending' | 'confirmed' | 'corrected' | 'ignored' | 'matched' | null
+  confirmed_transaction_id: number | null
+  confirmed_amount_cents: number | null
+  category_names: string[]
+  trust_state: 'bank_observed' | 'needs_review' | 'confirmed' | 'excluded' | 'bank_pending' | 'money_in' | 'source_changed'
+  removed: boolean
+  source_changed_after_draft: boolean
+}
+
+export type PlaidActivityView = 'all' | 'needs_review' | 'confirmed' | 'excluded' | 'pending' | 'inflow'
+
+export type PlaidActivitySummary = {
+  all_count: number
+  posted_outflow_count: number
+  posted_outflow_cents: number
+  pending_count: number
+  pending_cents: number
+  inflow_count: number
+  inflow_cents: number
+  needs_review_count: number
+  needs_review_cents: number
+  review_year?: number
+  review_year_needs_review_count?: number
+  review_year_needs_review_cents?: number
+  other_years_needs_review_count?: number
+  confirmed_count: number
+  confirmed_actual_count: number
+  confirmed_cents: number
+  excluded_count: number
+}
+
+export async function fetchPlaidOverview(): Promise<PlaidOverview> {
+  return fetchJson<PlaidOverview>('/api/v1/plaid/items')
+}
+
+export async function createPlaidLinkToken(consentAccepted: boolean): Promise<{ link_token: string; consent_policy_version: string }> {
+  return postJson('/api/v1/plaid/items/link_token', { consent_accepted: consentAccepted })
+}
+
+export async function createPlaidUpdateLinkToken(itemId: number): Promise<{ link_token: string }> {
+  return postJson(`/api/v1/plaid/items/${itemId}/update_link_token`, {})
+}
+
+export type PlaidExchangeResult = {
+  item: PlaidItem
+  plaid: PlaidOverview
+}
+
+export async function exchangePlaidPublicToken(values: { public_token: string; institution_id?: string | null; institution_name?: string | null }): Promise<PlaidExchangeResult> {
+  return postJson<PlaidExchangeResult>('/api/v1/plaid/items/exchange', values)
+}
+
+export async function syncPlaidItem(itemId: number): Promise<PlaidOverview> {
+  return postJson<PlaidOverview>(`/api/v1/plaid/items/${itemId}/sync`, {})
+}
+
+export async function disconnectPlaidItem(itemId: number): Promise<PlaidOverview> {
+  return fetchJson<PlaidOverview>(`/api/v1/plaid/items/${itemId}`, { method: 'DELETE' })
+}
+
+export type PlaidTransactionsPage = {
+  transactions: PlaidTransaction[]
+  pagination: { page: number; per_page: number; total: number; has_more: boolean }
+  summary: PlaidActivitySummary
+}
+
+export async function fetchPlaidTransactions(
+  page = 1,
+  view: PlaidActivityView = 'all',
+  filters: { query?: string; accountId?: number | null; reviewYear?: number } = {},
+): Promise<PlaidTransactionsPage> {
+  const query = new URLSearchParams({ limit: '50', page: String(page), view })
+  if (filters.query) query.set('query', filters.query)
+  if (filters.accountId) query.set('account_id', String(filters.accountId))
+  if (filters.reviewYear) query.set('review_year', String(filters.reviewYear))
+  return fetchJson<PlaidTransactionsPage>(`/api/v1/plaid/transactions?${query}`)
+}
+
+export async function updatePlaidItemPreferences(itemId: number, values: { auto_confirm_trusted_merchants: boolean }): Promise<PlaidOverview> {
+  return fetchJson<PlaidOverview>(`/api/v1/plaid/items/${itemId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(values),
+  })
+}
+
+export async function stagePlaidTransactions(transactionIds: number[]): Promise<{ drafted_count: number; transaction_draft_ids: number[] }> {
+  return postJson('/api/v1/plaid/transactions/stage', { transaction_ids: transactionIds })
+}
+
+export async function ignorePlaidTransactions(transactionIds: number[]): Promise<{ ignored_count: number }> {
+  return postJson('/api/v1/plaid/transactions/ignore', { transaction_ids: transactionIds })
 }
 
 export async function fetchAppData(realWorkspace = false): Promise<AppData> {

@@ -14,10 +14,10 @@ const participantTabs = readFileSync(resolve(__dirname, '../src/components/Parti
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 
-const expectedNav = "['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
+const expectedNav = "['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
   app.replace(/\s+/g, ' ').includes(expectedNav),
-  'participant nav must match Mel source order: Home, Ask Mia, My Profile, Budget, Wealth, CFO Filter, Optionality',
+  'participant nav must place transaction Activity beside Ask Mia before profile and planning modules',
 )
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
@@ -53,7 +53,10 @@ assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit p
 assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')
 assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
 assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
-assert.ok(participantTabs.includes('Swipe for more'), 'mobile navigation should disclose that more modules are horizontally available')
+assert.ok(
+  participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('participant-more-sections'),
+  'mobile navigation should disclose secondary modules behind an accessible More control',
+)
 assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant navigation shell should stay available while scrolling')
 assert.ok(css.includes('.income-schedule-form :where(input, select)'), 'income schedule controls should share the application input styling')
 assert.ok(css.includes('.income-schedule-submit'), 'income timeline changes should use an intentional primary action style')
@@ -112,7 +115,7 @@ assert.ok(chatHistory.includes('const effectiveStatus = documentImport?.status ?
 assert.ok(chatHistory.includes("effectiveStatus === 'needs_review'"), 'chat attachment review labels should use the effective live status')
 assert.ok(!chatHistory.includes("attachment.status === 'needs_review'"), 'historical attachment status should not directly control the current action label')
 assert.ok(app.includes('Page {safePage + 1} of {totalPages}'), 'large transaction review queues should paginate instead of filling the page')
-assert.ok(app.includes('Confirm all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk confirmation')
+assert.ok(app.includes('Confirm categorized {confirmableDrafts.length}'), 'pending review queues should bulk-confirm only intentionally categorized transactions')
 assert.ok(app.includes('Ignore all {filteredPendingDrafts.length}'), 'pending review queues should expose bulk ignore')
 assert.ok(app.includes('const phrase = `CONFIRM ${ids.length}`'), 'bulk actuals updates should require the exact typed count phrase')
 assert.ok(css.includes('.transaction-draft-queue-controls'), 'transaction review queue controls should have intentional responsive styling')

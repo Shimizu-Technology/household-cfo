@@ -18,7 +18,7 @@ class TransactionDraft < ApplicationRecord
   validates :status, inclusion: { in: STATUSES }
 
   scope :pending, -> { where(status: "pending") }
-  scope :recent_first, -> { order(created_at: :desc, id: :desc) }
+  scope :recent_first, -> { order(occurred_on: :desc, created_at: :desc, id: :desc) }
 
   def pending?
     status == "pending"

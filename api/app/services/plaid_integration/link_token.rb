@@ -1,0 +1,36 @@
+module PlaidIntegration
+  class LinkToken
+    INITIAL_HISTORY_DAYS = 90
+
+    def initialize(household:, user:, plaid_item: nil)
+      @household = household
+      @user = user
+      @plaid_item = plaid_item
+    end
+
+    def call
+      Client.safely do |client|
+        attributes = {
+          user: Plaid::LinkTokenCreateRequestUser.new(client_user_id: "household-#{household.id}-user-#{user.id}"),
+          client_name: "Household CFO Method",
+          country_codes: [ Plaid::CountryCode::US ],
+          language: "en",
+          access_token: plaid_item&.access_token,
+          webhook: Configuration.webhook_url
+        }
+        attributes[:redirect_uri] = Configuration.redirect_uri if Configuration.redirect_uri
+        attributes[:link_customization_name] = Configuration.link_customization_name if Configuration.link_customization_name
+        unless plaid_item
+          attributes[:products] = [ Plaid::Products::TRANSACTIONS ]
+          attributes[:transactions] = Plaid::LinkTokenTransactions.new(days_requested: INITIAL_HISTORY_DAYS)
+        end
+        request = Plaid::LinkTokenCreateRequest.new(**attributes)
+        client.link_token_create(request).link_token
+      end
+    end
+
+    private
+
+    attr_reader :household, :user, :plaid_item
+  end
+end

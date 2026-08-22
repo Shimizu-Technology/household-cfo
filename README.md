@@ -22,6 +22,7 @@ The app is now moving from polished preview toward real cohort MVP. It includes:
 - Dashboard/Budget/Wealth/CFO Filter/Optionality calculations from saved user data
 - Server-persisted Mia chat for signed-in users: the UI shows the full conversation since the last clear, while model context stays token-bounded with versioned active-thread state, model-backed structured intent resolution, and approved household context
 - Private S3-backed financial document imports with upload, source preview/download/delete, full-statement extraction, searchable/paginated transaction review queues, selected/all bulk confirm or ignore, review/edit/apply, and Ask Mia attachment flow
+- Read-only Plaid Transactions connections with encrypted server-side access tokens, explicit consent, household-scoped sync, pending/inflow boundaries, and participant-selected transaction drafts that never change actuals before confirmation
 - Backend-only Mia voice transcription through OpenRouter STT: browser recording uploads to Rails, transcript is visible/editable, and typed/voice messages use the same review-before-apply flow
 - Clerk auth plumbing with invite-only local `users` records
 - Browser-based admin console for cohorts, role/cohort policy, admin/coach/participant invite records, Resend invite emails, and cohort assignment
@@ -71,6 +72,14 @@ Local preview works without Clerk. For hosted/cohort environments:
 ## Safety / data rule
 
 Use demo-safe sample data only. Do not commit real client financial data, credentials, API keys, statements, pay stubs, or private documents. Runtime document uploads use private S3 storage; never place real financial documents in git.
+
+### Plaid Sandbox
+
+Plaid is optional. Without its environment variables, My Profile shows a safe setup-disabled state and the rest of the application works normally. To test Sandbox, add `PLAID_ENV=sandbox`, `PLAID_CLIENT_ID`, `PLAID_SECRET`, a separately generated `PLAID_DATA_ENCRYPTION_KEY`, and the registered local `PLAID_REDIRECT_URI` to `api/.env`; see `api/.env.example` for the key-generation command. Never put these values in Vite variables or the browser.
+
+For OAuth return testing, register `http://localhost:5173/` in Plaid Dashboard under Developers > API > Allowed redirect URIs. Production must use the exact HTTPS application URL. The React client keeps the short-lived Link token in user-scoped browser storage only long enough to resume the OAuth return, then removes it after success or exit.
+
+Connect through My Profile. Synced rows remain bank-source data: pending charges and inflows are informational, while posted expenses are prepared automatically as pending review drafts. Mia can query authorized bank activity, but confirmation still controls categorized budget actuals; trusted-merchant auto-confirm is an explicit opt-in and is off by default. Disconnect calls Plaid Item Remove before deleting the local token, accounts, and unapproved Plaid transactions. See `docs/security/plaid-data-flow.md` for the complete data and service-provider boundary.
 
 ## Current state and supporting plans
 

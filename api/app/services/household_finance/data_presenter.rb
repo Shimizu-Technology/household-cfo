@@ -106,19 +106,34 @@ module HouseholdFinance
       runway_gap_cents = [ target_cash_cents - snapshot.fetch(:liquid_assets_cents), 0 ].max
       business_income_cents = monthly_business_income_cents
       required_business_cents = [ monthly_need_cents - stable_income_cents, 0 ].max
-
-      {
-        scenario: transition_goal&.label || "Founder transition",
-        question: household.primary_goal.presence || "What would it take to safely make the next move?",
-        target_runway_months: runway_target,
-        current_runway_months: snapshot.fetch(:runway_months),
-        monthly_gap: dollars([ required_business_cents - business_income_cents, 0 ].max),
-        choices: optionality_choices(runway_gap_cents),
-        levers: [
+      transition_mode = business_transition_optionality?
+      scenario = if transition_mode
+        transition_goal&.label || "Founder transition"
+      else
+        household.primary_goal.presence || "Household stability"
+      end
+      levers = if transition_mode
+        [
           { label: "Business needs to pay", amount: dollars(required_business_cents) },
           { label: "Current business income", amount: dollars(business_income_cents) },
           { label: "Runway gap", amount: dollars(runway_gap_cents) }
         ]
+      else
+        [
+          { label: "Monthly surplus", amount: dollars([ snapshot.fetch(:baseline_surplus_cents), 0 ].max) },
+          { label: "Target runway reserve", amount: dollars(target_cash_cents) },
+          { label: "Runway gap", amount: dollars(runway_gap_cents) }
+        ]
+      end
+
+      {
+        scenario: scenario,
+        question: household.primary_goal.presence || "What would it take to safely make the next move?",
+        target_runway_months: runway_target,
+        current_runway_months: snapshot.fetch(:runway_months),
+        monthly_gap: dollars(transition_mode ? [ required_business_cents - business_income_cents, 0 ].max : runway_gap_cents),
+        choices: transition_mode ? transition_optionality_choices(runway_gap_cents) : goal_optionality_choices(runway_gap_cents),
+        levers: levers
       }
     end
 
@@ -329,8 +344,12 @@ module HouseholdFinance
     end
 
     def action_center
-      transaction_reviews = household.transaction_drafts.pending.count
-      action_reviews = household.mia_action_drafts.pending.count
+      current_year = Date.current.year
+      current_year_range = Date.new(current_year, 1, 1)..Date.new(current_year, 12, 31)
+      transaction_reviews = household.transaction_drafts.pending.where(occurred_on: current_year_range).count
+      action_reviews = household.mia_action_drafts.pending
+        .where("draft_type = :household_setup OR year = :year", household_setup: "household_setup", year: current_year)
+        .count
 
       {
         transaction_review_count: transaction_reviews,
@@ -338,7 +357,7 @@ module HouseholdFinance
         total_review_count: transaction_reviews + action_reviews,
         current_month_label: Date.current.strftime("%B"),
         current_month_index: Date.current.month - 1,
-        current_year: Date.current.year
+        current_year: current_year
       }
     end
 
@@ -456,7 +475,15 @@ module HouseholdFinance
       income_by_type("business")
     end
 
-    def optionality_choices(runway_gap_cents)
+    def business_transition_optionality?
+      goal_text = [ transition_goal&.label, household.primary_goal ].compact.join(" ")
+      return true if goal_text.match?(/\b(?:business|career|founder|job|leave|quit|replace income|reduce hours|cut back hours|transition|full[- ]time|self[- ]employ)\b/i)
+      return false if household.primary_goal.present?
+
+      monthly_business_income_cents.positive?
+    end
+
+    def transition_optionality_choices(runway_gap_cents)
       surplus_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       readiness_tone = snapshot.fetch(:readiness_tone)
       [
@@ -480,6 +507,44 @@ module HouseholdFinance
           fit_tone: runway_gap_cents.zero? && surplus_positive ? "yellow" : "red",
           upside: "Maximum focus immediately.",
           tradeoff: runway_gap_cents.zero? ? "Still needs a written runway plan." : "Runway gap should close before cutting stable income."
+        }
+      ]
+    end
+
+    def goal_optionality_choices(runway_gap_cents)
+      surplus_positive = snapshot.fetch(:baseline_surplus_cents).positive?
+      readiness_tone = snapshot.fetch(:readiness_tone)
+      goal_fit_label = if !surplus_positive
+        "Stabilize first"
+      elsif readiness_tone == "green"
+        "Ready to fund"
+      elsif readiness_tone == "yellow"
+        "Start steadily"
+      else
+        "Protect the baseline first"
+      end
+
+      [
+        {
+          label: "Protect the baseline",
+          fit_label: surplus_positive ? "Best fit now" : "Stabilize first",
+          fit_tone: surplus_positive ? "green" : "red",
+          upside: "Keeps essential bills and expected expenses protected while the plan settles.",
+          tradeoff: "The primary goal may move more slowly at first."
+        },
+        {
+          label: "Build the goal fund",
+          fit_label: goal_fit_label,
+          fit_tone: surplus_positive ? readiness_tone : "red",
+          upside: "Directs a repeatable part of monthly surplus toward the household's stated goal.",
+          tradeoff: "Requires a consistent limit on flexible spending."
+        },
+        {
+          label: "Accelerate the goal",
+          fit_label: runway_gap_cents.zero? && surplus_positive ? "Possible with safeguards" : "Not ready yet",
+          fit_tone: runway_gap_cents.zero? && surplus_positive ? "yellow" : "red",
+          upside: "Moves more available cash toward the goal once the household baseline is protected.",
+          tradeoff: runway_gap_cents.zero? ? "Keep a written buffer for irregular expenses." : "Close the runway gap before increasing the pace."
         }
       ]
     end

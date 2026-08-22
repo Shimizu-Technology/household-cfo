@@ -1,6 +1,6 @@
 class HouseholdTransaction < ApplicationRecord
   STATUSES = %w[confirmed reconciled ignored].freeze
-  SOURCE_TYPES = %w[manual_chat manual_ui receipt screenshot statement import].freeze
+  SOURCE_TYPES = %w[manual_chat manual_ui receipt screenshot statement import plaid].freeze
 
   belongs_to :household
   belongs_to :budget_period

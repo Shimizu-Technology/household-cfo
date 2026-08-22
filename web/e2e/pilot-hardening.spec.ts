@@ -5,6 +5,14 @@ const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
 
+async function openSection(page: Page, name: string) {
+  const section = page.getByRole('button', { name, exact: true })
+  if (!(await section.isVisible())) {
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+  }
+  await section.click()
+}
+
 const profile = {
   household: { name: 'Pilot Household', stage: 'First cohort', location: 'Guam', primary_goal: 'Build a calm annual rhythm.' },
   coach: { name: 'Mia', role: 'AI coach', voice: 'Warm and direct' },
@@ -217,6 +225,13 @@ const pilotFeedbackDetail = {
   screenshot: { filename: 'ask-mia-error.png', content_type: 'image/png', byte_size: 18_432 },
 }
 
+const emptyPlaidSummary = {
+  all_count: 0, posted_outflow_count: 0, posted_outflow_cents: 0,
+  pending_count: 0, pending_cents: 0, inflow_count: 0, inflow_cents: 0,
+  needs_review_count: 0, needs_review_cents: 0, confirmed_count: 0,
+  confirmed_actual_count: 0, confirmed_cents: 0, excluded_count: 0,
+}
+
 function chatMessages(count = 125) {
   return Array.from({ length: count }, (_, index) => ({
     id: index + 1,
@@ -297,11 +312,231 @@ async function mockDemoApi(page: Page) {
   })
 }
 
+async function mockEmptyPlaidState(page: Page, configured: boolean) {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({
+    status: 200,
+    json: { configured, environment: configured ? 'sandbox' : null, consent_policy_version: '2026-08-17', items: [] },
+  }))
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => route.fulfill({
+    status: 200,
+    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary },
+  }))
+}
+
 test.beforeEach(async ({ page }) => {
   await mockDemoApi(page)
   await page.addInitScript((messages) => {
     window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify(messages))
   }, chatMessages(100))
+})
+
+test('participant workflow remains usable when Plaid is not configured', async ({ page }) => {
+  await mockEmptyPlaidState(page, false)
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await expect(page.getByText('Bank connection is not part of this pilot yet.')).toBeVisible()
+  await expect(page.getByText('Nothing is missing from your setup.', { exact: false })).toBeVisible()
+  await expect(page.getByText('server-side Plaid credentials', { exact: false })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toHaveCount(0)
+
+  await openSection(page, 'Activity')
+  await expect(page.getByText('Manual activity is ready.')).toBeVisible()
+  await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Budget', exact: true })).toBeVisible()
+})
+
+test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
+  await mockEmptyPlaidState(page, true)
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await expect(page.getByText('No bank is connected yet.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toBeDisabled()
+  await expect(page.getByRole('checkbox', { name: /I authorize Household CFO Method/ })).toBeVisible()
+
+  await openSection(page, 'Activity')
+  await expect(page.getByText('No bank activity yet.')).toBeVisible()
+})
+
+test('account selection keeps activity cards and row totals in the same scope', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({
+    status: 200,
+    json: {
+      configured: true,
+      environment: 'sandbox',
+      consent_policy_version: '2026-08-17',
+      items: [{
+        id: 7,
+        institution_name: 'Sandbox Bank',
+        status: 'active',
+        environment: 'sandbox',
+        consented_at: '2026-08-17T00:00:00Z',
+        last_synced_at: '2026-08-17T01:00:00Z',
+        health: { state: 'healthy', label: 'Healthy', message: 'Bank activity is current.', requires_attention: false, last_successful_update_at: '2026-08-17T01:00:00Z', stale_after: '2026-08-18T01:00:00Z' },
+        error_message: null,
+        disconnected_at: null,
+        auto_confirm_trusted_merchants: false,
+        accounts: [
+          { id: 11, name: 'Checking', official_name: null, mask: '1234', type: 'depository', subtype: 'checking', current_balance_cents: 200_000, available_balance_cents: 190_000, currency: 'USD', active: true },
+          { id: 12, name: 'Savings', official_name: null, mask: '4321', type: 'depository', subtype: 'savings', current_balance_cents: 500_000, available_balance_cents: 500_000, currency: 'USD', active: true },
+        ],
+      }],
+    },
+  }))
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => {
+    const accountId = new URL(route.request().url()).searchParams.get('account_id')
+    const checkingOnly = accountId === '11'
+    return route.fulfill({
+      status: 200,
+      json: {
+        transactions: [],
+        pagination: { page: 1, per_page: 100, total: checkingOnly ? 1 : 2, has_more: false },
+        summary: {
+          ...emptyPlaidSummary,
+          all_count: checkingOnly ? 1 : 2,
+          posted_outflow_count: checkingOnly ? 1 : 2,
+          posted_outflow_cents: checkingOnly ? 4_200 : 14_100,
+          confirmed_count: checkingOnly ? 1 : 2,
+          confirmed_actual_count: checkingOnly ? 1 : 2,
+          confirmed_cents: checkingOnly ? 4_200 : 14_100,
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Activity')
+  const summary = page.getByLabel('Bank activity summary')
+  await expect(summary.getByText('$141.00')).toHaveCount(2)
+
+  await page.getByLabel('Account').selectOption('11')
+  await expect(summary.getByText('$42.00')).toHaveCount(2)
+  await expect(page.getByRole('heading', { name: '1 transaction' })).toBeVisible()
+})
+
+test('Plaid Link loads once and opens once after explicit consent', async ({ page }) => {
+
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/plaid/items', (route) => route.fulfill({
+    status: 200,
+    json: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [] },
+  }))
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => route.fulfill({
+    status: 200,
+    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary },
+  }))
+  await page.route('http://api.test/api/v1/plaid/items/link_token', (route) => route.fulfill({
+    status: 200,
+    json: { link_token: 'link-sandbox-test', consent_policy_version: '2026-08-17' },
+  }))
+  await page.route('https://cdn.plaid.com/link/v2/stable/link-initialize.js', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: `
+      window.__plaidScriptLoads = (window.__plaidScriptLoads || 0) + 1;
+      window.Plaid = {
+        create: function (config) {
+          window.__plaidConfig = config;
+          setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
+          return {
+            open: function () { window.__plaidOpenCount = (window.__plaidOpenCount || 0) + 1; },
+            submit: function () {},
+            exit: function (_options, callback) { if (callback) callback(); },
+            destroy: function () {}
+          };
+        }
+      };
+    `,
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
+  await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
+
+  await expect.poll(() => page.evaluate(() => (window as Window & { __plaidOpenCount?: number }).__plaidOpenCount ?? 0)).toBe(1)
+  expect(await page.evaluate(() => document.querySelectorAll('script[src="https://cdn.plaid.com/link/v2/stable/link-initialize.js"]').length)).toBe(1)
+  expect(await page.evaluate(() => (window as Window & { __plaidScriptLoads?: number }).__plaidScriptLoads)).toBe(1)
+})
+
+test('initial Plaid sync refreshes the workspace when transaction history is ready', async ({ page }) => {
+  let workspaceRequests = 0
+  let connected = false
+  let overviewRequestsAfterExchange = 0
+  const initialItem = {
+    id: 17,
+    institution_name: 'Sandbox Bank',
+    status: 'active',
+    environment: 'sandbox',
+    consented_at: '2026-08-22T00:00:00Z',
+    last_synced_at: null,
+    health: { state: 'initializing', label: 'Preparing history', message: 'The first transaction history sync is still being prepared.', requires_attention: false, last_successful_update_at: null, stale_after: '2026-08-23T00:00:00Z' },
+    error_message: null,
+    disconnected_at: null,
+    auto_confirm_trusted_merchants: false,
+    accounts: [],
+  }
+  const completedItem = {
+    ...initialItem,
+    last_synced_at: '2026-08-22T01:00:00Z',
+    health: { ...initialItem.health, state: 'healthy', label: 'Feed current', message: 'Plaid has updated this connection within the expected window.', last_successful_update_at: '2026-08-22T01:00:00Z' },
+  }
+
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    workspaceRequests += 1
+    return route.fulfill({ status: 200, json: realWorkspaceData(true) })
+  })
+  await page.route('http://api.test/api/v1/plaid/items', (route) => {
+    if (!connected) return route.fulfill({ status: 200, json: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [] } })
+    overviewRequestsAfterExchange += 1
+    const synced = overviewRequestsAfterExchange >= 2
+    return route.fulfill({ status: 200, json: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [synced ? completedItem : initialItem] } })
+  })
+  await page.route('http://api.test/api/v1/plaid/transactions**', (route) => route.fulfill({
+    status: 200,
+    json: { transactions: [], pagination: { page: 1, per_page: 100, total: 0, has_more: false }, summary: emptyPlaidSummary },
+  }))
+  await page.route('http://api.test/api/v1/plaid/items/link_token', (route) => route.fulfill({
+    status: 200,
+    json: { link_token: 'link-sandbox-test', consent_policy_version: '2026-08-17' },
+  }))
+  await page.route('http://api.test/api/v1/plaid/items/exchange', (route) => {
+    connected = true
+    return route.fulfill({
+      status: 201,
+      json: { item: initialItem, plaid: { configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17', items: [initialItem] } },
+    })
+  })
+  await page.route('https://cdn.plaid.com/link/v2/stable/link-initialize.js', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: `
+      window.Plaid = {
+        create: function (config) {
+          window.__plaidConfig = config;
+          setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
+          return { open: function () {}, submit: function () {}, exit: function (_options, callback) { if (callback) callback(); }, destroy: function () {} };
+        }
+      };
+    `,
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
+  await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
+  await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __plaidConfig?: unknown }).__plaidConfig))).toBe(true)
+  await page.evaluate(() => {
+    const plaidConfig = (window as Window & { __plaidConfig?: { onSuccess: (token: string, metadata: { institution: { institution_id: string; name: string } }) => void } }).__plaidConfig
+    plaidConfig?.onSuccess('public-sandbox-test', { institution: { institution_id: 'ins_17', name: 'Sandbox Bank' } })
+  })
+
+  await expect(page.getByText('Sync complete. Posted expenses are ready for household review, and Mia can read the updated bank activity now.')).toBeVisible()
+  await expect(page.getByText(/Last synced/)).toBeVisible()
+  await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
 })
 
 test('Home centers review work and keeps Red guidance internally consistent', async ({ page }) => {
@@ -355,7 +590,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
   await page.goto('/')
   for (const section of ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {
-    if (section !== 'Home') await page.getByRole('button', { name: section, exact: true }).click()
+    if (section !== 'Home') await openSection(page, section)
 
     const audit = await page.evaluate(() => {
       const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong, .cash-flow-detail-panel dd, .transaction-draft-impact-row dd, .transaction-draft-impact-title b'
@@ -630,20 +865,23 @@ test('participant navigation remains available after deep scrolling', async ({ p
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Wealth', exact: true }).click()
+  await openSection(page, 'Wealth')
   const debtCard = page.getByRole('heading', { name: 'Debt payoff' }).locator('..')
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
   await expect(debtCard.locator('.progress-track')).toHaveCount(0)
   await expect(debtCard).not.toContainText('0 / 5,400')
+  const outlook = page.locator('.metric-card').filter({ hasText: '10-year contribution outlook' })
+  await expect(outlook).toContainText('Excludes market growth, taxes, fees, and inflation.')
+  await expect(page.getByText('Retirement projection', { exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Optionality', exact: true }).click()
+  await openSection(page, 'Optionality')
   await expect(page.getByText('Best fit now')).toBeVisible()
   await expect(page.getByText('Build runway first')).toBeVisible()
   await expect(page.getByText('Not ready yet', { exact: true })).toBeVisible()
   await expect(page.getByText(/\/100 readiness/)).toHaveCount(0)
 })
 
-test('compact phone layouts keep the status card legible and expose horizontal navigation', async ({ page }, testInfo) => {
+test('compact phone layouts keep the status card legible and progressively reveal secondary navigation', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only responsive assertion')
   await page.goto('/')
 
@@ -654,7 +892,20 @@ test('compact phone layouts keep the status card legible and expose horizontal n
   expect(copyBox).not.toBeNull()
   expect((headingBox?.width ?? 0)).toBeGreaterThan(80)
   expect((headingBox?.y ?? 0) + (headingBox?.height ?? 0)).toBeLessThanOrEqual((copyBox?.y ?? 0) + 1)
-  await expect(page.getByText('Swipe for more →')).toBeVisible()
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  await expect(more).toBeVisible()
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('button', { name: 'Activity', exact: true })).not.toBeVisible()
+  await more.click()
+  await expect(more).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeVisible()
+  const primaryNavButtons = page.locator('.tabs > button')
+  const touchHeights = await primaryNavButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
+  expect(Math.min(...touchHeights)).toBeGreaterThanOrEqual(44)
+  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await expect(more).toBeFocused()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
@@ -879,7 +1130,7 @@ test('import review copy follows extracted results when a selected receipt produ
 
 test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
-  await page.getByRole('button', { name: 'Admin', exact: true }).click()
+  await openSection(page, 'Admin')
 
   const inviteForm = page.locator('.admin-form').filter({ has: page.getByLabel('Email') }).first()
   await expect(inviteForm.getByLabel('First name')).toHaveCount(0)
@@ -898,7 +1149,7 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
 
 test('admin can privately review and resolve submitted pilot feedback', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
-  await page.getByRole('button', { name: 'Admin', exact: true }).click()
+  await openSection(page, 'Admin')
 
   const inbox = page.locator('.pilot-feedback-inbox')
   await expect(inbox.getByText('The upload stopped with a provider error.')).toBeVisible()
@@ -1016,6 +1267,113 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   await expect(card.getByText(/splits? need/)).toHaveCount(0)
   await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('receipt category corrections refresh the selected import immediately', async ({ page }) => {
+  const draft = {
+    id: 192,
+    occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-16`,
+    merchant: "Tita's Demo Market",
+    amount: 3.35,
+    amount_cents: 335,
+    status: 'pending',
+    source_type: 'receipt',
+    financial_document_import_id: 701,
+    category_id: null,
+    category_name: null,
+    splits: [{
+      id: 505,
+      budget_category_id: null,
+      category_name: 'Tax',
+      stack_key: null,
+      stack_label: null,
+      amount: 3.35,
+      amount_cents: 335,
+      notes: 'Sales tax',
+      confidence: 0.65,
+      metadata: { category_match_status: 'needs_review', category_match_reason: 'no_strong_match', extracted_category_name: 'Tax' },
+    }],
+    matches: [],
+  }
+  let workspace = realWorkspaceData(true)
+  workspace = {
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: {
+        ...workspace.budget.annual_plan!,
+        pending_transaction_drafts: [draft],
+      },
+    },
+  }
+  const documentImport = {
+    id: 701,
+    household_id: 77,
+    document_kind: 'receipt',
+    status: 'needs_review',
+    filename: 'receipt.png',
+    content_type: 'image/png',
+    byte_size: 24_000,
+    document_date: draft.occurred_on,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'Mia found one transaction draft.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: null,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:00:00Z`,
+    source_available: true,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [draft],
+    attempts: [],
+  }
+
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [documentImport] } }))
+  await page.route('http://api.test/api/v1/transaction_drafts/192', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback()
+    const payload = route.request().postDataJSON().transaction_draft
+    const updatedDraft = {
+      ...draft,
+      category_id: 2,
+      category_name: 'Dining out',
+      splits: payload.splits.map((split: typeof draft.splits[number]) => ({
+        ...split,
+        budget_category_id: split.budget_category_id,
+        category_name: 'Dining out',
+        stack_key: 'discretionary',
+        stack_label: 'Discretionary',
+      })),
+    }
+    workspace = {
+      ...workspace,
+      budget: {
+        ...workspace.budget,
+        annual_plan: {
+          ...workspace.budget.annual_plan!,
+          pending_transaction_drafts: [updatedDraft],
+        },
+      },
+    }
+    return route.fulfill({ status: 200, json: { transaction_draft: updatedDraft, workspace } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
+  await card.getByRole('button', { name: 'Review categories' }).click()
+  await card.getByLabel('Category').selectOption('2')
+  await card.getByRole('button', { name: 'Save draft' }).click()
+
+  await expect(card.getByText(/splits? need/)).toHaveCount(0)
+  await expect(card.locator('.transaction-draft-splits')).toContainText('Dining out')
+  await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled()
 })
 
 test('a late spending report cannot overwrite the refresh triggered by a transaction decision', async ({ page }) => {
