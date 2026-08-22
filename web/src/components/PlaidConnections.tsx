@@ -466,9 +466,9 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
         {plaidLinkLauncher}
         <div className="plaid-heading">
           <div>
-            <span className="eyebrow">Bank connections</span>
-            <h2 id="bank-connections-heading">Connect the source. Keep control of the truth.</h2>
-            <p>Mia can read authorized bank activity immediately. Only confirmed transactions become categorized budget actuals.</p>
+            <span className="eyebrow">{overview && !overview.configured ? 'Manual-first pilot' : 'Bank connections'}</span>
+            <h2 id="bank-connections-heading">{overview && !overview.configured ? 'Your workspace works without a bank connection.' : 'Connect the source. Keep control of the truth.'}</h2>
+            <p>{overview && !overview.configured ? 'Keep planning, coaching with Mia, uploading documents, and reviewing manual entries as usual.' : 'Mia can read authorized bank activity immediately. Only confirmed transactions become categorized budget actuals.'}</p>
           </div>
           {overview?.environment && <span className="plaid-environment">{overview.environment}</span>}
         </div>
@@ -476,8 +476,10 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
         {error && <p className="form-error" role="alert">{error}</p>}
         {notice && <p className="form-notice" role="status">{notice}</p>}
 
-        {!overview?.configured ? (
-          <div className="plaid-empty"><strong>Plaid setup is not enabled on this server yet.</strong><p>Add server-side Plaid credentials and a separate data-encryption key.</p></div>
+        {!overview ? (
+          <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking bank connection availability…' : 'Bank connection status is temporarily unavailable.'}</strong><p>Your profile, budget, Mia coaching, document uploads, and manual reviews remain available.</p></div>
+        ) : !overview.configured ? (
+          <div className="plaid-empty"><strong>Bank connection is not part of this pilot yet.</strong><p>Nothing is missing from your setup. Your profile, budget, Mia coaching, document uploads, and manual reviews all work without it.</p></div>
         ) : (
           <>
             <div className="plaid-consent">
@@ -530,9 +532,9 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       {plaidLinkLauncher}
       <div className="plaid-heading">
         <div>
-          <span className="eyebrow">Transaction activity</span>
-          <h2 id="bank-activity-heading">One feed. Every state made explicit.</h2>
-          <p>Bank-observed activity is available to Mia. Confirmation controls category truth and official budget actuals.</p>
+          <span className="eyebrow">{overview && !overview.configured ? 'Manual activity' : 'Transaction activity'}</span>
+          <h2 id="bank-activity-heading">{overview && !overview.configured ? 'Keep your record current without a bank feed.' : 'One feed. Every state made explicit.'}</h2>
+          <p>{overview && !overview.configured ? 'Report expenses to Mia or add them during budget review. Nothing changes your official actuals until you confirm it.' : 'Bank-observed activity is available to Mia. Confirmation controls category truth and official budget actuals.'}</p>
         </div>
         {overview?.environment && <span className="plaid-environment">{overview.environment}</span>}
       </div>
@@ -540,8 +542,14 @@ export function PlaidConnections({ userId, onDraftsCreated, variant = 'connectio
       {error && <p className="form-error" role="alert">{error}</p>}
       {notice && <p className="form-notice" role="status">{notice}</p>}
 
-      {activeItems.length === 0 ? (
-        <div className="plaid-empty"><strong>No bank activity yet.</strong><p>Connect an account from My Profile. Once authorized, Mia can describe the feed while budget actuals remain under your control.</p></div>
+      {!overview ? (
+        <div className="plaid-empty"><strong>{busy === 'loading' ? 'Checking activity availability…' : 'Activity status is temporarily unavailable.'}</strong><p>Use Budget and Mia for manual expense review while this status recovers.</p></div>
+      ) : activeItems.length === 0 ? (
+        overview.configured ? (
+          <div className="plaid-empty"><strong>No bank activity yet.</strong><p>Connect an account from My Profile. Once authorized, Mia can describe the feed while budget actuals remain under your control.</p></div>
+        ) : (
+          <div className="plaid-empty"><strong>Manual activity is ready.</strong><p>Tell Mia about an expense, then review it in Budget before it becomes an official actual. Bank connection is optional and is not needed for this pilot.</p></div>
+        )
       ) : (
         <>
           {activitySummary && (

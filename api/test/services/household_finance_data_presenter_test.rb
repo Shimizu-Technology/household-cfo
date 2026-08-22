@@ -49,6 +49,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "optionality uses approved readiness language instead of conflicting numeric scores" do
     household, user = create_household
+    household.update!(primary_goal: "Leave my job safely")
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     account = household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
@@ -74,6 +75,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "optionality does not endorse staying the course when cash flow is negative" do
     household, user = create_household
+    household.update!(primary_goal: "Leave my job safely")
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 200_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
 
@@ -86,6 +88,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "optionality uses a red tone when cash flow is exactly break-even" do
     household, user = create_household
+    household.update!(primary_goal: "Leave my job safely")
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 300_000, cadence: "monthly")
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 900_000)
@@ -94,6 +97,24 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     hybrid = HouseholdFinance::DataPresenter.new(household, user: user).optionality.fetch(:choices).find { |choice| choice.fetch(:label) == "Hybrid transition" }
 
     assert_equal [ "Stabilize first", "red" ], hybrid.values_at(:fit_label, :fit_tone)
+  end
+
+  test "optionality follows a non-business household goal without founder transition language" do
+    household, user = create_household
+    household.update!(primary_goal: "Build a three-month emergency fund without falling behind on bills")
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
+    household.income_sources.create!(label: "Side business", source_type: "business", amount_cents: 50_000, cadence: "monthly")
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 370_000, cadence: "monthly")
+    household.goals.create!(label: household.primary_goal, goal_type: "transition", priority: 2)
+
+    payload = HouseholdFinance::DataPresenter.new(household, user: user).optionality
+
+    assert_equal household.primary_goal, payload.fetch(:scenario)
+    assert_equal [ "Monthly surplus", "Target runway reserve", "Runway gap" ], payload.fetch(:levers).pluck(:label)
+    assert_equal [ "Protect the baseline", "Build the goal fund", "Accelerate the goal" ], payload.fetch(:choices).pluck(:label)
+    refute_includes payload.to_json, "Business needs to pay"
+    refute_includes payload.to_json, "Hybrid transition"
+    refute_includes payload.to_json, "Leap now"
   end
 
   test "deficit household does not show a negative non-essential purchase amount" do

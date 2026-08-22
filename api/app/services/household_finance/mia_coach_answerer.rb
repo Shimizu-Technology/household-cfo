@@ -287,14 +287,20 @@ module HouseholdFinance
       surplus_cents = facts.fetch(:baseline_surplus_cents)
       if surplus_cents.positive?
         transfer_cents = recommended_runway_transfer_cents(surplus_cents)
-        return "Your first focus this month is protecting the surplus you already have, not creating one. Based on approved household numbers, monthly income is #{money(income_cents)}, monthly outflow is #{money(outflow_cents)}, and baseline surplus is already positive by #{money(surplus_cents)}. Because readiness is #{facts.fetch(:readiness_label)} with #{facts.fetch(:runway_months)} months of runway, let essential and expected bills clear first, review pending bank activity, then direct about #{money(transfer_cents)} of the remaining surplus toward runway. Next CFO move: verify the next three due bills and keep new wants from consuming that existing surplus."
+        return "Your first focus this month is protecting the surplus you already have, not creating one. Based on approved household numbers, monthly income is #{money(income_cents)}, monthly outflow is #{money(outflow_cents)}, and baseline surplus is already positive by #{money(surplus_cents)}. Because readiness is #{facts.fetch(:readiness_label)} with #{facts.fetch(:runway_months)} months of runway, let essential and expected bills clear first, #{activity_review_step}, then direct about #{money(transfer_cents)} of the remaining surplus toward runway. Next CFO move: verify the next three due bills and keep new wants from consuming that existing surplus."
       end
 
       if surplus_cents.negative?
         return "Your first focus this month is closing the #{money(surplus_cents.abs)} monthly baseline shortfall before adding new wants. Based on approved household numbers, monthly income is #{money(income_cents)} and monthly outflow is #{money(outflow_cents)}. Protect roof, food, utilities, medical needs, and debt minimums first, then reduce or renegotiate one lower-priority outflow. Next CFO move: name the next three due bills and the one flexible expense you can pause this month."
       end
 
-      "Your first focus this month is protecting breakeven and building a small buffer before adding new wants. Based on approved household numbers, monthly income and monthly outflow are both #{money(income_cents)}. Review pending bank activity, protect essential and expected bills, then choose one flexible expense to reduce so the household has positive margin. Next CFO move: verify the next three due bills and choose the first expense that can create breathing room."
+      "Your first focus this month is protecting breakeven and building a small buffer before adding new wants. Based on approved household numbers, monthly income and monthly outflow are both #{money(income_cents)}. #{activity_review_step.sub(/\Areview/, "Review")}, protect essential and expected bills, then choose one flexible expense to reduce so the household has positive margin. Next CFO move: verify the next three due bills and choose the first expense that can create breathing room."
+    end
+
+    def activity_review_step
+      return "review pending bank activity" if household.plaid_items.connected.exists?
+
+      "review any expenses you reported to Mia or entered manually"
     end
 
     def readiness_follow_up?

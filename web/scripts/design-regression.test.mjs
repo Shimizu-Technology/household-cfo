@@ -53,7 +53,10 @@ assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit p
 assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')
 assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
 assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
-assert.ok(participantTabs.includes('Swipe for more'), 'mobile navigation should disclose that more modules are horizontally available')
+assert.ok(
+  participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('participant-more-sections'),
+  'mobile navigation should disclose secondary modules behind an accessible More control',
+)
 assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant navigation shell should stay available while scrolling')
 assert.ok(css.includes('.income-schedule-form :where(input, select)'), 'income schedule controls should share the application input styling')
 assert.ok(css.includes('.income-schedule-submit'), 'income timeline changes should use an intentional primary action style')

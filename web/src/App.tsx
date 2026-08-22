@@ -2156,8 +2156,8 @@ function App() {
         <section className="screen-grid activity-screen">
           <ScreenHeading
             eyebrow="Activity"
-            title="The bank feed and the household truth—side by side."
-            copy="Mia can read authorized bank activity immediately. You keep control over categorization, exclusions, splits, and what becomes an official budget actual."
+            title="Review what changed before it becomes household truth."
+            copy="Manual reports work today. If bank connections become available, authorized activity will appear here too. You always control what becomes an official budget actual."
           />
 
           {isRealWorkspace && auth.currentUser ? (
@@ -2381,7 +2381,11 @@ function App() {
           <div className="metric-row">
             <Metric label="Net worth" value={currency.format(data.wealth.summary.net_worth)} />
             <Metric label="Liquid net worth" value={currency.format(data.wealth.summary.liquid_net_worth)} />
-            <Metric label="Retirement projection" value={currency.format(data.wealth.summary.retirement_projection)} />
+            <Metric
+              label="10-year contribution outlook"
+              value={currency.format(data.wealth.summary.retirement_projection)}
+              detail="Current retirement balance plus 10 years of today’s monthly wealth-building amount. Excludes market growth, taxes, fees, and inflation."
+            />
             <Metric label="Monthly wealth building" value={currency.format(data.wealth.summary.monthly_wealth_building)} />
           </div>
 

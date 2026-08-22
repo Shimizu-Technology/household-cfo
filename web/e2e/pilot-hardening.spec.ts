@@ -5,6 +5,14 @@ const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
 
+async function openSection(page: Page, name: string) {
+  const section = page.getByRole('button', { name, exact: true })
+  if (!(await section.isVisible())) {
+    await page.getByRole('button', { name: 'More', exact: true }).click()
+  }
+  await section.click()
+}
+
 const profile = {
   household: { name: 'Pilot Household', stage: 'First cohort', location: 'Guam', primary_goal: 'Build a calm annual rhythm.' },
   coach: { name: 'Mia', role: 'AI coach', voice: 'Warm and direct' },
@@ -328,11 +336,14 @@ test('participant workflow remains usable when Plaid is not configured', async (
 
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'My Profile', exact: true }).click()
-  await expect(page.getByText('Plaid setup is not enabled on this server yet.')).toBeVisible()
+  await expect(page.getByText('Bank connection is not part of this pilot yet.')).toBeVisible()
+  await expect(page.getByText('Nothing is missing from your setup.', { exact: false })).toBeVisible()
+  await expect(page.getByText('server-side Plaid credentials', { exact: false })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Activity', exact: true }).click()
-  await expect(page.getByText('No bank activity yet.')).toBeVisible()
+  await openSection(page, 'Activity')
+  await expect(page.getByText('Manual activity is ready.')).toBeVisible()
+  await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Budget', exact: true })).toBeVisible()
 })
 
@@ -345,7 +356,7 @@ test('configured Plaid clearly supports a participant with no connections', asyn
   await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toBeDisabled()
   await expect(page.getByRole('checkbox', { name: /I authorize Household CFO Method/ })).toBeVisible()
 
-  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await openSection(page, 'Activity')
   await expect(page.getByText('No bank activity yet.')).toBeVisible()
 })
 
@@ -397,7 +408,7 @@ test('account selection keeps activity cards and row totals in the same scope', 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await openSection(page, 'Activity')
   const summary = page.getByLabel('Bank activity summary')
   await expect(summary.getByText('$141.00')).toHaveCount(2)
 
@@ -579,7 +590,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
   await page.goto('/')
   for (const section of ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {
-    if (section !== 'Home') await page.getByRole('button', { name: section, exact: true }).click()
+    if (section !== 'Home') await openSection(page, section)
 
     const audit = await page.evaluate(() => {
       const selectors = '.metric-card strong, .stack-card strong, .decision-card > strong, .readiness-milestone-card > strong, .outlook-month span, .outlook-month b, .plan-value strong, .month-plan-income strong, .month-plan-decision-row strong, .cash-flow-detail-panel dd, .transaction-draft-impact-row dd, .transaction-draft-impact-title b'
@@ -854,20 +865,23 @@ test('participant navigation remains available after deep scrolling', async ({ p
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Wealth', exact: true }).click()
+  await openSection(page, 'Wealth')
   const debtCard = page.getByRole('heading', { name: 'Debt payoff' }).locator('..')
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
   await expect(debtCard.locator('.progress-track')).toHaveCount(0)
   await expect(debtCard).not.toContainText('0 / 5,400')
+  const outlook = page.locator('.metric-card').filter({ hasText: '10-year contribution outlook' })
+  await expect(outlook).toContainText('Excludes market growth, taxes, fees, and inflation.')
+  await expect(page.getByText('Retirement projection', { exact: true })).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Optionality', exact: true }).click()
+  await openSection(page, 'Optionality')
   await expect(page.getByText('Best fit now')).toBeVisible()
   await expect(page.getByText('Build runway first')).toBeVisible()
   await expect(page.getByText('Not ready yet', { exact: true })).toBeVisible()
   await expect(page.getByText(/\/100 readiness/)).toHaveCount(0)
 })
 
-test('compact phone layouts keep the status card legible and expose horizontal navigation', async ({ page }, testInfo) => {
+test('compact phone layouts keep the status card legible and progressively reveal secondary navigation', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only responsive assertion')
   await page.goto('/')
 
@@ -878,7 +892,20 @@ test('compact phone layouts keep the status card legible and expose horizontal n
   expect(copyBox).not.toBeNull()
   expect((headingBox?.width ?? 0)).toBeGreaterThan(80)
   expect((headingBox?.y ?? 0) + (headingBox?.height ?? 0)).toBeLessThanOrEqual((copyBox?.y ?? 0) + 1)
-  await expect(page.getByText('Swipe for more →')).toBeVisible()
+  const more = page.getByRole('button', { name: 'More', exact: true })
+  await expect(more).toBeVisible()
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('button', { name: 'Activity', exact: true })).not.toBeVisible()
+  await more.click()
+  await expect(more).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeVisible()
+  const primaryNavButtons = page.locator('.tabs > button')
+  const touchHeights = await primaryNavButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
+  expect(Math.min(...touchHeights)).toBeGreaterThanOrEqual(44)
+  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await expect(more).toHaveAttribute('aria-expanded', 'false')
+  await expect(more).toBeFocused()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
@@ -1103,7 +1130,7 @@ test('import review copy follows extracted results when a selected receipt produ
 
 test('admin cohort rows show only safe pilot progress signals', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
-  await page.getByRole('button', { name: 'Admin', exact: true }).click()
+  await openSection(page, 'Admin')
 
   const inviteForm = page.locator('.admin-form').filter({ has: page.getByLabel('Email') }).first()
   await expect(inviteForm.getByLabel('First name')).toHaveCount(0)
@@ -1122,7 +1149,7 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
 
 test('admin can privately review and resolve submitted pilot feedback', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin')
-  await page.getByRole('button', { name: 'Admin', exact: true }).click()
+  await openSection(page, 'Admin')
 
   const inbox = page.locator('.pilot-feedback-inbox')
   await expect(inbox.getByText('The upload stopped with a provider error.')).toBeVisible()

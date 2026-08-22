@@ -827,6 +827,14 @@ h3 {
   box-shadow: 0 10px 22px rgba(123, 74, 88, 0.18);
 }
 
+.tabs-secondary {
+  display: contents;
+}
+
+.tabs-more-toggle {
+  display: none;
+}
+
 .tabs-shell {
   position: sticky;
   top: 0;
@@ -835,10 +843,6 @@ h3 {
   background: rgba(246, 239, 229, 0.92);
   backdrop-filter: blur(18px);
   box-shadow: 0 10px 24px rgba(47, 38, 28, 0.08);
-}
-
-.tabs-scroll-cue {
-  display: none;
 }
 
 .screen-grid {
@@ -1200,6 +1204,13 @@ h3 {
 
 .metric-card strong.metric-value-xlong {
   font-size: clamp(0.78rem, 7.2cqi, 1.08rem);
+}
+
+.metric-card small {
+  margin-top: 9px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.4;
 }
 
 .two-column,
@@ -2900,7 +2911,9 @@ h3 {
   }
 
   .tabs {
-    top: 0;
+    display: grid;
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 4px;
     margin: 8px -2px 12px;
     padding: 4px;
     border-radius: 18px;
@@ -2911,18 +2924,29 @@ h3 {
     margin-bottom: 12px;
   }
 
-  .tabs-shell .tabs {
-    margin-bottom: 3px;
+  .tabs-secondary {
+    display: none;
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 4px;
+    padding-top: 4px;
+    border-top: 1px solid rgba(31, 36, 33, 0.08);
   }
 
-  .tabs-scroll-cue {
-    display: block;
-    padding-right: 5px;
-    color: var(--muted);
-    font-size: 0.64rem;
-    font-weight: 800;
-    letter-spacing: 0.04em;
-    text-align: right;
+  .tabs.is-more-open .tabs-secondary {
+    display: grid;
+  }
+
+  .tabs-more-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+  }
+
+  .tabs-more-toggle span {
+    font-size: 1rem;
+    line-height: 1;
   }
 
   .home-action-center {
@@ -2941,9 +2965,11 @@ h3 {
   }
 
   .tabs button {
-    min-height: 36px;
-    padding: 7px 11px;
-    font-size: 0.72rem;
+    min-width: 0;
+    min-height: 44px;
+    padding: 7px 4px;
+    font-size: 0.68rem;
+    white-space: normal;
   }
 
   .screen-grid {
@@ -3121,7 +3147,8 @@ h3 {
   }
 
   .tabs button {
-    padding-inline: 11px;
+    padding-inline: 2px;
+    font-size: 0.65rem;
   }
 }
 
