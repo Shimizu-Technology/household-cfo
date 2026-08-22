@@ -64,4 +64,30 @@ class PlaidIntegrationReviewQueueHydratorTest < ActiveSupport::TestCase
     assert_equal 2, calls
     assert_equal [ staged_draft ], staged
   end
+
+  test "keeps staged drafts when optional auto-confirmation fails" do
+    @item.update!(auto_confirm_trusted_merchants: true)
+    transaction = @item.plaid_transactions.create!(
+      plaid_account: @account,
+      plaid_transaction_id: "auto-confirm-failure",
+      name: "Merchant",
+      occurred_on: Date.new(2026, 8, 1),
+      amount_cents: 1_000,
+      pending: false,
+      source_fingerprint: SecureRandom.hex(32)
+    )
+    failing_auto_confirmer = Object.new
+    failing_auto_confirmer.define_singleton_method(:call) { raise ActiveRecord::RecordInvalid }
+    singleton = class << PlaidIntegration::AutoConfirmer; self; end
+    original = PlaidIntegration::AutoConfirmer.method(:new)
+    singleton.define_method(:new) { |*_arguments, **_options| failing_auto_confirmer }
+    begin
+      staged = PlaidIntegration::ReviewQueueHydrator.new(@item).call
+    ensure
+      singleton.define_method(:new, original)
+    end
+
+    assert_equal [ transaction.reload.transaction_draft ], staged
+    assert_equal "drafted", transaction.review_status
+  end
 end

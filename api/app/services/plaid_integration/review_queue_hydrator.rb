@@ -19,24 +19,34 @@ module PlaidIntegration
           ).call
           staged.concat(result.drafts)
         rescue StandardError => error
-          Rails.error.report(
-            error,
-            handled: true,
-            context: {
-              plaid_item_record_id: plaid_item.id,
-              transaction_count: transaction_ids.length,
-              operation: "plaid_review_queue_hydration"
-            }
-          )
+          report_handled_error(error, operation: "plaid_review_queue_hydration", transaction_count: transaction_ids.length)
         end
       end
 
-      AutoConfirmer.new(plaid_item, drafts: staged).call if plaid_item.auto_confirm_trusted_merchants?
+      auto_confirm(staged) if plaid_item.auto_confirm_trusted_merchants?
       staged
     end
 
     private
 
     attr_reader :plaid_item
+
+    def auto_confirm(staged)
+      AutoConfirmer.new(plaid_item, drafts: staged).call
+    rescue StandardError => error
+      report_handled_error(error, operation: "plaid_auto_confirmation", transaction_count: staged.length)
+    end
+
+    def report_handled_error(error, operation:, transaction_count:)
+      Rails.error.report(
+        error,
+        handled: true,
+        context: {
+          plaid_item_record_id: plaid_item.id,
+          transaction_count: transaction_count,
+          operation: operation
+        }
+      )
+    end
   end
 end
