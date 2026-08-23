@@ -69,6 +69,18 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     assert_nil HouseholdFinance::BudgetQuestionAnswerer.new("How much was set aside for last month food?", annual_plan: annual_plan(2027), today: january_today).call
   end
 
+  test "spending report query resolves relative weekdays without widening to the month" do
+    assert_equal(
+      { start_on: Date.new(2026, 7, 14), end_on: Date.new(2026, 7, 14) },
+      HouseholdFinance::SpendingReportQuery.new("What exactly did I spend last Tuesday?", today: Date.new(2026, 7, 15)).range
+    )
+    assert_equal(
+      { start_on: Date.new(2026, 7, 7), end_on: Date.new(2026, 7, 7) },
+      HouseholdFinance::SpendingReportQuery.new("What did I spend last Tuesday?", today: Date.new(2026, 7, 14)).range
+    )
+    assert_nil HouseholdFinance::SpendingReportQuery.new("I spent $25 at McDonald's today.", today: Date.new(2026, 7, 15)).range
+  end
+
   private
 
   def annual_plan(year)

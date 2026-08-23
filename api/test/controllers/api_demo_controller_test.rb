@@ -1,6 +1,8 @@
 require "test_helper"
 
 class ApiDemoControllerTest < ActionDispatch::IntegrationTest
+  include ActiveSupport::Testing::TimeHelpers
+
   test "demo endpoints require auth when Clerk is configured" do
     with_clerk_jwks_url do
       get "/api/demo/profile"
@@ -17,6 +19,8 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_equal "Household CFO Demo Family", body.fetch("household").fetch("name")
     assert_equal "Mia", body.fetch("coach").fetch("name")
+    income_total = body.fetch("sections").find { |section| section.fetch("label") == "Income" }.fetch("items").sum { |item| item.fetch("amount") }
+    assert_equal demo_facts.fetch(:monthly_income), income_total
   end
 
   test "dashboard returns demo financial summary and accounts" do
@@ -27,9 +31,11 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_operator body.fetch("summary").fetch("monthly_income"), :>, 0
     assert_equal 3.2, body.fetch("summary").fetch("runway_months")
     assert_equal 7_845, body.fetch("budget_basis").fetch("total_monthly_outflow")
-    assert_equal 405, body.fetch("summary").fetch("baseline_surplus")
-    assert_equal 162, body.fetch("summary").fetch("next_safe_to_spend_amount")
-    assert_equal 5, body.fetch("summary").fetch("savings_rate_percent")
+    assert_equal demo_facts.fetch(:monthly_income), body.fetch("summary").fetch("monthly_income")
+    assert_equal demo_facts.fetch(:baseline_surplus), body.fetch("summary").fetch("baseline_surplus")
+    assert_equal demo_facts.fetch(:safe_to_spend), body.fetch("summary").fetch("next_safe_to_spend_amount")
+    assert_equal demo_facts.fetch(:savings_rate_percent), body.fetch("summary").fetch("savings_rate_percent")
+    assert_includes body.fetch("alerts").find { |alert| alert.fetch("title") == "Debt focus" }.fetch("body"), "$#{demo_facts.fetch(:safe_to_spend).round}"
     runway_alert = body.fetch("alerts").find { |alert| alert.fetch("title") == "Runway" }
     assert_equal "You are 2.8 months away from the six-month founder transition target.", runway_alert.fetch("body")
     assert_equal body.fetch("summary").fetch("runway_months"), body.fetch("readiness_path").fetch("current_runway_months")
@@ -60,7 +66,7 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal 7_845, plan.fetch("annual_outlook").fetch("months").fetch(6).fetch("planned_outflow")
     assert_equal 405, plan.fetch("annual_outlook").fetch("months").fetch(6).fetch("baseline_surplus")
     assert_equal 7_845, body.fetch("total_monthly_outflow")
-    assert_equal 405, body.fetch("baseline_surplus")
+    assert_equal demo_facts.fetch(:baseline_surplus), body.fetch("baseline_surplus")
     assert_equal "Dec", plan.fetch("annual_outlook").fetch("upcoming_spikes").first.fetch("label")
   end
 
@@ -71,7 +77,10 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_operator body.fetch("summary").fetch("net_worth"), :>, 0
     assert body.fetch("milestones").any?
-    assert body.fetch("milestones").all? { |milestone| milestone.fetch("kind") == "progress" }
+    debt = body.fetch("milestones").find { |milestone| milestone.fetch("kind") == "debt_remaining" }
+    assert_equal "Credit card balance", debt.fetch("label")
+    assert_equal 7_350, debt.fetch("current")
+    assert_equal demo_facts.fetch(:baseline_surplus), body.fetch("summary").fetch("monthly_wealth_building")
   end
 
   test "optionality returns choices with transparent fit guidance" do
@@ -82,6 +91,11 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Founder transition", body.fetch("scenario")
     assert body.fetch("choices").all? { |choice| choice.key?("fit_label") && choice.key?("fit_tone") }
     refute body.fetch("choices").any? { |choice| choice.key?("readiness_score") }
+    assert_equal 3_845, body.fetch("monthly_gap")
+    assert_equal(
+      [ [ "Business needs to pay", 5_045 ], [ "Current business income", 1_200 ], [ "Six-month runway gap", 21_980 ] ],
+      body.fetch("levers").map { |lever| [ lever.fetch("label"), lever.fetch("amount") ] }
+    )
   end
 
   test "cfo filter returns strategic spending recommendations" do
@@ -90,7 +104,10 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = JSON.parse(response.body)
     assert_equal "CFO Filter", body.fetch("framework")
-    assert body.fetch("decisions").any?
+    decisions = body.fetch("decisions").index_by { |decision| decision.fetch("item") }
+    assert_equal({ "amount" => demo_facts.fetch(:safe_to_spend), "recommendation" => "Pause" }, decisions.fetch("Non-essential purchase").slice("amount", "recommendation"))
+    assert_equal({ "amount" => 0, "recommendation" => "Wait" }, decisions.fetch("Extra debt payment").slice("amount", "recommendation"))
+    assert_equal({ "amount" => demo_facts.fetch(:baseline_surplus), "recommendation" => "Approve" }, decisions.fetch("Runway transfer").slice("amount", "recommendation"))
   end
 
   test "mia messages returns demo conversation" do
@@ -190,10 +207,25 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "cannot calculate the exact runway impact"
     assert_includes content, "which account"
-    assert_includes content, "$162"
+    assert_includes content, "$#{demo_facts.fetch(:safe_to_spend).round}"
     assert_includes content, "not an account balance"
     refute_includes content, "-$1,638"
     refute_includes content, "-$1,260"
+  end
+
+  test "mia treats a bonus as one-time money without inflating recurring readiness" do
+    post "/api/demo/mia/messages",
+         params: { message: "What should I do with a $1,000 bonus?" },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "$1,000 bonus"
+    assert_includes content, "one-time money"
+    assert_includes content, "$#{demo_facts.fetch(:monthly_income).to_fs(:delimited)} recurring monthly income"
+    assert_includes content, "$21,980"
+    assert_includes content, "Next CFO move"
+    refute_includes content, "$9,500 recurring monthly income"
   end
 
   test "mia distinguishes an empty preview ledger from verified zero spending" do
@@ -207,6 +239,19 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "cannot state that you spent $0"
   end
 
+  test "mia does not invent restaurant merchants or totals for a relative historical date" do
+    post "/api/demo/mia/messages",
+         params: { message: "What exactly did I spend at restaurants last Tuesday? Name the merchants and totals." },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "no approved transaction ledger"
+    assert_includes content, "cannot name the merchants or calculate"
+    assert_includes content, "missing records are not proof of zero spending"
+    assert_equal [ "$0" ], content.scan(/\$\d+(?:\.\d{2})?/)
+  end
+
   test "mia treats forward spending as a decision instead of transaction history" do
     post "/api/demo/mia/messages",
          params: { message: "How much can I spend at Costco?" },
@@ -214,7 +259,7 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "$162"
+    assert_includes content, "$#{demo_facts.fetch(:safe_to_spend).round}"
     assert_includes content, "not automatic approval"
     refute_includes content, "you spent $0"
   end
@@ -226,7 +271,7 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "$162"
+    assert_includes content, "$#{demo_facts.fetch(:safe_to_spend).round}"
     assert_includes content, "not automatic approval for the proposed purchase"
     assert_includes content, "no approved transaction ledger"
     assert_includes content, "cannot confirm the historical merchant total"
@@ -268,7 +313,33 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     refute_includes content, "spent $0 at Barnes or"
   end
 
+  test "demo financial basis follows recurring income changes without treating a one-time bonus as recurring" do
+    {
+      Date.new(2026, 7, 15) => { income: 8_250, surplus: 405, safe: 162 },
+      Date.new(2026, 8, 15) => { income: 8_500, surplus: 655, safe: 262 },
+      Date.new(2026, 12, 15) => { income: 8_500, surplus: 655, safe: 262 }
+    }.each do |date, expected|
+      travel_to date do
+        get "/api/demo/dashboard"
+        dashboard = JSON.parse(response.body)
+        get "/api/demo/budget"
+        budget = JSON.parse(response.body)
+        month_income = budget.fetch("annual_plan").fetch("monthly_income").fetch(date.month.to_s)
+
+        assert_equal expected.fetch(:income), dashboard.dig("summary", "monthly_income"), date.to_s
+        assert_equal expected.fetch(:surplus), dashboard.dig("summary", "baseline_surplus"), date.to_s
+        assert_equal expected.fetch(:safe), dashboard.dig("summary", "next_safe_to_spend_amount"), date.to_s
+        assert_equal expected.fetch(:surplus), budget.fetch("baseline_surplus"), date.to_s
+        assert_equal expected.fetch(:income) + (date.month == 12 ? 1_000 : 0), month_income, date.to_s
+      end
+    end
+  end
+
   private
+
+  def demo_facts
+    Demo::HouseholdData.financial_facts
+  end
 
   def with_clerk_jwks_url
     previous_url = ENV["CLERK_JWKS_URL"]

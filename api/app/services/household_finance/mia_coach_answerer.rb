@@ -8,6 +8,7 @@ module HouseholdFinance
       /\b(?:i|we)\s+(?:want|need|have)\s+to\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
+    PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i.freeze
     READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:(?:out of\s+)?(?:the\s+)?red|(?:to|into)\s+(?:the\s+)?(?:yellow|green))\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b|\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(?:red|yellow|green)\b/i.freeze
     READINESS_STATUS_PATTERN = /\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(red|yellow|green)\b/i.freeze
     MONTHLY_FOCUS_PATTERN = /\b(?:what should (?:i|we) focus on|what(?:'s| is) (?:my|our) (?:first |top )?priority|where should (?:i|we) start)\b.*\b(?:this month|income|spending|goal)\b/i.freeze
@@ -22,7 +23,7 @@ module HouseholdFinance
     OVERWHELMED_PATTERN = /\b(?:overwhelmed|behind|stressed|panic|panicking|drowning|where do i start|what do i do first|hide from bills)\b/i.freeze
     EMOTIONAL_STRESS_PATTERN = /\b(?:ashamed|shame|stupid|spouse|fighting about money)\b/i.freeze
     BILL_TRIAGE_PATTERN = /\b(?:bills?|payday|due before payday|only\s+\$?\d|pay first|what do i pay first)\b/i.freeze
-    EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b/i.freeze
+    EXTRA_MONEY_PATTERN = /\b(?:got|received|have|came into|bonus|windfall|tax refund|refund)\b.*\b(?:extra|bonus|windfall|refund|\$\s*\d)\b.*\b(?:emergency|debt|registration|savings|runway)\b|\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i.freeze
     DEBT_DECISION_PATTERN = /\b(?:skip|miss)\b.*\b(?:credit card|debt|payment|minimum)\b|\b(?:payday loan|balance transfer|consolidat|highest interest|smallest balance|close old credit cards?|credit score|minimum went up)\b/i.freeze
     SINKING_FUND_PATTERN = /\b(?:sinking fund|school uniforms?|back.?to.?school|fridge|appliance|insurance renewal|renewal|gifts?|unexpected sinking|expected sinking|home repair)\b/i.freeze
     LENDING_PATTERN = /\b(?:lend|loan)\b.*\bmoney\b|\bpay me back\b/i.freeze
@@ -45,7 +46,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -119,7 +120,17 @@ module HouseholdFinance
       return nil unless normalized_message.match?(EXTRA_MONEY_PATTERN)
 
       yellow_gap = runway_gap_cents(yellow_runway_target_cents)
-      "Treat the extra money like a stabilizer, not a permission slip. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the yellow runway gap is #{money(yellow_gap)}. Protect any due expected sinking-fund bill first, then send the rest toward runway before extra debt unless a minimum payment is at risk. Next CFO move: name the due date for car registration and the next debt minimum, then split the extra dollars only after those two facts are clear."
+      amount_cents = amount_from_message_cents
+      amount_line = amount_cents&.positive? ? " The amount you named is #{money(amount_cents)}." : ""
+      "Treat the extra money like a stabilizer, not a permission slip.#{amount_line} Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, and the yellow runway gap is #{money(yellow_gap)}. Protect any due expected sinking-fund bill first, then send the rest toward runway before extra debt unless a minimum payment is at risk. Next CFO move: name the due date for car registration and the next debt minimum, then split the extra dollars only after those two facts are clear."
+    end
+
+    def purchase_impact_answer
+      return nil unless normalized_message.match?(PURCHASE_IMPACT_PATTERN)
+
+      amount_cents = amount_from_message_cents
+      purchase_label = amount_cents&.positive? ? "The #{money(amount_cents)} purchase" : "The purchase"
+      "I cannot calculate the exact runway impact yet because the approved data does not say which account would pay for it or whether protected liquid would decrease. #{purchase_label} is still a pre-spend decision, and safe-to-spend is a monthly guardrail of #{money(snapshot.fetch(:safe_to_spend_cents))}, not an account balance I can subtract the purchase from. Nothing is approved and no household number changed. Next CFO move: name the funding account and the budget category that would cover it, then I can model the effect without guessing."
     end
 
     def debt_decision_answer
@@ -369,7 +380,7 @@ module HouseholdFinance
         return "Yes, you may be able to help with #{amount_label}, but only as a planned family-support decision, not from bill money. Based on approved household numbers, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, runway is #{snapshot.fetch(:runway_months)} months, and readiness is #{snapshot.fetch(:readiness_label)}. Set the help as a one-time amount with no open-ended repeat promise. Next CFO move: say the number, the date, and the boundary out loud before money leaves."
       end
 
-      "I would not give a clean yes yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, debt minimums, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
+      "I would not give a clean yes to #{amount_label} yet, even though wanting to help makes sense. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, and runway is #{snapshot.fetch(:runway_months)} months; family support cannot jump ahead of roof, food, utilities, debt minimums, and expected bills. If you still want to help, choose non-cash help or a smaller number that does not touch the household baseline. Next CFO move: decide the maximum amount you can give once, without creating a repeat obligation."
     end
 
     def family_support_tradeoff?

@@ -177,3 +177,59 @@ cases:
       - Håfa Adai
       - you're doing great
       - created the category
+
+  - id: exact_relative_restaurant_history
+    route: controller
+    prompt: What exactly did I spend at restaurants last Tuesday? Name the merchants and totals.
+    expected_phrases:
+      - Jul 14, 2026
+      - 0 confirmed restaurants transactions totaling $0
+    forbidden_phrases:
+      - Cafe
+      - Starbucks
+      - guaranteed
+      - you're doing great
+
+  - id: current_month_merchant_history
+    route: controller
+    prompt: How much did I spend at Cafe this month?
+    expected_phrases:
+      - Cafe
+      - $45
+      - confirmed
+    forbidden_phrases:
+      - guaranteed
+
+  - id: hypothetical_laptop_runway_boundary
+    route: controller
+    prompt: If I buy a $1,800 laptop today, what exactly happens to my runway?
+    expected_phrases:
+      - $1,800
+      - runway
+      - Next CFO move
+    forbidden_phrases:
+      - I approved
+      - actuals changed
+      - guaranteed
+
+  - id: bonus_prioritization
+    route: controller
+    prompt: What should I do with a $1,000 bonus?
+    expected_phrases:
+      - $1,000
+      - runway
+      - Next CFO move
+    forbidden_phrases:
+      - guaranteed
+      - invest it all
+
+  - id: family_support_boundary
+    route: controller
+    prompt: Can I give family $500 this week?
+    expected_phrases:
+      - $500
+      - readiness
+      - Next CFO move
+    forbidden_phrases:
+      - definitely give
+      - guaranteed repayment

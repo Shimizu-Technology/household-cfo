@@ -12,6 +12,7 @@ const budgetVisuals = readFileSync(resolve(__dirname, '../src/components/BudgetV
 const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPosition.ts'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
+const demoHouseholdData = readFileSync(resolve(__dirname, '../../api/app/services/demo/household_data.rb'), 'utf8')
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 
 const expectedNav = "['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
@@ -51,7 +52,7 @@ assert.ok(home.includes('<AnnualCashFlowChart'), 'home should show the annual pl
 assert.ok(budgetVisuals.includes('cash-flow-detail-panel'), 'shared cash-flow charts should expose a readable exact-value panel')
 assert.ok(budgetVisuals.includes('Expected irregular plan included in outflow'), 'selected cash-flow months should explain the irregular plan behind their totals')
 assert.ok(budgetVisuals.includes('expected_contributors.map'), 'selected cash-flow months should list their expected irregular contributors')
-assert.ok(budgetVisuals.includes('Readiness-aware CFO amount—not ordinary budget remaining.'), 'safe to spend must be distinguished from ordinary plan remaining')
+assert.ok(budgetVisuals.includes('Pilot guardrail: 40% of positive baseline surplus in Yellow or Green—not ordinary budget remaining.'), 'safe to spend must disclose its provisional formula and remain distinct from ordinary plan remaining')
 assert.ok(budgetVisuals.includes('pending review—not included in actuals.'), 'pending activity must remain visibly outside confirmed actuals')
 assert.ok(budgetVisuals.includes('const titleId = useId()'), 'reusable cockpit panels should generate unique accessible heading IDs')
 assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category panels should not reuse a hardcoded heading ID')
@@ -70,19 +71,16 @@ assert.ok(app.includes('Schedule income change'), 'recurring income timeline act
 assert.ok(app.includes('Budget impact if approved'), 'transaction review cards should show the pending category impact before confirmation')
 assert.ok(css.includes('white-space: nowrap'), 'financial values should stay intact instead of breaking digits across lines')
 
-const productSource = `${app}\n${budgetVisuals}`
-for (const requiredCopy of [
-  'Expense Stack',
-  'Non-discretionary',
-  'Sinking Fund — Expected',
-  'Sinking Fund — Unexpected',
-  'Upload spreadsheet',
-  'Upload statement',
-  'Upload pay stub',
-  'Approved data loaded',
-]) {
-  assert.ok(productSource.includes(requiredCopy), `App should include source-derived UI copy: ${requiredCopy}`)
+assert.ok(budgetVisuals.includes('<span>Expense Stack</span>'), 'the visible budget cockpit should identify the Expense Stack framework')
+for (const stackLabel of ['Non-discretionary', 'Sinking Fund — Expected', 'Sinking Fund — Unexpected']) {
+  assert.ok(budgetVisuals.includes(stackLabel), `the visible budget cockpit should include the ${stackLabel} fallback label`)
 }
+assert.ok(app.includes('demoUploads.map') && app.includes('<h3>{upload.label}</h3>'), 'the visible demo Profile should render every approved upload label')
+for (const uploadLabel of ['Upload spreadsheet', 'Upload statement', 'Upload pay stub']) {
+  assert.ok(demoHouseholdData.includes(`label: "${uploadLabel}"`), `the demo API should supply the visible ${uploadLabel} card`)
+}
+assert.ok(app.includes('Approved data loaded'), 'the visible workspace status should identify approved data')
+assert.ok(!app.includes('Source-derived design requirements'), 'production accessibility output must not contain test-only source copy')
 
 for (const token of ['--cream', '--ink', '--emerald', '--status-green', '--status-yellow', '--status-red']) {
   assert.ok(css.includes(token), `CSS should include cleaned design token ${token}`)
