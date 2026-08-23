@@ -6,7 +6,7 @@ module Demo
     PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i
     FORWARD_SPENDING_PATTERN = /\bhow much\b.*\b(?:can|could|should|may)\b.*\bspend\b/i
     APPROVED_SPENDING_LOOKUP_PATTERN = /\bhow much\b.*\b(?:did\b.*\bspend|(?:have|has)\b.*\bspent|spent)\b.*\b(?:at|from)\b/i
-    MERCHANT_PATTERN = /\b(?:at|from)\s+([A-Za-z0-9&'’.-]+(?:\s+[A-Za-z0-9&'’.-]+){0,3}?)(?=\s+(?:last|this|in|during|and|which)\b|[?.!,]|\z)/i
+    MERCHANT_PATTERN = /\b(?:at|from)\s+([A-Za-z0-9&'’.-]+(?:\s+[A-Za-z0-9&'’.-]+){0,3}?)(?=\s+(?:last|this|in|during|which)\b|[?.!,]|\z)/i
     AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/
 
     def initialize(message, facts: Demo::HouseholdData.financial_facts)

@@ -256,6 +256,18 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     refute_includes content, "purchase at Barnes"
   end
 
+  test "mia preserves merchant conjunctions in a historical spending lookup" do
+    post "/api/demo/mia/messages",
+         params: { message: "How much did I spend at Barnes and Noble last month?" },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "spent $0 at Barnes and Noble"
+    assert_includes content, "No approved Barnes and Noble transactions"
+    refute_includes content, "spent $0 at Barnes or"
+  end
+
   private
 
   def with_clerk_jwks_url
