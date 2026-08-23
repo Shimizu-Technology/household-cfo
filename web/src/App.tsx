@@ -2,6 +2,7 @@ import { SignInButton, SignUpButton, UserButton } from '@clerk/clerk-react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ClipboardEvent, type FormEvent, type KeyboardEvent, type Ref } from 'react'
 import './App.css'
 import { HomeScreen } from './components/HomeScreen'
+import { ActivityPreview } from './components/ActivityPreview'
 import { ParticipantTabs } from './components/ParticipantTabs'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
@@ -542,9 +543,9 @@ function App() {
         setOlderServerMessageCount(realWorkspace ? payload.mia.older_message_count : 0)
         historyExpandedRef.current = false
       })
-      .catch(() => {
+      .catch((caught) => {
         if (cancelled) return
-        setError('Mia’s workspace is offline for a moment. Start the Rails API on port 3000 to load preview data.')
+        setError(caught instanceof Error ? caught.message : 'Mia’s workspace is offline for a moment. Check your connection and try again.')
       })
 
     return () => {
@@ -2009,67 +2010,68 @@ function App() {
               </div>
 
               <ChatHistory
-                messages={visibleMessages}
-                totalMessageCount={currentMessages.length}
-                hiddenMessageCount={hiddenMessageCount}
-                olderMessageCount={olderServerMessageCount}
-                historyLoading={olderMessagesLoading}
-                miaLoading={miaLoading}
-                showScrollButton={showChatScrollButton}
-                chatCardRef={chatCardRef}
-                onScroll={updateChatScrollAffordance}
-                onLoadEarlier={() => void handleLoadEarlierMessages()}
-                onScrollLatest={scrollMiaChatToBottom}
-                imports={documentImports}
-                onOpenLocal={(attachment) => {
-                  if (!attachment.preview_url) return
-                  setPreviewAttachment({
-                    id: `message-${attachment.filename}`,
-                    file: new File([], attachment.filename, { type: attachment.content_type }),
-                    filename: attachment.filename,
-                    content_type: attachment.content_type,
-                    document_kind: attachment.document_kind,
-                    previewUrl: attachment.preview_url,
-                  })
-                }}
-                onOpenImport={handleOpenDocumentSource}
-                onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
-                onReviewImportId={(id) => {
-                  setSelectedImportId(id)
-                  switchSection('My Profile')
-                  requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-                }}
-              />
+                  messages={visibleMessages}
+                  totalMessageCount={currentMessages.length}
+                  hiddenMessageCount={hiddenMessageCount}
+                  olderMessageCount={olderServerMessageCount}
+                  historyLoading={olderMessagesLoading}
+                  miaLoading={miaLoading}
+                  showScrollButton={showChatScrollButton}
+                  chatCardRef={chatCardRef}
+                  onScroll={updateChatScrollAffordance}
+                  onLoadEarlier={() => void handleLoadEarlierMessages()}
+                  onScrollLatest={scrollMiaChatToBottom}
+                  imports={documentImports}
+                  onOpenLocal={(attachment) => {
+                    if (!attachment.preview_url) return
+                    setPreviewAttachment({
+                      id: `message-${attachment.filename}`,
+                      file: new File([], attachment.filename, { type: attachment.content_type }),
+                      filename: attachment.filename,
+                      content_type: attachment.content_type,
+                      document_kind: attachment.document_kind,
+                      previewUrl: attachment.preview_url,
+                    })
+                  }}
+                  onOpenImport={handleOpenDocumentSource}
+                  onOpenImportId={(id) => void handleOpenDocumentSourceById(id)}
+                  onReviewImportId={(id) => {
+                    setSelectedImportId(id)
+                    switchSection('My Profile')
+                    requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
+                  }}
+                  reviewContent={<>
+                    {pendingMiaActionDrafts.length > 0 && (
+                      <MiaActionDraftReviewStack
+                        drafts={pendingMiaActionDrafts}
+                        isRealWorkspace={Boolean(isRealWorkspace)}
+                        action={budgetAction}
+                        compact
+                        onApply={handleApplyMiaActionDraft}
+                        onCancel={handleCancelMiaActionDraft}
+                        onEditManually={openManualControls}
+                      />
+                    )}
 
-              {pendingMiaActionDrafts.length > 0 && (
-                <MiaActionDraftReviewStack
-                  drafts={pendingMiaActionDrafts}
-                  isRealWorkspace={Boolean(isRealWorkspace)}
-                  action={budgetAction}
-                  compact
-                  onApply={handleApplyMiaActionDraft}
-                  onCancel={handleCancelMiaActionDraft}
-                  onEditManually={openManualControls}
+                    {pendingTransactionDrafts.length > 0 && (
+                      <TransactionDraftReviewStack
+                        drafts={pendingTransactionDrafts}
+                        isRealWorkspace={Boolean(isRealWorkspace)}
+                        action={budgetAction}
+                        compact
+                        categories={activeBudgetPlan?.rows ?? []}
+                        plan={activeBudgetPlan}
+                        onUpdate={handleUpdateTransactionDraft}
+                        onMatch={handleMatchTransactionDraft}
+                        onConfirm={handleConfirmTransactionDraft}
+                        onIgnore={handleIgnoreTransactionDraft}
+                        onReopen={handleReopenTransactionDraft}
+                        onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
+                        onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+                      />
+                    )}
+                  </>}
                 />
-              )}
-
-              {pendingTransactionDrafts.length > 0 && (
-              <TransactionDraftReviewStack
-                drafts={pendingTransactionDrafts}
-                  isRealWorkspace={Boolean(isRealWorkspace)}
-                  action={budgetAction}
-                  compact
-                categories={activeBudgetPlan?.rows ?? []}
-                plan={activeBudgetPlan}
-                  onUpdate={handleUpdateTransactionDraft}
-                  onMatch={handleMatchTransactionDraft}
-                  onConfirm={handleConfirmTransactionDraft}
-                  onIgnore={handleIgnoreTransactionDraft}
-                  onReopen={handleReopenTransactionDraft}
-                  onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
-                  onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
-                />
-              )}
 
               {miaError && <p className="chat-error" role="alert">{miaError}</p>}
               {miaAttachmentNotice && <p className="voice-status" role="status">{miaAttachmentNotice}</p>}
@@ -2199,7 +2201,20 @@ function App() {
               />
             </>
           ) : (
-            <article className="panel empty-state"><strong>Sign in to connect real bank activity.</strong><p>The preview workspace does not request or store financial account access.</p></article>
+            data.budget.annual_plan ? (
+              <ActivityPreview
+                plan={data.budget.annual_plan}
+                monthIndex={selectedBudgetMonthIndex}
+                onOpenBudget={() => switchSection('Budget')}
+                onAskMia={() => {
+                  setQuestion('Help me decide whether this spending fits my plan: ')
+                  switchSection('Ask Mia')
+                  window.setTimeout(() => composerRef.current?.focus(), 80)
+                }}
+              />
+            ) : (
+              <article className="panel empty-state"><strong>No monthly plan is available yet.</strong><p>Open My Profile to add starting numbers, then return here to review planned and confirmed activity.</p></article>
+            )
           )}
         </section>
       )}
@@ -5493,7 +5508,7 @@ function WorkspaceSetupForm({
     <form ref={formRef} className={`panel setup-form${firstSession ? ' first-session-setup-form' : ''}`} onSubmit={onSubmit}>
       <div className="row-between setup-form-heading">
         <div>
-          <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Real workspace'}</p>
+          <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Household profile'}</p>
           <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
           <p>{firstSession ? 'Use your best monthly estimates. Blank money fields count as $0, and you can refine everything later.' : editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
         </div>

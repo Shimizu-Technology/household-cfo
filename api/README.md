@@ -22,6 +22,7 @@ bin/rails server -p 3000
 ```
 
 If your local PostgreSQL server needs explicit credentials, set `DATABASE_HOST`, `DATABASE_USERNAME`, and `DATABASE_PASSWORD` in `api/.env`.
+If port 3000 is busy, start Rails on another explicit port (for example `bin/rails server -p 3100`), set the web app's `VITE_API_BASE_URL` to that exact URL, and allow the web origin through `FRONTEND_URL`/CORS before restarting both processes.
 
 ## Mia persona setup
 
