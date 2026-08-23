@@ -3113,6 +3113,11 @@ h3 {
     gap: 10px;
   }
 
+  .wealth-screen .wealth-explainer-metric {
+    grid-column: 1 / -1;
+    min-height: 0;
+  }
+
   .profile-section-grid,
   .upload-grid,
   .stack-grid,

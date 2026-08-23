@@ -93,7 +93,7 @@ module Demo
           flexible_spend: 1380,
           debt_payments: facts.fetch(:debt_minimums),
           baseline_surplus: facts.fetch(:baseline_surplus),
-          savings_rate_percent: facts.fetch(:savings_rate_percent),
+          monthly_surplus_rate_percent: facts.fetch(:monthly_surplus_rate_percent),
           runway_months: facts.fetch(:runway_months),
           next_safe_to_spend_amount: facts.fetch(:safe_to_spend),
           readiness_tone: facts.fetch(:readiness_tone),
@@ -288,7 +288,7 @@ module Demo
         debt_minimums: MONTHLY_DEBT_MINIMUMS,
         total_monthly_outflow: dollars(result.fetch(:total_outflow_cents)),
         baseline_surplus: dollars(result.fetch(:baseline_surplus_cents)),
-        savings_rate_percent: (result.fetch(:baseline_surplus_cents) / HouseholdFinance::Money.cents(monthly_income).to_f * 100).round,
+        monthly_surplus_rate_percent: (result.fetch(:baseline_surplus_cents) / HouseholdFinance::Money.cents(monthly_income).to_f * 100).round,
         protected_liquid: PROTECTED_LIQUID,
         runway_months: result.fetch(:runway_months),
         target_runway_months: result.fetch(:target_runway_months),
@@ -353,8 +353,8 @@ module Demo
         summary: {
           net_worth: net_worth,
           liquid_net_worth: PROTECTED_LIQUID - CREDIT_CARD_BALANCE,
-          retirement_projection: RETIREMENT_BALANCE + (facts.fetch(:baseline_surplus) * 12 * 10),
-          monthly_wealth_building: facts.fetch(:baseline_surplus)
+          ten_year_surplus_capacity: facts.fetch(:baseline_surplus) * 12 * 10,
+          monthly_surplus_available: facts.fetch(:baseline_surplus)
         },
         milestones: [
           { kind: "progress", label: "Six-month runway", current: facts.fetch(:runway_months), target: facts.fetch(:target_runway_months), unit: "months", status: facts.fetch(:readiness_tone) },
