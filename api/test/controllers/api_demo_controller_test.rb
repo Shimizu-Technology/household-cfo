@@ -207,6 +207,18 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "cannot state that you spent $0"
   end
 
+  test "mia treats forward spending as a decision instead of transaction history" do
+    post "/api/demo/mia/messages",
+         params: { message: "How much can I spend at Costco?" },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "$162"
+    assert_includes content, "not automatic approval"
+    refute_includes content, "you spent $0"
+  end
+
   private
 
   def with_clerk_jwks_url
