@@ -233,6 +233,19 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "Missing records are not proof of $0 spending"
   end
 
+  test "mia keeps compound merchants correct when the historical question comes first" do
+    post "/api/demo/mia/messages",
+         params: { message: "How much did I spend at Ross last month, and how much can I spend at Costco?" },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "not automatic approval for a purchase at Costco"
+    assert_includes content, "previously spent at Ross"
+    refute_includes content, "purchase at Ross"
+    refute_includes content, "previously spent at Costco"
+  end
+
   private
 
   def with_clerk_jwks_url
