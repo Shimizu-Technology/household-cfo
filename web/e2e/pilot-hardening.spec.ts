@@ -559,6 +559,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(homeOutflowBreakdown).toContainText('Total money out')
   await expect(homeOutflowBreakdown).toContainText('$5,500.00')
   await expect(monthSummary.locator('.budget-progress-pending')).toBeVisible()
+  await page.getByText('Explore the plan behind this snapshot').click()
   const pressureRows = await page.locator('.home-financial-visuals .category-pressure-row').allTextContents()
   expect(pressureRows[0]).toContain('Dining out')
   expect(pressureRows[0]).toContain('$100.00 over if approved')
@@ -632,7 +633,12 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.goto('/')
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.getByRole('button', { name: 'Why is my readiness Red?' })).toBeVisible()
-  await expect(page.getByText('More prompts →')).toBeVisible()
+  const promptCue = page.getByText('More prompts →')
+  if ((page.viewportSize()?.width ?? 0) <= 720) {
+    await expect(promptCue).toBeHidden()
+  } else {
+    await expect(promptCue).toBeVisible()
+  }
   await expect(page.locator('.message-row')).toHaveCount(60)
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
@@ -906,15 +912,32 @@ test('compact phone layouts keep the status card legible and progressively revea
   await expect(more).toHaveAttribute('aria-expanded', 'false')
   await expect(more).toBeFocused()
   await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await page.getByText('Explore the plan behind this snapshot').click()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
-  await expect(page.getByText('More prompts →')).toBeVisible()
-  const chatBox = await page.locator('.mia-chat-shell').boundingBox()
+  await expect(page.getByText('More prompts →')).toBeHidden()
+  await page.locator('.screen-grid').evaluate(async (screen) => {
+    await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
+  })
+  const chatLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
+    const shellBox = shell.getBoundingClientRect()
+    const conversationBox = shell.querySelector('.chat-card-wrap')?.getBoundingClientRect()
+    const composerBox = shell.querySelector('.ask-row')?.getBoundingClientRect()
+    return {
+      shell: { x: shellBox.x, y: shellBox.y, width: shellBox.width, height: shellBox.height, bottom: shellBox.bottom },
+      conversationHeight: conversationBox?.height ?? 0,
+      composerBottom: composerBox?.bottom ?? Number.POSITIVE_INFINITY,
+    }
+  })
+  const promptButtons = page.locator('.chat-prompts button')
+  const promptWidths = await promptButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width))
+  expect(Math.max(...promptWidths)).toBeLessThanOrEqual(chatLayout.shell.width - 20)
   const contextBox = await page.locator('.mia-context').boundingBox()
-  expect(chatBox).not.toBeNull()
+  expect(chatLayout.conversationHeight).toBeGreaterThan(100)
+  expect(chatLayout.composerBottom).toBeLessThanOrEqual(chatLayout.shell.bottom + 1)
   expect(contextBox).not.toBeNull()
-  expect(chatBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(contextBox?.y ?? 0)
+  expect(chatLayout.shell.y).toBeLessThan(contextBox?.y ?? 0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

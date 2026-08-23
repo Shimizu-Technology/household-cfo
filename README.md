@@ -46,6 +46,7 @@ bin/rails server -p 3000
 
 ```bash
 cd web
+nvm use # reads the repository's Node 24 requirement from .nvmrc
 npm install
 cp .env.example .env.local # optional
 npm run dev
@@ -57,6 +58,15 @@ Default local URLs:
 API: http://localhost:3000
 Web: http://localhost:5173
 ```
+
+If either default port is busy, choose explicit alternatives and point the web app at the API you actually started:
+
+```bash
+cd api && bin/rails server -p 3100
+cd web && VITE_API_BASE_URL=http://localhost:3100 npm run dev -- --port 5174
+```
+
+Rails must allow the chosen web origin through `FRONTEND_URL`/the local CORS configuration. Restart both processes after changing ports or environment files.
 
 ## Clerk auth
 

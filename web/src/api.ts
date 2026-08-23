@@ -817,11 +817,15 @@ function browserHostIsLocal() {
 }
 
 function apiNetworkErrorMessage(action: string) {
-  if (!browserHostIsLocal() && /localhost|127\.0\.0\.1/.test(API_BASE)) {
-    return `${action}. This web deploy is still pointing at ${API_BASE}. Set VITE_API_BASE_URL to the production Render API and redeploy Netlify.`
+  if (import.meta.env.DEV) {
+    return `${action}. The web app is configured to use ${API_BASE}. Start that API or update VITE_API_BASE_URL, then try again.`
   }
 
-  return `${action}. Check the production API URL, CORS allowlist, Clerk session, and private S3 configuration.`
+  if (!browserHostIsLocal() && /localhost|127\.0\.0\.1/.test(API_BASE)) {
+    return `${action}. This workspace is temporarily unavailable. Please report the problem so the connection can be restored.`
+  }
+
+  return `${action}. Check your connection and try again. If the problem continues, use Report a problem so the team can help.`
 }
 
 export function setAuthTokenGetter(getter: AuthTokenGetter | null) {

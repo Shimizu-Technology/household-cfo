@@ -1,4 +1,4 @@
-import type { RefObject } from 'react'
+import type { ReactNode, RefObject } from 'react'
 import type { FinancialDocumentImport, MiaMessage, MiaMessageAttachment } from '../api'
 
 type ChatHistoryProps = {
@@ -18,6 +18,7 @@ type ChatHistoryProps = {
   onOpenImport: (documentImport: FinancialDocumentImport) => void
   onOpenImportId: (documentImportId: number) => void
   onReviewImportId: (documentImportId: number) => void
+  reviewContent?: ReactNode
 }
 
 export function ChatHistory({
@@ -37,6 +38,7 @@ export function ChatHistory({
   onOpenImport,
   onOpenImportId,
   onReviewImportId,
+  reviewContent,
 }: ChatHistoryProps) {
   const remainingMessageCount = Math.max(0, hiddenMessageCount + olderMessageCount)
 
@@ -85,6 +87,7 @@ export function ChatHistory({
             </div>
           </div>
         )}
+        {reviewContent}
       </article>
       {showScrollButton && totalMessageCount > 0 && (
         <button type="button" className="chat-scroll-bottom-button" aria-label="Scroll to latest Mia message" onClick={onScrollLatest}>

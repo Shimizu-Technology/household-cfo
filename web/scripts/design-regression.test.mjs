@@ -17,13 +17,17 @@ const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 const expectedNav = "['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
   app.replace(/\s+/g, ' ').includes(expectedNav),
-  'participant nav must place transaction Activity beside Ask Mia before profile and planning modules',
+  'participant navigation must keep the complete set of participant modules',
 )
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
 assert.ok(app.includes("compactShell ? 'Household CFO' : 'Household CFO Method'"), 'Home should lead with the full product name while task screens use the compact name')
 assert.ok(app.includes('chat-prompts-cue') && app.includes('More prompts →'), 'Mia prompts should disclose horizontal choices')
+assert.ok(css.includes('.chat-prompts-cue {\n    display: none;'), 'wrapped mobile prompts should not show a misleading horizontal-scroll cue')
+assert.ok(css.includes('@media (prefers-reduced-motion: reduce)'), 'screen motion should respect reduced-motion preferences')
+assert.ok(home.includes('home-detail-disclosure'), 'Home should progressively disclose deeper annual-plan details')
+assert.ok(app.includes('<ActivityPreview'), 'demo Activity should provide a useful plan view instead of a dead end')
 assert.ok(app.includes('resizeMiaComposer'), 'Mia composer should grow and shrink with typed or programmatically inserted text')
 assert.ok(css.includes('max-height: 160px') && css.includes('overflow-y: hidden'), 'Mia composer should cap before switching to internal scrolling')
 assert.ok(html.includes('<meta name="mobile-web-app-capable" content="yes" />'), 'installable mobile app markup should use the current capability flag')

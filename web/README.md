@@ -6,6 +6,7 @@ React/Vite participant workspace for Household CFO Method powered by VERA. The U
 
 ```bash
 cd web
+nvm use # Node 24, from ../.nvmrc
 npm install
 cp .env.example .env.local # optional
 npm run dev
@@ -15,6 +16,14 @@ Default URLs:
 
 - Web: `http://localhost:5173`
 - API: `http://localhost:3000`
+
+To use a different local API or web port:
+
+```bash
+VITE_API_BASE_URL=http://localhost:3100 npm run dev -- --port 5174
+```
+
+Restart Vite after changing `VITE_API_BASE_URL`; Vite reads it when the process starts.
 
 ## Environment
 

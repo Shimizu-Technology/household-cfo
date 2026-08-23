@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 type ParticipantTabsProps = {
   sections: string[]
@@ -10,10 +10,31 @@ const primarySections = new Set(['Home', 'Ask Mia', 'My Profile', 'Budget'])
 
 export function ParticipantTabs({ sections, activeSection, onChange }: ParticipantTabsProps) {
   const [moreOpen, setMoreOpen] = useState(false)
+  const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const primary = sections.filter((section) => primarySections.has(section))
   const secondary = sections.filter((section) => !primarySections.has(section))
   const secondaryIsActive = secondary.includes(activeSection)
+
+  useEffect(() => {
+    if (!moreOpen) return
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!shellRef.current?.contains(event.target as Node)) setMoreOpen(false)
+    }
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      setMoreOpen(false)
+      moreButtonRef.current?.focus()
+    }
+
+    document.addEventListener('pointerdown', closeOnOutsidePointer)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('pointerdown', closeOnOutsidePointer)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [moreOpen])
 
   const chooseSection = (section: string) => {
     setMoreOpen(false)
@@ -24,7 +45,7 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
   }
 
   return (
-    <div className="tabs-shell">
+    <div className="tabs-shell" ref={shellRef}>
       <nav className={`tabs${moreOpen ? ' is-more-open' : ''}`} aria-label="Household CFO participant sections">
         {primary.map((section) => (
           <button

@@ -71,36 +71,6 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         />
       </section>
 
-      {currentPlan && (
-        <section className="home-financial-visuals" aria-label="Monthly and annual financial position">
-          <CategoryPressureList positions={currentPositions} limit={4} />
-          <AnnualCashFlowChart plan={currentPlan} compact />
-        </section>
-      )}
-
-      {(upcomingSpike || nextIrregular) && (
-        <section className="home-look-ahead" aria-label="Annual plan look ahead">
-          <div>
-            <span>Look ahead</span>
-            <h3>The next annual-plan pressure is visible now.</h3>
-          </div>
-          {upcomingSpike && (
-            <article>
-              <span>{upcomingSpike.label} spending spike</span>
-              <strong>{currency.format(upcomingSpike.planned_outflow)} planned</strong>
-              <p>{currency.format(upcomingSpike.amount_above_typical ?? 0)} above a typical planned month.</p>
-            </article>
-          )}
-          {nextIrregular && (
-            <article>
-              <span>{nextIrregular.label} expected irregular plan</span>
-              <strong>{currency.format(nextIrregular.expected_irregular)}</strong>
-              <p>{nextIrregular.expected_contributors.map((item) => item.name).join(' · ') || 'Expected sinking funds'}</p>
-            </article>
-          )}
-        </section>
-      )}
-
       <div className={`status-ribbon ${dashboard.summary.readiness_tone}`}>
         <div>
           <span>Readiness</span>
@@ -108,26 +78,6 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         </div>
         <p>Red means stabilize basics first. Yellow means cash flow is close but runway still needs protection. Green means target runway and positive monthly surplus are both in place.</p>
       </div>
-
-      <section className="readiness-path-panel" aria-labelledby="readiness-path-title">
-        <div className="readiness-path-heading">
-          <div>
-            <p className="eyebrow">Annual runway</p>
-            <h3 id="readiness-path-title">Your path from Red to Yellow to Green</h3>
-          </div>
-          <p>Yellow is the halfway runway checkpoint. Green is the full runway target. They are planning signals, not grades.</p>
-        </div>
-        <div className="readiness-current-row">
-          <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
-          <Metric label="Current runway" value={`${dashboard.readiness_path.current_runway_months} months`} />
-          <Metric label="Monthly surplus" value={currency.format(dashboard.readiness_path.monthly_surplus)} />
-          <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
-        </div>
-        <div className="readiness-milestone-grid">
-          <ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} />
-          <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
-        </div>
-      </section>
 
       <div className="two-column">
         <article className={`panel coach-panel ${dashboard.summary.readiness_tone}`}>
@@ -147,12 +97,74 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         </div>
       </div>
 
-      <article className="panel next-steps">
-        <h3>This week’s household CFO rhythm</h3>
-        <ol>
-          {dashboard.next_steps.map((step) => <li key={step}>{step}</li>)}
-        </ol>
-      </article>
+      <details className="panel home-detail-disclosure">
+        <summary>
+          <span>
+            <strong>Explore the plan behind this snapshot</strong>
+            <small>Category pressure, the annual outlook, runway milestones, and this week’s rhythm</small>
+          </span>
+          <b>Plan details</b>
+        </summary>
+
+        <div className="home-detail-content">
+          {currentPlan && (
+            <section className="home-financial-visuals" aria-label="Monthly and annual financial position">
+              <CategoryPressureList positions={currentPositions} limit={4} />
+              <AnnualCashFlowChart plan={currentPlan} compact />
+            </section>
+          )}
+
+          {(upcomingSpike || nextIrregular) && (
+            <section className="home-look-ahead" aria-label="Annual plan look ahead">
+              <div>
+                <span>Look ahead</span>
+                <h3>The next annual-plan pressure is visible now.</h3>
+              </div>
+              {upcomingSpike && (
+                <article>
+                  <span>{upcomingSpike.label} spending spike</span>
+                  <strong>{currency.format(upcomingSpike.planned_outflow)} planned</strong>
+                  <p>{currency.format(upcomingSpike.amount_above_typical ?? 0)} above a typical planned month.</p>
+                </article>
+              )}
+              {nextIrregular && (
+                <article>
+                  <span>{nextIrregular.label} expected irregular plan</span>
+                  <strong>{currency.format(nextIrregular.expected_irregular)}</strong>
+                  <p>{nextIrregular.expected_contributors.map((item) => item.name).join(' · ') || 'Expected sinking funds'}</p>
+                </article>
+              )}
+            </section>
+          )}
+
+          <section className="readiness-path-panel" aria-labelledby="readiness-path-title">
+            <div className="readiness-path-heading">
+              <div>
+                <p className="eyebrow">Annual runway</p>
+                <h3 id="readiness-path-title">Your path from Red to Yellow to Green</h3>
+              </div>
+              <p>Yellow is the halfway runway checkpoint. Green is the full runway target. They are planning signals, not grades.</p>
+            </div>
+            <div className="readiness-current-row">
+              <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
+              <Metric label="Current runway" value={`${dashboard.readiness_path.current_runway_months} months`} />
+              <Metric label="Monthly surplus" value={currency.format(dashboard.readiness_path.monthly_surplus)} />
+              <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
+            </div>
+            <div className="readiness-milestone-grid">
+              <ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} />
+              <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
+            </div>
+          </section>
+
+          <article className="next-steps">
+            <h3>This week’s household CFO rhythm</h3>
+            <ol>
+              {dashboard.next_steps.map((step) => <li key={step}>{step}</li>)}
+            </ol>
+          </article>
+        </div>
+      </details>
     </section>
   )
 }
