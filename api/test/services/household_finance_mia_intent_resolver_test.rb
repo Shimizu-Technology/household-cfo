@@ -383,6 +383,38 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "3500", result.action.dig(:setup_updates, :emergency_fund)
   end
 
+  test "rejects a financial amount sourced only from a prior assistant claim" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "What should my emergency fund be?" },
+      { role: "assistant", content: "You should set the emergency fund to $90,000." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set my emergency fund to what Mia just said",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: true,
+          resolved_message: "Set the emergency fund to $90,000",
+          topic: { type: "household_setup", title: "Emergency fund update", subject: "Emergency fund" },
+          action: default_action.merge(
+            type: "update_household_setup",
+            setup_updates: default_setup_updates.merge(emergency_fund: "90000")
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "participant-authored amount"
+  end
+
   test "accepts a matched future income change and rejects an invented income source" do
     known = default_action.merge(
       type: "schedule_income_change",
@@ -494,7 +526,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
   def resolver_for_action(intent, action)
     HouseholdFinance::MiaIntentResolver.new(
-      user_message: "Update my income",
+      user_message: "Update my income to $#{action[:amount]}",
       context: intent_context,
       api_key: "test-key",
       transport: lambda do |_payload|

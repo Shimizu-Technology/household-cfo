@@ -3,6 +3,10 @@
 module Demo
   class MiaGroundedAnswerer
     READINESS_PATTERN = /\b(?:readiness|runway(?: gap)?|green gap)\b|\b(?:why|how)\b.{0,40}\b(?:yellow|green|red)\b/i
+    SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b/i
+    COMPOUND_PURCHASE_DEBT_PATTERN = /(?=.*\b(?:buy|purchase|spend|trip|vacation|book|order)\b)(?=.*(?:\b(?:extra|additional)\b.{0,40}\b(?:debt|credit card|loan)\b|\b(?:debt|credit card|loan)\b.{0,40}\b(?:extra|additional)\b))/i
+    PURCHASE_TERM_PATTERN = /(?<!safe-to-)\b(?:buy|purchase|spend|trip|vacation|book|order)\b/i
+    DEBT_TERM_PATTERN = /\b(?:debt|credit card|loan)\b/i
     PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i
     FORWARD_SPENDING_PATTERN = /\bhow much\b.*\b(?:can|could|should|may)\b.*\bspend\b/i
     EXTRA_MONEY_PATTERN = /\b(?:what|how|where)\s+should\s+(?:i|we)\b.*\b(?:do with|use|put|split|allocate|save|pay)\b.*\b(?:bonus|windfall|refund|extra money)\b/i
@@ -21,6 +25,8 @@ module Demo
       return compound_spending_answer if forward_spending && spending_lookup
       return forward_spending_answer if forward_spending
       return approved_spending_lookup_answer if spending_lookup
+      return safe_to_spend_formula_answer if message.match?(SAFE_TO_SPEND_FORMULA_PATTERN)
+      return compound_purchase_debt_answer if compound_purchase_debt_question?
       return purchase_impact_answer if message.match?(PURCHASE_IMPACT_PATTERN)
       return extra_money_answer if message.match?(EXTRA_MONEY_PATTERN)
       return readiness_answer if message.match?(READINESS_PATTERN)
@@ -34,6 +40,54 @@ module Demo
 
     def readiness_answer
       "Your approved readiness is Yellow. The monthly basis is #{money(facts.fetch(:monthly_income))} income, a #{money(facts.fetch(:category_plan))} category plan, and #{money(facts.fetch(:debt_minimums))} in separate debt minimums, for #{money(facts.fetch(:total_monthly_outflow))} total money out and a #{money(facts.fetch(:baseline_surplus))} baseline surplus. #{money(facts.fetch(:protected_liquid))} protected liquid divided by total money out gives #{facts.fetch(:runway_months)} months of runway; the six-month Green target is #{money(facts.fetch(:green_runway_target))}, so the exact Green gap is #{money(facts.fetch(:green_runway_gap))}. Next CFO move: keep debt minimums outside the category-plan subtotal and direct approved surplus toward that Green gap."
+    end
+
+    def safe_to_spend_formula_answer
+      rate = (HouseholdFinance::ReadinessCalculator::SAFE_TO_SPEND_RATE * 100).round
+      surplus = facts.fetch(:baseline_surplus).to_f
+      safe = facts.fetch(:safe_to_spend).to_f
+      basis = "#{money(facts.fetch(:category_plan))} category plan + #{money(facts.fetch(:debt_minimums))} debt minimums = #{money(facts.fetch(:total_monthly_outflow))} total outflow; #{money(facts.fetch(:monthly_income))} income − #{money(facts.fetch(:total_monthly_outflow))} = #{money(surplus)} baseline surplus."
+      if surplus <= 0
+        return "Your monthly safe-to-spend guardrail is $0. #{basis} The #{rate}% rule applies only to a positive baseline surplus in Yellow or Green, so a zero or negative surplus does not create discretionary room. It is not a purchase amount or account balance. Next CFO move: restore a positive approved baseline and build runway before approving wants."
+      end
+      if facts.fetch(:readiness_tone) == "red"
+        return "Your monthly safe-to-spend guardrail is $0. #{basis} Although the baseline surplus is positive, Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the #{rate}% rule is not active yet. It is not a purchase amount or account balance. Next CFO move: direct the available surplus toward essential bills, expected expenses, and protected runway."
+      end
+
+      "Your #{money(safe)} monthly safe-to-spend guardrail is #{rate}% of your #{money(surplus)} positive baseline surplus: #{basis} #{money(surplus)} × #{rate}% = #{money(safe)}. It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. The guardrail is available only in Yellow or Green with a positive surplus; Red returns $0. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
+    end
+
+    def compound_purchase_debt_answer
+      purchase_entry = nearest_amount_entry(PURCHASE_TERM_PATTERN)
+      debt_entry = nearest_amount_entry(DEBT_TERM_PATTERN, excluding_index: purchase_entry&.fetch(:index))
+      purchase = purchase_entry.fetch(:value)
+      debt_payment = debt_entry.fetch(:value)
+      combined = purchase + debt_payment
+      safe = facts.fetch(:safe_to_spend).to_f
+      surplus = facts.fetch(:baseline_surplus).to_f
+      "The proposed purchase is #{money(purchase)}, and the extra debt payment is #{money(debt_payment)}; together they total #{money(combined)}. The purchase alone is #{money([ purchase - safe, 0 ].max)} above the #{money(safe)} safe-to-spend guardrail. The combined plan is #{money([ combined - surplus, 0 ].max)} above the #{money(surplus)} baseline surplus; an extra debt payment is an allocation of surplus, not a second safe-to-spend allowance. Nothing is approved, and this does not prove an account can fund either move. Next CFO move: keep the debt minimum protected, then lower or defer the purchase and name the funding account before considering any extra principal payment."
+    end
+
+    def compound_purchase_debt_question?
+      return false unless message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
+
+      purchase_entry = nearest_amount_entry(PURCHASE_TERM_PATTERN)
+      purchase_entry && nearest_amount_entry(DEBT_TERM_PATTERN, excluding_index: purchase_entry.fetch(:index))
+    end
+
+    def amount_entries
+      @amount_entries ||= message.to_enum(:scan, AMOUNT_PATTERN).filter_map do
+        match = Regexp.last_match
+        value = match[1].delete(",").to_f
+        { value: value, index: match.begin(0) } if value.positive?
+      end
+    end
+
+    def nearest_amount_entry(term_pattern, excluding_index: nil)
+      term = message.match(term_pattern)
+      return unless term
+
+      amount_entries.reject { |entry| entry[:index] == excluding_index }.min_by { |entry| (entry[:index] - term.begin(0)).abs }
     end
 
     def purchase_impact_answer

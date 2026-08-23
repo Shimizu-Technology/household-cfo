@@ -197,6 +197,71 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     refute_includes content, "$19,800"
   end
 
+  test "mia shows the exact safe-to-spend formula without treating the guardrail as a purchase" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "How exactly did you calculate the $262 safe-to-spend amount? Show the formula and do not treat $262 as the purchase amount."
+         },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "$6,925"
+    assert_includes content, "$920"
+    assert_includes content, "$7,845"
+    assert_includes content, "$8,500"
+    assert_includes content, "$655"
+    assert_includes content, "40%"
+    assert_includes content, "$262"
+    assert_includes content, "not a purchase amount"
+  end
+
+  test "mia decomposes a compound trip and extra debt payment against both guardrails" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "Can I take a $900 trip and make a $750 extra debt payment this month? Show the math against safe-to-spend and baseline surplus."
+         },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "$900"
+    assert_includes content, "$750"
+    assert_includes content, "$1,650"
+    assert_includes content, "$262"
+    assert_includes content, "$638"
+    assert_includes content, "$655"
+    assert_includes content, "$995"
+    assert_includes content, "not a second safe-to-spend allowance"
+    assert_includes content, "Nothing is approved"
+  end
+
+  test "mia associates compound amounts with their terms even when the prompt repeats safe-to-spend" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "My safe-to-spend says $262. Can I take a $900 trip and make an extra $750 debt payment this month?"
+         },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "The proposed purchase is $900"
+    assert_includes content, "extra debt payment is $750"
+    assert_includes content, "total $1,650"
+    refute_includes content, "proposed purchase is $262"
+  end
+
+  test "mia does not describe a skipped minimum as an extra debt payment" do
+    post "/api/demo/mia/messages",
+         params: { message: "Can I take a $900 trip and skip my $750 debt payment this month?" },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    refute_includes content, "together they total"
+    refute_includes content, "not a second safe-to-spend allowance"
+  end
+
   test "mia refuses to invent a hypothetical purchase impact without a funding source" do
     post "/api/demo/mia/messages",
          params: {
