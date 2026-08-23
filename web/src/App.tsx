@@ -1846,6 +1846,14 @@ function App() {
     )
   }
 
+  // Netlify deploy previews can update before the API deploy. Derive the new
+  // capacity metric from the prior surplus field during that rollout window.
+  const monthlySurplusAvailable = data.wealth.summary.monthly_surplus_available
+    ?? data.wealth.summary.monthly_wealth_building
+    ?? 0
+  const tenYearSurplusCapacity = data.wealth.summary.ten_year_surplus_capacity
+    ?? monthlySurplusAvailable * 12 * 10
+
   return (
     <main className="app">
       <SeoManager section={activeSection} />
@@ -2385,13 +2393,13 @@ function App() {
             <Metric
               className="wealth-explainer-metric"
               label="10-year surplus capacity"
-              value={currency.format(data.wealth.summary.ten_year_surplus_capacity)}
+              value={currency.format(tenYearSurplusCapacity)}
               detail="Today’s positive monthly baseline surplus × 120. This is planning capacity—not confirmed savings, an investment contribution, or a forecast."
             />
             <Metric
               className="wealth-explainer-metric"
               label="Monthly surplus available"
-              value={currency.format(data.wealth.summary.monthly_surplus_available)}
+              value={currency.format(monthlySurplusAvailable)}
               detail="Income left after the current category plan and debt minimums. It is not treated as saved until you assign or transfer it."
             />
           </div>

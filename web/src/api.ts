@@ -502,8 +502,10 @@ export type WealthData = {
   summary: {
     net_worth: number
     liquid_net_worth: number
-    ten_year_surplus_capacity: number
-    monthly_surplus_available: number
+    ten_year_surplus_capacity?: number
+    monthly_surplus_available?: number
+    retirement_projection?: number
+    monthly_wealth_building?: number
   }
   milestones: Array<{
     kind: 'progress' | 'debt_remaining' | 'status'

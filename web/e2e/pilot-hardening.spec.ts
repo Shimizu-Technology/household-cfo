@@ -887,6 +887,28 @@ test('Wealth and Optionality explain decisions without fake payoff progress or c
   await expect(page.getByText(/\/100 readiness/)).toHaveCount(0)
 })
 
+test('Wealth stays accurate while the frontend and API metric contracts roll out', async ({ page }) => {
+  await page.route('http://api.test/api/demo/wealth', (route) => route.fulfill({
+    status: 200,
+    json: {
+      ...wealth,
+      summary: {
+        net_worth: 142_800,
+        liquid_net_worth: 17_740,
+        retirement_projection: 190_000,
+        monthly_wealth_building: 655,
+      },
+    },
+  }))
+
+  await page.goto('/')
+  await openSection(page, 'Wealth')
+
+  await expect(page.locator('.metric-card').filter({ hasText: '10-year surplus capacity' })).toContainText('$78,600.00')
+  await expect(page.locator('.metric-card').filter({ hasText: 'Monthly surplus available' })).toContainText('$655.00')
+  await expect(page.getByText('$190,000.00', { exact: true })).toHaveCount(0)
+})
+
 test('compact phone layouts keep the status card legible and progressively reveal secondary navigation', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only responsive assertion')
   await page.goto('/')
