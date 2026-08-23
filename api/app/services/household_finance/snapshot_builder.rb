@@ -149,11 +149,11 @@ module HouseholdFinance
     end
 
     def total_outflow_cents
-      total_expenses_cents + debt_payments_cents
+      readiness_calculation.fetch(:total_outflow_cents)
     end
 
     def baseline_surplus_cents
-      monthly_income_cents - total_outflow_cents
+      readiness_calculation.fetch(:baseline_surplus_cents)
     end
 
     def liquid_assets_cents
@@ -173,17 +173,11 @@ module HouseholdFinance
     end
 
     def runway_months
-      need = total_outflow_cents
-      return 0.0 if need <= 0
-
-      (liquid_assets_cents / need.to_f).round(1)
+      readiness_calculation.fetch(:runway_months)
     end
 
     def safe_to_spend_cents
-      return 0 if baseline_surplus_cents <= 0
-      return 0 if readiness_tone == "red"
-
-      (baseline_surplus_cents * 0.4).round
+      readiness_calculation.fetch(:safe_to_spend_cents)
     end
 
     def target_runway_months
@@ -195,21 +189,21 @@ module HouseholdFinance
     end
 
     def readiness_tone
-      return "green" if runway_months >= target_runway_months && baseline_surplus_cents.positive?
-      return "yellow" if runway_months >= (target_runway_months / 2.0) && baseline_surplus_cents >= 0
-
-      "red"
+      readiness_calculation.fetch(:readiness_tone)
     end
 
     def readiness_label
-      case readiness_tone
-      when "green"
-        "Green — steady, keep building"
-      when "yellow"
-        "Yellow — close, but protect runway"
-      else
-        "Red — pause and stabilize basics"
-      end
+      readiness_calculation.fetch(:readiness_label)
+    end
+
+    def readiness_calculation
+      @readiness_calculation ||= ReadinessCalculator.new(
+        monthly_income_cents: monthly_income_cents,
+        category_outflow_cents: total_expenses_cents,
+        debt_minimums_cents: debt_payments_cents,
+        protected_liquid_cents: liquid_assets_cents,
+        target_runway_months: target_runway_months
+      ).call
     end
 
     def profile_completeness

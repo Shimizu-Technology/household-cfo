@@ -17,6 +17,8 @@ module HouseholdFinance
     READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
     MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    MONTH_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)\s*months?\b/i
+    PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*%/.freeze
     DANGEROUS_WRITE_CLAIMS = [
       /\b(?:i|i['’]ve|i have|we|we['’]ve|we have|mia)\s+(?:already\s+|just\s+)?(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i,
       /\b(?:actuals?|month-to-date actuals?|mtd actuals?|budget actuals?)\s+(?:now\s+)?(?:show|include|reflect)\b/i,
@@ -196,6 +198,7 @@ module HouseholdFinance
       return :contradicts_pending_state if contradicts_no_pending_drafts?(content)
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
       return :invented_currency_amount if invented_currency_amount?(content)
+      return :invented_measurement if invented_measurement?(content)
       return :missing_pending_review_boundary if missing_pending_review_boundary?(content)
       return :missing_readiness_direct_answer if missing_readiness_direct_answer?(content)
       return :missing_readiness_basis if missing_readiness_basis?(content)
@@ -342,6 +345,39 @@ module HouseholdFinance
       return false if narrated_amounts.empty?
 
       (narrated_amounts - allowed_currency_cents).any?
+    end
+
+    def invented_measurement?(content)
+      measurement_values(content, MONTH_AMOUNT_PATTERN).difference(allowed_month_values).any? ||
+        measurement_values(content, PERCENT_AMOUNT_PATTERN).difference(allowed_percent_values).any?
+    end
+
+    def allowed_month_values
+      @allowed_month_values ||= allowed_measurement_values(/(?:months?|runway)\z/i, MONTH_AMOUNT_PATTERN)
+    end
+
+    def allowed_percent_values
+      @allowed_percent_values ||= allowed_measurement_values(/(?:percent|percentage|rate)\z/i, PERCENT_AMOUNT_PATTERN)
+    end
+
+    def allowed_measurement_values(key_pattern, text_pattern)
+      keyed_values = collect_values_for_keys(answer_packet, key_pattern).filter_map do |value|
+        normalized_measurement(value) if value.is_a?(Numeric)
+      end
+      (keyed_values + measurement_values(JSON.generate(answer_packet), text_pattern)).uniq
+    end
+
+    def measurement_values(text, pattern)
+      text.to_s.scan(pattern).flatten.filter_map { |value| normalized_measurement(value) }.uniq
+    end
+
+    def normalized_measurement(value)
+      number = Float(value)
+      return unless number.finite?
+
+      format("%.10f", number).sub(/\.?0+\z/, "")
+    rescue ArgumentError, TypeError
+      nil
     end
 
     def allowed_currency_cents

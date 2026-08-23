@@ -47,12 +47,6 @@ module Demo
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
 
-    DEMO_CONTEXT = <<~PROMPT.squish
-      Current demo context: monthly income is $8,250, runway is 3.6 months, safe-to-spend is $540,
-      baseline surplus is $1,325, the emergency fund is not fully funded, card payoff is moving,
-      and Optionality should stay hybrid-first until recurring income improves.
-    PROMPT
-
     def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default)
       @api_key = api_key
       @model = model
@@ -61,17 +55,29 @@ module Demo
 
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       clean_message = message.to_s.strip
-      prompt_context = context.presence || DEMO_CONTEXT
+      prompt_context = context.presence || default_context
       return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
       return crisis_response if crisis_message?(clean_message)
+      grounded_response = grounded_answer(clean_message, context: context)
+      return grounded_response if grounded_response
       return openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution) if @api_key.to_s.strip.present?
 
       fallback_response(clean_message, context: prompt_context)
     rescue StandardError
-      fallback_response(clean_message, context: context.presence || DEMO_CONTEXT)
+      fallback_response(clean_message, context: context.presence || default_context)
     end
 
     private
+
+    def default_context
+      JSON.generate(Demo::HouseholdData.mia_context)
+    end
+
+    def grounded_answer(message, context:)
+      return if context.present?
+
+      Demo::MiaGroundedAnswerer.new(message).call
+    end
 
     def openrouter_response(message, history, context:, draft_capable: false, conversation_resolution: nil)
       uri = URI("https://openrouter.ai/api/v1/chat/completions")
