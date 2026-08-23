@@ -81,7 +81,7 @@ export function MonthPlanSummary({
             <div>
               <span>Safe to spend</span>
               <strong>{currency.format(safeToSpend)}</strong>
-              <small>Readiness-aware CFO amount—not ordinary budget remaining.</small>
+              <small>Pilot guardrail: 40% of positive baseline surplus in Yellow or Green—not ordinary budget remaining.</small>
             </div>
           )}
           {baselineSurplus !== undefined && (

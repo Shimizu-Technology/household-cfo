@@ -1,16 +1,27 @@
 module Demo
   class HouseholdData
-    MONTHLY_INCOME = 8_250
+    BASE_MONTHLY_INCOME = 8_250
+    RAISED_MONTHLY_INCOME = 8_500
+    RECURRING_INCOME_CHANGE_MONTH = 8
+    YEAR_END_BONUS = 1_000
     CATEGORY_PLAN = 6_925
     MONTHLY_DEBT_MINIMUMS = 920
     PROTECTED_LIQUID = 25_090
     TARGET_RUNWAY_MONTHS = 6
+    CHECKING_BALANCE = 6_840
+    EMERGENCY_FUND_BALANCE = 18_250
+    CREDIT_CARD_BALANCE = 7_350
+    AUTO_LOAN_BALANCE = 11_900
+    RETIREMENT_BALANCE = 136_960
+    BUSINESS_INCOME = 1_200
+    TRANSITION_STABLE_INCOME = 2_800
 
     def self.persona
       ::Mia::Persona.default
     end
 
     def self.profile
+      facts = financial_facts
       {
         household: {
           name: "Household CFO Demo Family",
@@ -44,9 +55,9 @@ module Demo
             label: "Income",
             summary: "Base pay, rental income, bonuses, and business revenue.",
             items: [
-              { label: "Primary income", amount: 5200 },
+              { label: "Primary income", amount: facts.fetch(:monthly_income) - 3_050 },
               { label: "Rental/passive income", amount: 1850 },
-              { label: "Business income", amount: 1200 }
+              { label: "Business income", amount: BUSINESS_INCOME }
             ]
           },
           {
@@ -55,16 +66,18 @@ module Demo
             items: [
               { label: "Housing", amount: 2100 },
               { label: "Fixed bills", amount: 2525 },
-              { label: "Food, gas, discretionary", amount: 1380 }
+              { label: "Food, gas, discretionary", amount: 1380 },
+              { label: "Expected sinking funds", amount: 560 },
+              { label: "Unexpected sinking fund", amount: 360 }
             ]
           },
           {
             label: "Savings & Debt",
             summary: "Runway, credit cards, loans, and the next stability target.",
             items: [
-              { label: "Emergency fund", amount: 18250 },
-              { label: "Credit card debt", amount: -7350 },
-              { label: "Auto loan", amount: -11900 }
+              { label: "Emergency fund", amount: EMERGENCY_FUND_BALANCE },
+              { label: "Credit card debt", amount: -CREDIT_CARD_BALANCE },
+              { label: "Auto loan", amount: -AUTO_LOAN_BALANCE }
             ]
           }
         ]
@@ -83,8 +96,8 @@ module Demo
           savings_rate_percent: facts.fetch(:savings_rate_percent),
           runway_months: facts.fetch(:runway_months),
           next_safe_to_spend_amount: facts.fetch(:safe_to_spend),
-          readiness_tone: "yellow",
-          readiness_label: "Yellow — close, but protect runway"
+          readiness_tone: facts.fetch(:readiness_tone),
+          readiness_label: facts.fetch(:readiness_label)
         },
         budget_basis: facts.slice(:monthly_income, :category_plan, :debt_minimums, :total_monthly_outflow, :baseline_surplus),
         action_center: {
@@ -122,14 +135,14 @@ module Demo
           }
         },
         accounts: [
-          { name: "Checking", type: "cash", balance: 6840 },
-          { name: "Emergency Fund", type: "savings", balance: 18250 },
-          { name: "Credit Card", type: "debt", balance: -7350 },
-          { name: "Auto Loan", type: "debt", balance: -11900 }
+          { name: "Checking", type: "cash", balance: CHECKING_BALANCE },
+          { name: "Emergency Fund", type: "savings", balance: EMERGENCY_FUND_BALANCE },
+          { name: "Credit Card", type: "debt", balance: -CREDIT_CARD_BALANCE },
+          { name: "Auto Loan", type: "debt", balance: -AUTO_LOAN_BALANCE }
         ],
         alerts: [
           { tone: "green", title: "Bills covered", body: "All fixed expenses are funded through the next pay cycle." },
-          { tone: "yellow", title: "Debt focus", body: "Card payoff is moving, but unplanned wants should stay within the $162 safe-to-spend guardrail this month." },
+          { tone: "yellow", title: "Debt focus", body: "Card payoff matters, but unplanned wants should stay within the #{money(facts.fetch(:safe_to_spend))} safe-to-spend guardrail this month." },
           {
             tone: "blue",
             title: "Runway",
@@ -138,7 +151,7 @@ module Demo
         ],
         next_steps: [
           "Keep this month’s flexible spending under $1,380.",
-          "Move $200 extra toward the credit card only after fixed bills and expected expenses clear.",
+          "Direct this month’s #{money(facts.fetch(:baseline_surplus))} baseline surplus toward protected runway before extra debt payments.",
           "Add one recurring business retainer before changing job income."
         ]
       }
@@ -187,8 +200,8 @@ module Demo
       }
     end
 
-    def self.annual_plan
-      year = Date.current.year
+    def self.annual_plan(on: Date.current)
+      year = on.year
       months = (1..12).map do |month|
         starts_on = Date.new(year, month, 1)
         {
@@ -206,8 +219,8 @@ module Demo
         demo_budget_row(4, "Unexpected sinking fund", "sinking_unexpected", "Sinking Fund — Unexpected", 360, months)
       ]
       monthly_debt_minimums = MONTHLY_DEBT_MINIMUMS
-      income = months.to_h { |month| [ month[:id], month[:id] >= 8 ? 8_500 : 8_250 ] }
-      income[12] += 1_000
+      income = months.to_h { |month| [ month[:id], recurring_monthly_income(month: month[:id]) ] }
+      income[12] += YEAR_END_BONUS
       outlook_months = months.map do |month|
         category_plan = rows.sum { |row| row[:months][month[:id] - 1][:planned] }
         planned = category_plan + monthly_debt_minimums
@@ -238,11 +251,11 @@ module Demo
             id: 1,
             label: "Primary income",
             source_type: "job",
-            base_amount: 8_250,
+            base_amount: BASE_MONTHLY_INCOME,
             base_cadence: "monthly",
             schedule_entries: [
-              { id: 1, entry_type: "recurring_change", label: nil, amount: 8_500, cadence: "monthly", effective_on: Date.new(year, 8, 1).iso8601 },
-              { id: 2, entry_type: "one_time", label: "Year-end bonus", amount: 1_000, cadence: "one_time", effective_on: Date.new(year, 12, 1).iso8601 }
+              { id: 1, entry_type: "recurring_change", label: nil, amount: RAISED_MONTHLY_INCOME, cadence: "monthly", effective_on: Date.new(year, RECURRING_INCOME_CHANGE_MONTH, 1).iso8601 },
+              { id: 2, entry_type: "one_time", label: "Year-end bonus", amount: YEAR_END_BONUS, cadence: "one_time", effective_on: Date.new(year, 12, 1).iso8601 }
             ]
           }
         ],
@@ -250,7 +263,7 @@ module Demo
           typical_monthly_outflow: CATEGORY_PLAN + monthly_debt_minimums,
           months: outlook_months,
           upcoming_spikes: [ december ],
-          next_irregular_month: outlook_months.find { |month| Date.iso8601(month[:starts_on]) >= Date.current.beginning_of_month }
+          next_irregular_month: outlook_months.find { |month| Date.iso8601(month[:starts_on]) >= on.beginning_of_month }
         },
         pending_transaction_drafts: [],
         pending_mia_action_drafts: [],
@@ -259,9 +272,10 @@ module Demo
       }
     end
 
-    def self.financial_facts
+    def self.financial_facts(on: Date.current)
+      monthly_income = recurring_monthly_income(month: on.month)
       result = HouseholdFinance::ReadinessCalculator.new(
-        monthly_income_cents: HouseholdFinance::Money.cents(MONTHLY_INCOME),
+        monthly_income_cents: HouseholdFinance::Money.cents(monthly_income),
         category_outflow_cents: HouseholdFinance::Money.cents(CATEGORY_PLAN),
         debt_minimums_cents: HouseholdFinance::Money.cents(MONTHLY_DEBT_MINIMUMS),
         protected_liquid_cents: HouseholdFinance::Money.cents(PROTECTED_LIQUID),
@@ -269,21 +283,27 @@ module Demo
       ).call
 
       {
-        monthly_income: MONTHLY_INCOME,
+        monthly_income: monthly_income,
         category_plan: CATEGORY_PLAN,
         debt_minimums: MONTHLY_DEBT_MINIMUMS,
         total_monthly_outflow: dollars(result.fetch(:total_outflow_cents)),
         baseline_surplus: dollars(result.fetch(:baseline_surplus_cents)),
-        savings_rate_percent: (result.fetch(:baseline_surplus_cents) / HouseholdFinance::Money.cents(MONTHLY_INCOME).to_f * 100).round,
+        savings_rate_percent: (result.fetch(:baseline_surplus_cents) / HouseholdFinance::Money.cents(monthly_income).to_f * 100).round,
         protected_liquid: PROTECTED_LIQUID,
         runway_months: result.fetch(:runway_months),
         target_runway_months: result.fetch(:target_runway_months),
+        readiness_tone: result.fetch(:readiness_tone),
+        readiness_label: result.fetch(:readiness_label),
         safe_to_spend: dollars(result.fetch(:safe_to_spend_cents)),
         yellow_runway_target: dollars(result.fetch(:yellow_runway_target_cents)),
         yellow_runway_gap: dollars(result.fetch(:yellow_runway_gap_cents)),
         green_runway_target: dollars(result.fetch(:green_runway_target_cents)),
         green_runway_gap: dollars(result.fetch(:green_runway_gap_cents))
       }
+    end
+
+    def self.recurring_monthly_income(month: Date.current.month)
+      month >= RECURRING_INCOME_CHANGE_MONTH ? RAISED_MONTHLY_INCOME : BASE_MONTHLY_INCOME
     end
 
     def self.mia_context
@@ -304,6 +324,10 @@ module Demo
       HouseholdFinance::Money.dollars(cents)
     end
 
+    def self.money(value)
+      ActiveSupport::NumberHelper.number_to_currency(value, precision: value.to_f % 1 == 0 ? 0 : 2)
+    end
+
     def self.demo_budget_row(id, name, stack_key, stack_label, monthly_amount, months, december_amount: monthly_amount)
       cells = months.map do |month|
         planned = month[:id] == 12 ? december_amount : monthly_amount
@@ -322,29 +346,35 @@ module Demo
     end
 
     def self.wealth
+      facts = financial_facts
+      total_debt = CREDIT_CARD_BALANCE + AUTO_LOAN_BALANCE
+      net_worth = PROTECTED_LIQUID + RETIREMENT_BALANCE - total_debt
       {
         summary: {
-          net_worth: 142_800,
-          liquid_net_worth: 25_090,
-          retirement_projection: 418_000,
-          monthly_wealth_building: 900
+          net_worth: net_worth,
+          liquid_net_worth: PROTECTED_LIQUID - CREDIT_CARD_BALANCE,
+          retirement_projection: RETIREMENT_BALANCE + (facts.fetch(:baseline_surplus) * 12 * 10),
+          monthly_wealth_building: facts.fetch(:baseline_surplus)
         },
         milestones: [
-          { kind: "progress", label: "Six-month runway", current: financial_facts.fetch(:runway_months), target: 6, unit: "months", status: "yellow" },
-          { kind: "progress", label: "Credit card paid off", current: 2650, target: 7350, unit: "dollars paid", status: "yellow" },
-          { kind: "progress", label: "Founder transition reserve", current: 18_250, target: 24_000, unit: "dollars", status: "green" }
+          { kind: "progress", label: "Six-month runway", current: facts.fetch(:runway_months), target: facts.fetch(:target_runway_months), unit: "months", status: facts.fetch(:readiness_tone) },
+          { kind: "debt_remaining", label: "Credit card balance", current: CREDIT_CARD_BALANCE, target: 0, unit: "dollars", status: "yellow" },
+          { kind: "progress", label: "Protected runway", current: PROTECTED_LIQUID, target: facts.fetch(:green_runway_target), unit: "dollars", status: facts.fetch(:readiness_tone) }
         ],
         guidance: "Wealth here is not about looking rich. It is about buying back options, lowering panic, and making the next right move visible."
       }
     end
 
     def self.optionality
+      facts = financial_facts
+      required_business_income = [ facts.fetch(:total_monthly_outflow) - TRANSITION_STABLE_INCOME, 0 ].max
+      monthly_gap = [ required_business_income - BUSINESS_INCOME, 0 ].max
       {
         scenario: "Founder transition",
         question: "What would it take to safely move from stable employment into the business full-time?",
         target_runway_months: 6,
-        current_runway_months: financial_facts.fetch(:runway_months),
-        monthly_gap: 1350,
+        current_runway_months: facts.fetch(:runway_months),
+        monthly_gap: monthly_gap,
         choices: [
           {
             label: "Stay the course",
@@ -369,47 +399,51 @@ module Demo
           }
         ],
         levers: [
-          { label: "Business needs to pay", amount: 2122 },
-          { label: "Partner/filler income", amount: 2800 },
-          { label: "Transition reserve goal gap", amount: 5750 }
+          { label: "Business needs to pay", amount: required_business_income },
+          { label: "Current business income", amount: BUSINESS_INCOME },
+          { label: "Six-month runway gap", amount: facts.fetch(:green_runway_gap) }
         ]
       }
     end
 
     def self.cfo_filter
+      facts = financial_facts
+      runway_met = facts.fetch(:green_runway_gap).zero?
+      baseline_positive = facts.fetch(:baseline_surplus).positive?
       {
         framework: "CFO Filter",
         prompt: "Before money leaves the household, ask whether this spend protects stability, creates optionality, or moves the dream forward.",
         decisions: [
           {
-            item: "Upgrade laptop",
-            amount: 1800,
-            recommendation: "Wait",
-            reason: "Useful, but not required for the next 30-day revenue target. Revisit after one retainer closes."
+            item: "Non-essential purchase",
+            amount: facts.fetch(:safe_to_spend),
+            recommendation: facts.fetch(:safe_to_spend).positive? ? "Pause" : "Wait",
+            reason: "Only approve wants that fit inside true surplus after bills, sinking funds, debt minimums, and confirmed activity."
           },
           {
-            item: "Pay extra on credit card",
-            amount: 500,
-            recommendation: "Approve",
-            reason: "Improves monthly breathing room and keeps the debt snowball moving."
+            item: "Extra debt payment",
+            amount: runway_met && baseline_positive ? facts.fetch(:safe_to_spend) : 0,
+            recommendation: runway_met && baseline_positive ? "Approve" : "Wait",
+            reason: runway_met ? "Debt payoff improves breathing room after the runway target is protected." : "Protect the six-month runway target before adding an extra debt payment."
           },
           {
-            item: "Wednesday event visuals",
-            amount: 250,
-            recommendation: "Approve",
-            reason: "Directly supports launch momentum and first-cohort demand generation."
+            item: "Runway transfer",
+            amount: [ facts.fetch(:baseline_surplus), 0 ].max,
+            recommendation: runway_met ? "Optional" : (baseline_positive ? "Approve" : "Wait"),
+            reason: runway_met ? "The runway target is protected; additional transfers are optional after essentials stay covered." : "Runway buys options and lowers panic."
           }
         ],
         targets: [
-          { label: "Emergency fund", current: 18250, target: 24000 },
-          { label: "Credit card payoff", current: 7350, target: 0 },
-          { label: "Monthly business revenue", current: 3200, target: 6000 }
+          { label: "Protected runway", current: PROTECTED_LIQUID, target: facts.fetch(:green_runway_target) },
+          { label: "Debt payoff", current: CREDIT_CARD_BALANCE + AUTO_LOAN_BALANCE, target: 0 },
+          { label: "Monthly business revenue", current: BUSINESS_INCOME, target: [ facts.fetch(:total_monthly_outflow) - TRANSITION_STABLE_INCOME, 0 ].max }
         ],
         priority_stack: [ "Protect the roof", "Protect food/gas", "Protect runway", "Attack high-interest debt", "Fund the dream with evidence" ]
       }
     end
 
     def self.mia_messages
+      facts = financial_facts
       {
         messages: [
           {
@@ -425,7 +459,7 @@ module Demo
           {
             role: "assistant",
             author: "Mia",
-            content: "You can move toward it, but the clean path is hybrid first. Your runway is strong enough to make a measured CFO move, not a leap-of-faith move. One next move: close one more monthly retainer or add $5,750 to runway before you cut stable income."
+            content: "You can move toward it, but the clean path is hybrid first. Your runway is strong enough to make a measured CFO move, not a leap-of-faith move. One next move: close the #{money(facts.fetch(:green_runway_gap))} six-month runway gap before you cut stable income."
           }
         ],
         oldest_message_id: nil,

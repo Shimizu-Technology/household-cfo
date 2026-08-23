@@ -340,6 +340,7 @@ module HouseholdFinance
 
     def period_label
       return "all available bank history" if message.match?(ALL_BANK_ACTIVITY_TERMS)
+      return start_on.strftime("%b %-d, %Y") if start_on == end_on
 
       if start_on == start_on.beginning_of_month && end_on == start_on.end_of_month
         start_on.strftime("%B %Y")

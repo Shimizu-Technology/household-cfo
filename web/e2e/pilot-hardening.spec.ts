@@ -549,7 +549,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
   await expect(monthSummary.getByText('Confirmed actual', { exact: true }).locator('..')).toContainText('$3,475.00')
   await expect(monthSummary.getByText('Pending review', { exact: true }).locator('..')).toContainText('$115.00')
-  await expect(monthSummary).toContainText('Readiness-aware CFO amount—not ordinary budget remaining.')
+  await expect(monthSummary).toContainText('Pilot guardrail: 40% of positive baseline surplus in Yellow or Green—not ordinary budget remaining.')
   await expect(monthSummary).toContainText('$1,710.00 remains after pending review')
   const homeOutflowBreakdown = monthSummary.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(homeOutflowBreakdown).toContainText('Category plan')

@@ -218,17 +218,6 @@ const documentUploadCards: Array<{
   },
 ]
 
-const sourceDerivedCopy = [
-  'Expense Stack',
-  'Non-discretionary',
-  'Sinking Fund — Expected',
-  'Sinking Fund — Unexpected',
-  'Upload spreadsheet',
-  'Upload statement',
-  'Upload pay stub',
-  'Approved data loaded',
-]
-
 type WorkspaceSetupMoneyKey = Exclude<keyof WorkspaceSetupValues, 'household_name' | 'primary_goal'>
 type WorkspaceSetupDraft = Omit<WorkspaceSetupValues, WorkspaceSetupMoneyKey> & Record<WorkspaceSetupMoneyKey, string>
 
@@ -1861,9 +1850,6 @@ function App() {
     <main className="app">
       <SeoManager section={activeSection} />
       <header className={`shell-header${compactShell ? ' is-compact' : ''}`}>
-        <ul className="sr-only" aria-label="Source-derived design requirements">
-          {sourceDerivedCopy.map((item) => <li key={item}>{item}</li>)}
-        </ul>
         <div>
           <p className="eyebrow">Household CFO Method powered by VERA</p>
           <h1>{compactShell ? 'Household CFO' : 'Household CFO Method'}</h1>

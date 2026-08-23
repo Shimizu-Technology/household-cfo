@@ -1,9 +1,10 @@
 module HouseholdFinance
   class SpendingReportQuery
-    REPORT_TERMS = /\b(spending|spent|actuals?|transactions?|budget report|month|quarter|year|ytd|year to date|looking|look|#{MonthTerms.pattern})\b/i
+    REPORT_TERMS = /\b(spending|spend|spent|actuals?|transactions?|budget report|month|quarter|year|ytd|year to date|looking|look|#{MonthTerms.pattern})\b/i
     BUDGET_STATUS_TERMS = /\b(staying within|within (?:my|our|the)?\s*budget|under budget|over budget|over plan|under plan|on track|off track|am i okay|are we okay)\b/i
     CATEGORY_STATUS_TERMS = /\b(?:what|which)\s+categories\b.*\b(?:over|under)\b.*\b(?:plan|budget)\b/i
     PLANNED_BUDGET_TERMS = /\b(set aside|budget(?:ed)?|planned|available|allowance|left|remaining)\b/i
+    TRANSACTION_REPORT_TERMS = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i
 
     def initialize(message, today: Date.current)
       @message = message.to_s.downcase.squish
@@ -13,7 +14,7 @@ module HouseholdFinance
     def range
       return nil unless report_like?
 
-      explicit_date_range || named_range || month_span_range || month_range || budget_status_default_range
+      explicit_date_range || relative_day_range || named_range || month_span_range || month_range || budget_status_default_range
     end
 
     private
@@ -21,6 +22,7 @@ module HouseholdFinance
     attr_reader :message, :today
 
     def report_like?
+      return false if message.match?(TRANSACTION_REPORT_TERMS) && !message.match?(/\b(?:how|what|show|find|list|total|did)\b/i)
       return true if message.match?(BUDGET_STATUS_TERMS) || message.match?(CATEGORY_STATUS_TERMS)
       return false if message.match?(PLANNED_BUDGET_TERMS) && !message.match?(/\b(actuals?|transactions?|spent|report)\b/i)
 
@@ -56,6 +58,20 @@ module HouseholdFinance
         date = today.prev_year
         build_range(date.beginning_of_year, date.end_of_year)
       end
+    end
+
+    def relative_day_range
+      return build_range(today, today) if message.match?(/\btoday\b/)
+      return build_range(today - 1.day, today - 1.day) if message.match?(/\byesterday\b/)
+
+      match = message.match(/\blast\s+(sunday|monday|tuesday|wednesday|thursday|friday|saturday)\b/)
+      return unless match
+
+      target_wday = Date::DAYNAMES.index(match[1].capitalize)
+      days_ago = (today.wday - target_wday) % 7
+      days_ago = 7 if days_ago.zero?
+      date = today - days_ago.days
+      build_range(date, date)
     end
 
     def month_range
