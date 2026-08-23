@@ -133,6 +133,19 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "Nothing is approved"
   end
 
+  test "associates compound amounts globally when the purchase amount appears later" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Can I take a trip and make a $750 extra debt payment this month if the trip costs $900?"
+    ).call
+
+    assert_includes answer, "proposed purchase is $900"
+    assert_includes answer, "extra debt payment is $750"
+    assert_includes answer, "together they total $1,650"
+  end
+
   test "holds safe-to-spend at zero when a positive-surplus household is still Red" do
     household = create_yellow_household
     household.accounts.find_by!(account_type: "emergency_fund").update!(balance_cents: 0)

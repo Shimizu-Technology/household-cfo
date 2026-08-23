@@ -161,8 +161,7 @@ module HouseholdFinance
     def compound_purchase_debt_answer
       return nil unless normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
 
-      purchase_entry = nearest_amount_entry(PURCHASE_TERM_PATTERN)
-      debt_entry = nearest_amount_entry(DEBT_TERM_PATTERN, excluding_index: purchase_entry&.fetch(:index))
+      purchase_entry, debt_entry = compound_amount_entries
       return nil unless purchase_entry && debt_entry
 
       purchase = purchase_entry.fetch(:value)
@@ -595,11 +594,14 @@ module HouseholdFinance
       end
     end
 
-    def nearest_amount_entry(term_pattern, excluding_index: nil)
-      term = message.match(term_pattern)
-      return unless term
+    def compound_amount_entries
+      amount_entries.permutation(2).min_by do |purchase_entry, debt_entry|
+        distance_to_term(purchase_entry, PURCHASE_TERM_PATTERN) + distance_to_term(debt_entry, DEBT_TERM_PATTERN)
+      end
+    end
 
-      amount_entries.reject { |entry| entry[:index] == excluding_index }.min_by { |entry| (entry[:index] - term.begin(0)).abs }
+    def distance_to_term(entry, term_pattern)
+      message.to_enum(:scan, term_pattern).map { Regexp.last_match.begin(0) }.map { |index| (entry.fetch(:index) - index).abs }.min || Float::INFINITY
     end
 
     def snapshot

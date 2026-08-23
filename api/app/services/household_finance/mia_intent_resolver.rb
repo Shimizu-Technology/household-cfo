@@ -380,16 +380,31 @@ module HouseholdFinance
 
     def money_cents_from_participant_text(text)
       currency = text.to_s.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |value| cents_or_nil(value.delete(",")) }
-      plain = text.to_s.scan(NUMBER_TEXT_PATTERN).flatten.filter_map do |value|
-        normalized = value.delete(",")
-        number = BigDecimal(normalized)
-        next if number.frac.zero? && number.to_i.between?(2000, 2100)
+      plain = text.to_s.to_enum(:scan, NUMBER_TEXT_PATTERN).filter_map do
+        match = Regexp.last_match
+        normalized = match[1].delete(",")
+        next if calendar_year_token?(text.to_s, match, normalized)
 
         cents_or_nil(normalized)
       rescue ArgumentError
         nil
       end
       (currency + plain).uniq
+    end
+
+    def calendar_year_token?(text, match, normalized)
+      number = BigDecimal(normalized)
+      return false unless number.frac.zero? && number.to_i.between?(2000, 2100)
+
+      before = text[0...match.begin(0)].to_s.last(24)
+      after = text[match.end(0)..].to_s.first(24)
+      before.match?(/(?:\b(?:year|in|for|during|from|through|until|since|by)\s+|\b(?:#{month_names_pattern})\s+)\z/i) ||
+        after.match?(/\A\s*(?:year|budget|plan|calendar|tax\s+year)\b/i) ||
+        before.end_with?("-", "/") || after.start_with?("-", "/")
+    end
+
+    def month_names_pattern
+      @month_names_pattern ||= (Date::MONTHNAMES + Date::ABBR_MONTHNAMES).compact.uniq.join("|")
     end
 
     def approved_context_money_cents(value = context, key: nil)

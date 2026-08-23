@@ -251,6 +251,20 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     refute_includes content, "proposed purchase is $262"
   end
 
+  test "mia associates a later purchase amount without swapping the nearby debt amount" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "Can I take a trip and make a $750 extra debt payment this month if the trip costs $900?"
+         },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "proposed purchase is $900"
+    assert_includes content, "extra debt payment is $750"
+    assert_includes content, "total $1,650"
+  end
+
   test "mia does not describe a skipped minimum as an extra debt payment" do
     post "/api/demo/mia/messages",
          params: { message: "Can I take a $900 trip and skip my $750 debt payment this month?" },

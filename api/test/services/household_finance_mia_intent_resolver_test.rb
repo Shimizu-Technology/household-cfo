@@ -415,6 +415,64 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "participant-authored amount"
   end
 
+  test "accepts a bare participant amount that happens to fall in the year range" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set rent to 2050 for September",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set September rent to $2,050",
+          topic: { type: "budget_edit", title: "Rent update", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "2050",
+            months: [ 9 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "2050", result.action.fetch(:amount)
+  end
+
+  test "does not treat an actual calendar year as a participant-authored amount" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set rent for September 2026",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set September rent to $2,026",
+          topic: { type: "budget_edit", title: "Rent update", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "2026",
+            months: [ 9 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_includes result.clarification, "participant-authored amount"
+  end
+
   test "accepts a matched future income change and rejects an invented income source" do
     known = default_action.merge(
       type: "schedule_income_change",
