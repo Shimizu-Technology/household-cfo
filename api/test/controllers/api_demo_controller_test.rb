@@ -227,9 +227,9 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "$162"
-    assert_includes content, "not automatic approval for a purchase at Costco"
+    assert_includes content, "not automatic approval for the proposed purchase"
     assert_includes content, "no approved transaction ledger"
-    assert_includes content, "previously spent at Ross"
+    assert_includes content, "cannot confirm the historical merchant total"
     assert_includes content, "Missing records are not proof of $0 spending"
   end
 
@@ -240,10 +240,20 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "not automatic approval for a purchase at Costco"
-    assert_includes content, "previously spent at Ross"
-    refute_includes content, "purchase at Ross"
-    refute_includes content, "previously spent at Costco"
+    assert_includes content, "not automatic approval for the proposed purchase"
+    assert_includes content, "cannot confirm the historical merchant total"
+  end
+
+  test "mia does not split a merchant conjunction in a compound spending question" do
+    post "/api/demo/mia/messages",
+         params: { message: "How much can I spend at Barnes and Noble, and how much did I spend at Ross last month?" },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "not automatic approval for the proposed purchase"
+    assert_includes content, "cannot confirm the historical merchant total"
+    refute_includes content, "purchase at Barnes"
   end
 
   private
