@@ -917,14 +917,27 @@ test('compact phone layouts keep the status card legible and progressively revea
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
   await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
   await expect(page.getByText('More prompts →')).toBeHidden()
-  const chatBox = await page.locator('.mia-chat-shell').boundingBox()
+  await page.locator('.screen-grid').evaluate(async (screen) => {
+    await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
+  })
+  const chatLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
+    const shellBox = shell.getBoundingClientRect()
+    const conversationBox = shell.querySelector('.chat-card-wrap')?.getBoundingClientRect()
+    const composerBox = shell.querySelector('.ask-row')?.getBoundingClientRect()
+    return {
+      shell: { x: shellBox.x, y: shellBox.y, width: shellBox.width, height: shellBox.height, bottom: shellBox.bottom },
+      conversationHeight: conversationBox?.height ?? 0,
+      composerBottom: composerBox?.bottom ?? Number.POSITIVE_INFINITY,
+    }
+  })
   const promptButtons = page.locator('.chat-prompts button')
   const promptWidths = await promptButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().width))
-  expect(Math.max(...promptWidths)).toBeLessThanOrEqual((chatBox?.width ?? 0) - 20)
+  expect(Math.max(...promptWidths)).toBeLessThanOrEqual(chatLayout.shell.width - 20)
   const contextBox = await page.locator('.mia-context').boundingBox()
-  expect(chatBox).not.toBeNull()
+  expect(chatLayout.conversationHeight).toBeGreaterThan(100)
+  expect(chatLayout.composerBottom).toBeLessThanOrEqual(chatLayout.shell.bottom + 1)
   expect(contextBox).not.toBeNull()
-  expect(chatBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(contextBox?.y ?? 0)
+  expect(chatLayout.shell.y).toBeLessThan(contextBox?.y ?? 0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
