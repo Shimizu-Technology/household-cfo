@@ -45,8 +45,9 @@ module Demo
     end
 
     def compound_spending_answer
-      merchant = merchant_name
-      "Your approved monthly safe-to-spend guardrail is #{money(facts.fetch(:safe_to_spend))}, but that is not automatic approval for a purchase at #{merchant}. The preview has no approved transaction ledger, so I cannot confirm how much you previously spent there or how much of the guardrail remains after real spending. Missing records are not proof of $0 spending. Next CFO move: check confirmed activity and the purchase category before deciding."
+      forward_merchant = merchant_names.first || "that merchant"
+      history_merchant = merchant_names.last || "that merchant"
+      "Your approved monthly safe-to-spend guardrail is #{money(facts.fetch(:safe_to_spend))}, but that is not automatic approval for a purchase at #{forward_merchant}. The preview has no approved transaction ledger, so I cannot confirm how much you previously spent at #{history_merchant} or how much of the guardrail remains after real spending. Missing records are not proof of $0 spending. Next CFO move: check confirmed activity and the purchase category before deciding."
     end
 
     def approved_spending_lookup_answer
@@ -55,7 +56,11 @@ module Demo
     end
 
     def merchant_name
-      message[MERCHANT_PATTERN, 1].presence || "that merchant"
+      merchant_names.first || "that merchant"
+    end
+
+    def merchant_names
+      @merchant_names ||= message.scan(MERCHANT_PATTERN).flatten.filter_map(&:presence)
     end
 
     def money(value)

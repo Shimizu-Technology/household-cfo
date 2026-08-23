@@ -221,14 +221,15 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
 
   test "mia answers both sides of a compound forward and historical spending question" do
     post "/api/demo/mia/messages",
-         params: { message: "How much can I spend at Costco, and how much did I spend at Costco last month?" },
+         params: { message: "How much can I spend at Costco, and how much did I spend at Ross last month?" },
          as: :json
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "$162"
-    assert_includes content, "not automatic approval"
+    assert_includes content, "not automatic approval for a purchase at Costco"
     assert_includes content, "no approved transaction ledger"
+    assert_includes content, "previously spent at Ross"
     assert_includes content, "Missing records are not proof of $0 spending"
   end
 
