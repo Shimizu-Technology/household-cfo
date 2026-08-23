@@ -15,8 +15,11 @@ module Demo
     end
 
     def call
-      return forward_spending_answer if message.match?(FORWARD_SPENDING_PATTERN)
-      return approved_spending_lookup_answer if message.match?(APPROVED_SPENDING_LOOKUP_PATTERN)
+      forward_spending = message.match?(FORWARD_SPENDING_PATTERN)
+      spending_lookup = message.match?(APPROVED_SPENDING_LOOKUP_PATTERN)
+      return compound_spending_answer if forward_spending && spending_lookup
+      return forward_spending_answer if forward_spending
+      return approved_spending_lookup_answer if spending_lookup
       return purchase_impact_answer if message.match?(PURCHASE_IMPACT_PATTERN)
       return readiness_answer if message.match?(READINESS_PATTERN)
 
@@ -41,9 +44,18 @@ module Demo
       "Your approved monthly safe-to-spend guardrail is #{money(facts.fetch(:safe_to_spend))}, but that is not automatic approval for a specific merchant or purchase. The preview has no confirmed transaction ledger, so I cannot verify how much of that guardrail is still available after real spending. Next CFO move: check the purchase against its budget category and confirmed activity before deciding."
     end
 
+    def compound_spending_answer
+      merchant = merchant_name
+      "Your approved monthly safe-to-spend guardrail is #{money(facts.fetch(:safe_to_spend))}, but that is not automatic approval for a purchase at #{merchant}. The preview has no approved transaction ledger, so I cannot confirm how much you previously spent there or how much of the guardrail remains after real spending. Missing records are not proof of $0 spending. Next CFO move: check confirmed activity and the purchase category before deciding."
+    end
+
     def approved_spending_lookup_answer
-      merchant = message[MERCHANT_PATTERN, 1].presence || "that merchant"
+      merchant = merchant_name
       "The preview has no approved transaction ledger, so I cannot state that you spent $0 at #{merchant} or support another total as a fact. No approved #{merchant} transactions are available here, but missing records are not proof of zero spending. Next CFO move: use a real workspace with confirmed transactions or import the statement for that period, then ask again."
+    end
+
+    def merchant_name
+      message[MERCHANT_PATTERN, 1].presence || "that merchant"
     end
 
     def money(value)
