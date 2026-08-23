@@ -243,7 +243,7 @@ export type DashboardData = {
     fixed_expenses: number
     flexible_spend: number
     debt_payments: number
-    savings_rate_percent: number
+    monthly_surplus_rate_percent: number
     runway_months: number
     next_safe_to_spend_amount: number
     readiness_tone: 'red' | 'yellow' | 'green'
@@ -502,8 +502,8 @@ export type WealthData = {
   summary: {
     net_worth: number
     liquid_net_worth: number
-    retirement_projection: number
-    monthly_wealth_building: number
+    ten_year_surplus_capacity: number
+    monthly_surplus_available: number
   }
   milestones: Array<{
     kind: 'progress' | 'debt_remaining' | 'status'

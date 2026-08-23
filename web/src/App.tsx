@@ -2383,11 +2383,17 @@ function App() {
             <Metric label="Net worth" value={currency.format(data.wealth.summary.net_worth)} />
             <Metric label="Liquid net worth" value={currency.format(data.wealth.summary.liquid_net_worth)} />
             <Metric
-              label="10-year contribution outlook"
-              value={currency.format(data.wealth.summary.retirement_projection)}
-              detail="Current retirement balance plus 10 years of today’s monthly wealth-building amount. Excludes market growth, taxes, fees, and inflation."
+              className="wealth-explainer-metric"
+              label="10-year surplus capacity"
+              value={currency.format(data.wealth.summary.ten_year_surplus_capacity)}
+              detail="Today’s positive monthly baseline surplus × 120. This is planning capacity—not confirmed savings, an investment contribution, or a forecast."
             />
-            <Metric label="Monthly wealth building" value={currency.format(data.wealth.summary.monthly_wealth_building)} />
+            <Metric
+              className="wealth-explainer-metric"
+              label="Monthly surplus available"
+              value={currency.format(data.wealth.summary.monthly_surplus_available)}
+              detail="Income left after the current category plan and debt minimums. It is not treated as saved until you assign or transfer it."
+            />
           </div>
 
           <div className="milestone-list">

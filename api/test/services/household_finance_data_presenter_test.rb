@@ -1,6 +1,8 @@
 require "test_helper"
 
 class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
+  include ActiveSupport::Testing::TimeHelpers
+
   test "blank workspace does not invent debt or CFO filter amounts" do
     household, user = create_household
 
@@ -117,6 +119,30 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     refute_includes payload.to_json, "Leap now"
   end
 
+  test "current recurring income changes reconcile across dashboard profile and optionality" do
+    travel_to Date.new(2026, 8, 24) do
+      household, user = create_household
+      household.update!(primary_goal: "Leave my job safely")
+      job = household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
+      business = household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 100_000, cadence: "monthly")
+      job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 700_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      business.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 200_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      job.income_schedule_entries.create!(entry_type: "one_time", label: "Bonus", amount_cents: 500_000, cadence: "one_time", effective_on: Date.new(2026, 8, 15))
+      household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 750_000, cadence: "monthly")
+
+      payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+      levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+      income_items = payload.dig(:profile, :sections).find { |section| section.fetch(:label) == "Income" }.fetch(:items).index_by { |item| item.fetch(:label) }
+
+      assert_equal 9_000, payload.dig(:dashboard, :summary, :monthly_income)
+      assert_equal 500, levers.fetch("Business needs to pay").fetch(:amount)
+      assert_equal 2_000, levers.fetch("Current business income").fetch(:amount)
+      assert_equal 0, payload.dig(:optionality, :monthly_gap)
+      assert_equal 7_000, income_items.fetch("Primary income").fetch(:amount)
+      assert_equal 2_000, income_items.fetch("Business").fetch(:amount)
+    end
+  end
+
   test "deficit household does not show a negative non-essential purchase amount" do
     household, user = create_household
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 200_000, cadence: "monthly")
@@ -126,6 +152,37 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
     assert_equal 0, decisions.fetch("Non-essential purchase").fetch(:amount)
     assert_equal "Wait", decisions.fetch("Non-essential purchase").fetch(:recommendation)
+  end
+
+  test "extra debt recommendation never exceeds the safe monthly decision amount" do
+    household, user = create_household
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 710_000, cadence: "monthly")
+    household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 690_000, cadence: "monthly")
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 10_000)
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 4_200_000)
+
+    payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+    decision = decision_map(payload).fetch("Extra debt payment")
+
+    assert_equal 40, payload.dig(:dashboard, :summary, :next_safe_to_spend_amount)
+    assert_equal 40, decision.fetch(:amount)
+    assert_equal "Approve", decision.fetch(:recommendation)
+  end
+
+  test "surplus capacity metrics are named and calculated as scenarios instead of savings contributions" do
+    household, user = create_household
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
+    household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 350_000, cadence: "monthly")
+    household.accounts.create!(label: "Retirement", account_type: "retirement", balance_cents: 1_000_000)
+
+    payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+
+    assert_equal 30, payload.dig(:dashboard, :summary, :monthly_surplus_rate_percent)
+    refute payload.dig(:dashboard, :summary).key?(:savings_rate_percent)
+    assert_equal 1_500, payload.dig(:wealth, :summary, :monthly_surplus_available)
+    assert_equal 180_000, payload.dig(:wealth, :summary, :ten_year_surplus_capacity)
+    refute payload.dig(:wealth, :summary).key?(:monthly_wealth_building)
+    refute payload.dig(:wealth, :summary).key?(:retirement_projection)
   end
 
   test "runway transfer is optional after runway target is met" do

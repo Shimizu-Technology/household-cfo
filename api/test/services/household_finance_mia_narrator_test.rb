@@ -641,34 +641,34 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
-  test "falls back when narration invents a percentage" do
+  test "falls back when narration invents a monthly surplus percentage" do
     response = ok_response(
       choices: [
-        { message: { content: "Your approved savings rate is 14%, based on a $405 monthly surplus." } }
+        { message: { content: "Your approved monthly surplus rate is 14%, based on a $405 monthly surplus." } }
       ]
     )
 
     with_net_http_start_stub(response) do
       answer = HouseholdFinance::MiaNarrator.new(
-        user_message: "What is my savings rate?",
+        user_message: "What is my monthly surplus rate?",
         answer_packet: {
           kind: "budget_question",
-          fallback_response: "Your approved savings rate is 5%, based on a $405 monthly surplus.",
+          fallback_response: "Your approved monthly surplus rate is 5%, based on a $405 monthly surplus.",
           write_state: "no_write",
-          savings_rate_percent: 5,
+          monthly_surplus_rate_percent: 5,
           baseline_surplus: 405
         },
         api_key: "test-key"
       ).call
 
-      assert_equal "Your approved savings rate is 5%, based on a $405 monthly surplus.", answer
+      assert_equal "Your approved monthly surplus rate is 5%, based on a $405 monthly surplus.", answer
     end
   end
 
   test "accepts approved runway and percentage measurements" do
     response = ok_response(
       choices: [
-        { message: { content: "Your readiness is Yellow with 3.2 months of runway and a 5% savings rate." } }
+        { message: { content: "Your readiness is Yellow with 3.2 months of runway and a 5% monthly surplus rate." } }
       ]
     )
 
@@ -677,16 +677,16 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
         user_message: "Why am I Yellow?",
         answer_packet: {
           kind: "budget_question",
-          fallback_response: "Your approved readiness is Yellow with 3.2 months of runway and a 5% savings rate.",
+          fallback_response: "Your approved readiness is Yellow with 3.2 months of runway and a 5% monthly surplus rate.",
           write_state: "no_write",
           readiness_tone: "yellow",
           runway_months: 3.2,
-          savings_rate_percent: 5
+          monthly_surplus_rate_percent: 5
         },
         api_key: "test-key"
       ).call
 
-      assert_equal "Your readiness is Yellow with 3.2 months of runway and a 5% savings rate.", answer
+      assert_equal "Your readiness is Yellow with 3.2 months of runway and a 5% monthly surplus rate.", answer
     end
   end
 

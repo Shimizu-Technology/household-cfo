@@ -34,7 +34,7 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal demo_facts.fetch(:monthly_income), body.fetch("summary").fetch("monthly_income")
     assert_equal demo_facts.fetch(:baseline_surplus), body.fetch("summary").fetch("baseline_surplus")
     assert_equal demo_facts.fetch(:safe_to_spend), body.fetch("summary").fetch("next_safe_to_spend_amount")
-    assert_equal demo_facts.fetch(:savings_rate_percent), body.fetch("summary").fetch("savings_rate_percent")
+    assert_equal demo_facts.fetch(:monthly_surplus_rate_percent), body.fetch("summary").fetch("monthly_surplus_rate_percent")
     assert_includes body.fetch("alerts").find { |alert| alert.fetch("title") == "Debt focus" }.fetch("body"), "$#{demo_facts.fetch(:safe_to_spend).round}"
     runway_alert = body.fetch("alerts").find { |alert| alert.fetch("title") == "Runway" }
     assert_equal "You are 2.8 months away from the six-month founder transition target.", runway_alert.fetch("body")
@@ -80,7 +80,8 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     debt = body.fetch("milestones").find { |milestone| milestone.fetch("kind") == "debt_remaining" }
     assert_equal "Credit card balance", debt.fetch("label")
     assert_equal 7_350, debt.fetch("current")
-    assert_equal demo_facts.fetch(:baseline_surplus), body.fetch("summary").fetch("monthly_wealth_building")
+    assert_equal demo_facts.fetch(:baseline_surplus), body.fetch("summary").fetch("monthly_surplus_available")
+    assert_equal demo_facts.fetch(:baseline_surplus) * 12 * 10, body.fetch("summary").fetch("ten_year_surplus_capacity")
   end
 
   test "optionality returns choices with transparent fit guidance" do

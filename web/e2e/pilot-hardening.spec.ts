@@ -22,7 +22,7 @@ const profile = {
 const dashboard = {
   summary: {
     monthly_income: 14_200, fixed_expenses: 6_000, flexible_spend: 1_500, debt_payments: 200,
-    savings_rate_percent: 38, runway_months: 0.5, next_safe_to_spend_amount: 0,
+    monthly_surplus_rate_percent: 38, runway_months: 0.5, next_safe_to_spend_amount: 0,
     readiness_tone: 'red', readiness_label: 'Red — pause and stabilize basics',
   },
   action_center: {
@@ -108,7 +108,7 @@ const budget = {
 }
 
 const wealth = {
-  summary: { net_worth: 12_345_678.9, liquid_net_worth: 1_234_567.89, retirement_projection: 98_765_432.1, monthly_wealth_building: 12_345.67 },
+  summary: { net_worth: 12_345_678.9, liquid_net_worth: 1_234_567.89, ten_year_surplus_capacity: 98_765_432.1, monthly_surplus_available: 12_345.67 },
   milestones: [{ kind: 'debt_remaining', label: 'Debt payoff', current: 5_400, target: 0, unit: 'dollars', status: 'yellow' }],
   guidance: 'Protect options.',
 }
@@ -876,8 +876,8 @@ test('Wealth and Optionality explain decisions without fake payoff progress or c
   await expect(debtCard.getByText('$5,400.00 remaining')).toBeVisible()
   await expect(debtCard.locator('.progress-track')).toHaveCount(0)
   await expect(debtCard).not.toContainText('0 / 5,400')
-  const outlook = page.locator('.metric-card').filter({ hasText: '10-year contribution outlook' })
-  await expect(outlook).toContainText('Excludes market growth, taxes, fees, and inflation.')
+  const outlook = page.locator('.metric-card').filter({ hasText: '10-year surplus capacity' })
+  await expect(outlook).toContainText('planning capacity—not confirmed savings, an investment contribution, or a forecast')
   await expect(page.getByText('Retirement projection', { exact: true })).toHaveCount(0)
 
   await openSection(page, 'Optionality')

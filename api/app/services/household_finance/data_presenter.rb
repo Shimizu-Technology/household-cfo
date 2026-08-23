@@ -58,7 +58,7 @@ module HouseholdFinance
           fixed_expenses: dollars(snapshot.fetch(:stack_totals_cents).fetch("non_discretionary")),
           flexible_spend: dollars(snapshot.fetch(:stack_totals_cents).fetch("discretionary")),
           debt_payments: dollars(snapshot.fetch(:debt_payments_cents)),
-          savings_rate_percent: savings_rate_percent,
+          monthly_surplus_rate_percent: monthly_surplus_rate_percent,
           runway_months: snapshot.fetch(:runway_months),
           next_safe_to_spend_amount: dollars(snapshot.fetch(:safe_to_spend_cents)),
           readiness_tone: snapshot.fetch(:readiness_tone),
@@ -91,8 +91,8 @@ module HouseholdFinance
         summary: {
           net_worth: dollars(snapshot.fetch(:net_worth_cents)),
           liquid_net_worth: dollars(snapshot.fetch(:liquid_assets_cents) - liquid_liabilities_cents),
-          retirement_projection: dollars(retirement_projection_cents),
-          monthly_wealth_building: dollars(monthly_wealth_building_cents)
+          ten_year_surplus_capacity: dollars(ten_year_surplus_capacity_cents),
+          monthly_surplus_available: dollars(monthly_surplus_available_cents)
         },
         milestones: milestones,
         guidance: "Wealth here is not about looking rich. It is about buying back options, lowering panic, and making the next right move visible."
@@ -198,7 +198,7 @@ module HouseholdFinance
     end
 
     def income_sources
-      @income_sources ||= household.income_sources.where(active: true).order(:source_type, :label).to_a
+      @income_sources ||= household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).to_a
     end
 
     def expense_items
@@ -254,8 +254,8 @@ module HouseholdFinance
       [
         {
           label: "Income",
-          summary: "Base pay, business income, rental income, bonuses, and other monthly money coming in.",
-          items: income_sources.map { |income| { label: income.label, amount: dollars(Money.monthly_cents(income.amount_cents, income.cadence)) } }
+          summary: "Current recurring monthly income. One-time bonuses stay in the month where they belong in the annual plan.",
+          items: income_sources.map { |income| { label: income.label, amount: dollars(current_recurring_income_cents(income)) } }
         },
         {
           label: "Expenses",
@@ -276,7 +276,7 @@ module HouseholdFinance
       account_items + debt_items
     end
 
-    def savings_rate_percent
+    def monthly_surplus_rate_percent
       income = snapshot.fetch(:monthly_income_cents)
       return 0 if income <= 0
 
@@ -433,12 +433,11 @@ module HouseholdFinance
       ]
     end
 
-    def retirement_projection_cents
-      retirement_accounts = accounts.select { |account| account.account_type == "retirement" }.sum(&:balance_cents)
-      retirement_accounts + (monthly_wealth_building_cents * 12 * 10)
+    def ten_year_surplus_capacity_cents
+      monthly_surplus_available_cents * 12 * 10
     end
 
-    def monthly_wealth_building_cents
+    def monthly_surplus_available_cents
       [ snapshot.fetch(:baseline_surplus_cents), 0 ].max
     end
 
@@ -468,11 +467,11 @@ module HouseholdFinance
     end
 
     def stable_income_cents
-      income_sources.reject { |income| income.source_type == "business" }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
+      income_sources.reject { |income| income.source_type == "business" }.sum { |income| current_recurring_income_cents(income) }
     end
 
     def monthly_business_income_cents
-      income_by_type("business")
+      income_sources.select { |income| income.source_type == "business" }.sum { |income| current_recurring_income_cents(income) }
     end
 
     def business_transition_optionality?
@@ -564,7 +563,7 @@ module HouseholdFinance
       debt_entered = snapshot.fetch(:total_debt_cents).positive?
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
       runway_met = snapshot.fetch(:runway_months) >= target_runway_months
-      extra_debt_ready = debt_entered && baseline_positive && snapshot.fetch(:readiness_tone) != "red"
+      extra_debt_ready = debt_entered && baseline_positive && safe.positive? && snapshot.fetch(:readiness_tone) != "red"
       [
         {
           item: "Non-essential purchase",
@@ -574,7 +573,7 @@ module HouseholdFinance
         },
         {
           item: "Extra debt payment",
-          amount: extra_debt_ready ? [ safe, 250 ].max : 0,
+          amount: extra_debt_ready ? safe : 0,
           recommendation: extra_debt_ready ? "Approve" : "Wait",
           reason: debt_entered ? "Debt payoff helps breathing room, but only after fixed bills and runway are protected." : "No debt entered yet. Add debts before Mia can prioritize payoff."
         },
@@ -669,6 +668,10 @@ module HouseholdFinance
 
     def income_by_type(source_type)
       income_sources.select { |income| income.source_type == source_type }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
+    end
+
+    def current_recurring_income_cents(income)
+      IncomeTimeline.recurring_monthly_cents(income, on: Date.current)
     end
 
     def expenses_by_stack(stack_key)
