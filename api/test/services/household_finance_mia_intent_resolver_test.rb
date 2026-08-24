@@ -179,6 +179,102 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "could not safely match"
   end
 
+  test "does not treat an approved context amount as participant authorization for a write" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Lower Fixed essentials next month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set Fixed essentials to $4,000 next month",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "4000",
+            months: [ 8 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
+  test "does not let the model invent a zero-dollar budget write" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Lower Fixed essentials next month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set Fixed essentials to $0 next month",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "0",
+            months: [ 8 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
+  test "does not reuse an unrelated amount from an older user turn" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "I received a $4,000 bonus last month." },
+      { role: "assistant", content: "We can decide how to allocate that bonus." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Lower Fixed essentials next month",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set Fixed essentials to $4,000 next month",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "4000",
+            months: [ 8 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
   test "resolves a complete reported expense into a pending transaction draft action without requiring a category" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $12.35 at Walkthrough Cafe Retest today",

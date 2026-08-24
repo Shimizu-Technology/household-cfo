@@ -8,7 +8,11 @@ module HouseholdFinance
       @annual_plan = annual_plan
       @reference_month = reference_month.to_i.clamp(1, 12)
       @conversation_context = conversation_context
-      @snapshot = SnapshotBuilder.new(household).call
+      @snapshot = SnapshotBuilder.new(
+        household,
+        annual_budget_manager: snapshot_budget_manager,
+        reference_date: snapshot_reference_date
+      ).call
     end
 
     def call
@@ -18,6 +22,14 @@ module HouseholdFinance
     private
 
     attr_reader :household, :snapshot, :conversation_context
+
+    def snapshot_budget_manager
+      @snapshot_budget_manager ||= AnnualBudgetManager.new(household, year: annual_plan.fetch(:year))
+    end
+
+    def snapshot_reference_date
+      Date.new(snapshot_budget_manager.year, @reference_month, 1)
+    end
 
     def context_payload
       {

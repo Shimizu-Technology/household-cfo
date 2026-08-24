@@ -23,6 +23,8 @@ module Demo
     ].freeze
     TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    FINANCIAL_QUANTITY_PATTERN = /\$\s*(?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?|\b\d+(?:\.\d+)?\s*%|\b\d+(?:\.\d+)?\s*(?:percent|months?\s+of\s+runway)\b/i.freeze
+    READINESS_CLAIM_PATTERN = /\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -64,7 +66,12 @@ module Demo
         response = HouseholdFinance::MiaProviderAdmission.with_slot do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
         end
-        return response || fallback_response(clean_message, context: prompt_context)
+        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context)
+          return response
+        end
+
+        Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim") if response.present?
+        return fallback_response(clean_message, context: prompt_context)
       end
 
       fallback_response(clean_message, context: prompt_context)
@@ -208,6 +215,22 @@ module Demo
         .gsub(/Plan, don[’']t gamble\.?/i, "that phrase")
         .gsub(/Your money picture, without the spiral\.?/i, "that phrase")
         .gsub(/Annual runway first\. Monthly moves second\.?/i, "that phrase")
+    end
+
+    def ungrounded_generic_financial_claim?(content, context:)
+      return true if content.to_s.match?(FINANCIAL_QUANTITY_PATTERN)
+
+      claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
+      return false if claimed_readiness.empty?
+
+      approved_readiness = parsed_context(context).dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
+      approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+    end
+
+    def parsed_context(context)
+      JSON.parse(context.to_s)
+    rescue JSON::ParserError, TypeError
+      {}
     end
 
     def transaction_report_message?(message)

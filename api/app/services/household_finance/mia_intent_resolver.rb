@@ -28,7 +28,7 @@ module HouseholdFinance
     STACK_KEYS = [ "", "non_discretionary", "discretionary", "sinking_expected", "sinking_unexpected" ].freeze
     MONEY_TEXT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     NUMBER_TEXT_PATTERN = /(?<![\w$])((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\w,])/.freeze
-    CONTEXT_MONEY_KEY_PATTERN = /(?:amount|planned|actual|remaining|income|fund|assets|debt|payment|balance)\z/i.freeze
+    AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
 
     Result = Struct.new(
       :intent,
@@ -244,7 +244,7 @@ module HouseholdFinance
       action_intent = intent.in?(%w[budget_action household_action income_action transaction_draft_action]) || (intent == "transaction_report" && action[:type] == "create_transaction_draft")
       needs_clarification = true if action_intent && action.fetch(:type) != "none" && confidence < MIN_ACTION_CONFIDENCE
       references_valid = action_references_valid?(action)
-      if references_valid && action_amounts_grounded?(action)
+      if references_valid && action_amounts_grounded?(action, allow_history: intent == "recall" || explicit_amount_continuation?)
         complete_action = action_intent && confidence >= MIN_ACTION_CONFIDENCE && action_complete?(action)
         if complete_action
           needs_clarification = false
@@ -350,12 +350,12 @@ module HouseholdFinance
       end
     end
 
-    def action_amounts_grounded?(action)
+    def action_amounts_grounded?(action, allow_history: false)
       proposed = action_money_cents(action)
       return true if proposed.empty?
 
-      allowed = participant_money_cents + approved_context_money_cents
-      proposed.all? { |amount| amount.zero? || allowed.include?(amount) }
+      allowed = participant_money_cents(include_history: allow_history)
+      proposed.all? { |amount| allowed.include?(amount) || (amount.zero? && semantic_zero_authorized?(action)) }
     end
 
     def action_money_cents(action)
@@ -373,13 +373,29 @@ module HouseholdFinance
       values.filter_map { |value| cents_or_nil(value) }.uniq
     end
 
-    def participant_money_cents
-      messages = [ user_message ] + Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
+    def participant_money_cents(include_history: false)
+      messages = [ user_message ]
+      messages.concat(Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
         role = message[:role] || message["role"]
         content = message[:content] || message["content"]
         content if role.to_s == "user"
-      end
+      end) if include_history
       messages.flat_map { |text| money_cents_from_participant_text(text) }.uniq
+    end
+
+    def explicit_amount_continuation?
+      user_message.match?(AMOUNT_CONTINUATION_PATTERN)
+    end
+
+    def semantic_zero_authorized?(action)
+      return false unless action[:type] == "schedule_income_change" && action[:entry_type] == "recurring_change"
+
+      participant_text = ([ user_message ] + Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
+        role = message[:role] || message["role"]
+        content = message[:content] || message["content"]
+        content if role.to_s == "user"
+      end).join(" ")
+      participant_text.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
     end
 
     def money_cents_from_participant_text(text)
@@ -409,19 +425,6 @@ module HouseholdFinance
 
     def month_names_pattern
       @month_names_pattern ||= (Date::MONTHNAMES + Date::ABBR_MONTHNAMES).compact.uniq.join("|")
-    end
-
-    def approved_context_money_cents(value = context, key: nil)
-      case value
-      when Hash
-        value.flat_map { |nested_key, nested| approved_context_money_cents(nested, key: nested_key) }
-      when Array
-        value.flat_map { |nested| approved_context_money_cents(nested, key: key) }
-      when Numeric, String
-        key.to_s.match?(CONTEXT_MONEY_KEY_PATTERN) ? Array(cents_or_nil(value)) : []
-      else
-        []
-      end
     end
 
     def cents_or_nil(value)

@@ -190,6 +190,52 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_includes response, "You are the Household CFO"
   end
 
+  test "generic model responses cannot introduce financial quantities" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: {
+        monthly_income: "$8,500",
+        baseline_surplus: "$655",
+        safe_to_spend: "$262",
+        runway_months: 2.4,
+        readiness: "Yellow — protect the baseline"
+      }
+    }.to_json
+
+    [
+      "Your safe-to-spend is $700, so the trip works.",
+      "You can use 60% of the surplus.",
+      "You have 6 months of runway."
+    ].each do |content|
+      assert responder.send(:ungrounded_generic_financial_claim?, content, context: context), content
+    end
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "This decision needs the due date and funding account before we can calculate it.",
+      context: context
+    )
+  end
+
+  test "generic model responses reject a readiness color that conflicts with approved context" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = { metrics: { readiness: "Yellow — protect the baseline" } }.to_json
+
+    assert responder.send(:ungrounded_generic_financial_claim?, "Your readiness is Green, so you are clear to spend.", context: context)
+    refute responder.send(:ungrounded_generic_financial_claim?, "Your readiness is Yellow, so verify the bill first.", context: context)
+  end
+
+  test "generic chat falls back instead of returning an unverified model amount" do
+    context = { metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" } }.to_json
+    responder = stubbed_model_responder("Your safe-to-spend is $700, so the trip works.")
+
+    response = responder.call("How should I think about this trip?", context: context)
+
+    refute_includes response, "$700"
+    assert_includes response, "do not have enough approved data"
+    assert_includes response, "protecting the household baseline"
+  end
+
   test "model responses cannot claim a reported transaction was already applied" do
     response = Demo::MiaResponder.new(api_key: nil).send(
       :sanitize_assistant_content,
