@@ -215,6 +215,16 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       "This decision needs the due date and funding account before we can calculate it.",
       context: context
     )
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your safe-to-spend is $262 and you have 2.4 months of runway.",
+      context: context
+    )
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your $262 safe-to-spend guardrail comes from the $655 baseline surplus.",
+      context: context
+    )
   end
 
   test "generic model responses reject a readiness color that conflicts with approved context" do
@@ -223,6 +233,23 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
 
     assert responder.send(:ungrounded_generic_financial_claim?, "Your readiness is Green, so you are clear to spend.", context: context)
     refute responder.send(:ungrounded_generic_financial_claim?, "Your readiness is Yellow, so verify the bill first.", context: context)
+  end
+
+  test "generic model responses reject approved amounts attached to the wrong metric" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: {
+        baseline_surplus: "$655",
+        safe_to_spend: "$262",
+        readiness: "Yellow — protect the baseline"
+      }
+    }.to_json
+
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your safe-to-spend is $655 and your baseline surplus is $262.",
+      context: context
+    )
   end
 
   test "generic chat falls back instead of returning an unverified model amount" do

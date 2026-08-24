@@ -275,6 +275,70 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "could not verify that amount"
   end
 
+  test "does not reuse an unrelated stale stop-income phrase to authorize zero" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "I may stop my business income later this year." },
+      { role: "assistant", content: "Bring the effective month back when it is decided." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Change Primary income next month",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "Primary income edit", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
+  test "allows semantic zero when the current turn explicitly ends recurring income" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "End Primary income next month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "End Primary income", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "0", result.action.fetch(:amount)
+  end
+
   test "resolves a complete reported expense into a pending transaction draft action without requiring a category" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $12.35 at Walkthrough Cafe Retest today",

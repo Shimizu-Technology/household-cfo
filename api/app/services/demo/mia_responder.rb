@@ -23,8 +23,18 @@ module Demo
     ].freeze
     TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
-    FINANCIAL_QUANTITY_PATTERN = /\$\s*(?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?|\b\d+(?:\.\d+)?\s*%|\b\d+(?:\.\d+)?\s*(?:percent|months?\s+of\s+runway)\b/i.freeze
+    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i.freeze
+    RUNWAY_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s+months?\s+of\s+runway\b/i.freeze
     READINESS_CLAIM_PATTERN = /\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i.freeze
+    METRIC_LABELS = {
+      "monthly_income" => /\b(?:monthly|approved)?\s*income\b/i,
+      "planned_monthly_outflow" => /\b(?:planned\s+monthly\s+outflow|total\s+outflow|money\s+out)\b/i,
+      "baseline_surplus" => /\bbaseline\s+surplus\b/i,
+      "safe_to_spend" => /\bsafe-to-spend\b/i,
+      "total_debt_entered" => /\btotal\s+debt\b/i,
+      "liquid_assets" => /\bliquid\s+assets?\b/i
+    }.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -66,7 +76,7 @@ module Demo
         response = HouseholdFinance::MiaProviderAdmission.with_slot do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
         end
-        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context)
+        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)
           return response
         end
 
@@ -217,14 +227,103 @@ module Demo
         .gsub(/Annual runway first\. Monthly moves second\.?/i, "that phrase")
     end
 
-    def ungrounded_generic_financial_claim?(content, context:)
-      return true if content.to_s.match?(FINANCIAL_QUANTITY_PATTERN)
+    def ungrounded_generic_financial_claim?(content, context:, user_message: "")
+      payload = parsed_context(context)
+      return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
+      return true if mismatched_metric_relationship?(content, payload: payload)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
       return false if claimed_readiness.empty?
 
-      approved_readiness = parsed_context(context).dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
+      approved_readiness = payload.dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
       approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+    end
+
+    def financial_values_grounded?(content, payload:, user_message:)
+      allowed_text = [ JSON.generate(payload), user_message ].join(" ")
+      approved_runway = normalized_measurement(payload.dig("metrics", "runway_months"))
+      allowed_runway = runway_values(allowed_text)
+      allowed_runway << approved_runway if approved_runway.present?
+      currency_values(content).difference(currency_values(allowed_text)).empty? &&
+        percent_values(content).difference(percent_values(allowed_text)).empty? &&
+        runway_values(content).difference(allowed_runway.uniq).empty?
+    end
+
+    def mismatched_metric_relationship?(content, payload:)
+      metrics = payload.fetch("metrics", {})
+      METRIC_LABELS.any? do |key, label_pattern|
+        approved = currency_values(metrics[key].to_s).first
+        next false unless approved
+
+        nearest = nearest_currency_for_label(content, label_pattern)
+        nearest.present? && nearest != approved
+      end || mismatched_runway_relationship?(content, metrics.fetch("runway_months", nil))
+    end
+
+    def nearest_currency_for_label(content, label_pattern)
+      labels = content.to_s.to_enum(:scan, label_pattern).map do
+        match = Regexp.last_match
+        { start: match.begin(0), finish: match.end(0) }
+      end
+      mentions = currency_mentions(content)
+      labels.flat_map do |label|
+        mentions.map { |mention| mention.merge(distance: range_distance(label, mention)) }
+      end.select { |mention| mention.fetch(:distance) <= 40 }
+        .min_by { |mention| mention.fetch(:distance) }&.fetch(:value)
+    end
+
+    def currency_mentions(text)
+      text.to_s.to_enum(:scan, MONEY_AMOUNT_PATTERN).filter_map do
+        match = Regexp.last_match
+        value = HouseholdFinance::Money.cents(match[1].delete(","))
+        { start: match.begin(0), finish: match.end(0), value: value }
+      rescue ArgumentError
+        nil
+      end
+    end
+
+    def range_distance(label, mention)
+      distance = if mention[:finish] <= label[:start]
+        label[:start] - mention[:finish]
+      elsif label[:finish] <= mention[:start]
+        mention[:start] - label[:finish]
+      else
+        0
+      end
+      distance
+    end
+
+    def mismatched_runway_relationship?(content, approved_runway)
+      claimed = runway_values(content)
+      return false if claimed.empty?
+
+      approved = normalized_measurement(approved_runway)
+      approved.blank? || claimed.any? { |value| value != approved }
+    end
+
+    def currency_values(text)
+      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.filter_map do |amount|
+        HouseholdFinance::Money.cents(amount.delete(","))
+      rescue ArgumentError
+        nil
+      end.uniq
+    end
+
+    def percent_values(text)
+      text.to_s.scan(PERCENT_AMOUNT_PATTERN).flatten.filter_map { |value| normalized_measurement(value) }.uniq
+    end
+
+    def runway_values(text)
+      text.to_s.scan(RUNWAY_AMOUNT_PATTERN).flatten.filter_map { |value| normalized_measurement(value) }.uniq
+    end
+
+    def normalized_measurement(value)
+      number = Float(value)
+      return unless number.finite?
+
+      format("%.10f", number).sub(/\.?0+\z/, "")
+    rescue ArgumentError, TypeError
+      nil
     end
 
     def parsed_context(context)
