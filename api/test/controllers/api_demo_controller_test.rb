@@ -265,6 +265,34 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "total $1,650"
   end
 
+  test "mia excludes a repeated guardrail amount from compound purchase matching" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "Can I spend my $262 safe-to-spend and take a $900 trip with a $750 extra debt payment this month?"
+         },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "proposed purchase is $900"
+    assert_includes content, "extra debt payment is $750"
+    assert_includes content, "total $1,650"
+  end
+
+  test "mia breaks compound ties toward the purchase paired with the debt decision" do
+    post "/api/demo/mia/messages",
+         params: {
+           message: "A $300 purchase is already covered. Can I take a $900 trip and make a $750 extra debt payment this month?"
+         },
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "proposed purchase is $900"
+    assert_includes content, "extra debt payment is $750"
+    assert_includes content, "total $1,650"
+  end
+
   test "mia does not describe a skipped minimum as an extra debt payment" do
     post "/api/demo/mia/messages",
          params: { message: "Can I take a $900 trip and skip my $750 debt payment this month?" },

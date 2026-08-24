@@ -82,13 +82,27 @@ module Demo
     end
 
     def compound_amount_entries
-      amount_entries.permutation(2).min_by do |purchase_entry, debt_entry|
-        distance_to_term(purchase_entry, PURCHASE_TERM_PATTERN) + distance_to_term(debt_entry, DEBT_TERM_PATTERN)
+      compound_amount_pool.permutation(2).min_by do |purchase_entry, debt_entry|
+        purchase_term = nearest_term_index(purchase_entry, PURCHASE_TERM_PATTERN)
+        debt_term = nearest_term_index(debt_entry, DEBT_TERM_PATTERN)
+        [
+          (purchase_entry.fetch(:index) - purchase_term).abs + (debt_entry.fetch(:index) - debt_term).abs,
+          (purchase_term - debt_term).abs,
+          -purchase_term
+        ]
       end
     end
 
-    def distance_to_term(entry, term_pattern)
-      message.to_enum(:scan, term_pattern).map { Regexp.last_match.begin(0) }.map { |index| (entry.fetch(:index) - index).abs }.min || Float::INFINITY
+    def compound_amount_pool
+      return amount_entries unless amount_entries.length > 2 && message.match?(/\bsafe-to-spend\b/i)
+
+      guardrail_term = message.match(/\bsafe-to-spend\b/i)
+      guardrail_entry = amount_entries.min_by { |entry| (entry.fetch(:index) - guardrail_term.begin(0)).abs }
+      amount_entries.reject { |entry| entry.equal?(guardrail_entry) }
+    end
+
+    def nearest_term_index(entry, term_pattern)
+      message.to_enum(:scan, term_pattern).map { Regexp.last_match.begin(0) }.min_by { |index| (entry.fetch(:index) - index).abs }
     end
 
     def purchase_impact_answer

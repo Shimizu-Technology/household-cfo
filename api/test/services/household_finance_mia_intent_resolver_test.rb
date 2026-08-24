@@ -444,6 +444,35 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "2050", result.action.fetch(:amount)
   end
 
+  test "accepts a bare year-range adjustment after by" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Increase rent by 2050 in September",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Increase September rent by $2,050",
+          topic: { type: "budget_edit", title: "Rent update", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "increase_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "2050",
+            months: [ 9 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "2050", result.action.fetch(:amount)
+  end
+
   test "does not treat an actual calendar year as a participant-authored amount" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Set rent for September 2026",
