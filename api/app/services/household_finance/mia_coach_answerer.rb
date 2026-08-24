@@ -619,7 +619,7 @@ module HouseholdFinance
     end
 
     def snapshot
-      @snapshot ||= SnapshotBuilder.new(household).call
+      @snapshot ||= SnapshotBuilder.new(household, annual_budget_manager: annual_budget_manager).call
     end
 
     def target_runway_months

@@ -47,8 +47,9 @@ module HouseholdFinance
     end
 
     def readiness_tone
-      return "green" if runway_months >= target_runway_months && baseline_surplus_cents.positive?
-      return "yellow" if runway_months >= yellow_runway_months && baseline_surplus_cents >= 0
+      return "red" unless total_outflow_cents.positive?
+      return "green" if protected_liquid_cents >= green_runway_target_cents && baseline_surplus_cents.positive?
+      return "yellow" if protected_liquid_cents >= yellow_runway_target_cents && baseline_surplus_cents >= 0
 
       "red"
     end

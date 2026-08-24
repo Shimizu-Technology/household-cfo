@@ -40,11 +40,11 @@ module HouseholdFinance
     def setup_complete?
       return false unless household
 
-      snapshot.fetch(:profile_completeness) >= SETUP_COMPLETE_THRESHOLD
+      profile_completeness >= SETUP_COMPLETE_THRESHOLD
     end
 
-    def snapshot
-      @snapshot ||= SnapshotBuilder.new(household).call
+    def profile_completeness
+      @profile_completeness ||= ProfileCompletenessCalculator.new(household).call
     end
 
     def explicit_setup_save?
