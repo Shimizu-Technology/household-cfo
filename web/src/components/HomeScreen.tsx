@@ -107,7 +107,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           {currentPlan && (
             <section className="home-financial-visuals" aria-label="Monthly and annual financial position">
               <CategoryPressureList positions={currentPositions} limit={4} />
-              <AnnualCashFlowChart plan={currentPlan} compact />
+              <AnnualCashFlowChart plan={currentPlan} compact selectedMonthIndex={currentMonthIndex} />
             </section>
           )}
 

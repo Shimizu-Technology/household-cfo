@@ -43,15 +43,16 @@ const dashboard = {
   next_steps: ['Protect fixed bills first.', 'Pause new wants and direct available surplus to runway.', 'Review pending activity.'],
 }
 
-function categoryMonths(categoryId: number, planned: number, currentActual: number) {
+function categoryMonths(categoryId: number, planned: number, currentActual: number, decemberPlanned = planned) {
   return months.map((label, index) => {
     const actual = label === currentShortMonth ? currentActual : 0
+    const monthPlanned = index === 11 ? decemberPlanned : planned
     return {
       period_id: index + 1,
       allocation_id: categoryId * 100 + index + 1,
-      planned,
+      planned: monthPlanned,
       actual,
-      remaining: planned - actual,
+      remaining: monthPlanned - actual,
     }
   })
 }
@@ -85,7 +86,7 @@ const budget = {
     rows: [
       { id: 1, name: 'Fixed essentials', stack_key: 'non_discretionary', stack_label: 'Non-discretionary', active: true, months: categoryMonths(1, 4_000, 2_800), planned_total: 48_000, actual_total: 2_800 },
       { id: 2, name: 'Dining out', stack_key: 'discretionary', stack_label: 'Discretionary', active: true, months: categoryMonths(2, 450, 475), planned_total: 5_400, actual_total: 475 },
-      { id: 3, name: 'Expected sinking fund', stack_key: 'sinking_expected', stack_label: 'Sinking Fund — Expected', active: true, months: categoryMonths(3, 600, 200), planned_total: 7_200, actual_total: 200 },
+      { id: 3, name: 'Expected sinking fund', stack_key: 'sinking_expected', stack_label: 'Sinking Fund — Expected', active: true, months: categoryMonths(3, 600, 200, 3_600), planned_total: 10_200, actual_total: 200 },
       { id: 4, name: 'Unexpected sinking fund', stack_key: 'sinking_unexpected', stack_label: 'Sinking Fund — Unexpected', active: true, months: categoryMonths(4, 250, 0), planned_total: 3_000, actual_total: 0 },
     ],
     monthly_income: Object.fromEntries(months.map((_, index) => [index + 1, index >= 7 ? 15_000 : 14_200])),
@@ -938,9 +939,9 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await expect(outflowBreakdown).toContainText('Total money out')
   await expect(outflowBreakdown).toContainText('$5,500.00')
   const annualMoneyOut = page.getByLabel('Annual money out breakdown')
-  await expect(annualMoneyOut).toContainText('Annual category plan$63,600.00')
+  await expect(annualMoneyOut).toContainText('Annual category plan$66,600.00')
   await expect(annualMoneyOut).toContainText('Annual debt minimums$2,400.00')
-  await expect(annualMoneyOut).toContainText('Total annual money out$66,000.00')
+  await expect(annualMoneyOut).toContainText('Total annual money out$69,000.00')
   await expect(page.getByRole('button', { name: 'Ask Mia to update my plan' })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Annual budget table' })).toHaveCount(0)
   await expect(page.getByRole('heading', { name: 'Set it once, then schedule what changes.' })).toHaveCount(0)
@@ -968,6 +969,35 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   const diningDraft = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await expect(diningDraft.getByRole('region', { name: new RegExp(`Budget impact if approved for ${currentShortMonth}`) })).toContainText('$100.00 over plan if approved.')
   await expect(diningDraft).toContainText('Actuals stay unchanged until you confirm.')
+})
+
+test('Budget keeps headline, cockpit, and chart on the selected report month', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+
+  const reportMonth = page.getByLabel('Report month')
+  const headline = page.locator('.budget-period-summary')
+  const cockpit = page.locator('.month-plan-summary')
+  const chartDetail = page.locator('.annual-outlook .cash-flow-detail-panel')
+
+  await reportMonth.selectOption('11')
+  await expect(headline.getByRole('heading', { name: `Dec ${currentYear}` })).toBeVisible()
+  await expect(headline).toContainText('Income$15,000.00')
+  await expect(headline).toContainText('Planned outflow$8,500.00')
+  await expect(headline).toContainText('Baseline surplus$6,500.00')
+  await expect(cockpit).toContainText(`Dec ${currentYear}`)
+  await expect(cockpit.getByRole('group', { name: 'Monthly money out breakdown' })).toContainText('Total money out$8,500.00')
+  await expect(chartDetail).toContainText(`Report monthDec ${currentYear}`)
+  await expect(chartDetail).toContainText('Planned outflow$8,500.00')
+
+  await page.locator('.annual-outlook .cash-flow-month-trigger').first().click()
+  await expect(chartDetail).toContainText(`Chart previewJan ${currentYear}`)
+  await expect(reportMonth).toHaveValue('11')
+
+  await page.getByRole('button', { name: 'This month', exact: true }).click()
+  await expect(reportMonth).toHaveValue(String(new Date().getMonth()))
+  await expect(headline.getByRole('heading', { name: `${currentShortMonth} ${currentYear}` })).toBeVisible()
+  await expect(chartDetail).toContainText(`Report month${currentShortMonth} ${currentYear}`)
 })
 
 test('focused manual budget tools expose exact controls without a page hunt and protect dirty edits', async ({ page }) => {

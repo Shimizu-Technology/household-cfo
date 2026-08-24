@@ -379,6 +379,9 @@ function App() {
   const selectedBudgetYear = budgetView?.year ?? activeBudgetPlan?.year ?? new Date().getFullYear()
   const selectedBudgetMonthIndex = Math.max(0, Math.min(11, budgetView?.monthIndex ?? (selectedBudgetYear === new Date().getFullYear() ? new Date().getMonth() : 0)))
   const selectedBudgetMonth = activeBudgetPlan?.year === selectedBudgetYear ? activeBudgetPlan.months[selectedBudgetMonthIndex] : null
+  const selectedBudgetOutlookMonth = selectedBudgetMonth
+    ? activeBudgetPlan?.annual_outlook.months.find((month) => month.period_id === selectedBudgetMonth.id) ?? null
+    : null
   const selectedBudgetMonthStartsOn = selectedBudgetMonth?.starts_on ?? null
   const selectedBudgetMonthEndsOn = selectedBudgetMonth?.ends_on ?? null
   selectedBudgetPeriodRef.current = { startsOn: selectedBudgetMonthStartsOn, endsOn: selectedBudgetMonthEndsOn }
@@ -2395,10 +2398,22 @@ function App() {
             copy={data.budget.intro}
           />
 
-          <div className="metric-row">
-            <Metric label="Monthly income" value={currency.format(data.budget.monthly_income)} />
-            <Metric label="Monthly outflow" value={currency.format(data.budget.total_monthly_outflow)} />
-            <Metric label="Baseline surplus" value={currency.format(data.budget.baseline_surplus)} />
+          <div className="budget-period-summary" key={selectedBudgetOutlookMonth?.period_id ?? 'current-baseline'}>
+            <div className="budget-period-summary-heading">
+              <div>
+                <p className="eyebrow">Report month</p>
+                <h3>{selectedBudgetOutlookMonth ? `${selectedBudgetOutlookMonth.label} ${selectedBudgetYear}` : 'Current approved baseline'}</h3>
+              </div>
+              <p>{selectedBudgetOutlookMonth ? 'These headline figures follow the month selected in the annual plan below.' : 'These figures use the currently approved recurring household baseline.'}</p>
+            </div>
+            <div className="metric-row">
+              <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? data.budget.monthly_income)} />
+              <Metric label="Planned outflow" value={currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? data.budget.total_monthly_outflow)} />
+              <Metric
+                label={(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
+                value={currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus))}
+              />
+            </div>
           </div>
 
           {data.budget.annual_plan ? (
@@ -6972,7 +6987,7 @@ function AnnualIncomePlanner({
   )
 }
 
-function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
+function AnnualOutlookPanel({ plan, selectedMonthIndex }: { plan: AnnualBudgetPlan; selectedMonthIndex: number }) {
   const outlook = plan.annual_outlook
   const nextIrregular = outlook.next_irregular_month
 
@@ -7006,7 +7021,7 @@ function AnnualOutlookPanel({ plan }: { plan: AnnualBudgetPlan }) {
         </div>
       )}
 
-      <AnnualCashFlowChart plan={plan} />
+      <AnnualCashFlowChart plan={plan} selectedMonthIndex={selectedMonthIndex} />
     </section>
   )
 }
@@ -7450,7 +7465,7 @@ function AnnualBudgetPlanner({
         />
       )}
 
-      <AnnualOutlookPanel plan={plan} />
+      <AnnualOutlookPanel plan={plan} selectedMonthIndex={currentMonthIndex} />
 
       <details className="budget-detail-disclosure">
         <summary>

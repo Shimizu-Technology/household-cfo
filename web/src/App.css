@@ -891,6 +891,43 @@ h3 {
   padding: 8px 4px;
 }
 
+.budget-period-summary {
+  display: grid;
+  gap: 12px;
+  animation: screen-enter 240ms cubic-bezier(0.2, 0.72, 0.2, 1) both;
+}
+
+.budget-period-summary-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  gap: 16px;
+  padding-inline: 4px;
+}
+
+.budget-period-summary-heading :where(h3, p) {
+  margin-bottom: 0;
+}
+
+.budget-period-summary-heading h3 {
+  font-family: "Cormorant Garamond", Georgia, serif;
+  font-size: clamp(1.45rem, 2.5vw, 2rem);
+  letter-spacing: -0.025em;
+  line-height: 1;
+}
+
+.budget-period-summary-heading > p {
+  max-width: 54ch;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  text-align: right;
+}
+
+.budget-period-summary .metric-row {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .status-ribbon {
   display: grid;
   grid-template-columns: minmax(0, 0.72fr) minmax(240px, 1fr);
@@ -3111,6 +3148,19 @@ h3 {
   .lever-row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 10px;
+  }
+
+  .budget-period-summary-heading {
+    display: grid;
+    align-items: start;
+  }
+
+  .budget-period-summary-heading > p {
+    text-align: left;
+  }
+
+  .budget-period-summary .metric-row {
+    grid-template-columns: 1fr;
   }
 
   .wealth-screen .wealth-explainer-metric {
@@ -7559,6 +7609,15 @@ h3 {
   outline: 2px solid rgba(143, 74, 95, 0.28);
   outline-offset: 2px;
   background: rgba(143, 74, 95, 0.05);
+}
+
+.cash-flow-month.is-report-month .cash-flow-month-trigger {
+  box-shadow: inset 0 0 0 1px rgba(143, 74, 95, 0.24);
+  background: rgba(143, 74, 95, 0.045);
+}
+
+.cash-flow-month.is-report-month .cash-flow-month-trigger > strong {
+  color: var(--mauve);
 }
 
 .cash-flow-bars {

@@ -210,15 +210,50 @@ export function CategoryPressureList({
   )
 }
 
-export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBudgetPlan; compact?: boolean }) {
+export function AnnualCashFlowChart({
+  plan,
+  compact = false,
+  selectedMonthIndex = 0,
+}: {
+  plan: AnnualBudgetPlan
+  compact?: boolean
+  selectedMonthIndex?: number
+}) {
   const titleId = useId()
-  const [pinnedPeriodId, setPinnedPeriodId] = useState<number | null>(null)
   const months = plan.annual_outlook.months
-  const [activePeriodId, setActivePeriodId] = useState<number | null>(() => months[0]?.period_id ?? null)
+  const reportMonthIndex = Math.max(0, Math.min(months.length - 1, selectedMonthIndex))
+  const reportPeriodId = months[reportMonthIndex]?.period_id ?? null
+  const reportFocusKey = `${plan.year}:${reportPeriodId ?? 'none'}`
+  const [chartFocus, setChartFocus] = useState<{
+    reportFocusKey: string
+    activePeriodId: number | null
+    pinnedPeriodId: number | null
+  }>(() => ({ reportFocusKey, activePeriodId: reportPeriodId, pinnedPeriodId: null }))
+  const activePeriodId = chartFocus.reportFocusKey === reportFocusKey ? chartFocus.activePeriodId : reportPeriodId
+  const pinnedPeriodId = chartFocus.reportFocusKey === reportFocusKey ? chartFocus.pinnedPeriodId : null
   const activeMonth = months.find((month) => month.period_id === activePeriodId) ?? months[0]
   const pinnedPeriodExists = months.some((month) => month.period_id === pinnedPeriodId)
   const scaleMaximum = Math.max(...months.flatMap((month) => [month.income, month.planned_outflow]), 1)
   const negativeMonths = months.filter((month) => month.baseline_surplus < 0)
+
+  function previewPeriod(periodId: number) {
+    setChartFocus((current) => ({
+      reportFocusKey,
+      activePeriodId: periodId,
+      pinnedPeriodId: current.reportFocusKey === reportFocusKey ? current.pinnedPeriodId : null,
+    }))
+  }
+
+  function togglePinnedPeriod(periodId: number) {
+    setChartFocus((current) => {
+      const currentPinnedPeriodId = current.reportFocusKey === reportFocusKey ? current.pinnedPeriodId : null
+      return {
+        reportFocusKey,
+        activePeriodId: periodId,
+        pinnedPeriodId: currentPinnedPeriodId === periodId ? null : periodId,
+      }
+    })
+  }
 
   return (
     <section className={`annual-cash-flow-visual${compact ? ' compact' : ''}`} aria-labelledby={titleId}>
@@ -236,7 +271,7 @@ export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBud
       {activeMonth && (
         <div className="cash-flow-detail-panel" aria-live="polite">
           <div className="cash-flow-detail-summary">
-            <span>Selected month</span>
+            <span>{activeMonth.period_id === reportPeriodId ? 'Report month' : 'Chart preview'}</span>
             <strong>{activeMonth.label} {plan.year}</strong>
             <small>
               {activeMonth.baseline_surplus < 0
@@ -282,18 +317,16 @@ export function AnnualCashFlowChart({ plan, compact = false }: { plan: AnnualBud
               '--outflow-height': `${outflowHeight}%`,
             } as CSSProperties
             return (
-              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
+              <article className={`cash-flow-month${month.baseline_surplus < 0 ? ' negative' : ''}${month.period_id === reportPeriodId ? ' is-report-month' : ''}${pinnedPeriodId === month.period_id ? ' is-pinned' : ''}`} style={style} key={month.period_id}>
                 <button
                   type="button"
                   className="cash-flow-month-trigger"
                   aria-pressed={pinnedPeriodId === month.period_id}
+                  aria-current={month.period_id === reportPeriodId ? 'date' : undefined}
                   aria-label={`${month.label} ${plan.year}: ${currency.format(month.income)} income, ${currency.format(month.planned_outflow)} planned outflow, and ${currency.format(Math.abs(month.baseline_surplus))} ${month.baseline_surplus < 0 ? 'baseline shortfall' : 'baseline surplus'}`}
-                  onMouseEnter={() => { if (pinnedPeriodId === null || !pinnedPeriodExists) setActivePeriodId(month.period_id) }}
-                  onFocus={() => setActivePeriodId(month.period_id)}
-                  onClick={() => {
-                    setActivePeriodId(month.period_id)
-                    setPinnedPeriodId((current) => current === month.period_id ? null : month.period_id)
-                  }}
+                  onMouseEnter={() => { if (pinnedPeriodId === null || !pinnedPeriodExists) previewPeriod(month.period_id) }}
+                  onFocus={() => previewPeriod(month.period_id)}
+                  onClick={() => togglePinnedPeriod(month.period_id)}
                 >
                   <div className="cash-flow-bars" aria-hidden="true">
                     <i className="income-bar" />
