@@ -778,6 +778,44 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
   expect(clearedMetrics.overflowY).toBe('hidden')
 })
 
+test('Ask Mia reuses one request ID after a network failure so retry cannot duplicate the turn', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  const requestIds: string[] = []
+  let attempt = 0
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+
+    attempt += 1
+    requestIds.push(route.request().postDataJSON().request_id)
+    if (attempt === 1) return route.abort('timedout')
+
+    return route.fulfill({
+      status: 201,
+      json: {
+        user_message: { id: 701, role: 'user', author: 'You', content: 'What should I focus on?', attachments: [] },
+        assistant_message: { id: 702, role: 'assistant', author: 'Mia', content: 'Protect the baseline first.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: null,
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('What should I focus on?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(composer).toHaveValue('What should I focus on?')
+
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(page.getByText('Protect the baseline first.')).toBeVisible()
+
+  expect(requestIds).toHaveLength(2)
+  expect(requestIds[0]).toMatch(/^mia-request-/)
+  expect(requestIds[1]).toBe(requestIds[0])
+})
+
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()

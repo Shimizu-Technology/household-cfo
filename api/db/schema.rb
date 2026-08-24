@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_17_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_24_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -482,6 +482,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_17_000000) do
     t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying]::text[])", name: "mia_action_items_action_type_valid"
   end
 
+  create_table "mia_message_requests", force: :cascade do |t|
+    t.bigint "chat_session_id", null: false
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.string "request_fingerprint", null: false
+    t.string "request_key", null: false
+    t.jsonb "response_payload", default: {}, null: false
+    t.integer "response_status"
+    t.string "status", default: "processing", null: false
+    t.datetime "updated_at", null: false
+    t.index ["chat_session_id", "request_key"], name: "index_mia_message_requests_on_chat_session_id_and_request_key", unique: true
+    t.index ["chat_session_id"], name: "index_mia_message_requests_on_chat_session_id"
+    t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "mia_message_requests_key_length"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'completed'::character varying]::text[])", name: "mia_message_requests_status_valid"
+  end
+
   create_table "pilot_feedback_reports", force: :cascade do |t|
     t.text "actual", null: false
     t.text "attempted", null: false
@@ -862,6 +878,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_17_000000) do
   add_foreign_key "mia_action_drafts", "users", column: "canceled_by_user_id"
   add_foreign_key "mia_action_drafts", "users", column: "requested_by_user_id"
   add_foreign_key "mia_action_items", "mia_action_drafts"
+  add_foreign_key "mia_message_requests", "chat_sessions"
   add_foreign_key "plaid_accounts", "plaid_items"
   add_foreign_key "plaid_items", "households"
   add_foreign_key "plaid_items", "users", column: "connected_by_user_id"

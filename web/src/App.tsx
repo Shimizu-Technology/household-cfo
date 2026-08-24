@@ -163,6 +163,11 @@ type PendingMiaAttachment = {
   kindWasSelected?: boolean
 }
 
+type MiaRetryRequest = {
+  id: string
+  signature: string
+}
+
 type BudgetAllocationChange = {
   allocation_id: number
   planned_amount: string
@@ -326,6 +331,7 @@ function App() {
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const spendingReportRequestRef = useRef(0)
+  const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
@@ -888,6 +894,14 @@ function App() {
     }
 
     const messageContent = cleanPrompt || 'Please review this upload.'
+    const requestSignature = JSON.stringify({
+      message: messageContent,
+      attachmentIds: attachmentsToSend.map((attachment) => attachment.id).sort(),
+    })
+    const retryRequest = miaRetryRequestRef.current
+    const miaRequestId = retryRequest?.signature === requestSignature
+      ? retryRequest.id
+      : clientSideId('mia-request')
     const optimisticMessageId = clientSideId('mia-message')
     const spendingReportRequestAtSend = spendingReportRequestRef.current
     setMiaLoading(true)
@@ -919,7 +933,9 @@ function App() {
         selectedBudgetYear,
         selectedBudgetMonthIndex + 1,
         readyAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
+        miaRequestId,
       )
+      if (miaRetryRequestRef.current?.id === miaRequestId) miaRetryRequestRef.current = null
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
@@ -967,6 +983,7 @@ function App() {
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
       setQuestion(messageContent)
+      miaRetryRequestRef.current = { id: miaRequestId, signature: requestSignature }
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])

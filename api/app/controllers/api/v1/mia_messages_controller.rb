@@ -18,9 +18,12 @@ module Api
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
         session = current_chat_session
+        message_request, request_handled = reserve_message_request(session, content, attached_imports)
+        return if request_handled
+
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
         history = transcript.map { |message| message.slice(:role, :content) }
-        return render_attached_document_response(session, content, attached_imports) if attached_imports.any?
+        return render_attached_document_response(session, content, attached_imports, message_request: message_request) if attached_imports.any?
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.plan_data
@@ -103,19 +106,22 @@ module Api
           compact_conversation(session, user_message, assistant_message, follow_up: followup.follow_up?)
         end
 
-        render json: {
+        response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
           budget: annual_plan ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
-        }, status: :created
+        }
+        complete_message_request(message_request, response_payload)
+        render json: response_payload, status: :created
       end
 
       def destroy
         if (session = current_household.chat_sessions.find_by(user: current_user))
           session.chat_messages.delete_all
+          session.mia_message_requests.delete_all
           session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
         end
         head :no_content
@@ -135,7 +141,7 @@ module Api
         params[:month].to_i.clamp(1, 12)
       end
 
-      def render_attached_document_response(session, content, attached_imports)
+      def render_attached_document_response(session, content, attached_imports, message_request:)
         processed_imports = process_attached_imports(attached_imports)
         assistant_content = attached_document_message(content, processed_imports)
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).plan_data
@@ -147,14 +153,77 @@ module Api
         end
         compact_conversation(session, user_message, assistant_message)
 
-        render json: {
+        response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: nil,
           mia_action_draft: nil,
           budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
           spending_report: nil
-        }, status: :created
+        }
+        complete_message_request(message_request, response_payload)
+        render json: response_payload, status: :created
+      end
+
+      def reserve_message_request(session, content, attached_imports)
+        request_key = params[:request_id].to_s.strip
+        return [ nil, false ] if request_key.blank?
+
+        unless request_key.match?(MiaMessageRequest::REQUEST_KEY_FORMAT) && request_key.length <= 100
+          render json: { errors: [ "Mia request ID is invalid" ] }, status: :unprocessable_entity
+          return [ nil, true ]
+        end
+
+        fingerprint = message_request_fingerprint(content, attached_imports)
+        existing_request = session.mia_message_requests.find_by(request_key: request_key)
+        return [ existing_request, true ] if existing_request && render_existing_message_request(existing_request, fingerprint)
+
+        message_request = session.mia_message_requests.create!(
+          request_key: request_key,
+          request_fingerprint: fingerprint
+        )
+        [ message_request, false ]
+      rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+        message_request = session.mia_message_requests.find_by!(request_key: request_key)
+        [ message_request, render_existing_message_request(message_request, fingerprint) ]
+      end
+
+      def render_existing_message_request(message_request, fingerprint)
+        if message_request.request_fingerprint != fingerprint
+          render json: {
+            error: "This Mia request ID was already used for different content. Send the edited message as a new request.",
+            code: "mia_request_conflict"
+          }, status: :conflict
+          return true
+        end
+
+        if message_request.completed?
+          render json: message_request.response_payload, status: message_request.response_status || :created
+          return true
+        end
+
+        response.set_header("Retry-After", "1")
+        render json: {
+          status: "processing",
+          code: "mia_request_processing",
+          retry_after_ms: 500
+        }, status: :accepted
+        true
+      end
+
+      def message_request_fingerprint(content, attached_imports)
+        Digest::SHA256.hexdigest(
+          {
+            message: content,
+            year: budget_year_param,
+            month: budget_month_param,
+            document_import_ids: attached_imports.map(&:id).sort
+          }.to_json
+        )
+      end
+
+      def complete_message_request(message_request, response_payload)
+        message_request&.complete!(response_payload.as_json, response_status: 201)
       end
 
       def attached_document_imports
@@ -983,9 +1052,20 @@ module Api
       end
 
       def current_chat_session
-        current_household.chat_sessions.find_by(user: current_user) ||
-          current_household.chat_sessions.create!(user: current_user, title: "Ask Mia")
-      rescue ActiveRecord::RecordInvalid, ActiveRecord::RecordNotUnique
+        existing_session = current_household.chat_sessions.find_by(user: current_user)
+        return existing_session if existing_session
+
+        now = Time.current
+        ChatSession.insert_all(
+          [ {
+            household_id: current_household.id,
+            user_id: current_user.id,
+            title: "Ask Mia",
+            created_at: now,
+            updated_at: now
+          } ],
+          unique_by: :index_chat_sessions_on_household_id_and_user_id
+        )
         current_household.chat_sessions.find_by!(user: current_user)
       end
     end

@@ -521,6 +521,92 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ "user", "assistant" ], messages.map { |message| message.fetch("role") }
   end
 
+  test "mia chat replays a completed request without duplicating messages" do
+    user = create_user(email: "mia-idempotent-replay@example.com")
+    request = { message: "Can I buy the purse?", request_id: "mia-request-replay-1" }
+
+    assert_difference("ChatMessage.count" => 2, "MiaMessageRequest.count" => 1) do
+      post "/api/v1/mia/messages", params: request, headers: auth_headers(user), as: :json
+    end
+
+    assert_response :created
+    first_payload = JSON.parse(response.body)
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count", "MiaActionDraft.count", "TransactionDraft.count" ]) do
+      post "/api/v1/mia/messages", params: request, headers: auth_headers(user), as: :json
+    end
+
+    assert_response :created
+    assert_equal first_payload, JSON.parse(response.body)
+  end
+
+  test "mia chat rejects reuse of a request ID for different content" do
+    user = create_user(email: "mia-idempotent-conflict@example.com")
+    post "/api/v1/mia/messages",
+         params: { message: "Can I buy the purse?", request_id: "mia-request-conflict-1" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "Set Dining Out to $900", request_id: "mia-request-conflict-1" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :conflict
+    body = JSON.parse(response.body)
+    assert_equal "mia_request_conflict", body.fetch("code")
+    assert_includes body.fetch("error"), "different content"
+  end
+
+  test "mia chat reports an in-flight duplicate as retryable processing" do
+    user = create_user(email: "mia-idempotent-processing@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    content = "Can I buy the purse?"
+    fingerprint = Digest::SHA256.hexdigest(
+      {
+        message: content,
+        year: Date.current.year,
+        month: Date.current.month,
+        document_import_ids: []
+      }.to_json
+    )
+    session.mia_message_requests.create!(
+      request_key: "mia-request-processing-1",
+      request_fingerprint: fingerprint
+    )
+
+    assert_no_difference("ChatMessage.count") do
+      post "/api/v1/mia/messages",
+           params: { message: content, request_id: "mia-request-processing-1" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :accepted
+    body = JSON.parse(response.body)
+    assert_equal "mia_request_processing", body.fetch("code")
+    assert_equal "processing", body.fetch("status")
+    assert_equal "1", response.headers.fetch("Retry-After")
+  end
+
+  test "mia chat validates request IDs before any financial work" do
+    user = create_user(email: "mia-idempotent-invalid@example.com")
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "Can I buy the purse?", request_id: "not a safe key" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Mia request ID is invalid"
+  end
+
   test "mia chat routes deterministic coaching packets through Mia narrator" do
     user = create_user(email: "mia-narrator@example.com")
     patch "/api/v1/workspace/setup",
@@ -1031,7 +1117,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
   test "mia chat history can be cleared" do
     user = create_user(email: "clear@example.com")
-    post "/api/v1/mia/messages", params: { message: "test" }, headers: auth_headers(user), as: :json
+    post "/api/v1/mia/messages",
+         params: { message: "test", request_id: "mia-request-clear-1" },
+         headers: auth_headers(user),
+         as: :json
+    assert_equal 1, MiaMessageRequest.count
 
     delete "/api/v1/mia/messages", headers: auth_headers(user)
 
@@ -1041,6 +1131,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_empty JSON.parse(response.body).fetch("messages")
+    assert_equal 0, MiaMessageRequest.count
   end
 
   test "clearing empty Mia chat does not create a chat session" do
