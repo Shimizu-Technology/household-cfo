@@ -305,6 +305,7 @@ function App() {
     monthly_amount: '',
   })
   const [isChatExpanded, setIsChatExpanded] = useState(false)
+  const [showMiaSuggestions, setShowMiaSuggestions] = useState(false)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
   const [voiceRecording, setVoiceRecording] = useState(false)
   const [voiceTranscribing, setVoiceTranscribing] = useState(false)
@@ -325,6 +326,8 @@ function App() {
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
+  const miaChatShellRef = useRef<HTMLElement | null>(null)
+  const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
   const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
@@ -702,12 +705,67 @@ function App() {
   }, [isChatExpanded])
 
   useEffect(() => {
-    if (!isChatExpanded && !confirmClearChat) return
+    if (!isChatExpanded) return
+
+    const shell = miaChatShellRef.current
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const focusableSelector = 'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
+    const focusableElements = () => Array.from(shell?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
+      .filter((element) => element.getClientRects().length > 0)
+    const nestedDialogIsOpen = () => Boolean(document.querySelector('.clear-chat-dialog'))
+
+    function keepFocusInExpandedChat(event: globalThis.KeyboardEvent) {
+      if (event.key !== 'Tab' || nestedDialogIsOpen()) return
+      const elements = focusableElements()
+      if (elements.length === 0) {
+        event.preventDefault()
+        shell?.focus()
+        return
+      }
+
+      const first = elements[0]
+      const last = elements[elements.length - 1]
+      if (!shell?.contains(document.activeElement)) {
+        event.preventDefault()
+        const destination = event.shiftKey ? last : first
+        destination.focus()
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
+    }
+
+    function containExpandedChatFocus(event: FocusEvent) {
+      if (nestedDialogIsOpen()) return
+      if (shell?.contains(event.target as Node)) return
+      const destination = focusableElements()[0] ?? shell
+      destination?.focus()
+    }
+
+    document.addEventListener('keydown', keepFocusInExpandedChat)
+    document.addEventListener('focusin', containExpandedChatFocus)
+    return () => {
+      document.removeEventListener('keydown', keepFocusInExpandedChat)
+      document.removeEventListener('focusin', containExpandedChatFocus)
+      window.requestAnimationFrame(() => previousFocus?.focus())
+    }
+  }, [isChatExpanded])
+
+  useEffect(() => {
+    if (!isChatExpanded && !showMiaSuggestions && !confirmClearChat) return
 
     function handleEscape(event: globalThis.KeyboardEvent) {
       if (event.key !== 'Escape') return
       if (confirmClearChat) {
         setConfirmClearChat(false)
+        window.requestAnimationFrame(() => clearChatTriggerRef.current?.focus())
+        return
+      }
+      if (showMiaSuggestions) {
+        setShowMiaSuggestions(false)
         return
       }
       setIsChatExpanded(false)
@@ -715,7 +773,7 @@ function App() {
 
     window.addEventListener('keydown', handleEscape)
     return () => window.removeEventListener('keydown', handleEscape)
-  }, [confirmClearChat, isChatExpanded])
+  }, [confirmClearChat, isChatExpanded, showMiaSuggestions])
 
   useEffect(() => {
     if (!previewImport && !previewAttachment) return
@@ -873,7 +931,10 @@ function App() {
       from_section: activeSection.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
     })
     setActive(section)
-    if (section !== 'Ask Mia') setIsChatExpanded(false)
+    if (section !== 'Ask Mia') {
+      setIsChatExpanded(false)
+      setShowMiaSuggestions(false)
+    }
     if (section !== 'My Profile') setFirstSessionUploadOpen(false)
     window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
     if (section !== activeSection) {
@@ -1109,6 +1170,7 @@ function App() {
     setConfirmClearChat(false)
     setMiaClearing(true)
     setMiaError(null)
+    window.requestAnimationFrame(() => composerRef.current?.focus())
     try {
       if (isRealWorkspace) await clearMiaMessages(true)
       setMessages([])
@@ -2021,56 +2083,90 @@ function App() {
               )}
             </article>
 
-            <section className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`} aria-label="Ask Mia conversation">
+            {isChatExpanded && (
+              <div
+                className="mia-chat-backdrop"
+                aria-hidden="true"
+                onMouseDown={() => setIsChatExpanded(false)}
+              />
+            )}
+            <section
+              ref={miaChatShellRef}
+              className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`}
+              role={isChatExpanded ? 'dialog' : undefined}
+              aria-modal={isChatExpanded ? 'true' : undefined}
+              aria-labelledby="mia-chat-title"
+              tabIndex={isChatExpanded ? -1 : undefined}
+            >
               <div className="chat-shell-header">
                 <span className="message-avatar" aria-hidden="true">M</span>
                 <div className="chat-shell-copy">
-                  <h3>Ask Mia</h3>
+                  <h3 id="mia-chat-title">Ask Mia</h3>
                   <p>Talk it through or update the plan while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
+                    <button ref={clearChatTriggerRef} type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
+                  <button
+                    type="button"
+                    className="chat-suggestions-button"
+                    aria-expanded={showMiaSuggestions}
+                    aria-controls="mia-suggestions-panel"
+                    onClick={() => setShowMiaSuggestions((visible) => !visible)}
+                  >
+                    Prompts
+                  </button>
                   <button
                     type="button"
                     className="chat-expand-button"
                     aria-label={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
                     aria-pressed={isChatExpanded}
                     title={isChatExpanded ? 'Collapse Ask Mia chat' : 'Expand Ask Mia chat'}
-                    onClick={() => setIsChatExpanded((expanded) => !expanded)}
+                    onClick={() => {
+                      setShowMiaSuggestions(false)
+                      setIsChatExpanded((expanded) => !expanded)
+                    }}
                   >
                     {isChatExpanded ? <CollapseIcon /> : <ExpandIcon />}
                   </button>
                 </div>
               </div>
 
-              <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
-                <div>
-                  <span className="eyebrow">Fastest way to update your plan</span>
-                  <strong id="mia-update-guide-title">Say what changed in your own words.</strong>
-                  <small>Mia will show you a review card. Nothing changes until you tap Apply.</small>
+              <div id="mia-suggestions-panel" className={`mia-suggestions-panel${showMiaSuggestions ? ' is-open' : ''}`} aria-label="Mia prompts">
+                <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
+                  <div>
+                    <span className="eyebrow">Fastest way to update your plan</span>
+                    <strong id="mia-update-guide-title">Say what changed in your own words.</strong>
+                    <small>Mia will show you a review card. Nothing changes until you tap Apply.</small>
+                  </div>
+                  <div className="mia-update-examples" aria-label="Example updates for Mia">
+                    {MIA_UPDATE_EXAMPLES.map((prompt) => (
+                      <button type="button" key={prompt} onClick={() => {
+                        setShowMiaSuggestions(false)
+                        prepareMiaUpdate(prompt)
+                      }} disabled={miaLoading}>
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                <div className="mia-update-examples" aria-label="Example updates for Mia">
-                  {MIA_UPDATE_EXAMPLES.map((prompt) => (
-                    <button type="button" key={prompt} onClick={() => prepareMiaUpdate(prompt)} disabled={miaLoading}>
-                      {prompt}
-                    </button>
-                  ))}
-                </div>
-              </div>
 
-              <div className="chat-prompts-shell">
-                <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
-                  {data.mia.quick_prompts.map((prompt) => (
-                    <button type="button" key={prompt} onClick={() => void handleAskMia(prompt)} disabled={miaLoading}>
-                      {prompt}
-                    </button>
-                  ))}
+                <div className="chat-prompts-shell">
+                  <div className="quick-prompts chat-prompts" aria-label="Suggested questions for Mia">
+                    {data.mia.quick_prompts.map((prompt) => (
+                      <button type="button" key={prompt} onClick={() => {
+                        setShowMiaSuggestions(false)
+                        void handleAskMia(prompt)
+                      }} disabled={miaLoading}>
+                        {prompt}
+                      </button>
+                    ))}
+                  </div>
+                  <span className="chat-prompts-cue" aria-hidden="true">More prompts →</span>
                 </div>
-                <span className="chat-prompts-cue" aria-hidden="true">More prompts →</span>
               </div>
 
               <ChatHistory
@@ -2566,7 +2662,10 @@ function App() {
       {confirmClearChat && (
         <ClearChatConfirmDialog
           isClearing={miaClearing}
-          onCancel={() => setConfirmClearChat(false)}
+          onCancel={() => {
+            setConfirmClearChat(false)
+            window.requestAnimationFrame(() => clearChatTriggerRef.current?.focus())
+          }}
           onConfirm={() => void handleClearMessages()}
         />
       )}
@@ -2671,10 +2770,12 @@ function ClearChatConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const dialogRef = usePilotDialog(onCancel)
+
   return (
     <div className="clear-chat-overlay" role="presentation">
       <button type="button" className="clear-chat-backdrop" aria-label="Keep Mia chat" onClick={onCancel} />
-      <section className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy">
+      <section ref={dialogRef} className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy" tabIndex={-1}>
         <p className="eyebrow">Ask Mia</p>
         <h3 id="clear-chat-title">Clear this chat?</h3>
         <p id="clear-chat-copy">
@@ -2682,7 +2783,7 @@ function ClearChatConfirmDialog({
           Your saved budget, profile, and transactions stay unchanged.
         </p>
         <div className="clear-chat-dialog-actions">
-          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing} autoFocus>
+          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing}>
             Keep chat
           </button>
           <button type="button" className="danger" onClick={onConfirm} disabled={isClearing}>
@@ -2842,6 +2943,7 @@ function usePilotDialog(onClose: () => void) {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault()
+        event.stopPropagation()
         onCloseRef.current()
         return
       }
@@ -2865,10 +2967,18 @@ function usePilotDialog(onClose: () => void) {
       }
     }
 
+    function handleFocusIn(event: FocusEvent) {
+      if (dialog?.contains(event.target as Node)) return
+      const destination = focusableElements()[0] ?? dialog
+      destination?.focus()
+    }
+
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('focusin', handleFocusIn)
     return () => {
       window.cancelAnimationFrame(focusFrame)
       document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('focusin', handleFocusIn)
       previousFocus?.focus()
     }
   }, [])
