@@ -327,6 +327,7 @@ function App() {
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
+  const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pilotGuideOpen, setPilotGuideOpen] = useState(false)
   const [pilotFeedbackOpen, setPilotFeedbackOpen] = useState(false)
@@ -711,9 +712,10 @@ function App() {
     const focusableSelector = 'button:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
     const focusableElements = () => Array.from(shell?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
       .filter((element) => element.getClientRects().length > 0)
+    const nestedDialogIsOpen = () => Boolean(document.querySelector('.clear-chat-dialog'))
 
     function keepFocusInExpandedChat(event: globalThis.KeyboardEvent) {
-      if (event.key !== 'Tab') return
+      if (event.key !== 'Tab' || nestedDialogIsOpen()) return
       const elements = focusableElements()
       if (elements.length === 0) {
         event.preventDefault()
@@ -737,6 +739,7 @@ function App() {
     }
 
     function containExpandedChatFocus(event: FocusEvent) {
+      if (nestedDialogIsOpen()) return
       if (shell?.contains(event.target as Node)) return
       const destination = focusableElements()[0] ?? shell
       destination?.focus()
@@ -758,6 +761,7 @@ function App() {
       if (event.key !== 'Escape') return
       if (confirmClearChat) {
         setConfirmClearChat(false)
+        window.requestAnimationFrame(() => clearChatTriggerRef.current?.focus())
         return
       }
       if (showMiaSuggestions) {
@@ -2101,7 +2105,7 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
+                    <button ref={clearChatTriggerRef} type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
@@ -2657,7 +2661,10 @@ function App() {
       {confirmClearChat && (
         <ClearChatConfirmDialog
           isClearing={miaClearing}
-          onCancel={() => setConfirmClearChat(false)}
+          onCancel={() => {
+            setConfirmClearChat(false)
+            window.requestAnimationFrame(() => clearChatTriggerRef.current?.focus())
+          }}
           onConfirm={() => void handleClearMessages()}
         />
       )}
@@ -2762,10 +2769,12 @@ function ClearChatConfirmDialog({
   onCancel: () => void
   onConfirm: () => void
 }) {
+  const dialogRef = usePilotDialog(onCancel)
+
   return (
     <div className="clear-chat-overlay" role="presentation">
       <button type="button" className="clear-chat-backdrop" aria-label="Keep Mia chat" onClick={onCancel} />
-      <section className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy">
+      <section ref={dialogRef} className="clear-chat-dialog" role="dialog" aria-modal="true" aria-labelledby="clear-chat-title" aria-describedby="clear-chat-copy" tabIndex={-1}>
         <p className="eyebrow">Ask Mia</p>
         <h3 id="clear-chat-title">Clear this chat?</h3>
         <p id="clear-chat-copy">
@@ -2773,7 +2782,7 @@ function ClearChatConfirmDialog({
           Your saved budget, profile, and transactions stay unchanged.
         </p>
         <div className="clear-chat-dialog-actions">
-          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing} autoFocus>
+          <button type="button" className="secondary" onClick={onCancel} disabled={isClearing}>
             Keep chat
           </button>
           <button type="button" className="danger" onClick={onConfirm} disabled={isClearing}>
@@ -2933,6 +2942,7 @@ function usePilotDialog(onClose: () => void) {
     function handleKeyDown(event: globalThis.KeyboardEvent) {
       if (event.key === 'Escape') {
         event.preventDefault()
+        event.stopPropagation()
         onCloseRef.current()
         return
       }
@@ -2956,10 +2966,18 @@ function usePilotDialog(onClose: () => void) {
       }
     }
 
+    function handleFocusIn(event: FocusEvent) {
+      if (dialog?.contains(event.target as Node)) return
+      const destination = focusableElements()[0] ?? dialog
+      destination?.focus()
+    }
+
     document.addEventListener('keydown', handleKeyDown)
+    document.addEventListener('focusin', handleFocusIn)
     return () => {
       window.cancelAnimationFrame(focusFrame)
       document.removeEventListener('keydown', handleKeyDown)
+      document.removeEventListener('focusin', handleFocusIn)
       previousFocus?.focus()
     }
   }, [])

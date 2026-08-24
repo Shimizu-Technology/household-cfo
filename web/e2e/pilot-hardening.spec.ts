@@ -1234,6 +1234,17 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
   await expandButton.click()
   await expect(page.getByRole('dialog', { name: 'Ask Mia' })).toBeVisible()
 
+  const clearButton = page.getByRole('button', { name: 'Clear', exact: true })
+  await clearButton.click()
+  const clearDialog = page.getByRole('dialog', { name: 'Clear this chat?' })
+  await expect(clearDialog).toBeVisible()
+  await expect(clearDialog.getByRole('button', { name: 'Keep chat' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(clearDialog.getByRole('button', { name: 'Clear chat' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(clearDialog).toBeHidden()
+  await expect(clearButton).toBeFocused()
+
   await page.getByRole('button', { name: 'Home', exact: true }).focus()
   expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
 
