@@ -23,6 +23,23 @@ module Demo
     ].freeze
     TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
     BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i.freeze
+    RUNWAY_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s+months?\s+of\s+runway\b/i.freeze
+    READINESS_CLAIM_PATTERN = /\b(?:your|the|household(?: cfo method)?)\s+(?:baseline|readiness)(?:\s+status)?\s+(?:is|looks|reads|shows)\s+(?:currently\s+)?(?:["“])?(red|yellow|green)\b/i.freeze
+    METRIC_LABELS = {
+      "monthly_income" => /\b(?:monthly|approved)?\s*income\b/i,
+      "planned_monthly_outflow" => /\b(?:planned\s+monthly\s+outflow|total\s+outflow|money\s+out)\b/i,
+      "baseline_surplus" => /\bbaseline\s+surplus\b/i,
+      "safe_to_spend" => /\bsafe-to-spend\b/i,
+      "total_debt_entered" => /\btotal\s+debt\b/i,
+      "liquid_assets" => /\bliquid\s+assets?\b/i
+    }.freeze
+    PERCENT_METRIC_LABELS = {
+      "monthly_surplus_rate_percent" => /\b(?:monthly\s+)?surplus\s+rate\b/i
+    }.freeze
+    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|asked\s+about))\b/i.freeze
+    UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN = /\b(?:you|we)\s+(?:can|could|should|may)\s+(?:comfortably\s+)?afford\b|\b(?:safe|okay|ok|fine|clear|approved)\s+(?:for\s+you\s+)?to\s+(?:spend|buy|book|purchase)\b|\b(?:trip|purchase|expense|it|that)\s+(?:works|fits|is\s+affordable|looks\s+affordable)\b|\bwithin\s+(?:your|the)\s+(?:budget|safe-to-spend)\b|\byou(?:['’]re|\s+are)\s+(?:clear|good)\s+to\s+(?:spend|buy|book)\b/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -64,7 +81,12 @@ module Demo
         response = HouseholdFinance::MiaProviderAdmission.with_slot do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
         end
-        return response || fallback_response(clean_message, context: prompt_context)
+        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)
+          return response
+        end
+
+        Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=unverified_financial_claim") if response.present?
+        return fallback_response(clean_message, context: prompt_context)
       end
 
       fallback_response(clean_message, context: prompt_context)
@@ -208,6 +230,151 @@ module Demo
         .gsub(/Plan, don[’']t gamble\.?/i, "that phrase")
         .gsub(/Your money picture, without the spiral\.?/i, "that phrase")
         .gsub(/Annual runway first\. Monthly moves second\.?/i, "that phrase")
+    end
+
+    def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
+      payload = parsed_context(context)
+      return true if content.to_s.match?(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN)
+      return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
+
+      claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
+      return false if claimed_readiness.empty?
+
+      approved_readiness = payload.dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
+      approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+    end
+
+    def financial_values_grounded?(content, payload:, user_message: nil)
+      metrics = payload.fetch("metrics", {})
+      grounded_currency_mentions?(content, metrics: metrics, user_message: user_message) &&
+        grounded_percent_mentions?(content, metrics: metrics, user_message: user_message) &&
+        runway_values_grounded?(content, approved_runway: metrics.fetch("runway_months", nil))
+    end
+
+    def grounded_currency_mentions?(content, metrics:, user_message: nil)
+      mentions = currency_mentions(content)
+      return true if mentions.empty?
+
+      metric_mentions = approved_metric_mentions(content, metrics: metrics)
+      participant_values = currency_values(user_message)
+      mentions.all? do |mention|
+        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
+        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
+          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
+      end
+    end
+
+    def grounded_percent_mentions?(content, metrics:, user_message: nil)
+      mentions = percent_mentions(content)
+      return true if mentions.empty?
+
+      metric_mentions = approved_percent_metric_mentions(content, metrics: metrics)
+      participant_values = percent_values(user_message)
+      mentions.all? do |mention|
+        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
+        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
+          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
+      end
+    end
+
+    def participant_scenario_labeled?(content, mention)
+      labels = content.to_s.to_enum(:scan, PARTICIPANT_SCENARIO_LABEL_PATTERN).map do
+        match = Regexp.last_match
+        { start: match.begin(0), finish: match.end(0) }
+      end
+      labels.any? { |label| range_distance(label, mention) <= 40 }
+    end
+
+    def approved_metric_mentions(content, metrics:)
+      METRIC_LABELS.flat_map do |key, label_pattern|
+        approved = currency_values(metrics[key].to_s).first
+        next [] unless approved
+
+        content.to_s.to_enum(:scan, label_pattern).map do
+          match = Regexp.last_match
+          { start: match.begin(0), finish: match.end(0), value: approved }
+        end
+      end
+    end
+
+    def approved_percent_metric_mentions(content, metrics:)
+      PERCENT_METRIC_LABELS.flat_map do |key, label_pattern|
+        approved = normalized_measurement(metrics[key])
+        next [] unless approved
+
+        content.to_s.to_enum(:scan, label_pattern).map do
+          match = Regexp.last_match
+          { start: match.begin(0), finish: match.end(0), value: approved }
+        end
+      end
+    end
+
+    def currency_mentions(text)
+      text.to_s.to_enum(:scan, MONEY_AMOUNT_PATTERN).filter_map do
+        match = Regexp.last_match
+        value = HouseholdFinance::Money.cents(match[1].delete(","))
+        { start: match.begin(0), finish: match.end(0), value: value }
+      rescue ArgumentError
+        nil
+      end
+    end
+
+    def percent_mentions(text)
+      text.to_s.to_enum(:scan, PERCENT_AMOUNT_PATTERN).filter_map do
+        match = Regexp.last_match
+        value = normalized_measurement(match[1])
+        { start: match.begin(0), finish: match.end(0), value: value } if value
+      end
+    end
+
+    def range_distance(label, mention)
+      distance = if mention[:finish] <= label[:start]
+        label[:start] - mention[:finish]
+      elsif label[:finish] <= mention[:start]
+        mention[:start] - label[:finish]
+      else
+        0
+      end
+      distance
+    end
+
+    def runway_values_grounded?(content, approved_runway:)
+      claimed = runway_values(content)
+      return true if claimed.empty?
+
+      approved = normalized_measurement(approved_runway)
+      approved.present? && claimed.all? { |value| value == approved }
+    end
+
+    def currency_values(text)
+      text.to_s.scan(MONEY_AMOUNT_PATTERN).flatten.filter_map do |amount|
+        HouseholdFinance::Money.cents(amount.delete(","))
+      rescue ArgumentError
+        nil
+      end.uniq
+    end
+
+    def percent_values(text)
+      text.to_s.scan(PERCENT_AMOUNT_PATTERN).flatten.filter_map { |value| normalized_measurement(value) }.uniq
+    end
+
+    def runway_values(text)
+      text.to_s.scan(RUNWAY_AMOUNT_PATTERN).flatten.filter_map { |value| normalized_measurement(value) }.uniq
+    end
+
+    def normalized_measurement(value)
+      number = Float(value)
+      return unless number.finite?
+
+      format("%.10f", number).sub(/\.?0+\z/, "")
+    rescue ArgumentError, TypeError
+      nil
+    end
+
+    def parsed_context(context)
+      JSON.parse(context.to_s)
+    rescue JSON::ParserError, TypeError
+      {}
     end
 
     def transaction_report_message?(message)

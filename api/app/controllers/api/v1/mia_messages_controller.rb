@@ -543,17 +543,15 @@ module Api
           when "budget_question"
             budget_manager = budget_answer_manager_for(resolved_content, annual_budget_manager)
             annual_plan = budget_manager.plan_data
-            budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(resolved_content, annual_plan: annual_plan).call
-            if budget_answer.blank?
-              coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
-                current_household,
-                resolved_content,
-                annual_budget_manager: budget_manager,
-                reference_month: budget_month_param
-              )
-              coach_answer = coach_answerer.call
-              annual_plan = coach_answerer.prepared_annual_plan || annual_plan
-            end
+            coach_answerer = HouseholdFinance::MiaCoachAnswerer.new(
+              current_household,
+              resolved_content,
+              annual_budget_manager: budget_manager,
+              reference_month: budget_month_param
+            )
+            coach_answer = coach_answerer.call
+            annual_plan = coach_answerer.prepared_annual_plan || annual_plan
+            budget_answer = HouseholdFinance::BudgetQuestionAnswerer.new(resolved_content, annual_plan: annual_plan).call if coach_answer.blank?
           when "spending_report"
             spending_report = spending_report_for(resolved_content)
           when "transaction_report"

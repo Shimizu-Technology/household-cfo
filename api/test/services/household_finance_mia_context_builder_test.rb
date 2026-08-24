@@ -49,6 +49,39 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal "$60", annual_budget.fetch("selected_month_budget_rows").first.fetch("planned")
   end
 
+  test "uses the selected budget year and month for every generic Mia metric" do
+    user = User.create!(
+      clerk_id: "clerk_#{SecureRandom.hex(6)}",
+      email: "context-financial-period@example.com",
+      role: "participant",
+      invitation_status: "accepted"
+    )
+    household = Household.create!(created_by_user: user, name: "Context Financial Period Household")
+    household.household_memberships.create!(user: user, role: "owner")
+    household.income_sources.create!(label: "Salary", source_type: "job", amount_cents: 8_500_00, cadence: "monthly", active: true)
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 50_000_00)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year + 1)
+    manager.create_category!(name: "Future essentials", stack_key: "non_discretionary", monthly_amount: 0)
+    plan = manager.plan_data
+    january_allocation_id = plan.fetch(:rows).first.fetch(:months).first.fetch(:allocation_id)
+    manager.update_allocation!(BudgetAllocation.find(january_allocation_id), 5_000)
+
+    payload = JSON.parse(
+      HouseholdFinance::MiaContextBuilder.new(
+        household,
+        annual_plan: manager.plan_data,
+        reference_month: 1
+      ).call
+    )
+
+    assert_equal "$8,500", payload.dig("metrics", "monthly_income")
+    assert_equal "$5,000", payload.dig("metrics", "planned_monthly_outflow")
+    assert_equal "$3,500", payload.dig("metrics", "baseline_surplus")
+    assert_equal 41, payload.dig("metrics", "monthly_surplus_rate_percent")
+    assert_equal "$1,400", payload.dig("metrics", "safe_to_spend")
+    assert_equal "selected_budget_month", payload.dig("annual_budget", "reference_month", "scope")
+  end
+
   test "includes compacted conversation continuity as context only" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

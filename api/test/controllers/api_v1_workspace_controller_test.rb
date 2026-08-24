@@ -633,6 +633,40 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes packets.first.fetch(:fallback_response), "safe-to-spend"
   end
 
+  test "mia chat preserves deterministic compound decision math when intent labels it a budget question" do
+    user = create_user(email: "mia-compound-routing@example.com")
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
+          headers: auth_headers(user),
+          as: :json
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_question",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Can I take a $900 trip and make a $750 extra debt payment this month? Show both against the plan.",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_question", title: "Trip and debt decision", subject: "Trip and debt" },
+      action: { type: "none" },
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+
+    with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+      post "/api/v1/mia/messages",
+           params: { message: "Can I take a $900 trip and make a $750 extra debt payment this month? Show both against the plan." },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    assert_includes content, "proposed purchase is $900"
+    assert_includes content, "extra debt payment is $750"
+    assert_includes content, "together they total $1,650"
+    assert_includes content, "not a second safe-to-spend allowance"
+  end
+
   test "mia chat summarizes processed receipt drafts before replying" do
     user = create_user(email: "mia-receipt-sync@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

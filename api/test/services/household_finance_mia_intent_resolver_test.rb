@@ -179,6 +179,268 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "could not safely match"
   end
 
+  test "does not treat an approved context amount as participant authorization for a write" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Lower Fixed essentials next month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set Fixed essentials to $4,000 next month",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "4000",
+            months: [ 8 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
+  test "does not let the model invent a zero-dollar budget write" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Lower Fixed essentials next month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set Fixed essentials to $0 next month",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "0",
+            months: [ 8 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
+  test "does not reuse an unrelated amount from an older user turn" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "I received a $4,000 bonus last month." },
+      { role: "assistant", content: "We can decide how to allocate that bonus." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Lower Fixed essentials next month",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set Fixed essentials to $4,000 next month",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "4000",
+            months: [ 8 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
+  test "generic continuation can use only the immediately preceding participant request amount" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "I received a $4,000 bonus last month." },
+      { role: "assistant", content: "We can discuss that later." },
+      { role: "user", content: "Set Fixed essentials to $3,000 for July." },
+      { role: "assistant", content: "I can prepare that review." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Do it",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Set Fixed essentials to $4,000 for July 2026",
+          topic: { type: "budget_edit", title: "July Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "4000",
+            months: [ 7 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
+  test "does not reuse an unrelated stale stop-income phrase to authorize zero" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "I may stop my business income later this year." },
+      { role: "assistant", content: "Bring the effective month back when it is decided." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Change Primary income next month",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "Primary income edit", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
+  test "allows semantic zero when the current turn explicitly ends recurring income" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "End Primary income next month",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "End Primary income", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "0", result.action.fetch(:amount)
+  end
+
+  test "does not let stop language authorize zero for a different current income source" do
+    context = intent_context.deep_dup
+    context[:income_sources] << { id: 92, label: "Side business income", source_type: "business", current_monthly_amount: 1_500 }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "End Side business income next month",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "End Primary income", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
+  test "generic continuation cannot use stop-language for a different historical income source" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "Stop Side business income next month." },
+      { role: "assistant", content: "I can prepare that Side business income review." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Do it",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: true,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "End Primary income", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
   test "resolves a complete reported expense into a pending transaction draft action without requiring a category" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $12.35 at Walkthrough Cafe Retest today",
