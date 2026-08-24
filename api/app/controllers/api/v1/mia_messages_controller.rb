@@ -120,9 +120,19 @@ module Api
 
       def destroy
         if (session = current_household.chat_sessions.find_by(user: current_user))
-          session.chat_messages.delete_all
-          session.mia_message_requests.where(status: "completed").delete_all
-          session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
+          session.with_lock do
+            if session.mia_message_requests.where(status: "processing").exists?
+              render json: {
+                error: "Mia is still working on a message. Wait for it to finish before clearing this conversation.",
+                code: "mia_request_processing"
+              }, status: :conflict
+              return
+            end
+
+            session.chat_messages.delete_all
+            session.mia_message_requests.delete_all
+            session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
+          end
         end
         head :no_content
       end
@@ -175,14 +185,16 @@ module Api
         end
 
         fingerprint = message_request_fingerprint(content, attached_imports)
-        existing_request = session.mia_message_requests.find_by(request_key: request_key)
-        return [ existing_request, true ] if existing_request && render_existing_message_request(existing_request, fingerprint)
+        session.with_lock do
+          existing_request = session.mia_message_requests.find_by(request_key: request_key)
+          return [ existing_request, true ] if existing_request && render_existing_message_request(existing_request, fingerprint)
 
-        message_request = session.mia_message_requests.create!(
-          request_key: request_key,
-          request_fingerprint: fingerprint
-        )
-        [ message_request, false ]
+          message_request = session.mia_message_requests.create!(
+            request_key: request_key,
+            request_fingerprint: fingerprint
+          )
+          return [ message_request, false ]
+        end
       rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
         message_request = session.mia_message_requests.find_by!(request_key: request_key)
         [ message_request, render_existing_message_request(message_request, fingerprint) ]

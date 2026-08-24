@@ -909,6 +909,8 @@ function App() {
     const requestSignature = JSON.stringify({
       message: messageContent,
       attachmentIds: attachmentsToSend.map((attachment) => attachment.id).sort(),
+      year: selectedBudgetYear,
+      month: selectedBudgetMonthIndex + 1,
     })
     const retryRequest = miaRetryRequestRef.current
     const miaRequestId = retryRequest?.signature === requestSignature
@@ -1026,7 +1028,7 @@ function App() {
   }
 
   function handleClearMessagesRequest() {
-    if (miaClearing || currentMessages.length === 0) return
+    if (miaClearing || miaLoading || currentMessages.length === 0) return
 
     setConfirmClearChat(true)
   }
@@ -1998,7 +2000,7 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing}>
+                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}

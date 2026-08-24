@@ -819,6 +819,49 @@ test('Ask Mia preserves one request ID through a network failure and reload so r
   expect(requestIds[1]).toBe(requestIds[0])
 })
 
+test('Ask Mia uses a new request ID when the retry targets a different budget month', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  const requests: Array<{ request_id: string; month: number }> = []
+  let attempt = 0
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+
+    attempt += 1
+    requests.push(route.request().postDataJSON())
+    if (attempt === 1) return route.abort('timedout')
+
+    return route.fulfill({
+      status: 201,
+      json: {
+        user_message: { id: 711, role: 'user', author: 'You', content: 'What should I focus on?', attachments: [] },
+        assistant_message: { id: 712, role: 'assistant', author: 'Mia', content: 'Use the newly selected month.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: null,
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const composer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await composer.fill('What should I focus on?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(composer).toHaveValue('What should I focus on?')
+
+  await openSection(page, 'Budget')
+  const nextMonthIndex = (new Date().getMonth() + 1) % 12
+  await page.getByLabel('Report month').selectOption(String(nextMonthIndex))
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(page.getByText('Use the newly selected month.')).toBeVisible()
+
+  expect(requests).toHaveLength(2)
+  expect(requests[1].request_id).not.toBe(requests[0].request_id)
+  expect(requests[1].month).toBe(nextMonthIndex + 1)
+  expect(requests[1].month).not.toBe(requests[0].month)
+})
+
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()

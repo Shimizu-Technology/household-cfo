@@ -1134,18 +1134,27 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, MiaMessageRequest.count
   end
 
-  test "clearing Mia chat preserves active request reservations" do
+  test "clearing Mia chat waits for active requests instead of allowing a late turn to restore history" do
     user = create_user(email: "clear-active-request@example.com")
+    post "/api/v1/mia/messages",
+         params: { message: "Keep this turn", request_id: "mia-request-before-active-clear-1" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+
     household = HouseholdFinance::WorkspaceResolver.new(user).household
-    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    session = household.chat_sessions.find_by!(user: user)
     active_request = session.mia_message_requests.create!(
       request_key: "mia-request-active-clear-1",
       request_fingerprint: "a" * 64
     )
 
-    delete "/api/v1/mia/messages", headers: auth_headers(user)
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count" ]) do
+      delete "/api/v1/mia/messages", headers: auth_headers(user)
+    end
 
-    assert_response :no_content
+    assert_response :conflict
+    assert_equal "mia_request_processing", JSON.parse(response.body).fetch("code")
     assert MiaMessageRequest.exists?(active_request.id)
     assert active_request.reload.processing?
   end
