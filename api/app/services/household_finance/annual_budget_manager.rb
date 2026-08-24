@@ -189,12 +189,12 @@ module HouseholdFinance
         category = active_budget_category_for_name(expense.label)
         next unless category
 
-        monthly_cents = Money.monthly_cents(expense.amount_cents, expense.cadence)
         periods.each do |period|
           allocation = BudgetAllocation.find_or_initialize_by(budget_period: period, budget_category: category)
-          next if allocation.persisted? && allocation.source == "manual"
+          next if allocation.persisted? && (allocation.source == "manual" || period.starts_on < Date.current.beginning_of_month)
 
-          allocation.update!(planned_amount_cents: monthly_cents, source: "setup")
+          period_cents = Money.period_cents(expense.amount_cents, expense.cadence, month: period.starts_on.month)
+          allocation.update!(planned_amount_cents: period_cents, source: "setup")
         end
       end
     end
@@ -285,9 +285,11 @@ module HouseholdFinance
       month_data = periods.map do |period|
         index = period.starts_on.month - 1
         cells = active_rows.map { |row| row[:months][index] }
-        category_plan = cells.sum { |cell| cell[:planned] }
-        planned_outflow = category_plan + monthly_debt_minimums
-        expected = expected_rows.sum { |row| row[:months][index][:planned] }
+        category_plan_cents = cells.sum { |cell| Money.cents(cell[:planned]) }
+        debt_minimums_cents = Money.cents(monthly_debt_minimums)
+        planned_outflow_cents = category_plan_cents + debt_minimums_cents
+        income_cents = Money.cents(monthly_income.fetch(period.id))
+        expected_cents = expected_rows.sum { |row| Money.cents(row[:months][index][:planned]) }
         contributors = expected_rows
           .filter_map { |row| [ row[:name], row[:months][index][:planned] ] if row[:months][index][:planned].positive? }
           .sort_by { |(_, amount)| -amount }
@@ -298,34 +300,36 @@ module HouseholdFinance
           period_id: period.id,
           label: MONTH_NAMES[index],
           starts_on: period.starts_on.iso8601,
-          income: monthly_income.fetch(period.id),
-          category_plan: category_plan,
+          income: Money.dollars(income_cents),
+          category_plan: Money.dollars(category_plan_cents),
           debt_minimums: monthly_debt_minimums,
-          planned_outflow: planned_outflow,
-          baseline_surplus: monthly_income.fetch(period.id) - planned_outflow,
-          expected_irregular: expected,
+          planned_outflow: Money.dollars(planned_outflow_cents),
+          baseline_surplus: Money.dollars(income_cents - planned_outflow_cents),
+          expected_irregular: Money.dollars(expected_cents),
           expected_contributors: contributors
         }
       end
-      typical = median(month_data.map { |month| month[:planned_outflow] })
-      threshold = [ 100.0, typical * 0.1 ].max
+      typical_cents = median_cents(month_data.map { |month| Money.cents(month[:planned_outflow]) })
+      threshold_cents = [ 10_000, (typical_cents + 5) / 10 ].max
       eligible = month_data.select { |month| Date.iso8601(month[:starts_on]) >= outlook_start_date }
       spikes = eligible
-        .select { |month| month[:planned_outflow] >= typical + threshold }
-        .map { |month| month.merge(amount_above_typical: month[:planned_outflow] - typical) }
+        .select { |month| Money.cents(month[:planned_outflow]) >= typical_cents + threshold_cents }
+        .map do |month|
+          month.merge(amount_above_typical: Money.dollars(Money.cents(month[:planned_outflow]) - typical_cents))
+        end
 
       {
-        typical_monthly_outflow: typical,
+        typical_monthly_outflow: Money.dollars(typical_cents),
         months: month_data,
         upcoming_spikes: spikes.first(3),
         next_irregular_month: eligible.find { |month| month[:expected_irregular].positive? }
       }
     end
 
-    def median(values)
+    def median_cents(values)
       sorted = values.sort
       midpoint = sorted.length / 2
-      sorted.length.odd? ? sorted[midpoint] : (sorted[midpoint - 1] + sorted[midpoint]) / 2.0
+      sorted.length.odd? ? sorted[midpoint] : (sorted[midpoint - 1] + sorted[midpoint] + 1) / 2
     end
 
     def outlook_start_date
@@ -346,8 +350,8 @@ module HouseholdFinance
         stack_label: category.stack_label,
         active: category.active,
         months: month_cells,
-        planned_total: month_cells.sum { |cell| cell[:planned] },
-        actual_total: month_cells.sum { |cell| cell[:actual] }
+        planned_total: Money.dollars(month_cells.sum { |cell| Money.cents(cell[:planned]) }),
+        actual_total: Money.dollars(month_cells.sum { |cell| Money.cents(cell[:actual]) })
       }
     end
 

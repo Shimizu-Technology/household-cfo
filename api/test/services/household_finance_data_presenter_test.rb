@@ -140,6 +140,41 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       assert_equal 0, payload.dig(:optionality, :monthly_gap)
       assert_equal 7_000, income_items.fetch("Primary income").fetch(:amount)
       assert_equal 2_000, income_items.fetch("Business").fetch(:amount)
+      assert_equal 7_000, payload.dig(:workspace, :setup_values, :primary_income)
+      assert_equal 2_000, payload.dig(:workspace, :setup_values, :business_income)
+    end
+  end
+
+  test "irregular expense cadences reconcile across profile setup dashboard and the current budget month" do
+    travel_to Date.new(2026, 1, 15) do
+      household, user = create_household
+      household.expense_items.create!(label: "Weekly groceries", stack_key: "discretionary", amount_cents: 100, cadence: "weekly")
+      household.expense_items.create!(label: "Annual registration", stack_key: "sinking_expected", amount_cents: 10_000, cadence: "annual")
+
+      payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+      expense_items = payload.dig(:profile, :sections).find { |section| section.fetch(:label) == "Expenses" }.fetch(:items).index_by { |item| item.fetch(:label) }
+      budget_rows = payload.dig(:budget, :annual_plan, :rows).index_by { |row| row.fetch(:name) }
+
+      assert_equal 4.34, expense_items.fetch("Weekly groceries").fetch(:amount)
+      assert_equal 4.34, payload.dig(:workspace, :setup_values, :flexible_spend)
+      assert_equal 4.34, payload.dig(:dashboard, :summary, :flexible_spend)
+      assert_equal 4.34, budget_rows.fetch("Weekly groceries").fetch(:months).first.fetch(:planned)
+      assert_equal 8.34, expense_items.fetch("Annual registration").fetch(:amount)
+      assert_equal 8.34, payload.dig(:workspace, :setup_values, :expected_sinking_fund)
+      assert_equal 8.34, budget_rows.fetch("Annual registration").fetch(:months).first.fetch(:planned)
+    end
+  end
+
+  test "saving unchanged current-month expense totals preserves their original irregular cadence" do
+    travel_to Date.new(2026, 1, 15) do
+      household, user = create_household
+      expense = household.expense_items.create!(label: "Weekly groceries", stack_key: "discretionary", amount_cents: 100, cadence: "weekly")
+      setup_values = HouseholdFinance::DataPresenter.new(household, user: user).workspace.fetch(:setup_values)
+
+      HouseholdFinance::SetupUpdater.new(household, flexible_spend: setup_values.fetch(:flexible_spend)).call
+
+      assert_equal 100, expense.reload.amount_cents
+      assert_equal "weekly", expense.cadence
     end
   end
 

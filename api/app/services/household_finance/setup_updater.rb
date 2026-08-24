@@ -57,20 +57,34 @@ module HouseholdFinance
 
     def upsert_income(label, source_type, value)
       records = household.income_sources.where(source_type: source_type).order(:id).to_a
-      upsert_monthly_amount_records(records, Money.cents(value), default_label: label) do
-        household.income_sources.new(source_type: source_type)
+      monthly_total_cents = setup_money_cents(value, label: label)
+      active_records = records.select(&:active?)
+      return if current_income_total(active_records) == monthly_total_cents
+      return distribute_current_income_total!(active_records, monthly_total_cents) if active_records.many?
+
+      aggregate = records.find { |record| record.label == label }
+      record = amount_record_for_single_update(aggregate, active_records, records) || household.income_sources.new(source_type: source_type)
+      return if record.new_record? && monthly_total_cents.zero?
+
+      if record.new_record?
+        record.assign_attributes(amount_cents: monthly_total_cents, cadence: "monthly", active: true)
+        record.label = label
+        record.save!
+      else
+        record.update!(active: true) unless record.active?
+        set_current_income_amount!(record, monthly_total_cents)
       end
     end
 
     def upsert_expense(label, stack_key, value)
       records = household.expense_items.where(stack_key: stack_key).order(:id).to_a
-      upsert_monthly_amount_records(records, Money.cents(value), default_label: label) do
+      upsert_monthly_amount_records(records, setup_money_cents(value, label: label), default_label: label) do
         household.expense_items.new(stack_key: stack_key)
       end
     end
 
     def upsert_account(label, account_type, value)
-      cents = Money.cents(value)
+      cents = setup_money_cents(value, label: label)
       record = household.accounts.find_or_initialize_by(label: label, account_type: account_type)
       record.update!(balance_cents: cents)
     end
@@ -89,8 +103,8 @@ module HouseholdFinance
       aggregate = records.find { |record| record.label == label }
       current_balance_cents = records.sum(&:balance_cents)
       current_payment_cents = records.sum(&:minimum_payment_cents)
-      balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : Money.cents(balance)
-      payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : Money.cents(payment)
+      balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : setup_money_cents(balance, label: "Credit card debt")
+      payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : setup_money_cents(payment, label: "Debt payment")
       return if current_balance_cents == balance_cents && current_payment_cents == payment_cents
 
       return distribute_debt_totals!(records, balance_cents, payment_cents) if records.many?
@@ -105,13 +119,15 @@ module HouseholdFinance
     end
 
     def upsert_runway_goal
-      target_months = BigDecimal(attributes[:target_runway_months].to_s.presence || "6")
-      target_months = 6 if target_months <= 0
+      target_months = BigDecimal(attributes[:target_runway_months].to_s.strip)
+      unless target_months.finite? && target_months.positive?
+        raise ArgumentError, "Target runway months must be a positive number"
+      end
+
       goal = household.goals.find_or_initialize_by(goal_type: "runway", label: "Runway target")
       goal.update!(target_months: target_months, priority: 1)
     rescue ArgumentError
-      goal = household.goals.find_or_initialize_by(goal_type: "runway", label: "Runway target")
-      goal.update!(target_months: 6, priority: 1)
+      raise ArgumentError, "Target runway months must be a positive number"
     end
 
     def upsert_transition_goal
@@ -136,7 +152,7 @@ module HouseholdFinance
     def upsert_monthly_amount_records(records, monthly_total_cents, default_label:)
       active_records = records.select(&:active?)
       aggregate = records.find { |record| record.label == default_label }
-      return if aggregate.blank? && amount_records_monthly_total(active_records) == monthly_total_cents
+      return if amount_records_monthly_total(active_records) == monthly_total_cents
       return distribute_monthly_amount_total!(active_records, monthly_total_cents) if active_records.many?
 
       record = amount_record_for_single_update(aggregate, active_records, records) || yield
@@ -158,15 +174,42 @@ module HouseholdFinance
     end
 
     def distribute_monthly_amount_total!(records, monthly_total_cents)
-      allocations = allocate_cents(monthly_total_cents, records.map { |record| Money.monthly_cents(record.amount_cents, record.cadence) })
+      allocations = allocate_cents(monthly_total_cents, records.map { |record| current_expense_period_cents(record) })
       records.each_with_index do |record, index|
         amount_cents = allocations.fetch(index)
         record.update!(amount_cents: amount_cents, cadence: "monthly", active: amount_cents.positive?)
       end
     end
 
+    def distribute_current_income_total!(records, monthly_total_cents)
+      allocations = allocate_cents(monthly_total_cents, records.map { |record| current_income_cents(record) })
+      records.each_with_index do |record, index|
+        set_current_income_amount!(record, allocations.fetch(index))
+      end
+    end
+
+    def set_current_income_amount!(record, monthly_cents)
+      entry = record.income_schedule_entries.find_or_initialize_by(
+        entry_type: "recurring_change",
+        effective_on: Date.current.beginning_of_month
+      )
+      entry.update!(amount_cents: monthly_cents, cadence: "monthly")
+    end
+
+    def current_income_total(records)
+      records.sum { |record| current_income_cents(record) }
+    end
+
+    def current_income_cents(record)
+      IncomeTimeline.recurring_monthly_cents(record, on: Date.current)
+    end
+
     def amount_records_monthly_total(records)
-      records.sum { |record| Money.monthly_cents(record.amount_cents, record.cadence) }
+      records.sum { |record| current_expense_period_cents(record) }
+    end
+
+    def current_expense_period_cents(record)
+      Money.period_cents(record.amount_cents, record.cadence, month: Date.current.month)
     end
 
     def distribute_debt_totals!(records, balance_cents, payment_cents)
@@ -205,6 +248,12 @@ module HouseholdFinance
 
     def existing_cents(record, attribute)
       record.persisted? ? record.public_send(attribute) : 0
+    end
+
+    def setup_money_cents(value, label:)
+      return 0 if value.blank?
+
+      Money.cents!(value, message: "#{label} must be a number with no more than two decimal places")
     end
 
     def missing_value?(value)

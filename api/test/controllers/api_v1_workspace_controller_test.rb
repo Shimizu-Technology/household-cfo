@@ -306,8 +306,105 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert overtime.active?
     assert rent.active?
     assert utilities.active?
-    assert_equal 600_000, household.income_sources.where(source_type: "job", active: true).sum(:amount_cents)
+    current_income = household.income_sources.where(source_type: "job", active: true).sum do |source|
+      HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.current)
+    end
+    assert_equal 600_000, current_income
+    assert_equal 620_000, salary.amount_cents
+    assert_equal 100_000, overtime.amount_cents
     assert_equal 200_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
+  end
+
+  test "workspace income edits take effect now without rewriting the historical baseline" do
+    travel_to Date.new(2026, 8, 25) do
+      user = create_user(email: "effective-income-edit@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      source = household.income_sources.create!(
+        label: "Primary salary",
+        source_type: "job",
+        amount_cents: 500_000,
+        cadence: "monthly"
+      )
+
+      patch "/api/v1/workspace/setup",
+            params: { workspace: { primary_income: 7_000 } },
+            headers: auth_headers(user),
+            as: :json
+
+      assert_response :success
+      assert_equal 500_000, source.reload.amount_cents
+      assert_equal 500_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 7, 31))
+      assert_equal 700_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 8, 31))
+      assert_equal 7_000, JSON.parse(response.body).dig("workspace", "setup_values", "primary_income")
+    end
+  end
+
+  test "clearing current income preserves prior budget history and future scheduled changes" do
+    travel_to Date.new(2026, 8, 25) do
+      user = create_user(email: "clear-current-income@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      source = household.income_sources.create!(
+        label: "Primary salary",
+        source_type: "job",
+        amount_cents: 500_000,
+        cadence: "monthly"
+      )
+      source.income_schedule_entries.create!(
+        entry_type: "recurring_change",
+        amount_cents: 650_000,
+        cadence: "monthly",
+        effective_on: Date.new(2026, 10, 1)
+      )
+
+      patch "/api/v1/workspace/setup",
+            params: { workspace: { primary_income: 0 } },
+            headers: auth_headers(user),
+            as: :json
+
+      assert_response :success
+      assert source.reload.active?
+      assert_equal 500_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 7, 31))
+      assert_equal 0, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 8, 31))
+      assert_equal 650_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 10, 31))
+      assert_equal 0, JSON.parse(response.body).dig("workspace", "setup_values", "primary_income")
+    end
+  end
+
+  test "workspace setup rejects malformed money and rolls back every submitted change" do
+    user = create_user(email: "malformed-money@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    original_name = household.name
+    source = household.income_sources.create!(
+      label: "Primary salary",
+      source_type: "job",
+      amount_cents: 500_000,
+      cadence: "monthly"
+    )
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { household_name: "Should roll back", primary_income: "five thousand" } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Primary income must be a number with no more than two decimal places"
+    assert_equal original_name, household.reload.name
+    assert_equal 500_000, source.reload.amount_cents
+    assert_empty source.income_schedule_entries
+  end
+
+  test "workspace setup rejects an invalid runway target instead of silently saving a default" do
+    user = create_user(email: "invalid-runway@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+
+    patch "/api/v1/workspace/setup",
+          params: { workspace: { target_runway_months: "not a number" } },
+          headers: auth_headers(user),
+          as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Target runway months must be a positive number"
+    assert_empty household.goals.where(goal_type: "runway")
   end
 
   test "workspace setup updates document-derived debt payment instead of duplicating debt" do
@@ -404,7 +501,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     body = JSON.parse(response.body)
-    assert body.fetch("errors").any? { |error| error.include?("Amount cents") }
+    assert_includes body.fetch("errors"), "Primary income must be a number with no more than two decimal places"
     assert_empty user.households.first.income_sources
   end
 

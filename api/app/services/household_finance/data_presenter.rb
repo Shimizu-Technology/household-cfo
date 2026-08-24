@@ -261,7 +261,7 @@ module HouseholdFinance
         {
           label: "Expenses",
           summary: "Bills, choices, and the things life always seems to throw at you.",
-          items: expense_items.map { |expense| { label: expense.label, amount: dollars(Money.monthly_cents(expense.amount_cents, expense.cadence)) } }
+          items: expense_items.map { |expense| { label: expense.label, amount: dollars(current_expense_period_cents(expense)) } }
         },
         {
           label: "Savings & Debt",
@@ -673,7 +673,7 @@ module HouseholdFinance
     end
 
     def income_by_type(source_type)
-      income_sources.select { |income| income.source_type == source_type }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
+      income_sources.select { |income| income.source_type == source_type }.sum { |income| current_recurring_income_cents(income) }
     end
 
     def current_recurring_income_cents(income)
@@ -681,7 +681,11 @@ module HouseholdFinance
     end
 
     def expenses_by_stack(stack_key)
-      expense_items.select { |expense| expense.stack_key == stack_key }.sum { |expense| Money.monthly_cents(expense.amount_cents, expense.cadence) }
+      expense_items.select { |expense| expense.stack_key == stack_key }.sum { |expense| current_expense_period_cents(expense) }
+    end
+
+    def current_expense_period_cents(expense)
+      Money.period_cents(expense.amount_cents, expense.cadence, month: Date.current.month)
     end
 
     def account_by_type(account_type)

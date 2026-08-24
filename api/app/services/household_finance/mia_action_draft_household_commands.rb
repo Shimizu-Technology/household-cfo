@@ -195,13 +195,13 @@ module HouseholdFinance
         after_monthly_income: after_income,
         before_monthly_outflow: before_outflow,
         after_monthly_outflow: after_outflow,
-        before_baseline_surplus: before_income - before_outflow,
-        after_baseline_surplus: after_income - after_outflow
+        before_baseline_surplus: money_difference(before_income, before_outflow),
+        after_baseline_surplus: money_difference(after_income, after_outflow)
       }
     end
 
     def setup_money_total(values, *keys)
-      keys.sum { |key| values.fetch(key, 0).to_f }
+      Money.dollars(keys.sum { |key| Money.cents(values.fetch(key, 0)) })
     end
 
     def structured_income_source
@@ -244,18 +244,26 @@ module HouseholdFinance
     def income_schedule_impact(source, entry_type, current_source_cents, amount_cents, effective_on)
       plan = AnnualBudgetManager.new(household, year: effective_on.year).plan_data.deep_symbolize_keys
       period = Array(plan[:months]).find { |month| Date.iso8601(month.fetch(:starts_on)).month == effective_on.month }
-      before_income = period ? plan.fetch(:monthly_income).fetch(period.fetch(:id)).to_f : 0
-      source_delta = entry_type == "one_time" ? Money.dollars(amount_cents) : Money.dollars(amount_cents - current_source_cents)
-      outflow = plan.fetch(:rows).sum { |row| row.fetch(:months).fetch(effective_on.month - 1).fetch(:planned).to_f } + plan.fetch(:monthly_debt_minimums).to_f
+      before_income_cents = period ? Money.cents(plan.fetch(:monthly_income).fetch(period.fetch(:id))) : 0
+      source_delta_cents = entry_type == "one_time" ? amount_cents : amount_cents - current_source_cents
+      outflow_cents = plan.fetch(:rows).sum do |row|
+        Money.cents(row.fetch(:months).fetch(effective_on.month - 1).fetch(:planned))
+      end
+      outflow_cents += Money.cents(plan.fetch(:monthly_debt_minimums))
+      after_income_cents = before_income_cents + source_delta_cents
       {
         scope: effective_on.strftime("%B %Y"),
-        before_monthly_income: before_income,
-        after_monthly_income: before_income + source_delta,
-        before_monthly_outflow: outflow,
-        after_monthly_outflow: outflow,
-        before_baseline_surplus: before_income - outflow,
-        after_baseline_surplus: before_income + source_delta - outflow
+        before_monthly_income: Money.dollars(before_income_cents),
+        after_monthly_income: Money.dollars(after_income_cents),
+        before_monthly_outflow: Money.dollars(outflow_cents),
+        after_monthly_outflow: Money.dollars(outflow_cents),
+        before_baseline_surplus: Money.dollars(before_income_cents - outflow_cents),
+        after_baseline_surplus: Money.dollars(after_income_cents - outflow_cents)
       }
+    end
+
+    def money_difference(minuend, subtrahend)
+      Money.dollars(Money.cents(minuend) - Money.cents(subtrahend))
     end
   end
 end

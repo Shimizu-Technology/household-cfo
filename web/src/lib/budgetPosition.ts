@@ -5,6 +5,7 @@ import type {
   SpendingReport,
   TransactionDraft,
 } from '../api'
+import { addMoney, dollarsFromCents, moneyCents, subtractMoney } from './moneyMath'
 
 export type BudgetPosition = {
   id: number
@@ -64,7 +65,7 @@ export function budgetPositionsForMonth(
       planned,
       actual,
       pending: reportCategory?.pending ?? pendingByCategory.get(row.id) ?? 0,
-      remaining: planned - actual,
+      remaining: subtractMoney(planned, actual),
       active: row.active,
     }
   })
@@ -102,12 +103,18 @@ export function budgetPositionsForMonth(
 }
 
 export function budgetPositionTotals(positions: BudgetPosition[]): BudgetPositionTotals {
-  return positions.reduce((totals, position) => ({
-    planned: totals.planned + position.planned,
-    actual: totals.actual + position.actual,
-    pending: totals.pending + position.pending,
-    remaining: totals.remaining + position.remaining,
+  const cents = positions.reduce((totals, position) => ({
+    planned: totals.planned + moneyCents(position.planned),
+    actual: totals.actual + moneyCents(position.actual),
+    pending: totals.pending + moneyCents(position.pending),
+    remaining: totals.remaining + moneyCents(position.remaining),
   }), { planned: 0, actual: 0, pending: 0, remaining: 0 })
+  return {
+    planned: dollarsFromCents(cents.planned),
+    actual: dollarsFromCents(cents.actual),
+    pending: dollarsFromCents(cents.pending),
+    remaining: dollarsFromCents(cents.remaining),
+  }
 }
 
 export function transactionDraftBudgetImpacts(
@@ -124,7 +131,7 @@ export function transactionDraftBudgetImpacts(
     if (draft.occurred_on < plan.months[monthIndex].starts_on || draft.occurred_on > plan.months[monthIndex].ends_on) return
     draftAmountsByCategory(draft).forEach((amount, categoryId) => {
       if (categoryId === null) return
-      otherPendingAmounts.set(categoryId, (otherPendingAmounts.get(categoryId) ?? 0) + amount.amount)
+      otherPendingAmounts.set(categoryId, addMoney(otherPendingAmounts.get(categoryId) ?? 0, amount.amount))
     })
   })
 
@@ -158,7 +165,7 @@ export function transactionDraftBudgetImpacts(
     }
 
     const otherPending = otherPendingAmounts.get(categoryId) ?? 0
-    const projectedIfApproved = cell.actual + otherPending + allocation.amount
+    const projectedIfApproved = addMoney(cell.actual, otherPending, allocation.amount)
     return {
       categoryId,
       categoryName: row.name,
@@ -167,7 +174,7 @@ export function transactionDraftBudgetImpacts(
       actual: cell.actual,
       otherPending,
       projectedIfApproved,
-      remainingIfApproved: cell.planned - projectedIfApproved,
+      remainingIfApproved: subtractMoney(cell.planned, projectedIfApproved),
     }
   })
 }
@@ -180,7 +187,7 @@ function draftAmountsByCategory(draft: TransactionDraft) {
       const categoryId = split.budget_category_id ?? null
       const current = amounts.get(categoryId)
       amounts.set(categoryId, {
-        amount: (current?.amount ?? 0) + split.amount,
+        amount: addMoney(current?.amount ?? 0, split.amount),
         categoryName: categoryId === null ? null : (split.category_name ?? current?.categoryName ?? null),
       })
     })
@@ -202,13 +209,13 @@ function pendingAmountsByCategory(drafts: TransactionDraft[], month?: BudgetMont
     if (positiveSplits.length > 0) {
       positiveSplits.forEach((split) => {
         const categoryId = split.budget_category_id ?? null
-        totals.set(categoryId, (totals.get(categoryId) ?? 0) + split.amount)
+        totals.set(categoryId, addMoney(totals.get(categoryId) ?? 0, split.amount))
       })
       return
     }
 
     const categoryId = draft.category_id ?? null
-    totals.set(categoryId, (totals.get(categoryId) ?? 0) + draft.amount)
+    totals.set(categoryId, addMoney(totals.get(categoryId) ?? 0, draft.amount))
   })
 
   return totals

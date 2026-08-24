@@ -2,15 +2,18 @@
 
 module HouseholdFinance
   class ProfileCompletenessCalculator
-    def initialize(household)
+    def initialize(household, income_sources: nil)
       @household = household
+      @income_sources = income_sources
     end
 
     def call
       checks = [
         household.name.present?,
         household.primary_goal.present?,
-        active_records(:income_sources).any? { |income| income.amount_cents.positive? },
+        active_records(:income_sources).any? do |income|
+          IncomeTimeline.recurring_monthly_cents(income, on: Date.current).positive?
+        end,
         active_records(:expense_items).any? { |expense| expense.amount_cents.positive? },
         records(:accounts).any? { |account| account.balance_cents.positive? },
         records(:debts).any? || records(:accounts).any?,
@@ -25,8 +28,12 @@ module HouseholdFinance
     attr_reader :household
 
     def active_records(name)
+      return income_sources if name == :income_sources && income_sources
+
       records(name).select(&:active?)
     end
+
+    attr_reader :income_sources
 
     def records(name)
       association = household.association(name)

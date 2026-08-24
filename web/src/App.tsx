@@ -20,6 +20,7 @@ import {
   transactionDraftBudgetImpacts,
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
+import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -1498,7 +1499,7 @@ function App() {
     const pendingDrafts = drafts.filter((draft) => draft.status === 'pending')
     if (pendingDrafts.length === 0) return
     const ids = pendingDrafts.map((draft) => draft.id)
-    const total = pendingDrafts.reduce((sum, draft) => sum + exactMoneyNumber(draft.amount, draft.amount_cents), 0)
+    const total = sumMoney(pendingDrafts.map((draft) => exactMoneyNumber(draft.amount, draft.amount_cents)))
     if (resolution === 'confirm') {
       const phrase = `CONFIRM ${ids.length}`
       const entered = window.prompt(
@@ -6273,9 +6274,9 @@ function TransactionDraftReviewCard({
   const isPending = draft.status === 'pending'
   const proposedMatches = isPending ? (draft.matches ?? []).filter((match) => match.status === 'proposed') : []
   const displayAmount = exactMoneyNumber(draft.amount, draft.amount_cents)
-  const splitTotal = splits.reduce((sum, split) => sum + Number(split.amount || 0), 0)
+  const splitTotal = sumMoney(splits.map((split) => Number(split.amount || 0)))
   const targetAmount = Number(amount || 0)
-  const splitMismatch = Math.round(splitTotal * 100) !== Math.round(targetAmount * 100)
+  const splitMismatch = moneyCents(splitTotal) !== moneyCents(targetAmount)
   const saving = action === `update-draft:${draft.id}`
   const reopening = action === `reopen-draft:${draft.id}`
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
@@ -6749,7 +6750,7 @@ function TransactionLedger({
   const safePage = Math.min(page, totalPages)
   const pageStart = (safePage - 1) * pageSize
   const visibleTransactions = filteredTransactions.slice(pageStart, pageStart + pageSize)
-  const filteredTotal = filteredTransactions.reduce((sum, transaction) => sum + transaction.amount, 0)
+  const filteredTotal = sumMoney(filteredTransactions.map((transaction) => transaction.amount))
 
   return (
     <div className="recent-transaction-list transaction-ledger-list">
@@ -6983,7 +6984,7 @@ function AnnualIncomePlanner({
           <h4 id="annual-income-title">Set it once, then schedule what changes.</h4>
           <p>Base income repeats forward. Raises, income endings, and bonuses affect only the months where they belong.</p>
         </div>
-        <span>{currency.format(Object.values(plan.monthly_income).reduce((sum, amount) => sum + amount, 0))} annual income</span>
+        <span>{currency.format(sumMoney(Object.values(plan.monthly_income)))} annual income</span>
       </div>
 
       {plan.income_sources.length === 0 ? (
@@ -7198,10 +7199,10 @@ function AnnualBudgetPlanner({
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
-  const annualCategoryPlan = plan.rows.reduce((sum, row) => sum + row.planned_total, 0)
-  const annualDebtMinimums = plan.monthly_debt_minimums * plan.months.length
-  const annualPlannedOutflow = annualCategoryPlan + annualDebtMinimums
-  const currentPlanned = plan.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0)
+  const annualCategoryPlan = sumMoney(plan.rows.map((row) => row.planned_total))
+  const annualDebtMinimums = multiplyMoney(plan.monthly_debt_minimums, plan.months.length)
+  const annualPlannedOutflow = addMoney(annualCategoryPlan, annualDebtMinimums)
+  const currentPlanned = sumMoney(plan.rows.map((row) => row.months[currentMonthIndex]?.planned ?? 0))
   const currentPositions = useMemo(
     () => budgetPositionsForMonth(plan, currentMonthIndex, spendingReport),
     [currentMonthIndex, plan, spendingReport],
@@ -7528,7 +7529,7 @@ function AnnualBudgetPlanner({
         <span><small>Annual category plan</small><strong>{currency.format(annualCategoryPlan)}</strong></span>
         <span><small>Annual debt minimums</small><strong>{currency.format(annualDebtMinimums)}</strong></span>
         <span><small>Total annual money out</small><strong>{currency.format(annualPlannedOutflow)}</strong></span>
-        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{currency.format(currentPlanned + plan.monthly_debt_minimums)}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{currency.format(addMoney(currentPlanned, plan.monthly_debt_minimums))}</strong></span>
       </div>
 
       <div className="budget-operating-cockpit">
