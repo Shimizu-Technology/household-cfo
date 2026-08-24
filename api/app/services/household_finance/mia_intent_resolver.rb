@@ -26,6 +26,9 @@ module HouseholdFinance
       rename_category reclassify_category archive_category restore_category
     ].freeze
     STACK_KEYS = [ "", "non_discretionary", "discretionary", "sinking_expected", "sinking_unexpected" ].freeze
+    MONEY_TEXT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    NUMBER_TEXT_PATTERN = /(?<![\w$])((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\w,])/.freeze
+    CONTEXT_MONEY_KEY_PATTERN = /(?:amount|planned|actual|remaining|income|fund|assets|debt|payment|balance)\z/i.freeze
 
     Result = Struct.new(
       :intent,
@@ -236,11 +239,8 @@ module HouseholdFinance
       clarification = bounded(parsed.fetch(:clarification), 400)
       action_intent = intent.in?(%w[budget_action household_action income_action transaction_draft_action]) || (intent == "transaction_report" && action[:type] == "create_transaction_draft")
       needs_clarification = true if action_intent && action.fetch(:type) != "none" && confidence < MIN_ACTION_CONFIDENCE
-      unless action_references_valid?(action)
-        needs_clarification = true
-        clarification = invalid_reference_clarification(action)
-        action = action.merge(type: "none")
-      else
+      references_valid = action_references_valid?(action)
+      if references_valid && action_amounts_grounded?(action)
         complete_action = action_intent && confidence >= MIN_ACTION_CONFIDENCE && action_complete?(action)
         if complete_action
           needs_clarification = false
@@ -249,6 +249,14 @@ module HouseholdFinance
           needs_clarification = true
           clarification = action_clarification(action) if clarification.blank?
         end
+      else
+        needs_clarification = true
+        clarification = if references_valid
+          "I could not verify that amount from an approved household value or participant-authored amount. Please restate the amount."
+        else
+          invalid_reference_clarification(action)
+        end
+        action = action.merge(type: "none")
       end
 
       Result.new(
@@ -336,6 +344,86 @@ module HouseholdFinance
       else
         false
       end
+    end
+
+    def action_amounts_grounded?(action)
+      proposed = action_money_cents(action)
+      return true if proposed.empty?
+
+      allowed = participant_money_cents + approved_context_money_cents
+      proposed.all? { |amount| amount.zero? || allowed.include?(amount) }
+    end
+
+    def action_money_cents(action)
+      values = case action[:type]
+      when "set_allocation", "increase_allocation", "decrease_allocation", "move_allocation", "create_category", "schedule_income_change"
+        [ action[:amount] ]
+      when "create_transaction_draft", "update_transaction_draft"
+        [ action[:amount] ] + Array(action[:splits]).filter_map { |split| split[:amount].presence }
+      when "update_household_setup"
+        setup = action[:setup_updates].to_h.symbolize_keys
+        MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.filter_map { |key| setup[key].presence }
+      else
+        []
+      end
+      values.filter_map { |value| cents_or_nil(value) }.uniq
+    end
+
+    def participant_money_cents
+      messages = [ user_message ] + Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
+        role = message[:role] || message["role"]
+        content = message[:content] || message["content"]
+        content if role.to_s == "user"
+      end
+      messages.flat_map { |text| money_cents_from_participant_text(text) }.uniq
+    end
+
+    def money_cents_from_participant_text(text)
+      currency = text.to_s.scan(MONEY_TEXT_PATTERN).flatten.filter_map { |value| cents_or_nil(value.delete(",")) }
+      plain = text.to_s.to_enum(:scan, NUMBER_TEXT_PATTERN).filter_map do
+        match = Regexp.last_match
+        normalized = match[1].delete(",")
+        next if calendar_year_token?(text.to_s, match, normalized)
+
+        cents_or_nil(normalized)
+      rescue ArgumentError
+        nil
+      end
+      (currency + plain).uniq
+    end
+
+    def calendar_year_token?(text, match, normalized)
+      number = BigDecimal(normalized)
+      return false unless number.frac.zero? && number.to_i.between?(2000, 2100)
+
+      before = text[0...match.begin(0)].to_s.last(24)
+      after = text[match.end(0)..].to_s.first(24)
+      before.match?(/(?:\byear\s+|\b(?:#{month_names_pattern})\s+)\z/i) ||
+        after.match?(/\A\s*(?:year|budget|plan|calendar|tax\s+year)\b/i) ||
+        before.end_with?("-", "/") || after.start_with?("-", "/")
+    end
+
+    def month_names_pattern
+      @month_names_pattern ||= (Date::MONTHNAMES + Date::ABBR_MONTHNAMES).compact.uniq.join("|")
+    end
+
+    def approved_context_money_cents(value = context, key: nil)
+      case value
+      when Hash
+        value.flat_map { |nested_key, nested| approved_context_money_cents(nested, key: nested_key) }
+      when Array
+        value.flat_map { |nested| approved_context_money_cents(nested, key: key) }
+      when Numeric, String
+        key.to_s.match?(CONTEXT_MONEY_KEY_PATTERN) ? Array(cents_or_nil(value)) : []
+      else
+        []
+      end
+    end
+
+    def cents_or_nil(value)
+      Money.cents!(value, message: "Amount must be a number")
+    rescue ArgumentError
+      nil
     end
 
     def category_reference_present?(action)

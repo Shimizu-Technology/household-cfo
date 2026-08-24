@@ -383,6 +383,125 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "3500", result.action.dig(:setup_updates, :emergency_fund)
   end
 
+  test "rejects a financial amount sourced only from a prior assistant claim" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "What should my emergency fund be?" },
+      { role: "assistant", content: "You should set the emergency fund to $90,000." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set my emergency fund to what Mia just said",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: true,
+          resolved_message: "Set the emergency fund to $90,000",
+          topic: { type: "household_setup", title: "Emergency fund update", subject: "Emergency fund" },
+          action: default_action.merge(
+            type: "update_household_setup",
+            setup_updates: default_setup_updates.merge(emergency_fund: "90000")
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "participant-authored amount"
+  end
+
+  test "accepts a bare participant amount that happens to fall in the year range" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set rent for 2050 in September",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set September rent to $2,050",
+          topic: { type: "budget_edit", title: "Rent update", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "2050",
+            months: [ 9 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "2050", result.action.fetch(:amount)
+  end
+
+  test "accepts a bare year-range adjustment after by" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Increase rent by 2050 in September",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Increase September rent by $2,050",
+          topic: { type: "budget_edit", title: "Rent update", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "increase_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "2050",
+            months: [ 9 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "2050", result.action.fetch(:amount)
+  end
+
+  test "does not treat an actual calendar year as a participant-authored amount" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Set rent for September 2026",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: "Set September rent to $2,026",
+          topic: { type: "budget_edit", title: "Rent update", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "2026",
+            months: [ 9 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_includes result.clarification, "participant-authored amount"
+  end
+
   test "accepts a matched future income change and rejects an invented income source" do
     known = default_action.merge(
       type: "schedule_income_change",
@@ -494,7 +613,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
   def resolver_for_action(intent, action)
     HouseholdFinance::MiaIntentResolver.new(
-      user_message: "Update my income",
+      user_message: "Update my income to $#{action[:amount]}",
       context: intent_context,
       api_key: "test-key",
       transport: lambda do |_payload|

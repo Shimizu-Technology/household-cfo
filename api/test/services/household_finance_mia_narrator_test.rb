@@ -690,6 +690,92 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "falls back when narration swaps the safe-to-spend and baseline surplus relationship" do
+    response = ok_response(
+      choices: [
+        { message: { content: "Your $655 safe-to-spend amount creates a $262 baseline surplus at 40%. It is not a purchase amount." } }
+      ]
+    )
+    fallback = "Your $262 monthly safe-to-spend guardrail is 40% of your $655 positive baseline surplus: $655 × 40% = $262. It is not a purchase amount."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How is safe-to-spend calculated?",
+        answer_packet: {
+          kind: "coaching",
+          fallback_response: fallback,
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "accepts narration that preserves the safe-to-spend relationship" do
+    narrated = "Safe-to-spend is $262, calculated as 40% of the $655 baseline surplus. It is not a purchase amount."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+    fallback = "Your $262 monthly safe-to-spend guardrail is 40% of your $655 positive baseline surplus: $655 × 40% = $262. It is not a purchase amount."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How is safe-to-spend calculated?",
+        answer_packet: {
+          kind: "coaching",
+          fallback_response: fallback,
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
+  test "falls back when narration treats the Red zero guardrail as percentage math" do
+    narrated = "Your safe-to-spend is $0 because the $655 surplus times 40% rounds down while you are Red."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+    fallback = "Your monthly safe-to-spend guardrail is $0. The $655 baseline surplus is positive. Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the 40% rule is not active yet."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How is safe-to-spend calculated?",
+        answer_packet: {
+          kind: "coaching",
+          fallback_response: fallback,
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "falls back when narration omits a verified compound decision relationship" do
+    response = ok_response(
+      choices: [
+        { message: { content: "The $900 trip and $750 debt payment total $1,650. Your safe-to-spend is $262 and baseline surplus is $655. Nothing is approved." } }
+      ]
+    )
+    fallback = "The proposed purchase is $900, and the extra debt payment is $750; together they total $1,650. The purchase alone is $638 above the $262 safe-to-spend guardrail. The combined plan is $995 above the $655 baseline surplus; an extra debt payment is an allocation of surplus, not a second safe-to-spend allowance. Nothing is approved."
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Can I take a $900 trip and make a $750 extra debt payment?",
+        answer_packet: {
+          kind: "coaching",
+          fallback_response: fallback,
+          write_state: "no_write"
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
   private
 
   def ok_response(payload)

@@ -101,4 +101,123 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "Review any expenses you reported to Mia or entered manually"
     refute_includes answer, "bank activity"
   end
+
+  test "explains safe-to-spend from the exact approved formula" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How exactly is my safe-to-spend amount calculated?"
+    ).call
+
+    assert_includes answer, "$8,500"
+    assert_includes answer, "$7,845"
+    assert_includes answer, "$655"
+    assert_includes answer, "40%"
+    assert_includes answer, "$262"
+    assert_includes answer, "not a purchase amount"
+  end
+
+  test "answers both sides of a compound purchase and extra debt decision" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Can I take a $900 trip and make a $750 extra debt payment this month? Show the math against safe-to-spend and baseline surplus."
+    ).call
+
+    assert_includes answer, "$1,650"
+    assert_includes answer, "$638"
+    assert_includes answer, "$995"
+    assert_includes answer, "not a second safe-to-spend allowance"
+    assert_includes answer, "Nothing is approved"
+  end
+
+  test "associates compound amounts globally when the purchase amount appears later" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Can I take a trip and make a $750 extra debt payment this month if the trip costs $900?"
+    ).call
+
+    assert_includes answer, "proposed purchase is $900"
+    assert_includes answer, "extra debt payment is $750"
+    assert_includes answer, "together they total $1,650"
+  end
+
+  test "does not let an earlier safe-to-spend reference replace the purchase amount" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Can I spend my $262 safe-to-spend and take a $900 trip with a $750 extra debt payment this month?"
+    ).call
+
+    assert_includes answer, "proposed purchase is $900"
+    assert_includes answer, "extra debt payment is $750"
+    assert_includes answer, "together they total $1,650"
+  end
+
+  test "breaks equal-distance compound matches toward the purchase paired with the debt decision" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "A $300 purchase is already covered. Can I take a $900 trip and make a $750 extra debt payment this month?"
+    ).call
+
+    assert_includes answer, "proposed purchase is $900"
+    assert_includes answer, "extra debt payment is $750"
+    assert_includes answer, "together they total $1,650"
+  end
+
+  test "holds safe-to-spend at zero when a positive-surplus household is still Red" do
+    household = create_yellow_household
+    household.accounts.find_by!(account_type: "emergency_fund").update!(balance_cents: 0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How exactly is my safe-to-spend amount calculated?"
+    ).call
+
+    assert_includes answer, "safe-to-spend guardrail is $0"
+    assert_includes answer, "$655 baseline surplus"
+    assert_includes answer, "Red readiness holds safe-to-spend at $0"
+    assert_includes answer, "40% rule is not active yet"
+    refute_includes answer, "$655 × 40% = $0"
+  end
+
+  test "does not apply the percentage formula to a negative baseline surplus" do
+    household = create_yellow_household
+    household.expense_items.first.update!(amount_cents: 900_000)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How exactly is my safe-to-spend amount calculated?"
+    ).call
+
+    assert_includes answer, "safe-to-spend guardrail is $0"
+    assert_includes answer, "-$1,420 baseline surplus"
+    assert_includes answer, "zero or negative surplus does not create discretionary room"
+    refute_includes answer, "-$1,420 × 40% = $0"
+  end
+
+  private
+
+  def create_yellow_household
+    user = User.create!(
+      clerk_id: "clerk_#{SecureRandom.hex(6)}",
+      email: "yellow-#{SecureRandom.hex(6)}@example.com",
+      role: "participant",
+      invitation_status: "accepted"
+    )
+    household = Household.create!(created_by_user: user, name: "Yellow household")
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 850_000, cadence: "monthly")
+    household.expense_items.create!(label: "Category plan", stack_key: "non_discretionary", amount_cents: 692_500, cadence: "monthly")
+    household.debts.create!(label: "Debt", debt_type: "credit_card", balance_cents: 10_000_00, minimum_payment_cents: 92_000)
+    household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 2_509_000)
+    household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
+    household
+  end
 end

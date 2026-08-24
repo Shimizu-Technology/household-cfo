@@ -9,6 +9,10 @@ module HouseholdFinance
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
     PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i.freeze
+    SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b/i.freeze
+    COMPOUND_PURCHASE_DEBT_PATTERN = /(?=.*\b(?:buy|purchase|spend|trip|vacation|book|order)\b)(?=.*(?:\b(?:extra|additional)\b.{0,40}\b(?:debt|credit card|loan)\b|\b(?:debt|credit card|loan)\b.{0,40}\b(?:extra|additional)\b))/i.freeze
+    PURCHASE_TERM_PATTERN = /(?<!safe-to-)\b(?:buy|purchase|spend|trip|vacation|book|order)\b/i.freeze
+    DEBT_TERM_PATTERN = /\b(?:debt|credit card|loan)\b/i.freeze
     READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:(?:out of\s+)?(?:the\s+)?red|(?:to|into)\s+(?:the\s+)?(?:yellow|green))\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b|\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(?:red|yellow|green)\b/i.freeze
     READINESS_STATUS_PATTERN = /\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(red|yellow|green)\b/i.freeze
     MONTHLY_FOCUS_PATTERN = /\b(?:what should (?:i|we) focus on|what(?:'s| is) (?:my|our) (?:first |top )?priority|where should (?:i|we) start)\b.*\b(?:this month|income|spending|goal)\b/i.freeze
@@ -46,7 +50,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -131,6 +135,42 @@ module HouseholdFinance
       amount_cents = amount_from_message_cents
       purchase_label = amount_cents&.positive? ? "The #{money(amount_cents)} purchase" : "The purchase"
       "I cannot calculate the exact runway impact yet because the approved data does not say which account would pay for it or whether protected liquid would decrease. #{purchase_label} is still a pre-spend decision, and safe-to-spend is a monthly guardrail of #{money(snapshot.fetch(:safe_to_spend_cents))}, not an account balance I can subtract the purchase from. Nothing is approved and no household number changed. Next CFO move: name the funding account and the budget category that would cover it, then I can model the effect without guessing."
+    end
+
+    def safe_to_spend_formula_answer
+      return nil unless normalized_message.match?(SAFE_TO_SPEND_FORMULA_PATTERN)
+
+      rate = (ReadinessCalculator::SAFE_TO_SPEND_RATE * 100).round
+      category_plan = snapshot.fetch(:total_expenses_cents)
+      debt_minimums = snapshot.fetch(:debt_payments_cents)
+      total_outflow = snapshot.fetch(:total_outflow_cents)
+      income = snapshot.fetch(:monthly_income_cents)
+      surplus = snapshot.fetch(:baseline_surplus_cents)
+      safe = snapshot.fetch(:safe_to_spend_cents)
+      basis = "#{money(category_plan)} category plan + #{money(debt_minimums)} debt minimums = #{money(total_outflow)} total outflow; #{money(income)} income − #{money(total_outflow)} = #{money(surplus)} baseline surplus."
+      if surplus <= 0
+        return "Your monthly safe-to-spend guardrail is $0. #{basis} The #{rate}% rule applies only to a positive baseline surplus in Yellow or Green, so a zero or negative surplus does not create discretionary room. It is not a purchase amount or account balance. Next CFO move: restore a positive approved baseline and build runway before approving wants."
+      end
+      if snapshot.fetch(:readiness_tone) == "red"
+        return "Your monthly safe-to-spend guardrail is $0. #{basis} Although the baseline surplus is positive, Red readiness holds safe-to-spend at $0 until protected runway reaches Yellow; the #{rate}% rule is not active yet. It is not a purchase amount or account balance. Next CFO move: direct the available surplus toward essential bills, expected expenses, and protected runway."
+      end
+
+      "Your #{money(safe)} monthly safe-to-spend guardrail is #{rate}% of your #{money(surplus)} positive baseline surplus: #{basis} #{money(surplus)} × #{rate}% = #{money(safe)}. It is a monthly discretionary guardrail, not a purchase amount, account balance, or promise that a specific purchase is funded. The guardrail is available only in Yellow or Green with a positive surplus; Red returns $0. Next CFO move: compare a proposed want with its active category and confirmed spending before approving it."
+    end
+
+    def compound_purchase_debt_answer
+      return nil unless normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
+
+      purchase_entry, debt_entry = compound_amount_entries
+      return nil unless purchase_entry && debt_entry
+
+      purchase = purchase_entry.fetch(:value)
+      debt_payment = debt_entry.fetch(:value)
+
+      combined = purchase + debt_payment
+      safe = snapshot.fetch(:safe_to_spend_cents)
+      surplus = snapshot.fetch(:baseline_surplus_cents)
+      "The proposed purchase is #{money(purchase)}, and the extra debt payment is #{money(debt_payment)}; together they total #{money(combined)}. The purchase alone is #{money([ purchase - safe, 0 ].max)} above the #{money(safe)} safe-to-spend guardrail. The combined plan is #{money([ combined - surplus, 0 ].max)} above the #{money(surplus)} baseline surplus; an extra debt payment is an allocation of surplus, not a second safe-to-spend allowance. Nothing is approved, and this does not prove an account can fund either move. Next CFO move: keep the debt minimum protected, then lower or defer the purchase and name the funding account before considering any extra principal payment."
     end
 
     def debt_decision_answer
@@ -544,6 +584,38 @@ module HouseholdFinance
       return unless match
 
       Money.cents(match[1].delete(","))
+    end
+
+    def amount_entries
+      @amount_entries ||= message.to_enum(:scan, AMOUNT_PATTERN).filter_map do
+        match = Regexp.last_match
+        value = Money.cents(match[1].delete(","))
+        { value: value, index: match.begin(0) } if value.positive?
+      end
+    end
+
+    def compound_amount_entries
+      compound_amount_pool.permutation(2).min_by do |purchase_entry, debt_entry|
+        purchase_term = nearest_term_index(purchase_entry, PURCHASE_TERM_PATTERN)
+        debt_term = nearest_term_index(debt_entry, DEBT_TERM_PATTERN)
+        [
+          (purchase_entry.fetch(:index) - purchase_term).abs + (debt_entry.fetch(:index) - debt_term).abs,
+          (purchase_term - debt_term).abs,
+          -purchase_term
+        ]
+      end
+    end
+
+    def compound_amount_pool
+      return amount_entries unless amount_entries.length > 2 && message.match?(/\bsafe-to-spend\b/i)
+
+      guardrail_term = message.match(/\bsafe-to-spend\b/i)
+      guardrail_entry = amount_entries.min_by { |entry| (entry.fetch(:index) - guardrail_term.begin(0)).abs }
+      amount_entries.reject { |entry| entry.equal?(guardrail_entry) }
+    end
+
+    def nearest_term_index(entry, term_pattern)
+      message.to_enum(:scan, term_pattern).map { Regexp.last_match.begin(0) }.min_by { |index| (entry.fetch(:index) - index).abs }
     end
 
     def snapshot

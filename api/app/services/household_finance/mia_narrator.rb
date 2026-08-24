@@ -199,6 +199,8 @@ module HouseholdFinance
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
       return :invented_currency_amount if invented_currency_amount?(content)
       return :invented_measurement if invented_measurement?(content)
+      return :incorrect_safe_to_spend_relationship if incorrect_safe_to_spend_relationship?(content)
+      return :missing_compound_decision_relationship if missing_compound_decision_relationship?(content)
       return :missing_pending_review_boundary if missing_pending_review_boundary?(content)
       return :missing_readiness_direct_answer if missing_readiness_direct_answer?(content)
       return :missing_readiness_basis if missing_readiness_basis?(content)
@@ -350,6 +352,54 @@ module HouseholdFinance
     def invented_measurement?(content)
       measurement_values(content, MONTH_AMOUNT_PATTERN).difference(allowed_month_values).any? ||
         measurement_values(content, PERCENT_AMOUNT_PATTERN).difference(allowed_percent_values).any?
+    end
+
+    def incorrect_safe_to_spend_relationship?(content)
+      relationship = fallback_response.match(
+        /Your (\$[\d,]+(?:\.\d{1,2})?) monthly safe-to-spend guardrail is (\d+(?:\.\d+)?%) of your (\$[\d,]+(?:\.\d{1,2})?) positive baseline surplus/i
+      )
+      if relationship
+        safe_amount = relationship[1]
+        rate = relationship[2]
+        surplus_amount = relationship[3]
+        return !token_near_label?(content, safe_amount, /safe-to-spend/i) ||
+          !token_near_label?(content, surplus_amount, /baseline surplus/i) ||
+          !content.include?(rate) ||
+          !content.match?(/safe-to-spend.{0,120}(?:#{Regexp.escape(rate)}|baseline surplus)|(?:#{Regexp.escape(rate)}|baseline surplus).{0,120}safe-to-spend/i)
+      end
+
+      if fallback_response.match?(/Red readiness holds safe-to-spend at \$0.*40% rule is not active/im)
+        return !token_near_label?(content, "$0", /safe-to-spend/i) ||
+          !content.match?(/\bRed\b/i) ||
+          !content.match?(/(?:40% rule.{0,80}(?:not active|inactive|does not apply)|safe-to-spend.{0,80}(?:held|holds|stays|remains) at \$0)/i)
+      end
+
+      if fallback_response.match?(/40% rule applies only to a positive baseline surplus.*zero or negative surplus/im)
+        return !token_near_label?(content, "$0", /safe-to-spend/i) ||
+          !content.match?(/40% rule.{0,100}(?:only.{0,30}positive|does not apply|inactive)|(?:zero|negative) surplus.{0,100}(?:no discretionary|safe-to-spend.{0,30}\$0)/i)
+      end
+
+      false
+    end
+
+    def missing_compound_decision_relationship?(content)
+      relationship = fallback_response.match(
+        /total (\$[\d,]+(?:\.\d{1,2})?).*?purchase alone is (\$[\d,]+(?:\.\d{1,2})?) above the (\$[\d,]+(?:\.\d{1,2})?) safe-to-spend guardrail.*?combined plan is (\$[\d,]+(?:\.\d{1,2})?) above the (\$[\d,]+(?:\.\d{1,2})?) baseline surplus/im
+      )
+      return false unless relationship
+
+      total, purchase_overage, safe, combined_overage, surplus = relationship.captures
+      !token_near_label?(content, total, /total/i) ||
+        !token_near_label?(content, safe, /safe-to-spend/i) ||
+        !token_near_label?(content, surplus, /baseline surplus/i) ||
+        !content.include?(purchase_overage) ||
+        !content.include?(combined_overage) ||
+        content.scan(/\babove\b/i).length < 2
+    end
+
+    def token_near_label?(content, token, label_pattern)
+      escaped = Regexp.escape(token)
+      content.match?(/#{escaped}.{0,32}#{label_pattern.source}|#{label_pattern.source}.{0,32}#{escaped}/i)
     end
 
     def allowed_month_values
