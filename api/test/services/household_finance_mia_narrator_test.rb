@@ -4,7 +4,7 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   test "uses the verified fallback when provider capacity is full" do
     fallback = "Based on approved numbers, wait until bills clear."
 
-    with_saturated_provider_capacity do
+    with_mia_provider_capacity_rejected do
       narrator = HouseholdFinance::MiaNarrator.new(
         user_message: "Can I buy this?",
         answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" },
@@ -792,21 +792,6 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
   end
 
   private
-
-  def with_saturated_provider_capacity
-    previous_limit = ENV["MIA_PROVIDER_MAX_CONCURRENCY"]
-    ENV["MIA_PROVIDER_MAX_CONCURRENCY"] = "1"
-    ProviderCallLease.create!(
-      provider: HouseholdFinance::MiaProviderAdmission::PROVIDER,
-      slot: 1,
-      owner_token: SecureRandom.uuid,
-      expires_at: 30.seconds.from_now
-    )
-    yield
-  ensure
-    ProviderCallLease.where(provider: HouseholdFinance::MiaProviderAdmission::PROVIDER).delete_all
-    previous_limit.nil? ? ENV.delete("MIA_PROVIDER_MAX_CONCURRENCY") : ENV["MIA_PROVIDER_MAX_CONCURRENCY"] = previous_limit
-  end
 
   def ok_response(payload)
     Net::HTTPOK.new("1.1", "200", "OK").tap do |response|

@@ -2,6 +2,8 @@ require "test_helper"
 require "timeout"
 
 class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
+  self.use_transactional_tests = false
+
   test "admits only the configured number of simultaneous provider calls" do
     provider = "admission-#{SecureRandom.hex(6)}"
     entered = Queue.new
@@ -24,30 +26,22 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     rejected = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 2).call { flunk("saturated admission must not run the provider block") }
 
     assert_nil rejected
-    assert_equal 2, ProviderCallLease.where(provider: provider).count
 
     2.times { release << true }
     threads.each(&:join)
     assert_equal [ :completed, :completed ], 2.times.map { results.pop }.sort
-    assert_equal 0, ProviderCallLease.where(provider: provider).count
   ensure
     2.times { release << true } if defined?(release)
     threads&.each { |thread| thread.join(1) }
-    ProviderCallLease.where(provider: provider).delete_all if defined?(provider)
   end
 
-  test "reclaims an expired slot" do
-    provider = "expired-#{SecureRandom.hex(6)}"
-    ProviderCallLease.create!(
-      provider: provider,
-      slot: 1,
-      owner_token: SecureRandom.uuid,
-      expires_at: 1.second.ago
-    )
+  test "releases the provider slot after the call raises" do
+    provider = "raised-#{SecureRandom.hex(6)}"
 
-    result = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1).call { :reclaimed }
+    assert_raises(RuntimeError) do
+      HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1).call { raise "provider failed" }
+    end
 
-    assert_equal :reclaimed, result
-    assert_equal 0, ProviderCallLease.where(provider: provider).count
+    assert_equal :reused, HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1).call { :reused }
   end
 end

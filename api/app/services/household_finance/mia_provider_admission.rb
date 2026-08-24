@@ -1,67 +1,63 @@
 # frozen_string_literal: true
 
+require "digest"
+
 module HouseholdFinance
   class MiaProviderAdmission
     PROVIDER = "openrouter_mia"
     DEFAULT_LIMIT = 4
     MAX_LIMIT = 16
-    LEASE_TTL = 30.seconds
 
     def self.with_slot(**options, &block)
       new(**options).call(&block)
     end
 
-    def initialize(provider: PROVIDER, limit: configured_limit, lease_ttl: LEASE_TTL)
+    def initialize(provider: PROVIDER, limit: configured_limit)
       @provider = provider
       @limit = limit.to_i.clamp(1, MAX_LIMIT)
-      @lease_ttl = lease_ttl
     end
 
     def call
-      lease = acquire
-      unless lease
-        instrument(admitted: false)
-        Rails.logger.info("[HouseholdFinance::MiaProviderAdmission] provider capacity full; using deterministic fallback")
-        return nil
-      end
+      ActiveRecord::Base.connection_pool.with_connection do |connection|
+        slot = acquire(connection)
+        unless slot
+          instrument(admitted: false)
+          Rails.logger.info("[HouseholdFinance::MiaProviderAdmission] provider capacity full; using deterministic fallback")
+          return nil
+        end
 
-      instrument(admitted: true)
-      yield
+        instrument(admitted: true)
+        begin
+          yield
+        ensure
+          release(connection, slot)
+        end
+      end
     rescue ActiveRecord::ActiveRecordError => e
       Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] admission fallback: #{e.class}: #{e.message}")
       nil
-    ensure
-      release(lease) if lease
     end
 
     private
 
-    attr_reader :provider, :limit, :lease_ttl
+    attr_reader :provider, :limit
 
-    def acquire
-      now = Time.current
-      ProviderCallLease.where(provider: provider).where(expires_at: ..now).delete_all
-      occupied_slots = ProviderCallLease.where(provider: provider).pluck(:slot)
-
-      ((1..limit).to_a - occupied_slots).each do |slot|
-        token = SecureRandom.uuid
-        return ProviderCallLease.create!(
-          provider: provider,
-          slot: slot,
-          owner_token: token,
-          expires_at: now + lease_ttl
+    def acquire(connection)
+      (1..limit).find do |slot|
+        ActiveModel::Type::Boolean.new.cast(
+          connection.select_value("SELECT pg_try_advisory_lock(#{provider_key}, #{slot})")
         )
-      rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
-        next
       end
-
-      nil
     end
 
-    def release(lease)
-      ProviderCallLease.where(id: lease.id, owner_token: lease.owner_token).delete_all
+    def release(connection, slot)
+      connection.select_value("SELECT pg_advisory_unlock(#{provider_key}, #{slot})")
     rescue ActiveRecord::ActiveRecordError => e
-      Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] lease release failed: #{e.class}: #{e.message}")
+      Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] provider slot release failed: #{e.class}: #{e.message}")
+    end
+
+    def provider_key
+      @provider_key ||= Digest::SHA256.digest(provider).unpack1("l>")
     end
 
     def instrument(admitted:)
