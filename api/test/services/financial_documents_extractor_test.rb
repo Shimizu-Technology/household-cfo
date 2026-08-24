@@ -2,6 +2,20 @@ require "test_helper"
 require "tempfile"
 
 class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
+  test "accepts canonical model money and rejects malformed or unbounded formats" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+
+    assert_equal 123_456, extractor.send(:cents_or_nil, "$1,234.56")
+    assert_equal 1_200, extractor.send(:cents_or_nil, 12)
+    assert_nil extractor.send(:cents_or_nil, "$1,2,3")
+    assert_nil extractor.send(:cents_or_nil, "$1 2 3")
+    assert_nil extractor.send(:cents_or_nil, "1e6")
+    assert_nil extractor.send(:cents_or_nil, "12.345")
+    assert_nil extractor.send(:cents_or_nil, "1000000000")
+    assert_nil extractor.send(:cents_or_nil, "$1,000,000,000")
+    assert_nil extractor.send(:cents_or_nil, "($12.00)")
+  end
+
   test "receipt prompt requires line-specific category evidence and preserves uncertainty" do
     user = User.create!(clerk_id: "clerk_extractor_category_prompt", email: "extractor-category-prompt@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Extractor Category Prompt Household")

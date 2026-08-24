@@ -552,14 +552,7 @@ module FinancialDocuments
     end
 
     def cents_or_nil(value)
-      return nil if value.nil?
-
-      decimal = BigDecimal(value.to_s.gsub(/[$,]/, ""))
-      return nil if decimal.negative?
-
-      (decimal * 100).round.to_i
-    rescue ArgumentError
-      nil
+      HouseholdFinance::Money.document_cents(value)
     end
 
     def parsed_date(value)

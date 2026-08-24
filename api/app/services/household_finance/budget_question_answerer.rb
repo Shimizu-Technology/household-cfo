@@ -107,7 +107,7 @@ module HouseholdFinance
       planned = sum_for(rows, :planned)
       actual = sum_for(rows, :actual)
       remaining = sum_for(rows, :remaining)
-      pending = pending_for(rows)
+      pending = pending_total
       surplus = monthly_income_cents - planned
       largest = largest_planned_row
       largest_line = largest ? " Your largest planned category is #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
@@ -126,7 +126,7 @@ module HouseholdFinance
         "#{stack_label}: #{money(planned)} planned, #{money(actual)} actual, #{money(remaining)} remaining — #{details}"
       end
 
-      pending = pending_for(rows)
+      pending = pending_total
       "Here is the active #{month_label} budget by category, separating planned dollars from confirmed actuals: #{sections.join('. ')}. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. Next CFO move: compare the largest remaining category against what still needs to happen this month before approving new wants."
     end
 
@@ -148,7 +148,7 @@ module HouseholdFinance
       planned = sum_for(rows, :planned)
       actual = sum_for(rows, :actual)
       remaining = sum_for(rows, :remaining)
-      pending = pending_for(rows)
+      pending = pending_total
       largest = largest_planned_row
       over_plan_rows = rows.select { |row| row_month_cents(row, :remaining).negative? }.sort_by { |row| row_month_cents(row, :remaining) }
       over_line = if over_plan_rows.any?
@@ -274,9 +274,24 @@ module HouseholdFinance
     def pending_for(target_rows)
       target_ids = target_rows.map { |row| row.fetch(:id) }
       annual_plan.fetch(:pending_transaction_drafts).sum do |draft|
-        next 0 unless target_ids.include?(draft.fetch(:category_id)) && draft_occurs_in_month?(draft)
+        next 0 unless draft_occurs_in_month?(draft)
 
-        dollars_to_cents(draft.fetch(:amount))
+        splits = Array(draft[:splits]).select { |split| dollars_to_cents(split[:amount]).positive? }
+        if splits.any?
+          splits.sum do |split|
+            target_ids.include?(split[:budget_category_id]) ? dollars_to_cents(split[:amount]) : 0
+          end
+        elsif target_ids.include?(draft[:category_id])
+          dollars_to_cents(draft.fetch(:amount))
+        else
+          0
+        end
+      end
+    end
+
+    def pending_total
+      annual_plan.fetch(:pending_transaction_drafts).sum do |draft|
+        draft_occurs_in_month?(draft) ? dollars_to_cents(draft.fetch(:amount)) : 0
       end
     end
 

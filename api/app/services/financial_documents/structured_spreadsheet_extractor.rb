@@ -381,26 +381,7 @@ module FinancialDocuments
     end
 
     def money_cents(value, negative_as_magnitude: false)
-      text = value.to_s.unicode_normalize(:nfkc).strip
-      return nil if text.blank?
-
-      decimal = parsed_money_decimal(text)
-      if decimal.negative?
-        return nil unless negative_as_magnitude
-
-        decimal = decimal.abs
-      end
-
-      (decimal * 100).round.to_i
-    rescue ArgumentError, FloatDomainError
-      nil
-    end
-
-    def parsed_money_decimal(text)
-      accounting_negative = text.match?(/\A\(\s*\$?\s*\d[\d,\s]*(?:\.\d{1,2})?\s*\)\z/)
-      normalized = text.gsub(/[$,\s]/, "")
-      normalized = "-#{normalized.delete_prefix("(").delete_suffix(")")}" if accounting_negative
-      BigDecimal(normalized)
+      HouseholdFinance::Money.document_cents(value, negative_as_magnitude: negative_as_magnitude)
     end
 
     def clean_text(value, max_length:)

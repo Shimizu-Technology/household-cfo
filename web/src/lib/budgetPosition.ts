@@ -83,7 +83,22 @@ export function budgetPositionsForMonth(
       active: category.active ?? true,
     }))
 
-  return [...planPositions, ...reportOnlyPositions]
+  const uncategorizedPending = pendingByCategory.get(null) ?? 0
+  const fallbackUncategorizedPosition: BudgetPosition[] = !reportMatchesMonth && uncategorizedPending > 0
+    ? [{
+        id: 0,
+        name: 'Uncategorized',
+        stackKey: 'discretionary',
+        stackLabel: 'Needs category',
+        planned: 0,
+        actual: 0,
+        pending: uncategorizedPending,
+        remaining: 0,
+        active: true,
+      }]
+    : []
+
+  return [...planPositions, ...reportOnlyPositions, ...fallbackUncategorizedPosition]
 }
 
 export function budgetPositionTotals(positions: BudgetPosition[]): BudgetPositionTotals {
@@ -177,22 +192,23 @@ function draftAmountsByCategory(draft: TransactionDraft) {
 }
 
 function pendingAmountsByCategory(drafts: TransactionDraft[], month?: BudgetMonth) {
-  const totals = new Map<number, number>()
+  const totals = new Map<number | null, number>()
   if (!month) return totals
 
   drafts.forEach((draft) => {
     if (draft.occurred_on < month.starts_on || draft.occurred_on > month.ends_on) return
 
-    const categorizedSplits = draft.splits?.filter((split) => split.budget_category_id) ?? []
-    if (categorizedSplits.length > 0) {
-      categorizedSplits.forEach((split) => {
-        const categoryId = split.budget_category_id!
+    const positiveSplits = draft.splits?.filter((split) => split.amount > 0) ?? []
+    if (positiveSplits.length > 0) {
+      positiveSplits.forEach((split) => {
+        const categoryId = split.budget_category_id ?? null
         totals.set(categoryId, (totals.get(categoryId) ?? 0) + split.amount)
       })
       return
     }
 
-    if (draft.category_id) totals.set(draft.category_id, (totals.get(draft.category_id) ?? 0) + draft.amount)
+    const categoryId = draft.category_id ?? null
+    totals.set(categoryId, (totals.get(categoryId) ?? 0) + draft.amount)
   })
 
   return totals
