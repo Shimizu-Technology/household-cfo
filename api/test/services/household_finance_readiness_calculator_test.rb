@@ -49,4 +49,39 @@ class HouseholdFinanceReadinessCalculatorTest < ActiveSupport::TestCase
     assert_equal "red", result.fetch(:readiness_tone)
     assert_equal 0, result.fetch(:safe_to_spend_cents)
   end
+
+  test "does not unlock yellow readiness by rounding runway up" do
+    result = HouseholdFinance::ReadinessCalculator.new(
+      monthly_income_cents: 200_000,
+      category_outflow_cents: 100_000,
+      debt_minimums_cents: 0,
+      protected_liquid_cents: 299_999,
+      target_runway_months: 6
+    ).call
+
+    assert_equal 3.0, result.fetch(:runway_months)
+    assert_equal 1, result.fetch(:yellow_runway_gap_cents)
+    assert_equal "red", result.fetch(:readiness_tone)
+    assert_equal 0, result.fetch(:safe_to_spend_cents)
+  end
+
+  test "reaches exact runway thresholds without requiring an extra cent" do
+    yellow = HouseholdFinance::ReadinessCalculator.new(
+      monthly_income_cents: 200_000,
+      category_outflow_cents: 100_000,
+      debt_minimums_cents: 0,
+      protected_liquid_cents: 300_000,
+      target_runway_months: 6
+    ).call
+    green = HouseholdFinance::ReadinessCalculator.new(
+      monthly_income_cents: 200_000,
+      category_outflow_cents: 100_000,
+      debt_minimums_cents: 0,
+      protected_liquid_cents: 600_000,
+      target_runway_months: 6
+    ).call
+
+    assert_equal "yellow", yellow.fetch(:readiness_tone)
+    assert_equal "green", green.fetch(:readiness_tone)
+  end
 end

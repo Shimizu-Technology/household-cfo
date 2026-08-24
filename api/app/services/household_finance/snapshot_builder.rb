@@ -30,8 +30,10 @@ module HouseholdFinance
 
     DEFAULT_RUNWAY_TARGET_MONTHS = 6.0
 
-    def initialize(household)
+    def initialize(household, annual_budget_manager: nil, reference_date: Date.current)
       @household = household
+      @reference_date = reference_date.to_date
+      @annual_budget_manager = annual_budget_manager
     end
 
     def call
@@ -57,20 +59,39 @@ module HouseholdFinance
 
     def budget_stacks
       ExpenseItem::STACK_KEYS.map do |stack_key|
-        items = active_expenses.select { |expense| expense.stack_key == stack_key }
+        allocations = current_allocations.select { |allocation| allocation.budget_category.stack_key == stack_key }
         {
           label: STACK_LABELS.fetch(stack_key),
           color: STACK_COLORS.fetch(stack_key),
-          amount: dollars(items.sum { |expense| monthly_cents(expense.amount_cents, expense.cadence) }),
+          amount: dollars(allocations.sum(&:planned_amount_cents)),
           description: STACK_DESCRIPTIONS.fetch(stack_key),
-          examples: items.any? ? items.map(&:label).first(4) : STACK_EXAMPLES.fetch(stack_key)
+          examples: allocations.any? ? allocations.map { |allocation| allocation.budget_category.name }.first(4) : STACK_EXAMPLES.fetch(stack_key)
         }
       end
     end
 
     private
 
-    attr_reader :household
+    attr_reader :household, :reference_date
+
+    def annual_budget_manager
+      @annual_budget_manager ||= AnnualBudgetManager.new(household, year: reference_date.year)
+    end
+
+    def current_period
+      @current_period ||= annual_budget_manager.current_period_for(reference_date)
+    end
+
+    def current_allocations
+      @current_allocations ||= BudgetAllocation
+        .includes(:budget_category)
+        .joins(:budget_category)
+        .where(
+          budget_period: current_period,
+          budget_categories: { household_id: household.id, active: true }
+        )
+        .to_a
+    end
 
     def active_income_sources
       @active_income_sources ||= begin
@@ -85,14 +106,6 @@ module HouseholdFinance
           associations: :income_schedule_entries
         ).call
         sources
-      end
-    end
-
-    def active_expenses
-      @active_expenses ||= if association_loaded?(:expense_items)
-        household.expense_items.select(&:active?)
-      else
-        household.expense_items.where(active: true).to_a
       end
     end
 
@@ -130,13 +143,15 @@ module HouseholdFinance
 
     def monthly_income_cents
       @monthly_income_cents ||= active_income_sources.sum do |income|
-        IncomeTimeline.recurring_monthly_cents(income, on: Date.current)
+        IncomeTimeline.recurring_monthly_cents(income, on: reference_date)
       end
     end
 
     def stack_totals_cents
       @stack_totals_cents ||= ExpenseItem::STACK_KEYS.index_with do |stack_key|
-        active_expenses.select { |expense| expense.stack_key == stack_key }.sum { |expense| monthly_cents(expense.amount_cents, expense.cadence) }
+        current_allocations
+          .select { |allocation| allocation.budget_category.stack_key == stack_key }
+          .sum(&:planned_amount_cents)
       end
     end
 
@@ -207,21 +222,7 @@ module HouseholdFinance
     end
 
     def profile_completeness
-      checks = [
-        household.name.present?,
-        household.primary_goal.present?,
-        active_income_sources.any? { |income| income.amount_cents.positive? },
-        active_expenses.any? { |expense| expense.amount_cents.positive? },
-        accounts.any? { |account| account.balance_cents.positive? },
-        debts.any? || accounts.any?,
-        goals.any?
-      ]
-
-      ((checks.count(true) / checks.length.to_f) * 100).round
-    end
-
-    def monthly_cents(amount_cents, cadence)
-      Money.monthly_cents(amount_cents, cadence)
+      @profile_completeness ||= ProfileCompletenessCalculator.new(household).call
     end
 
     def dollars(cents)

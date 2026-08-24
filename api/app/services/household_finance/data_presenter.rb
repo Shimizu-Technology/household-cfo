@@ -4,7 +4,8 @@ module HouseholdFinance
       @household = household
       @user = user
       @annual_plan = annual_plan
-      @snapshot_builder = SnapshotBuilder.new(household)
+      @annual_budget_manager = AnnualBudgetManager.new(household)
+      @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager)
       @persona = ::Mia::Persona.default
     end
 
@@ -186,7 +187,7 @@ module HouseholdFinance
     end
 
     def annual_budget_manager
-      @annual_budget_manager ||= AnnualBudgetManager.new(household)
+      @annual_budget_manager
     end
 
     def snapshot
@@ -447,8 +448,13 @@ module HouseholdFinance
       [
         { kind: "progress", label: "Runway target", current: snapshot.fetch(:runway_months), target: runway_target, unit: "months", status: snapshot.fetch(:readiness_tone) },
         debt_milestone(debt_total),
-        { kind: "progress", label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: snapshot.fetch(:runway_months) >= runway_target ? "green" : "yellow" }
+        { kind: "progress", label: "Protected liquid runway", current: dollars(snapshot.fetch(:liquid_assets_cents)), target: dollars(snapshot.fetch(:total_outflow_cents) * runway_target), unit: "dollars", status: full_runway_target_reached? ? "green" : "yellow" }
       ]
+    end
+
+    def full_runway_target_reached?
+      target_cents = (snapshot.fetch(:total_outflow_cents) * target_runway_months).round
+      target_cents.positive? && snapshot.fetch(:liquid_assets_cents) >= target_cents
     end
 
     def debt_milestone(debt_total)

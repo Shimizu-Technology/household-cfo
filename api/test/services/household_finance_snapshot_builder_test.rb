@@ -73,6 +73,52 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     assert_equal 1, schedule_queries.length
   end
 
+  test "uses the active month allocation as the dashboard and Mia cash-flow source of truth" do
+    household = household_with_runway(runway_months: 3, target_months: 6)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    plan = manager.plan_data
+    current_index = Date.current.month - 1
+    allocation_id = plan.fetch(:rows).first.fetch(:months).fetch(current_index).fetch(:allocation_id)
+    allocation = BudgetAllocation.find(allocation_id)
+
+    manager.update_allocation!(allocation, 6_500)
+    snapshot = HouseholdFinance::SnapshotBuilder.new(household, annual_budget_manager: manager).call
+
+    assert_equal 650_000, snapshot.fetch(:total_expenses_cents)
+    assert_equal 350_000, snapshot.fetch(:baseline_surplus_cents)
+    assert_equal "red", snapshot.fetch(:readiness_tone)
+    assert_equal 0, snapshot.fetch(:safe_to_spend_cents)
+
+    data = HouseholdFinance::DataPresenter.new(household).app_data
+    assert_equal 6_500, data.dig(:dashboard, :summary, :fixed_expenses)
+    assert_equal 6_500, data.dig(:budget, :total_monthly_outflow)
+    assert_equal 3_500, data.dig(:budget, :baseline_surplus)
+    assert_equal 6_500, data.dig(:budget, :stacks, 0, :amount)
+
+    mia_answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How is safe-to-spend calculated?",
+      annual_budget_manager: manager
+    ).call
+    assert_includes mia_answer, "$6,500 category plan"
+    assert_includes mia_answer, "$3,500 baseline surplus"
+    assert_includes mia_answer, "safe-to-spend guardrail is $0"
+  end
+
+  test "does not let an allocation in another month change the active month snapshot" do
+    household = household_with_runway(runway_months: 3, target_months: 6)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    plan = manager.plan_data
+    other_index = Date.current.month == 1 ? 1 : 0
+    allocation_id = plan.fetch(:rows).first.fetch(:months).fetch(other_index).fetch(:allocation_id)
+
+    manager.update_allocation!(BudgetAllocation.find(allocation_id), 6_500)
+    snapshot = HouseholdFinance::SnapshotBuilder.new(household, annual_budget_manager: manager).call
+
+    assert_equal 100_000, snapshot.fetch(:total_expenses_cents)
+    assert_equal 900_000, snapshot.fetch(:baseline_surplus_cents)
+  end
+
   private
 
   def household_with_runway(runway_months:, target_months:)
