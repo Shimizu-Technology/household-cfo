@@ -862,6 +862,58 @@ test('Ask Mia uses a new request ID when the retry targets a different budget mo
   expect(requests[1].month).not.toBe(requests[0].month)
 })
 
+test('Ask Mia restores uploaded attachment context and its exact request ID after reload', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  const message = 'Please review this receipt.'
+  const month = new Date().getMonth() + 1
+  const requestId = 'mia-request-attachment-reload-1'
+  const signature = JSON.stringify({ message, attachmentIds: [501], year: currentYear, month })
+  await page.addInitScript(({ storedRequest }) => {
+    window.sessionStorage.setItem('household-cfo:mia-chat:v1:user-901:pending-request', JSON.stringify(storedRequest))
+  }, {
+    storedRequest: {
+      id: requestId,
+      signature,
+      message,
+      attachments: [{
+        document_import_id: 501,
+        filename: 'saved-receipt.jpg',
+        content_type: 'image/jpeg',
+        document_kind: 'receipt',
+        status: 'needs_review',
+        source_available: true,
+      }],
+    },
+  })
+
+  let submittedBody: { request_id?: string; document_import_ids?: number[] } = {}
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+
+    submittedBody = route.request().postDataJSON()
+    return route.fulfill({
+      status: 201,
+      json: {
+        user_message: { id: 721, role: 'user', author: 'You', content: message, attachments: [] },
+        assistant_message: { id: 722, role: 'assistant', author: 'Mia', content: 'I kept the uploaded receipt attached.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: null,
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(message)
+  await expect(page.getByText('saved-receipt.jpg')).toBeVisible()
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(page.getByText('I kept the uploaded receipt attached.')).toBeVisible()
+
+  expect(submittedBody.request_id).toBe(requestId)
+  expect(submittedBody.document_import_ids).toEqual([501])
+})
+
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()

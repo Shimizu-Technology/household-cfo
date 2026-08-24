@@ -167,6 +167,16 @@ type MiaRetryRequest = {
   id: string
   signature: string
   message: string
+  attachments: MiaRetryAttachment[]
+}
+
+type MiaRetryAttachment = {
+  document_import_id: number
+  filename: string
+  content_type: string
+  document_kind: DocumentImportKind
+  status: FinancialDocumentImport['status']
+  source_available: boolean
 }
 
 type BudgetAllocationChange = {
@@ -412,6 +422,9 @@ function App() {
 
     const restoreComposer = window.setTimeout(() => {
       setQuestion((current) => current.trim() ? current : pendingRequest.message)
+      setPendingMiaAttachments((current) => current.length > 0
+        ? current
+        : pendingRequest.attachments.map(pendingAttachmentFromMiaRetry))
     }, 0)
     return () => window.clearTimeout(restoreComposer)
   }, [chatStorageKey])
@@ -906,19 +919,6 @@ function App() {
     }
 
     const messageContent = cleanPrompt || 'Please review this upload.'
-    const requestSignature = JSON.stringify({
-      message: messageContent,
-      attachmentIds: attachmentsToSend.map((attachment) => attachment.id).sort(),
-      year: selectedBudgetYear,
-      month: selectedBudgetMonthIndex + 1,
-    })
-    const retryRequest = miaRetryRequestRef.current
-    const miaRequestId = retryRequest?.signature === requestSignature
-      ? retryRequest.id
-      : clientSideId('mia-request')
-    const pendingRetryRequest = { id: miaRequestId, signature: requestSignature, message: messageContent }
-    miaRetryRequestRef.current = pendingRetryRequest
-    if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
     const optimisticMessageId = clientSideId('mia-message')
     const spendingReportRequestAtSend = spendingReportRequestRef.current
     setMiaLoading(true)
@@ -937,19 +937,44 @@ function App() {
     setMessages((current) => [...current, optimisticMessage])
 
     let preparedAttachmentsForRetry = attachmentsToSend
+    let pendingRetryRequest: MiaRetryRequest | null = null
 
     try {
       const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend, messageContent)
       preparedAttachmentsForRetry = uploadResult.attachments
       const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
       preparedAttachmentsForRetry = readyAttachments
+      const documentImportIds = readyAttachments
+        .filter((attachment) => attachment.document_import_id)
+        .map((attachment) => attachment.document_import_id!)
+        .sort((left, right) => left - right)
+      const requestSignature = JSON.stringify({
+        message: messageContent,
+        attachmentIds: documentImportIds,
+        year: selectedBudgetYear,
+        month: selectedBudgetMonthIndex + 1,
+      })
+      const retryRequest = miaRetryRequestRef.current
+      const miaRequestId = retryRequest?.signature === requestSignature
+        ? retryRequest.id
+        : clientSideId('mia-request')
+      pendingRetryRequest = {
+        id: miaRequestId,
+        signature: requestSignature,
+        message: messageContent,
+        attachments: readyAttachments
+          .filter((attachment) => attachment.document_import_id)
+          .map(miaRetryAttachment),
+      }
+      miaRetryRequestRef.current = pendingRetryRequest
+      if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
       const response = await sendMiaMessage(
         messageContent,
         priorMessages,
         isRealWorkspace,
         selectedBudgetYear,
         selectedBudgetMonthIndex + 1,
-        readyAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
+        documentImportIds,
         miaRequestId,
       )
       if (miaRetryRequestRef.current?.id === miaRequestId) {
@@ -1003,8 +1028,10 @@ function App() {
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
       setQuestion(messageContent)
-      miaRetryRequestRef.current = pendingRetryRequest
-      if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
+      if (pendingRetryRequest) {
+        miaRetryRequestRef.current = pendingRetryRequest
+        if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
+      }
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
@@ -4135,6 +4162,32 @@ function attachmentWithDocumentImport(attachment: PendingMiaAttachment, document
     document_import_id: documentImport.id,
     status: documentImport.status,
     source_available: documentImport.source_available,
+  }
+}
+
+function miaRetryAttachment(attachment: PendingMiaAttachment): MiaRetryAttachment {
+  return {
+    document_import_id: attachment.document_import_id!,
+    filename: attachment.filename,
+    content_type: attachment.content_type,
+    document_kind: attachment.document_kind,
+    status: attachment.status ?? 'needs_review',
+    source_available: attachment.source_available ?? false,
+  }
+}
+
+function pendingAttachmentFromMiaRetry(attachment: MiaRetryAttachment): PendingMiaAttachment {
+  return {
+    id: `restored-import-${attachment.document_import_id}`,
+    file: new File([], attachment.filename, { type: attachment.content_type }),
+    filename: attachment.filename,
+    content_type: attachment.content_type,
+    document_kind: attachment.document_kind,
+    previewUrl: '',
+    document_import_id: attachment.document_import_id,
+    status: attachment.status,
+    source_available: attachment.source_available,
+    kindWasSelected: true,
   }
 }
 
@@ -7453,10 +7506,30 @@ function loadMiaRetryRequest(chatStorageKey: string): MiaRetryRequest | null {
     if (typeof parsed.id !== 'string' || !/^mia-request-[a-zA-Z0-9-]+$/.test(parsed.id)) return null
     if (typeof parsed.signature !== 'string' || typeof parsed.message !== 'string' || !parsed.message.trim()) return null
 
-    return { id: parsed.id, signature: parsed.signature, message: parsed.message }
+    const attachments = Array.isArray(parsed.attachments)
+      ? parsed.attachments.filter(validMiaRetryAttachment)
+      : []
+    if (Array.isArray(parsed.attachments) && attachments.length !== parsed.attachments.length) return null
+
+    return { id: parsed.id, signature: parsed.signature, message: parsed.message, attachments }
   } catch {
     return null
   }
+}
+
+function validMiaRetryAttachment(value: unknown): value is MiaRetryAttachment {
+  if (!value || typeof value !== 'object') return false
+
+  const attachment = value as Partial<MiaRetryAttachment>
+  return typeof attachment.document_import_id === 'number'
+    && Number.isInteger(attachment.document_import_id)
+    && attachment.document_import_id > 0
+    && typeof attachment.filename === 'string'
+    && attachment.filename.length > 0
+    && typeof attachment.content_type === 'string'
+    && ['spreadsheet', 'statement', 'pay_stub', 'receipt', 'other'].includes(attachment.document_kind ?? '')
+    && typeof attachment.status === 'string'
+    && typeof attachment.source_available === 'boolean'
 }
 
 function saveMiaRetryRequest(chatStorageKey: string, request: MiaRetryRequest) {
