@@ -2,6 +2,7 @@ module Api
   module V1
     class BudgetCategoriesController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!
 
       def create
         category = budget_manager.create_category!(

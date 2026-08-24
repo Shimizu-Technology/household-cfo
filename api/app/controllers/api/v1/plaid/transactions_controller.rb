@@ -6,6 +6,7 @@ module Api
         ACTIVITY_VIEWS = %w[all needs_review confirmed excluded pending inflow].freeze
 
         before_action :authenticate_user!
+        before_action :require_writable_household!, only: %i[stage ignore]
 
         def index
           account_id = params[:account_id].presence

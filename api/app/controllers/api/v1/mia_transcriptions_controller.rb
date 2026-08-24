@@ -5,6 +5,7 @@ module Api
     class MiaTranscriptionsController < BaseController
       before_action :authenticate_user!
       before_action :require_existing_household!
+      before_action :require_writable_household!
 
       MAX_AUDIO_BYTES = 12.megabytes
       ALLOWED_EXTENSIONS = %w[.webm .m4a .mp3 .wav .ogg .flac .mp4].freeze

@@ -2,6 +2,7 @@ module Api
   module V1
     class MiaMessagesController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!, only: %i[create destroy]
 
       def index
         render json: HouseholdFinance::DataPresenter.new(current_household, user: current_user).mia(

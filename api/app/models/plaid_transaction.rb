@@ -11,6 +11,7 @@ class PlaidTransaction < ApplicationRecord
   validates :amount_cents, numericality: { only_integer: true }
   validates :review_status, inclusion: { in: REVIEW_STATUSES }
   validates :name, :merchant_name, length: { maximum: 160 }, allow_blank: true
+  validate :associations_belong_to_plaid_item
 
   scope :visible, -> { where(removed_at: nil) }
   scope :recent_first, -> { order(occurred_on: :desc, id: :desc) }
@@ -18,5 +19,15 @@ class PlaidTransaction < ApplicationRecord
 
   def stageable?
     removed_at.nil? && !pending? && amount_cents.positive? && review_status == "unreviewed"
+  end
+
+  private
+
+  def associations_belong_to_plaid_item
+    errors.add(:plaid_account, "must belong to the selected bank connection") if plaid_account && plaid_account.plaid_item_id != plaid_item_id
+    return if transaction_draft.blank? || plaid_item.blank?
+    return if transaction_draft.household_id == plaid_item.household_id
+
+    errors.add(:transaction_draft, "must belong to the bank connection household")
   end
 end
