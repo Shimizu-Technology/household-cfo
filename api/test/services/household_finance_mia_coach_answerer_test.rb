@@ -118,6 +118,29 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "not a purchase amount"
   end
 
+  test "uses the selected budget month and year for every financial guardrail" do
+    household = create_yellow_household
+    selected_year = Date.current.year + 1
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: selected_year)
+    plan = manager.plan_data
+    january_allocation_id = plan.fetch(:rows).first.fetch(:months).first.fetch(:allocation_id)
+    manager.update_allocation!(BudgetAllocation.find(january_allocation_id), 5_000)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How exactly is my safe-to-spend amount calculated?",
+      annual_budget_manager: manager,
+      reference_month: 1
+    ).call
+
+    assert_includes answer, "$5,000 category plan"
+    assert_includes answer, "$920 debt minimums"
+    assert_includes answer, "$5,920 total outflow"
+    assert_includes answer, "$2,580 baseline surplus"
+    assert_includes answer, "$1,032 monthly safe-to-spend guardrail"
+    refute_includes answer, "$262"
+  end
+
   test "answers both sides of a compound purchase and extra debt decision" do
     household = create_yellow_household
 
