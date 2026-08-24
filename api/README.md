@@ -58,6 +58,11 @@ OPENROUTER_API_KEY=sk-or-...
 OPENROUTER_MODEL=~anthropic/claude-sonnet-latest
 # Optional: must support OpenRouter strict structured outputs.
 OPENROUTER_MIA_INTENT_MODEL=~anthropic/claude-sonnet-latest
+# Admit at most four Mia chat provider calls across all web processes; excess
+# chat turns return a Rails-grounded fallback instead of waiting on OpenRouter.
+MIA_PROVIDER_MAX_CONCURRENCY=4
+# Keep the Puma thread count and primary database pool aligned.
+RAILS_MAX_THREADS=8
 OPENROUTER_EXTRACTION_MODEL=google/gemini-2.5-flash
 OPENROUTER_PDF_ENGINE=mistral-ocr
 OPENROUTER_TRANSCRIPTION_MODEL=openai/whisper-large-v3

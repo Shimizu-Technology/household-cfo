@@ -4,7 +4,7 @@ require "uri"
 
 module HouseholdFinance
   class MiaIntentResolver
-    OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+    OPENROUTER_URL = MiaProviderEndpoint::DEFAULT_URL
     DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 12
@@ -96,7 +96,11 @@ module HouseholdFinance
     def response_content
       return transport.call(payload) if transport
 
-      uri = URI(OPENROUTER_URL)
+      MiaProviderAdmission.with_slot { openrouter_response }
+    end
+
+    def openrouter_response
+      uri = MiaProviderEndpoint.uri
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{api_key}"
       request["Content-Type"] = "application/json"
@@ -104,7 +108,7 @@ module HouseholdFinance
       request["X-Title"] = "Household CFO Method Mia Intent Resolver"
       request.body = payload.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
+      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
         http.request(request)
       end
       return unless response.is_a?(Net::HTTPSuccess)

@@ -28,6 +28,8 @@ module ActiveSupport
         MIA_TRANSCRIPTION_LANGUAGE
         MIA_TRANSCRIPTION_MODEL
         OPENROUTER_MIA_INTENT_MODEL
+        OPENROUTER_MIA_URL
+        MIA_PROVIDER_MAX_CONCURRENCY
         AWS_REGION
         AWS_ACCESS_KEY_ID
         AWS_SECRET_ACCESS_KEY
@@ -45,6 +47,18 @@ module ActiveSupport
         PLAID_REDIRECT_URI
         PLAID_LINK_CUSTOMIZATION_NAME
       ].each { |key| ENV.delete(key) }
+    end
+
+    private
+
+    def with_mia_provider_capacity_rejected
+      singleton = HouseholdFinance::MiaProviderAdmission.singleton_class
+      original = singleton.instance_method(:with_slot)
+      singleton.define_method(:with_slot) { |**_options, &_block| nil }
+      yield
+    ensure
+      singleton.send(:remove_method, :with_slot) if singleton.method_defined?(:with_slot)
+      singleton.define_method(:with_slot, original)
     end
   end
 end

@@ -1,6 +1,19 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "returns no model resolution when provider capacity is full" do
+    with_mia_provider_capacity_rejected do
+      resolver = HouseholdFinance::MiaIntentResolver.new(
+        user_message: "What were we discussing?",
+        context: intent_context,
+        api_key: "test-key"
+      )
+      resolver.define_singleton_method(:openrouter_response) { raise "saturated admission called the provider" }
+
+      assert_nil resolver.call
+    end
+  end
+
   test "resolves a contextual confirmation into a structured supervised budget action" do
     payloads = []
     resolver = HouseholdFinance::MiaIntentResolver.new(
