@@ -252,6 +252,20 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     )
   end
 
+  test "generic model responses reject an unlabeled amount copied from unrelated context" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" },
+      annual_budget: { selected_month_budget_rows: [ { category: "Travel", planned: "$800" } ] }
+    }.to_json
+
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "You can safely put $800 toward the trip.",
+      context: context
+    )
+  end
+
   test "generic chat falls back instead of returning an unverified model amount" do
     context = { metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" } }.to_json
     responder = stubbed_model_responder("Your safe-to-spend is $700, so the trip works.")

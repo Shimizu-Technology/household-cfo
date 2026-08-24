@@ -356,7 +356,7 @@ module HouseholdFinance
 
       allowed = participant_money_cents(include_history: allow_history)
       proposed.all? do |amount|
-        allowed.include?(amount) || (amount.zero? && semantic_zero_authorized?(action, include_history: allow_history))
+        allowed.include?(amount) || (amount.zero? && semantic_zero_authorized?(action))
       end
     end
 
@@ -389,17 +389,10 @@ module HouseholdFinance
       user_message.match?(AMOUNT_CONTINUATION_PATTERN)
     end
 
-    def semantic_zero_authorized?(action, include_history: false)
+    def semantic_zero_authorized?(action)
       return false unless action[:type] == "schedule_income_change" && action[:entry_type] == "recurring_change"
 
-      messages = [ user_message ]
-      messages.concat(Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
-        role = message[:role] || message["role"]
-        content = message[:content] || message["content"]
-        content if role.to_s == "user"
-      end) if include_history
-      participant_text = messages.join(" ")
-      participant_text.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
+      user_message.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
     end
 
     def money_cents_from_participant_text(text)

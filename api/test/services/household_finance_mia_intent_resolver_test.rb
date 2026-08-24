@@ -339,6 +339,40 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "0", result.action.fetch(:amount)
   end
 
+  test "generic continuation cannot use stop-language for a different historical income source" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "Stop Side business income next month." },
+      { role: "assistant", content: "I can prepare that Side business income review." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Do it",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: true,
+          resolved_message: "End Primary income next month",
+          topic: { type: "income_edit", title: "End Primary income", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            income_source_id: 91,
+            income_source_name: "Primary income",
+            entry_type: "recurring_change",
+            effective_on: "2026-08-01",
+            amount: "0"
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
   test "resolves a complete reported expense into a pending transaction draft action without requiring a category" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "I spent $12.35 at Walkthrough Cafe Retest today",

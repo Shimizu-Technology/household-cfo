@@ -76,7 +76,7 @@ module Demo
         response = HouseholdFinance::MiaProviderAdmission.with_slot do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
         end
-        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)
+        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context)
           return response
         end
 
@@ -227,10 +227,9 @@ module Demo
         .gsub(/Annual runway first\. Monthly moves second\.?/i, "that phrase")
     end
 
-    def ungrounded_generic_financial_claim?(content, context:, user_message: "")
+    def ungrounded_generic_financial_claim?(content, context:)
       payload = parsed_context(context)
-      return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
-      return true if mismatched_metric_relationship?(content, payload: payload)
+      return true unless financial_values_grounded?(content, payload: payload)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
       return false if claimed_readiness.empty?
@@ -239,37 +238,34 @@ module Demo
       approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
     end
 
-    def financial_values_grounded?(content, payload:, user_message:)
-      allowed_text = [ JSON.generate(payload), user_message ].join(" ")
-      approved_runway = normalized_measurement(payload.dig("metrics", "runway_months"))
-      allowed_runway = runway_values(allowed_text)
-      allowed_runway << approved_runway if approved_runway.present?
-      currency_values(content).difference(currency_values(allowed_text)).empty? &&
-        percent_values(content).difference(percent_values(allowed_text)).empty? &&
-        runway_values(content).difference(allowed_runway.uniq).empty?
-    end
-
-    def mismatched_metric_relationship?(content, payload:)
+    def financial_values_grounded?(content, payload:)
       metrics = payload.fetch("metrics", {})
-      METRIC_LABELS.any? do |key, label_pattern|
-        approved = currency_values(metrics[key].to_s).first
-        next false unless approved
-
-        nearest = nearest_currency_for_label(content, label_pattern)
-        nearest.present? && nearest != approved
-      end || mismatched_runway_relationship?(content, metrics.fetch("runway_months", nil))
+      grounded_currency_mentions?(content, metrics: metrics) &&
+        percent_values(content).empty? &&
+        runway_values_grounded?(content, approved_runway: metrics.fetch("runway_months", nil))
     end
 
-    def nearest_currency_for_label(content, label_pattern)
-      labels = content.to_s.to_enum(:scan, label_pattern).map do
-        match = Regexp.last_match
-        { start: match.begin(0), finish: match.end(0) }
-      end
+    def grounded_currency_mentions?(content, metrics:)
       mentions = currency_mentions(content)
-      labels.flat_map do |label|
-        mentions.map { |mention| mention.merge(distance: range_distance(label, mention)) }
-      end.select { |mention| mention.fetch(:distance) <= 40 }
-        .min_by { |mention| mention.fetch(:distance) }&.fetch(:value)
+      return true if mentions.empty?
+
+      metric_mentions = approved_metric_mentions(content, metrics: metrics)
+      mentions.all? do |mention|
+        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
+        nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value)
+      end
+    end
+
+    def approved_metric_mentions(content, metrics:)
+      METRIC_LABELS.flat_map do |key, label_pattern|
+        approved = currency_values(metrics[key].to_s).first
+        next [] unless approved
+
+        content.to_s.to_enum(:scan, label_pattern).map do
+          match = Regexp.last_match
+          { start: match.begin(0), finish: match.end(0), value: approved }
+        end
+      end
     end
 
     def currency_mentions(text)
@@ -293,12 +289,12 @@ module Demo
       distance
     end
 
-    def mismatched_runway_relationship?(content, approved_runway)
+    def runway_values_grounded?(content, approved_runway:)
       claimed = runway_values(content)
-      return false if claimed.empty?
+      return true if claimed.empty?
 
       approved = normalized_measurement(approved_runway)
-      approved.blank? || claimed.any? { |value| value != approved }
+      approved.present? && claimed.all? { |value| value == approved }
     end
 
     def currency_values(text)
