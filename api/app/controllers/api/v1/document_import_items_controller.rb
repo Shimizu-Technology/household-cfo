@@ -42,11 +42,8 @@ module Api
           :target_type,
           :label,
           :amount,
-          :amount_cents,
           :balance,
-          :balance_cents,
           :payment,
-          :payment_cents,
           :cadence,
           :source_type,
           :stack_key,
@@ -64,9 +61,6 @@ module Api
         attributes = raw_attributes.slice(
           :target_type,
           :label,
-          :amount_cents,
-          :balance_cents,
-          :payment_cents,
           :cadence,
           :source_type,
           :stack_key,
@@ -77,13 +71,17 @@ module Api
           :selected,
           :ignored
         )
-        attributes[:amount_cents] = HouseholdFinance::Money.cents(raw_attributes[:amount]) if raw_attributes.key?(:amount)
-        attributes[:balance_cents] = HouseholdFinance::Money.cents(raw_attributes[:balance]) if raw_attributes.key?(:balance)
-        attributes[:payment_cents] = HouseholdFinance::Money.cents(raw_attributes[:payment]) if raw_attributes.key?(:payment)
+        attributes[:amount_cents] = parsed_money(raw_attributes[:amount], "Amount") if raw_attributes.key?(:amount)
+        attributes[:balance_cents] = parsed_money(raw_attributes[:balance], "Balance") if raw_attributes.key?(:balance)
+        attributes[:payment_cents] = parsed_money(raw_attributes[:payment], "Payment") if raw_attributes.key?(:payment)
         attributes[:label] = bounded_text(attributes[:label], 120) if attributes.key?(:label)
         attributes[:evidence] = bounded_text(attributes[:evidence], 1000) if attributes.key?(:evidence)
         normalize_selection_flags!(attributes)
         attributes
+      end
+
+      def parsed_money(value, label)
+        HouseholdFinance::Money.cents!(value, message: "#{label} must be a number with no more than two decimal places")
       end
 
       def normalize_selection_flags!(attributes)

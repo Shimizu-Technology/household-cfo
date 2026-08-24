@@ -551,6 +551,28 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 125_00, debt.payment_cents
   end
 
+  test "item update rejects malformed money without replacing approved extracted values" do
+    document_import = create_import!(status: "needs_review")
+    expense = document_import.items.create!(
+      target_type: "expense_item",
+      label: "Dining",
+      amount_cents: 300_00,
+      cadence: "monthly",
+      stack_key: "discretionary",
+      confidence: "medium"
+    )
+
+    [ "12.345", "1e6", "$1,2,3" ].each do |invalid_amount|
+      patch "/api/v1/document_imports/#{document_import.id}/items/#{expense.id}",
+        params: { item: { amount: invalid_amount } },
+        headers: auth_headers(@user)
+
+      assert_response :unprocessable_entity
+      assert_includes JSON.parse(response.body).fetch("errors"), "Amount must be a number with no more than two decimal places"
+      assert_equal 300_00, expense.reload.amount_cents
+    end
+  end
+
   test "unapplied item update rolls back if import reconciliation fails" do
     document_import = create_import!(status: "needs_review")
     item = document_import.items.create!(

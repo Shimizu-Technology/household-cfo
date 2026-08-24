@@ -35,6 +35,26 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "rejects malformed grouped scientific and fractional-cent spreadsheet money" do
+    file = Tempfile.new([ "budget", ".csv" ])
+    file.write(<<~CSV)
+      type,label,amount,cadence,category,notes
+      expense_item,Bad grouping,"$1,2,3",monthly,discretionary,Reject
+      expense_item,Scientific notation,1e6,monthly,discretionary,Reject
+      expense_item,Fractional cents,12.345,monthly,discretionary,Reject
+      expense_item,Valid grouped,"$1,234.56",monthly,discretionary,Keep
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "budget.csv").call
+
+    assert result.success?, result.error
+    assert_equal [ "Valid grouped" ], result.data.fetch(:items).map { |item| item.fetch(:label) }
+    assert_equal 123_456, result.data.fetch(:items).first.fetch(:amount_cents)
+  ensure
+    file&.close!
+  end
+
   test "parses accounting negative expenses and debts as positive magnitudes" do
     file = Tempfile.new([ "budget", ".csv" ])
     file.write(<<~CSV)

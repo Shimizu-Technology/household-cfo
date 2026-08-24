@@ -69,6 +69,35 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     assert_nil HouseholdFinance::BudgetQuestionAnswerer.new("How much was set aside for last month food?", annual_plan: annual_plan(2027), today: january_today).call
   end
 
+  test "budget answers use split amounts for categories and full draft amounts for monthly totals" do
+    plan = annual_plan_with_breakdown(2026)
+    plan[:pending_transaction_drafts] = [
+      {
+        category_id: nil,
+        amount: 100,
+        occurred_on: "2026-07-10",
+        splits: [
+          { budget_category_id: 3, amount: 60 },
+          { budget_category_id: nil, amount: 40 }
+        ]
+      }
+    ]
+
+    focused = HouseholdFinance::BudgetQuestionAnswerer.new(
+      "How much is planned for Dining Out in July?",
+      annual_plan: plan,
+      today: Date.new(2026, 7, 15)
+    ).call
+    overview = HouseholdFinance::BudgetQuestionAnswerer.new(
+      "Tell me about my July budget overview",
+      annual_plan: plan,
+      today: Date.new(2026, 7, 15)
+    ).call
+
+    assert_includes focused, "$60 is still pending review for these categories"
+    assert_includes overview, "Pending transaction drafts total $100"
+  end
+
   test "spending report query resolves relative weekdays without widening to the month" do
     assert_equal(
       { start_on: Date.new(2026, 7, 14), end_on: Date.new(2026, 7, 14) },

@@ -146,10 +146,19 @@ module HouseholdFinance
     end
 
     def pending_sums
-      @pending_sums ||= household.transaction_drafts.pending
-        .where(occurred_on: start_on..end_on)
-        .group(:budget_category_id)
-        .sum(:total_amount_cents)
+      @pending_sums ||= begin
+        scope = household.transaction_drafts.pending.where(occurred_on: start_on..end_on)
+        split_sums = TransactionDraftSplit.joins(:transaction_draft)
+          .merge(scope)
+          .group(:budget_category_id)
+          .sum(:amount_cents)
+        unsplit_sums = scope.left_outer_joins(:transaction_draft_splits)
+          .where(transaction_draft_splits: { id: nil })
+          .group(:budget_category_id)
+          .sum(:total_amount_cents)
+
+        split_sums.merge(unsplit_sums) { |_category_id, split_cents, draft_cents| split_cents + draft_cents }
+      end
     end
 
     def uncategorized_pending_cents
