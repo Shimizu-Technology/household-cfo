@@ -6,7 +6,7 @@ require "uri"
 
 module HouseholdFinance
   class MiaNarrator
-    OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+    OPENROUTER_URL = MiaProviderEndpoint::DEFAULT_URL
     DEFAULT_MODEL = "~anthropic/claude-sonnet-latest"
     MAX_PACKET_BYTES = 12_000
     MAX_HISTORY_MESSAGES = 32
@@ -49,7 +49,7 @@ module HouseholdFinance
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
 
-      narrated = openrouter_response
+      narrated = MiaProviderAdmission.with_slot { openrouter_response }
       sanitized = sanitize_narration(narrated)
       rejection_reason = narration_rejection_reason(sanitized)
       return reject_narration(rejection_reason) if rejection_reason
@@ -65,7 +65,7 @@ module HouseholdFinance
     attr_reader :user_message, :answer_packet, :history, :api_key, :model, :persona
 
     def openrouter_response
-      uri = URI(OPENROUTER_URL)
+      uri = MiaProviderEndpoint.uri
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{api_key}"
       request["Content-Type"] = "application/json"
@@ -73,7 +73,7 @@ module HouseholdFinance
       request["X-Title"] = "Household CFO Method Mia Narrator"
       request.body = payload.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
+      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: READ_TIMEOUT_SECONDS, open_timeout: OPEN_TIMEOUT_SECONDS) do |http|
         http.request(request)
       end
       return unless response.is_a?(Net::HTTPSuccess)

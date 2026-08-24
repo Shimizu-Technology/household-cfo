@@ -1,6 +1,25 @@
 require "test_helper"
 
 class DemoMiaResponderTest < ActiveSupport::TestCase
+  test "uses the deterministic local response when provider capacity is full" do
+    with_env("MIA_PROVIDER_MAX_CONCURRENCY" => "1") do
+      ProviderCallLease.create!(
+        provider: HouseholdFinance::MiaProviderAdmission::PROVIDER,
+        slot: 1,
+        owner_token: SecureRandom.uuid,
+        expires_at: 30.seconds.from_now
+      )
+
+      responder = Demo::MiaResponder.new(api_key: "test-key")
+      responder.define_singleton_method(:openrouter_response) { |*| raise "saturated admission called the provider" }
+      response = responder.call("How should I organize my budget?")
+
+      assert_includes response, "protecting the household baseline"
+    ensure
+      ProviderCallLease.where(provider: HouseholdFinance::MiaProviderAdmission::PROVIDER).delete_all
+    end
+  end
+
   test "chat uses OpenRouter for ordinary messages when api key is configured" do
     responder = stubbed_model_responder("Real model response")
 

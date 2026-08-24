@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_24_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_24_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -596,6 +596,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_000000) do
     t.index ["plaid_transaction_id"], name: "index_plaid_transactions_on_plaid_transaction_id", unique: true
     t.index ["transaction_draft_id"], name: "index_plaid_transactions_on_transaction_draft_id"
     t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying, 'drafted'::character varying, 'ignored'::character varying]::text[])", name: "plaid_transactions_review_status"
+  end
+
+  create_table "provider_call_leases", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.datetime "expires_at", null: false
+    t.string "owner_token", null: false
+    t.string "provider", null: false
+    t.integer "slot", null: false
+    t.datetime "updated_at", null: false
+    t.index ["provider", "expires_at"], name: "index_provider_call_leases_on_provider_and_expires_at"
+    t.index ["provider", "slot"], name: "index_provider_call_leases_on_provider_and_slot", unique: true
+    t.check_constraint "char_length(owner_token::text) >= 1 AND char_length(owner_token::text) <= 64", name: "provider_call_leases_owner_token_length"
+    t.check_constraint "char_length(provider::text) >= 1 AND char_length(provider::text) <= 64", name: "provider_call_leases_provider_length"
+    t.check_constraint "slot > 0", name: "provider_call_leases_slot_positive"
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|

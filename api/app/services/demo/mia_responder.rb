@@ -60,7 +60,12 @@ module Demo
       return crisis_response if crisis_message?(clean_message)
       grounded_response = grounded_answer(clean_message, context: context)
       return grounded_response if grounded_response
-      return openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution) if @api_key.to_s.strip.present?
+      if @api_key.to_s.strip.present?
+        response = HouseholdFinance::MiaProviderAdmission.with_slot do
+          openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
+        end
+        return response || fallback_response(clean_message, context: prompt_context)
+      end
 
       fallback_response(clean_message, context: prompt_context)
     rescue StandardError
@@ -80,7 +85,7 @@ module Demo
     end
 
     def openrouter_response(message, history, context:, draft_capable: false, conversation_resolution: nil)
-      uri = URI("https://openrouter.ai/api/v1/chat/completions")
+      uri = HouseholdFinance::MiaProviderEndpoint.uri
       request = Net::HTTP::Post.new(uri)
       request["Authorization"] = "Bearer #{@api_key}"
       request["Content-Type"] = "application/json"
@@ -100,7 +105,7 @@ module Demo
         temperature: 0.5
       }.to_json
 
-      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: true, read_timeout: 20, open_timeout: 5) do |http|
+      response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: 20, open_timeout: 5) do |http|
         http.request(request)
       end
 
