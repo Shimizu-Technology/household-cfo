@@ -38,6 +38,8 @@ module Demo
     PERCENT_METRIC_LABELS = {
       "monthly_surplus_rate_percent" => /\b(?:monthly\s+)?surplus\s+rate\b/i
     }.freeze
+    PARTICIPANT_SCENARIO_LABEL_PATTERN = /\b(?:scenario|assumption|input|costs?|prices?|quoted|amount|percentage|rate|you\s+(?:gave|provided|entered|mentioned|asked\s+about))\b/i.freeze
+    UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN = /\b(?:you|we)\s+(?:can|could|should|may)\s+(?:comfortably\s+)?afford\b|\b(?:safe|okay|ok|fine|clear|approved)\s+(?:for\s+you\s+)?to\s+(?:spend|buy|book|purchase)\b|\b(?:trip|purchase|expense|it|that)\s+(?:works|fits|is\s+affordable|looks\s+affordable)\b|\bwithin\s+(?:your|the)\s+(?:budget|safe-to-spend)\b|\byou(?:['’]re|\s+are)\s+(?:clear|good)\s+to\s+(?:spend|buy|book)\b/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -232,6 +234,7 @@ module Demo
 
     def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
       payload = parsed_context(context)
+      return true if content.to_s.match?(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN)
       return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
@@ -256,7 +259,7 @@ module Demo
       participant_values = currency_values(user_message)
       mentions.all? do |mention|
         nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
-        participant_values.include?(mention.fetch(:value)) ||
+        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
           (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
     end
@@ -269,9 +272,17 @@ module Demo
       participant_values = percent_values(user_message)
       mentions.all? do |mention|
         nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
-        participant_values.include?(mention.fetch(:value)) ||
+        (participant_values.include?(mention.fetch(:value)) && participant_scenario_labeled?(content, mention)) ||
           (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
+    end
+
+    def participant_scenario_labeled?(content, mention)
+      labels = content.to_s.to_enum(:scan, PARTICIPANT_SCENARIO_LABEL_PATTERN).map do
+        match = Regexp.last_match
+        { start: match.begin(0), finish: match.end(0) }
+      end
+      labels.any? { |label| range_distance(label, mention) <= 40 }
     end
 
     def approved_metric_mentions(content, metrics:)

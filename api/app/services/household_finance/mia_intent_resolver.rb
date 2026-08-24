@@ -244,7 +244,14 @@ module HouseholdFinance
       action_intent = intent.in?(%w[budget_action household_action income_action transaction_draft_action]) || (intent == "transaction_report" && action[:type] == "create_transaction_draft")
       needs_clarification = true if action_intent && action.fetch(:type) != "none" && confidence < MIN_ACTION_CONFIDENCE
       references_valid = action_references_valid?(action)
-      if references_valid && action_amounts_grounded?(action, allow_history: intent == "recall" || explicit_amount_continuation?)
+      history_scope = if intent == "recall"
+        :all
+      elsif explicit_amount_continuation?
+        :latest
+      else
+        :none
+      end
+      if references_valid && action_amounts_grounded?(action, history_scope: history_scope)
         complete_action = action_intent && confidence >= MIN_ACTION_CONFIDENCE && action_complete?(action)
         if complete_action
           needs_clarification = false
@@ -350,11 +357,11 @@ module HouseholdFinance
       end
     end
 
-    def action_amounts_grounded?(action, allow_history: false)
+    def action_amounts_grounded?(action, history_scope: :none)
       proposed = action_money_cents(action)
       return true if proposed.empty?
 
-      allowed = participant_money_cents(include_history: allow_history)
+      allowed = participant_money_cents(history_scope: history_scope)
       proposed.all? do |amount|
         allowed.include?(amount) || (amount.zero? && semantic_zero_authorized?(action))
       end
@@ -375,13 +382,15 @@ module HouseholdFinance
       values.filter_map { |value| cents_or_nil(value) }.uniq
     end
 
-    def participant_money_cents(include_history: false)
+    def participant_money_cents(history_scope: :none)
       messages = [ user_message ]
-      messages.concat(Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
+      recent_participant_messages = Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
         role = message[:role] || message["role"]
         content = message[:content] || message["content"]
         content if role.to_s == "user"
-      end) if include_history
+      end
+      messages.concat(recent_participant_messages) if history_scope == :all
+      messages.concat(recent_participant_messages.last(1)) if history_scope == :latest
       messages.flat_map { |text| money_cents_from_participant_text(text) }.uniq
     end
 

@@ -282,6 +282,18 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       context: context,
       user_message: "What if the trip costs $800?"
     )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "You can afford the $800 trip.",
+      context: context,
+      user_message: "What if the trip costs $800?"
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Put $800 toward the trip.",
+      context: context,
+      user_message: "What if the trip costs $800?"
+    )
   end
 
   test "generic model responses require approved percentages to match their metric label" do

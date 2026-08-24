@@ -275,6 +275,43 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "could not verify that amount"
   end
 
+  test "generic continuation can use only the immediately preceding participant request amount" do
+    context = intent_context.deep_dup
+    context[:conversation][:recent_messages] = [
+      { role: "user", content: "I received a $4,000 bonus last month." },
+      { role: "assistant", content: "We can discuss that later." },
+      { role: "user", content: "Set Fixed essentials to $3,000 for July." },
+      { role: "assistant", content: "I can prepare that review." }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Do it",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Set Fixed essentials to $4,000 for July 2026",
+          topic: { type: "budget_edit", title: "July Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(
+            type: "set_allocation",
+            category_id: 42,
+            category_name: "Fixed essentials",
+            amount: "4000",
+            months: [ 7 ],
+            year: 2026
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "could not verify that amount"
+  end
+
   test "does not reuse an unrelated stale stop-income phrase to authorize zero" do
     context = intent_context.deep_dup
     context[:conversation][:recent_messages] = [
