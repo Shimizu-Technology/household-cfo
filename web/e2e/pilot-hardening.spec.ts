@@ -778,7 +778,7 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
   expect(clearedMetrics.overflowY).toBe('hidden')
 })
 
-test('Ask Mia reuses one request ID after a network failure so retry cannot duplicate the turn', async ({ page }) => {
+test('Ask Mia preserves one request ID through a network failure and reload so retry cannot duplicate the turn', async ({ page }) => {
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   const requestIds: string[] = []
   let attempt = 0
@@ -808,6 +808,9 @@ test('Ask Mia reuses one request ID after a network failure so retry cannot dupl
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(composer).toHaveValue('What should I focus on?')
 
+  await page.reload()
+  const restoredComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(restoredComposer).toHaveValue('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(page.getByText('Protect the baseline first.')).toBeVisible()
 

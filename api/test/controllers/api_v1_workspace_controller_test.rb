@@ -1134,6 +1134,22 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 0, MiaMessageRequest.count
   end
 
+  test "clearing Mia chat preserves active request reservations" do
+    user = create_user(email: "clear-active-request@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    active_request = session.mia_message_requests.create!(
+      request_key: "mia-request-active-clear-1",
+      request_fingerprint: "a" * 64
+    )
+
+    delete "/api/v1/mia/messages", headers: auth_headers(user)
+
+    assert_response :no_content
+    assert MiaMessageRequest.exists?(active_request.id)
+    assert active_request.reload.processing?
+  end
+
   test "clearing empty Mia chat does not create a chat session" do
     user = create_user(email: "no-session-clear@example.com")
 

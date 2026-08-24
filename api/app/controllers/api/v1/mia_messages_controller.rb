@@ -121,7 +121,7 @@ module Api
       def destroy
         if (session = current_household.chat_sessions.find_by(user: current_user))
           session.chat_messages.delete_all
-          session.mia_message_requests.delete_all
+          session.mia_message_requests.where(status: "completed").delete_all
           session.update!(rolling_summary: nil, open_topics: [], active_topic: {}, last_compacted_message_id: nil, last_compacted_at: nil)
         end
         head :no_content
