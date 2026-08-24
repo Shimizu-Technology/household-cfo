@@ -2598,7 +2598,7 @@ function PendingAttachmentTray({
       {attachments.map((attachment) => (
         <div className="composer-attachment-card" key={attachment.id}>
           <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
-            {browserPreviewableImage(attachment.content_type) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            {pendingAttachmentHasImagePreview(attachment) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
             <span>{attachmentDisplayName(attachment)}</span>
           </button>
           <label className="attachment-kind-picker">
@@ -2621,7 +2621,7 @@ function PendingAttachmentTray({
 }
 
 function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
-  const isImage = browserPreviewableImage(attachment.content_type)
+  const isImage = pendingAttachmentHasImagePreview(attachment)
 
   return (
     <div className="document-preview-overlay" role="presentation">
@@ -2635,7 +2635,12 @@ function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMi
           <button type="button" className="document-preview-close-button" onClick={onClose}>Close</button>
         </div>
         <div className="document-preview-body">
-          {isImage ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <div className="document-preview-state"><AttachmentIcon /><p>Preview will be available after upload.</p></div>}
+          {isImage ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : (
+            <div className="document-preview-state">
+              <AttachmentIcon />
+              <p>{attachment.document_import_id ? 'This restored upload has no local preview. You can still send it to Mia.' : 'Preview will be available after upload.'}</p>
+            </div>
+          )}
         </div>
       </section>
     </div>
@@ -4301,6 +4306,10 @@ function extensionForFile(file: File) {
 
 function browserPreviewableImage(contentType: string) {
   return ['image/jpeg', 'image/png', 'image/webp'].includes(contentType.toLowerCase())
+}
+
+function pendingAttachmentHasImagePreview(attachment: PendingMiaAttachment) {
+  return Boolean(attachment.previewUrl) && browserPreviewableImage(attachment.content_type)
 }
 
 function sleep(milliseconds: number) {

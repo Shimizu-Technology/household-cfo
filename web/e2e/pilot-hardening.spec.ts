@@ -863,6 +863,12 @@ test('Ask Mia uses a new request ID when the retry targets a different budget mo
 })
 
 test('Ask Mia restores uploaded attachment context and its exact request ID after reload', async ({ page }) => {
+  const emptySourceErrors: string[] = []
+  page.on('console', (message) => {
+    if (message.type() === 'error' && message.text().includes('empty string ("") was passed to the src attribute')) {
+      emptySourceErrors.push(message.text())
+    }
+  })
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   const message = 'Please review this receipt.'
   const month = new Date().getMonth() + 1
@@ -907,6 +913,12 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toHaveValue(message)
   await expect(page.getByText('saved-receipt.jpg')).toBeVisible()
+  await expect(page.locator('.composer-attachment-card img')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Receipt screenshot', exact: true }).click()
+  await expect(page.getByText('This restored upload has no local preview. You can still send it to Mia.')).toBeVisible()
+  await expect(page.locator('.local-attachment-preview img')).toHaveCount(0)
+  expect(emptySourceErrors).toEqual([])
+  await page.getByRole('button', { name: 'Close', exact: true }).click()
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(page.getByText('I kept the uploaded receipt attached.')).toBeVisible()
 
