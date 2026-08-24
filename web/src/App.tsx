@@ -163,6 +163,22 @@ type PendingMiaAttachment = {
   kindWasSelected?: boolean
 }
 
+type MiaRetryRequest = {
+  id: string
+  signature: string
+  message: string
+  attachments: MiaRetryAttachment[]
+}
+
+type MiaRetryAttachment = {
+  document_import_id: number
+  filename: string
+  content_type: string
+  document_kind: DocumentImportKind
+  status: FinancialDocumentImport['status']
+  source_available: boolean
+}
+
 type BudgetAllocationChange = {
   allocation_id: number
   planned_amount: string
@@ -326,6 +342,7 @@ function App() {
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
   const spendingReportRequestRef = useRef(0)
+  const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
@@ -397,6 +414,20 @@ function App() {
   useEffect(() => {
     pendingMiaAttachmentsRef.current = pendingMiaAttachments
   }, [pendingMiaAttachments])
+
+  useEffect(() => {
+    const pendingRequest = loadMiaRetryRequest(chatStorageKey)
+    miaRetryRequestRef.current = pendingRequest
+    if (!pendingRequest) return
+
+    const restoreComposer = window.setTimeout(() => {
+      setQuestion((current) => current.trim() ? current : pendingRequest.message)
+      setPendingMiaAttachments((current) => current.length > 0
+        ? current
+        : pendingRequest.attachments.map(pendingAttachmentFromMiaRetry))
+    }, 0)
+    return () => window.clearTimeout(restoreComposer)
+  }, [chatStorageKey])
 
   const documentStatusSignature = useMemo(
     () => documentImports
@@ -906,20 +937,50 @@ function App() {
     setMessages((current) => [...current, optimisticMessage])
 
     let preparedAttachmentsForRetry = attachmentsToSend
+    let pendingRetryRequest: MiaRetryRequest | null = null
 
     try {
       const uploadResult = await uploadPendingMiaAttachments(attachmentsToSend, messageContent)
       preparedAttachmentsForRetry = uploadResult.attachments
       const readyAttachments = await waitForMiaAttachmentImports(uploadResult.attachments)
       preparedAttachmentsForRetry = readyAttachments
+      const documentImportIds = readyAttachments
+        .filter((attachment) => attachment.document_import_id)
+        .map((attachment) => attachment.document_import_id!)
+        .sort((left, right) => left - right)
+      const requestSignature = JSON.stringify({
+        message: messageContent,
+        attachmentIds: documentImportIds,
+        year: selectedBudgetYear,
+        month: selectedBudgetMonthIndex + 1,
+      })
+      const retryRequest = miaRetryRequestRef.current
+      const miaRequestId = retryRequest?.signature === requestSignature
+        ? retryRequest.id
+        : clientSideId('mia-request')
+      pendingRetryRequest = {
+        id: miaRequestId,
+        signature: requestSignature,
+        message: messageContent,
+        attachments: readyAttachments
+          .filter((attachment) => attachment.document_import_id)
+          .map(miaRetryAttachment),
+      }
+      miaRetryRequestRef.current = pendingRetryRequest
+      if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
       const response = await sendMiaMessage(
         messageContent,
         priorMessages,
         isRealWorkspace,
         selectedBudgetYear,
         selectedBudgetMonthIndex + 1,
-        readyAttachments.filter((attachment) => attachment.document_import_id).map((attachment) => attachment.document_import_id!),
+        documentImportIds,
+        miaRequestId,
       )
+      if (miaRetryRequestRef.current?.id === miaRequestId) {
+        miaRetryRequestRef.current = null
+        if (isRealWorkspace) clearMiaRetryRequest(chatStorageKey)
+      }
       captureAnalyticsEvent('mia_message_sent', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
         history_count: priorMessages.length,
@@ -967,6 +1028,10 @@ function App() {
       })
       setMessages((current) => current.filter((message) => message.client_id !== optimisticMessageId))
       setQuestion(messageContent)
+      if (pendingRetryRequest) {
+        miaRetryRequestRef.current = pendingRetryRequest
+        if (isRealWorkspace) saveMiaRetryRequest(chatStorageKey, pendingRetryRequest)
+      }
       setMiaError(caught instanceof Error ? caught.message : 'Mia could not send that message. Please try again.')
       const retryAttachments = caught instanceof MiaAttachmentError ? caught.attachments : preparedAttachmentsForRetry
       setPendingMiaAttachments((current) => [...retryAttachments, ...current])
@@ -990,7 +1055,7 @@ function App() {
   }
 
   function handleClearMessagesRequest() {
-    if (miaClearing || currentMessages.length === 0) return
+    if (miaClearing || miaLoading || currentMessages.length === 0) return
 
     setConfirmClearChat(true)
   }
@@ -1048,6 +1113,8 @@ function App() {
       setOlderServerMessageCount(0)
       setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
       historyExpandedRef.current = false
+      miaRetryRequestRef.current = null
+      clearMiaRetryRequest(chatStorageKey)
       captureAnalyticsEvent('mia_chat_cleared', {
         workspace_mode: isRealWorkspace ? 'real' : 'demo',
       })
@@ -1960,7 +2027,7 @@ function App() {
                 </div>
                 <div className="chat-actions">
                   {currentMessages.length > 0 && (
-                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing}>
+                    <button type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
                     </button>
                   )}
@@ -4095,6 +4162,32 @@ function attachmentWithDocumentImport(attachment: PendingMiaAttachment, document
     document_import_id: documentImport.id,
     status: documentImport.status,
     source_available: documentImport.source_available,
+  }
+}
+
+function miaRetryAttachment(attachment: PendingMiaAttachment): MiaRetryAttachment {
+  return {
+    document_import_id: attachment.document_import_id!,
+    filename: attachment.filename,
+    content_type: attachment.content_type,
+    document_kind: attachment.document_kind,
+    status: attachment.status ?? 'needs_review',
+    source_available: attachment.source_available ?? false,
+  }
+}
+
+function pendingAttachmentFromMiaRetry(attachment: MiaRetryAttachment): PendingMiaAttachment {
+  return {
+    id: `restored-import-${attachment.document_import_id}`,
+    file: new File([], attachment.filename, { type: attachment.content_type }),
+    filename: attachment.filename,
+    content_type: attachment.content_type,
+    document_kind: attachment.document_kind,
+    previewUrl: '',
+    document_import_id: attachment.document_import_id,
+    status: attachment.status,
+    source_available: attachment.source_available,
+    kindWasSelected: true,
   }
 }
 
@@ -7397,6 +7490,61 @@ function saveStoredMiaMessages(storageKey: string, messages: MiaMessage[]) {
     window.localStorage.setItem(storageKey, JSON.stringify(boundedMessages))
   } catch {
     // Ignore private browsing/storage quota issues. Chat still works in memory.
+  }
+}
+
+function miaRetryStorageKey(chatStorageKey: string) {
+  return `${chatStorageKey}:pending-request`
+}
+
+function loadMiaRetryRequest(chatStorageKey: string): MiaRetryRequest | null {
+  try {
+    const stored = window.sessionStorage.getItem(miaRetryStorageKey(chatStorageKey))
+    if (!stored) return null
+
+    const parsed = JSON.parse(stored) as Partial<MiaRetryRequest>
+    if (typeof parsed.id !== 'string' || !/^mia-request-[a-zA-Z0-9-]+$/.test(parsed.id)) return null
+    if (typeof parsed.signature !== 'string' || typeof parsed.message !== 'string' || !parsed.message.trim()) return null
+
+    const attachments = Array.isArray(parsed.attachments)
+      ? parsed.attachments.filter(validMiaRetryAttachment)
+      : []
+    if (Array.isArray(parsed.attachments) && attachments.length !== parsed.attachments.length) return null
+
+    return { id: parsed.id, signature: parsed.signature, message: parsed.message, attachments }
+  } catch {
+    return null
+  }
+}
+
+function validMiaRetryAttachment(value: unknown): value is MiaRetryAttachment {
+  if (!value || typeof value !== 'object') return false
+
+  const attachment = value as Partial<MiaRetryAttachment>
+  return typeof attachment.document_import_id === 'number'
+    && Number.isInteger(attachment.document_import_id)
+    && attachment.document_import_id > 0
+    && typeof attachment.filename === 'string'
+    && attachment.filename.length > 0
+    && typeof attachment.content_type === 'string'
+    && ['spreadsheet', 'statement', 'pay_stub', 'receipt', 'other'].includes(attachment.document_kind ?? '')
+    && typeof attachment.status === 'string'
+    && typeof attachment.source_available === 'boolean'
+}
+
+function saveMiaRetryRequest(chatStorageKey: string, request: MiaRetryRequest) {
+  try {
+    window.sessionStorage.setItem(miaRetryStorageKey(chatStorageKey), JSON.stringify(request))
+  } catch {
+    // Ignore private browsing/storage quota issues. The in-memory retry key still protects this page session.
+  }
+}
+
+function clearMiaRetryRequest(chatStorageKey: string) {
+  try {
+    window.sessionStorage.removeItem(miaRetryStorageKey(chatStorageKey))
+  } catch {
+    // Ignore private browsing/storage access issues.
   }
 }
 

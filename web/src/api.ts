@@ -841,7 +841,7 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+async function apiFetch(path: string, options: RequestInit = {}) {
   const headers = {
     ...(await authHeaders()),
     ...(options.headers as Record<string, string> | undefined),
@@ -856,6 +856,12 @@ async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T>
   } catch (error) {
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
+
+  return response
+}
+
+async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const response = await apiFetch(path, options)
 
   if (!response.ok) {
     throw new Error(await responseErrorMessage(response, 'API request failed'))
@@ -872,6 +878,36 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
+}
+
+async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T> {
+  const maximumPolls = 60
+  for (let poll = 0; poll < maximumPolls; poll += 1) {
+    const response = await apiFetch(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    if (response.status === 202) {
+      const payload = (await response.json()) as { code?: string; retry_after_ms?: number }
+      if (payload.code !== 'mia_request_processing') {
+        throw new Error('Mia returned an unexpected processing response. Please try again.')
+      }
+
+      const retryAfter = Math.max(100, Math.min(payload.retry_after_ms ?? 500, 2_000))
+      await new Promise((resolve) => globalThis.setTimeout(resolve, retryAfter))
+      continue
+    }
+
+    if (!response.ok) {
+      throw new Error(await responseErrorMessage(response, 'API request failed'))
+    }
+
+    return response.json() as Promise<T>
+  }
+
+  throw new Error('Mia is still working on that exact request. Wait a moment, then try again; your retry will not create a duplicate.')
 }
 
 async function responseErrorMessage(response: Response, fallback: string) {
@@ -1194,17 +1230,22 @@ export async function fetchMiaMessages(realWorkspace = false, beforeId?: number 
   return fetchJson<MiaMessagesData>(`/api/v1/mia/messages${query}`)
 }
 
-export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = []): Promise<MiaMessageResponse> {
-  return postJson<MiaMessageResponse>(realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages', {
+export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = [], requestId?: string): Promise<MiaMessageResponse> {
+  const path = realWorkspace ? '/api/v1/mia/messages' : '/api/demo/mia/messages'
+  const body = {
     message,
     ...(realWorkspace && year ? { year } : {}),
     ...(realWorkspace && month ? { month } : {}),
     ...(realWorkspace && documentImportIds.length > 0 ? { document_import_ids: documentImportIds } : {}),
+    ...(realWorkspace && requestId ? { request_id: requestId } : {}),
     messages: history.slice(-32).map((entry) => ({
       role: entry.role,
       content: entry.content,
     })),
-  })
+  }
+  return realWorkspace
+    ? postJsonUntilComplete<MiaMessageResponse>(path, body)
+    : postJson<MiaMessageResponse>(path, body)
 }
 
 function clientRequestId() {
