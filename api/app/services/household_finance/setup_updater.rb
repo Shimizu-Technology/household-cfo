@@ -174,7 +174,7 @@ module HouseholdFinance
     end
 
     def distribute_monthly_amount_total!(records, monthly_total_cents)
-      allocations = allocate_cents(monthly_total_cents, records.map { |record| Money.monthly_cents(record.amount_cents, record.cadence) })
+      allocations = allocate_cents(monthly_total_cents, records.map { |record| current_expense_period_cents(record) })
       records.each_with_index do |record, index|
         amount_cents = allocations.fetch(index)
         record.update!(amount_cents: amount_cents, cadence: "monthly", active: amount_cents.positive?)
@@ -205,7 +205,11 @@ module HouseholdFinance
     end
 
     def amount_records_monthly_total(records)
-      records.sum { |record| Money.monthly_cents(record.amount_cents, record.cadence) }
+      records.sum { |record| current_expense_period_cents(record) }
+    end
+
+    def current_expense_period_cents(record)
+      Money.period_cents(record.amount_cents, record.cadence, month: Date.current.month)
     end
 
     def distribute_debt_totals!(records, balance_cents, payment_cents)

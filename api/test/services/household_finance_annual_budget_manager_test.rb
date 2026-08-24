@@ -95,6 +95,8 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
       assert_equal 8.34, plan.fetch(:monthly_income).fetch(january.fetch(:id))
       assert_equal 8.34, workspace.dig(:dashboard, :summary, :monthly_income)
       assert_equal 8.34, workspace.dig(:workspace, :setup_values, :primary_income)
+      assert_equal 8.34, workspace.dig(:workspace, :setup_values, :expected_sinking_fund)
+      assert_equal 8.34, workspace.dig(:profile, :sections).find { |section| section.fetch(:label) == "Expenses" }.fetch(:items).first.fetch(:amount)
     end
   end
 
