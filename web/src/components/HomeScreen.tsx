@@ -6,6 +6,7 @@ import {
 } from './BudgetVisuals'
 import { budgetPositionsForMonth, budgetPositionTotals } from '../lib/budgetPosition'
 import { Metric } from './Metric'
+import { sumMoney } from '../lib/moneyMath'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 
@@ -29,8 +30,8 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
   const actionCenter = dashboard.action_center
   const currentPlan = budget.annual_plan?.year === actionCenter.current_year ? budget.annual_plan : null
   const currentMonthIndex = Math.max(0, Math.min(11, actionCenter.current_month_index))
-  const monthPlanned = currentPlan?.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.planned ?? 0), 0) ?? 0
-  const monthActual = currentPlan?.rows.reduce((sum, row) => sum + (row.months[currentMonthIndex]?.actual ?? 0), 0) ?? 0
+  const monthPlanned = currentPlan ? sumMoney(currentPlan.rows.map((row) => row.months[currentMonthIndex]?.planned ?? 0)) : 0
+  const monthActual = currentPlan ? sumMoney(currentPlan.rows.map((row) => row.months[currentMonthIndex]?.actual ?? 0)) : 0
   const currentPositions = currentPlan ? budgetPositionsForMonth(currentPlan, currentMonthIndex) : []
   const currentTotals = budgetPositionTotals(currentPositions)
   const currentMonthIncome = dashboard.summary.monthly_income

@@ -673,7 +673,7 @@ module HouseholdFinance
     end
 
     def income_by_type(source_type)
-      income_sources.select { |income| income.source_type == source_type }.sum { |income| Money.monthly_cents(income.amount_cents, income.cadence) }
+      income_sources.select { |income| income.source_type == source_type }.sum { |income| current_recurring_income_cents(income) }
     end
 
     def current_recurring_income_cents(income)

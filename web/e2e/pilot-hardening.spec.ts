@@ -589,6 +589,39 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(page.getByText('enough stability to move with intention')).toHaveCount(0)
 })
 
+test('penny-level plans never show a false over-budget warning', async ({ page }) => {
+  const pennyRow = {
+    ...budget.annual_plan.rows[0],
+    name: 'Penny-perfect category',
+    months: categoryMonths(1, 0.3, 0.1),
+    planned_total: 3.6,
+    actual_total: 0.1,
+  }
+  const pennyBudget = {
+    ...budget,
+    annual_plan: {
+      ...budget.annual_plan,
+      rows: [pennyRow],
+      monthly_debt_minimums: 0,
+      pending_transaction_drafts: [{
+        ...budget.annual_plan.pending_transaction_drafts[0],
+        amount: 0.2,
+        amount_cents: 20,
+        category_id: pennyRow.id,
+        category_name: pennyRow.name,
+      }],
+      pending_mia_action_drafts: [],
+    },
+  }
+  await page.route('http://api.test/api/demo/budget', (route) => route.fulfill({ status: 200, json: pennyBudget }))
+
+  await page.goto('/')
+
+  const monthSummary = page.getByRole('region', { name: `${currentMonth} ${currentYear} plan position` })
+  await expect(monthSummary).toContainText('$0.00 remains after pending review')
+  await expect(monthSummary).not.toContainText('over plan if all pending items are approved')
+})
+
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
   await page.goto('/')
   for (const section of ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {

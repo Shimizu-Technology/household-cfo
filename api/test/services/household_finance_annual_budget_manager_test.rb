@@ -42,6 +42,62 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal 2_725, january.fetch(:baseline_surplus)
   end
 
+  test "setup-sourced allocations stay frozen after their budget month has passed" do
+    travel_to Date.new(2026, 8, 25) do
+      household = create_household
+      expense = household.expense_items.create!(
+        label: "Fixed essentials",
+        stack_key: "non_discretionary",
+        amount_cents: 100_000,
+        cadence: "monthly"
+      )
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+      manager.plan_data
+
+      expense.update!(amount_cents: 125_000)
+      refreshed = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data
+      row = refreshed.fetch(:rows).find { |candidate| candidate.fetch(:name) == "Fixed essentials" }
+
+      assert_equal [ 1_000.0 ] * 7, row.fetch(:months).first(7).pluck(:planned)
+      assert_equal [ 1_250.0 ] * 5, row.fetch(:months).last(5).pluck(:planned)
+    end
+  end
+
+  test "annual rows and outlook add penny values without floating-point drift" do
+    household = create_household
+    household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 100, cadence: "monthly")
+    household.expense_items.create!(label: "First penny plan", stack_key: "discretionary", amount_cents: 10, cadence: "monthly")
+    household.expense_items.create!(label: "Second penny plan", stack_key: "discretionary", amount_cents: 20, cadence: "monthly")
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year).plan_data
+    january = plan.fetch(:annual_outlook).fetch(:months).first
+
+    assert_equal 0.3, january.fetch(:category_plan)
+    assert_equal 0.3, january.fetch(:planned_outflow)
+    assert_equal 0.7, january.fetch(:baseline_surplus)
+    assert_equal [ 1.2, 2.4 ], plan.fetch(:rows).pluck(:planned_total).sort
+  end
+
+  test "annual cadence amounts reconcile exactly across all twelve budget months" do
+    travel_to Date.new(2026, 1, 15) do
+      household = create_household
+      household.income_sources.create!(label: "Annual stipend", source_type: "job", amount_cents: 10_000, cadence: "annual")
+      household.expense_items.create!(label: "Annual fee", stack_key: "sinking_expected", amount_cents: 10_000, cadence: "annual")
+
+      plan = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year).plan_data
+      row = plan.fetch(:rows).find { |candidate| candidate.fetch(:name) == "Annual fee" }
+      january = plan.fetch(:months).first
+      workspace = HouseholdFinance::DataPresenter.new(household).app_data
+
+      assert_equal 100.0, plan.fetch(:monthly_income).values.sum
+      assert_equal 100.0, row.fetch(:planned_total)
+      assert_equal 100.0, row.fetch(:months).sum { |month| month.fetch(:planned) }
+      assert_equal 8.34, plan.fetch(:monthly_income).fetch(january.fetch(:id))
+      assert_equal 8.34, workspace.dig(:dashboard, :summary, :monthly_income)
+      assert_equal 8.34, workspace.dig(:workspace, :setup_values, :primary_income)
+    end
+  end
+
   test "plan data scopes pending transaction drafts to the viewed budget year" do
     household = create_household
     household.transaction_drafts.create!(

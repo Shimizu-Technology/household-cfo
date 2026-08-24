@@ -44,19 +44,26 @@ module HouseholdFinance
     end
 
     def monthly_cents(amount_cents, cadence)
+      annual_cents = annualized_cents(amount_cents, cadence)
+      (annual_cents + 6) / 12
+    end
+
+    def period_cents(amount_cents, cadence, month:)
+      month_number = Integer(month)
+      raise ArgumentError, "Month must be between 1 and 12" unless month_number.between?(1, 12)
+
+      base, remainder = annualized_cents(amount_cents, cadence).divmod(12)
+      base + (month_number <= remainder ? 1 : 0)
+    end
+
+    def annualized_cents(amount_cents, cadence)
       case cadence.to_s
-      when "weekly"
-        (amount_cents.to_i * 52 / 12.0).round
-      when "biweekly"
-        (amount_cents.to_i * 26 / 12.0).round
-      when "semi_monthly"
-        amount_cents.to_i * 2
-      when "annual"
-        (amount_cents.to_i / 12.0).round
-      when "one_time"
-        0
-      else
-        amount_cents.to_i
+      when "weekly" then amount_cents.to_i * 52
+      when "biweekly" then amount_cents.to_i * 26
+      when "semi_monthly" then amount_cents.to_i * 24
+      when "annual" then amount_cents.to_i
+      when "one_time" then 0
+      else amount_cents.to_i * 12
       end
     end
   end

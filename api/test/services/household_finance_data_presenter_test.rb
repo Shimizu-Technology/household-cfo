@@ -140,6 +140,8 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       assert_equal 0, payload.dig(:optionality, :monthly_gap)
       assert_equal 7_000, income_items.fetch("Primary income").fetch(:amount)
       assert_equal 2_000, income_items.fetch("Business").fetch(:amount)
+      assert_equal 7_000, payload.dig(:workspace, :setup_values, :primary_income)
+      assert_equal 2_000, payload.dig(:workspace, :setup_values, :business_income)
     end
   end
 

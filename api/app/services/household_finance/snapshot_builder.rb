@@ -222,7 +222,10 @@ module HouseholdFinance
     end
 
     def profile_completeness
-      @profile_completeness ||= ProfileCompletenessCalculator.new(household).call
+      @profile_completeness ||= ProfileCompletenessCalculator.new(
+        household,
+        income_sources: active_income_sources
+      ).call
     end
 
     def dollars(cents)

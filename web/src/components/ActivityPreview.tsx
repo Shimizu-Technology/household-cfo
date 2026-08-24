@@ -1,5 +1,6 @@
 import type { AnnualBudgetPlan } from '../api'
 import { budgetPositionTotals, budgetPositionsForMonth } from '../lib/budgetPosition'
+import { addMoney, subtractMoney } from '../lib/moneyMath'
 import { CategoryPressureList, MonthPlanSummary } from './BudgetVisuals'
 
 type ActivityPreviewProps = {
@@ -15,7 +16,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
   const positions = budgetPositionsForMonth(plan, safeMonthIndex)
   const totals = budgetPositionTotals(positions)
   const income = plan.monthly_income[month.id] ?? 0
-  const baselineSurplus = income - totals.planned - plan.monthly_debt_minimums
+  const baselineSurplus = subtractMoney(income, addMoney(totals.planned, plan.monthly_debt_minimums))
 
   return (
     <article className="panel activity-preview" aria-labelledby="activity-preview-title">

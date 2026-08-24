@@ -1,6 +1,7 @@
 import { useId, useState, type CSSProperties } from 'react'
 import type { AnnualBudgetPlan, BudgetStackKey } from '../api'
 import { budgetPositionTotals, type BudgetPosition } from '../lib/budgetPosition'
+import { addMoney, subtractMoney } from '../lib/moneyMath'
 
 const currency = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const compactCurrency = new Intl.NumberFormat('en-US', {
@@ -43,9 +44,9 @@ export function MonthPlanSummary({
   baselineSurplus?: number
   debtMinimums?: number
 }) {
-  const remaining = planned - actual
-  const projected = actual + pending
-  const totalPlannedOutflow = planned + debtMinimums
+  const remaining = subtractMoney(planned, actual)
+  const projected = addMoney(actual, pending)
+  const totalPlannedOutflow = addMoney(planned, debtMinimums)
 
   return (
     <section className="month-plan-summary" aria-label={`${label} plan position`}>
@@ -72,7 +73,7 @@ export function MonthPlanSummary({
       <div className="month-plan-explanation">
         <span><i className="confirmed-swatch" /> Confirmed actuals</span>
         <span><i className="pending-swatch" /> Pending if approved</span>
-        <strong>{projected > planned && planned > 0 ? `${currency.format(projected - planned)} over plan if all pending items are approved` : `${currency.format(Math.max(planned - projected, 0))} remains after pending review`}</strong>
+        <strong>{projected > planned && planned > 0 ? `${currency.format(subtractMoney(projected, planned))} over plan if all pending items are approved` : `${currency.format(Math.max(subtractMoney(planned, projected), 0))} remains after pending review`}</strong>
       </div>
 
       {(safeToSpend !== undefined || baselineSurplus !== undefined) && (
@@ -176,8 +177,8 @@ export function CategoryPressureList({
         {rankedPositions.length === 0 ? (
           <p className="category-pressure-empty">Add categories to see monthly plan pressure here.</p>
         ) : rankedPositions.map((position) => {
-          const projected = position.actual + position.pending
-          const projectedDifference = position.planned - projected
+          const projected = addMoney(position.actual, position.pending)
+          const projectedDifference = subtractMoney(position.planned, projected)
           return (
             <article className="category-pressure-row" key={position.id}>
               <div className="category-pressure-row-heading">
@@ -359,7 +360,7 @@ function PlanValue({ label, value, tone }: { label: string; value: number; tone?
 }
 
 function BudgetProgressTrack({ planned, actual, pending, label }: { planned: number; actual: number; pending: number; label: string }) {
-  const comparisonMaximum = Math.max(planned, actual + pending, 1)
+  const comparisonMaximum = Math.max(planned, addMoney(actual, pending), 1)
   const actualWidth = Math.min((Math.max(actual, 0) / comparisonMaximum) * 100, 100)
   const pendingWidth = Math.min((Math.max(pending, 0) / comparisonMaximum) * 100, Math.max(100 - actualWidth, 0))
   const planMarker = Math.min((Math.max(planned, 0) / comparisonMaximum) * 100, 100)
@@ -380,10 +381,11 @@ function BudgetProgressTrack({ planned, actual, pending, label }: { planned: num
 
 function categoryPressureScore(position: BudgetPosition) {
   const planned = Math.max(position.planned, 1)
-  const projectedRatio = (position.actual + position.pending) / planned
+  const projected = addMoney(position.actual, position.pending)
+  const projectedRatio = projected / planned
   const confirmedRatio = position.actual / planned
   const overPlanWeight = position.remaining < 0 ? 4 : 0
-  const projectedOverWeight = position.actual + position.pending > position.planned ? 2 : 0
+  const projectedOverWeight = projected > position.planned ? 2 : 0
   const pendingWeight = position.pending > 0 ? Math.min(position.pending / planned, 1) : 0
   return overPlanWeight + projectedOverWeight + projectedRatio + confirmedRatio * 0.25 + pendingWeight * 0.25
 }
