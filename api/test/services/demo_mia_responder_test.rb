@@ -266,6 +266,45 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     )
   end
 
+  test "generic model responses may repeat a current participant scenario amount" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = { metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" } }.to_json
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Treat the $800 trip as a scenario, not approved spending.",
+      context: context,
+      user_message: "What if the trip costs $800?"
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Treat the $900 trip as a scenario, not approved spending.",
+      context: context,
+      user_message: "What if the trip costs $800?"
+    )
+  end
+
+  test "generic model responses require approved percentages to match their metric label" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = { metrics: { monthly_surplus_rate_percent: 8, readiness: "Yellow — protect the baseline" } }.to_json
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your monthly surplus rate is 8%.",
+      context: context
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your monthly surplus rate is 60%.",
+      context: context
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "You can spend 8% on the trip.",
+      context: context
+    )
+  end
+
   test "generic chat falls back instead of returning an unverified model amount" do
     context = { metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" } }.to_json
     responder = stubbed_model_responder("Your safe-to-spend is $700, so the trip works.")

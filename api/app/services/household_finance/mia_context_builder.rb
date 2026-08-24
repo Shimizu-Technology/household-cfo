@@ -43,6 +43,7 @@ module HouseholdFinance
           monthly_income: money(snapshot.fetch(:monthly_income_cents)),
           planned_monthly_outflow: money(snapshot.fetch(:total_outflow_cents)),
           baseline_surplus: money(snapshot.fetch(:baseline_surplus_cents)),
+          monthly_surplus_rate_percent: monthly_surplus_rate_percent,
           safe_to_spend: money(snapshot.fetch(:safe_to_spend_cents)),
           runway_months: snapshot.fetch(:runway_months),
           readiness: snapshot.fetch(:readiness_label),
@@ -54,6 +55,13 @@ module HouseholdFinance
         documents: document_context,
         conversation_continuity: conversation_context
       }
+    end
+
+    def monthly_surplus_rate_percent
+      income = snapshot.fetch(:monthly_income_cents)
+      return 0 unless income.positive?
+
+      (snapshot.fetch(:baseline_surplus_cents) / income.to_f * 100).round
     end
 
     def expense_stack_totals

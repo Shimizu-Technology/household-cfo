@@ -391,8 +391,28 @@ module HouseholdFinance
 
     def semantic_zero_authorized?(action)
       return false unless action[:type] == "schedule_income_change" && action[:entry_type] == "recurring_change"
+      return false unless user_message.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
 
-      user_message.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
+      source = matched_income_source(action)
+      return false unless source
+
+      named_sources = Array(context[:income_sources]).select { |candidate| source_explicitly_named?(candidate) }
+      named_sources.one? && named_sources.first == source
+    end
+
+    def matched_income_source(action)
+      sources = Array(context[:income_sources])
+      if action[:income_source_id].to_i.positive?
+        sources.find { |source| source[:id].to_i == action[:income_source_id].to_i }
+      else
+        sources.find { |source| source[:label].to_s.casecmp?(action[:income_source_name].to_s.squish) }
+      end
+    end
+
+    def source_explicitly_named?(source)
+      label = source[:label].to_s.downcase.squish
+      candidates = [ label, label.sub(/\s+(?:income|pay|salary)\z/, "") ].reject(&:blank?).uniq
+      candidates.any? { |name| user_message.downcase.match?(/(?<![[:alnum:]])#{Regexp.escape(name)}(?![[:alnum:]])/) }
     end
 
     def money_cents_from_participant_text(text)

@@ -35,6 +35,9 @@ module Demo
       "total_debt_entered" => /\btotal\s+debt\b/i,
       "liquid_assets" => /\bliquid\s+assets?\b/i
     }.freeze
+    PERCENT_METRIC_LABELS = {
+      "monthly_surplus_rate_percent" => /\b(?:monthly\s+)?surplus\s+rate\b/i
+    }.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(can|should|could|may) i\b.*\b(buy|spend|purchase|afford|get|book|order)\b/,
       /\bis it (okay|ok|safe|smart|in the cards)\b.*\b(to )?(buy|spend|purchase|afford|get|book|order)\b/,
@@ -76,7 +79,7 @@ module Demo
         response = HouseholdFinance::MiaProviderAdmission.with_slot do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
         end
-        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context)
+        if response.present? && !ungrounded_generic_financial_claim?(response, context: prompt_context, user_message: clean_message)
           return response
         end
 
@@ -227,9 +230,9 @@ module Demo
         .gsub(/Annual runway first\. Monthly moves second\.?/i, "that phrase")
     end
 
-    def ungrounded_generic_financial_claim?(content, context:)
+    def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
       payload = parsed_context(context)
-      return true unless financial_values_grounded?(content, payload: payload)
+      return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
       return false if claimed_readiness.empty?
@@ -238,27 +241,54 @@ module Demo
       approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
     end
 
-    def financial_values_grounded?(content, payload:)
+    def financial_values_grounded?(content, payload:, user_message: nil)
       metrics = payload.fetch("metrics", {})
-      grounded_currency_mentions?(content, metrics: metrics) &&
-        percent_values(content).empty? &&
+      grounded_currency_mentions?(content, metrics: metrics, user_message: user_message) &&
+        grounded_percent_mentions?(content, metrics: metrics, user_message: user_message) &&
         runway_values_grounded?(content, approved_runway: metrics.fetch("runway_months", nil))
     end
 
-    def grounded_currency_mentions?(content, metrics:)
+    def grounded_currency_mentions?(content, metrics:, user_message: nil)
       mentions = currency_mentions(content)
       return true if mentions.empty?
 
       metric_mentions = approved_metric_mentions(content, metrics: metrics)
+      participant_values = currency_values(user_message)
       mentions.all? do |mention|
         nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
-        nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value)
+        participant_values.include?(mention.fetch(:value)) ||
+          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
+      end
+    end
+
+    def grounded_percent_mentions?(content, metrics:, user_message: nil)
+      mentions = percent_mentions(content)
+      return true if mentions.empty?
+
+      metric_mentions = approved_percent_metric_mentions(content, metrics: metrics)
+      participant_values = percent_values(user_message)
+      mentions.all? do |mention|
+        nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
+        participant_values.include?(mention.fetch(:value)) ||
+          (nearest && range_distance(nearest, mention) <= 40 && nearest.fetch(:value) == mention.fetch(:value))
       end
     end
 
     def approved_metric_mentions(content, metrics:)
       METRIC_LABELS.flat_map do |key, label_pattern|
         approved = currency_values(metrics[key].to_s).first
+        next [] unless approved
+
+        content.to_s.to_enum(:scan, label_pattern).map do
+          match = Regexp.last_match
+          { start: match.begin(0), finish: match.end(0), value: approved }
+        end
+      end
+    end
+
+    def approved_percent_metric_mentions(content, metrics:)
+      PERCENT_METRIC_LABELS.flat_map do |key, label_pattern|
+        approved = normalized_measurement(metrics[key])
         next [] unless approved
 
         content.to_s.to_enum(:scan, label_pattern).map do
@@ -275,6 +305,14 @@ module Demo
         { start: match.begin(0), finish: match.end(0), value: value }
       rescue ArgumentError
         nil
+      end
+    end
+
+    def percent_mentions(text)
+      text.to_s.to_enum(:scan, PERCENT_AMOUNT_PATTERN).filter_map do
+        match = Regexp.last_match
+        value = normalized_measurement(match[1])
+        { start: match.begin(0), finish: match.end(0), value: value } if value
       end
     end
 

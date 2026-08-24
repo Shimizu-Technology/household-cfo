@@ -77,6 +77,7 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal "$8,500", payload.dig("metrics", "monthly_income")
     assert_equal "$5,000", payload.dig("metrics", "planned_monthly_outflow")
     assert_equal "$3,500", payload.dig("metrics", "baseline_surplus")
+    assert_equal 41, payload.dig("metrics", "monthly_surplus_rate_percent")
     assert_equal "$1,400", payload.dig("metrics", "safe_to_spend")
     assert_equal "selected_budget_month", payload.dig("annual_budget", "reference_month", "scope")
   end
