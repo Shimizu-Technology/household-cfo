@@ -417,7 +417,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
 
   test "accepts a bare participant amount that happens to fall in the year range" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
-      user_message: "Set rent to 2050 for September",
+      user_message: "Set rent for 2050 in September",
       context: intent_context,
       api_key: "test-key",
       transport: lambda do |_payload|

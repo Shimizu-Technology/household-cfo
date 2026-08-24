@@ -398,7 +398,7 @@ module HouseholdFinance
 
       before = text[0...match.begin(0)].to_s.last(24)
       after = text[match.end(0)..].to_s.first(24)
-      before.match?(/(?:\b(?:year|in|for|during|from|through|until|since|by)\s+|\b(?:#{month_names_pattern})\s+)\z/i) ||
+      before.match?(/(?:\b(?:year|in|during|from|through|until|since|by)\s+|\b(?:#{month_names_pattern})\s+)\z/i) ||
         after.match?(/\A\s*(?:year|budget|plan|calendar|tax\s+year)\b/i) ||
         before.end_with?("-", "/") || after.start_with?("-", "/")
     end
