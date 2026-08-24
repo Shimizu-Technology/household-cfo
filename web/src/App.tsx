@@ -1170,6 +1170,7 @@ function App() {
     setConfirmClearChat(false)
     setMiaClearing(true)
     setMiaError(null)
+    window.requestAnimationFrame(() => composerRef.current?.focus())
     try {
       if (isRealWorkspace) await clearMiaMessages(true)
       setMessages([])
