@@ -6,6 +6,7 @@ module Api
   module V1
     class DocumentImportsController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!, only: %i[create destroy reprocess apply destroy_source]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
 
       MAX_UPLOAD_BYTES = 20.megabytes

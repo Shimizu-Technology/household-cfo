@@ -17,11 +17,22 @@ class MiaActionDraft < ApplicationRecord
   validates :title, presence: true, length: { maximum: 160 }
   validates :summary, presence: true, length: { maximum: 1_000 }
   validates :source_prompt, length: { maximum: ChatMessage::MAX_CONTENT_LENGTH }, allow_blank: true
+  validate :chat_messages_belong_to_household
 
   scope :pending, -> { where(status: "pending") }
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
 
   def pending?
     status == "pending"
+  end
+
+  private
+
+  def chat_messages_belong_to_household
+    { source_chat_message: source_chat_message, assistant_chat_message: assistant_chat_message }.each do |name, message|
+      next if message.blank? || message.chat_session&.household_id == household_id
+
+      errors.add(name, "must belong to the Mia action household")
+    end
   end
 end

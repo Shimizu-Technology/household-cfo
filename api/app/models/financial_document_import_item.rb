@@ -20,6 +20,7 @@ class FinancialDocumentImportItem < ApplicationRecord
   validates :evidence, length: { maximum: 1000 }, allow_blank: true
   validate :required_financial_value_present
   validate :selected_and_ignored_are_mutually_exclusive
+  validate :applied_record_belongs_to_import_household
 
   scope :apply_candidates, -> { where(selected: true, ignored: false, applied_at: nil) }
 
@@ -42,5 +43,12 @@ class FinancialDocumentImportItem < ApplicationRecord
     when "debt"
       errors.add(:balance_cents, "is required") if balance_cents.blank? && payment_cents.blank?
     end
+  end
+
+  def applied_record_belongs_to_import_household
+    return if applied_record.blank? || !applied_record.respond_to?(:household_id)
+    return if applied_record.household_id == financial_document_import&.household_id
+
+    errors.add(:applied_record, "must belong to the document import household")
   end
 end

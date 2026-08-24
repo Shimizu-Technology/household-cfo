@@ -3,6 +3,7 @@ module Api
     module Plaid
       class ItemsController < BaseController
         before_action :authenticate_user!
+        before_action :require_writable_household!, except: :index
 
         def index
           render json: payload

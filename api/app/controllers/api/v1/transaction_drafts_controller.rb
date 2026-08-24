@@ -2,6 +2,7 @@ module Api
   module V1
     class TransactionDraftsController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!
       before_action :set_draft, only: %i[update confirm ignore match reopen]
 
       def update

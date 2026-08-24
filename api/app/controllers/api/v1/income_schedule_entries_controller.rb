@@ -2,6 +2,7 @@ module Api
   module V1
     class IncomeScheduleEntriesController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!
 
       def create
         entry = current_income_source.income_schedule_entries.create!(normalized_entry_attributes)

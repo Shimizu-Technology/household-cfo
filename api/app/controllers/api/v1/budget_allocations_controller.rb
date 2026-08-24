@@ -2,6 +2,7 @@ module Api
   module V1
     class BudgetAllocationsController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!
 
       def update
         allocation = current_household_allocation_scope.find(params[:id])

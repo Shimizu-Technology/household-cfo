@@ -2,6 +2,7 @@ module Api
   module V1
     class DocumentImportItemsController < BaseController
       before_action :authenticate_user!
+      before_action :require_writable_household!
       before_action :set_document_import
       before_action :set_item
 

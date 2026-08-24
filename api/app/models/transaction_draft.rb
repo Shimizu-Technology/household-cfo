@@ -16,6 +16,7 @@ class TransactionDraft < ApplicationRecord
   validates :total_amount_cents, numericality: { only_integer: true, greater_than: 0 }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :status, inclusion: { in: STATUSES }
+  validate :associations_belong_to_household
 
   scope :pending, -> { where(status: "pending") }
   scope :recent_first, -> { order(occurred_on: :desc, created_at: :desc, id: :desc) }
@@ -26,5 +27,20 @@ class TransactionDraft < ApplicationRecord
 
   def terminal?
     status.in?(%w[confirmed corrected ignored matched])
+  end
+
+  private
+
+  def associations_belong_to_household
+    {
+      budget_category: budget_category,
+      financial_document_import: financial_document_import,
+      confirmed_transaction: confirmed_transaction,
+      matched_transaction: matched_transaction
+    }.each do |name, record|
+      next if record.blank? || record.household_id == household_id
+
+      errors.add(name, "must belong to the transaction draft household")
+    end
   end
 end

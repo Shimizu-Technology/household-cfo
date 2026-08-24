@@ -16,11 +16,19 @@ class HouseholdTransaction < ApplicationRecord
   validates :total_amount_cents, numericality: { only_integer: true, greater_than: 0 }
   validates :source_type, inclusion: { in: SOURCE_TYPES }
   validates :status, inclusion: { in: STATUSES }
+  validate :associations_belong_to_household
 
   def validate_split_total!
     return true if transaction_splits.sum(:amount_cents) == total_amount_cents
 
     errors.add(:base, "Transaction splits must equal transaction total")
     raise ActiveRecord::RecordInvalid, self
+  end
+
+  private
+
+  def associations_belong_to_household
+    errors.add(:budget_period, "must belong to the transaction household") if budget_period && budget_period.budget_year&.household_id != household_id
+    errors.add(:source_import, "must belong to the transaction household") if source_import && source_import.household_id != household_id
   end
 end

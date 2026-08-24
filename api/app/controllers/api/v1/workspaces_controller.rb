@@ -4,6 +4,7 @@ module Api
       class SetupAuditError < StandardError; end
 
       before_action :authenticate_user!
+      before_action :require_writable_household!, only: :setup
 
       def show
         render_current_workspace
