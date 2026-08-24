@@ -4555,9 +4555,14 @@ h3 {
   max-width: 1040px;
   max-height: calc(100vh - 36px);
   margin: auto;
-  box-shadow:
-    0 0 0 100vmax rgba(30, 42, 61, 0.58),
-    0 28px 72px rgba(24, 27, 24, 0.28);
+  box-shadow: 0 28px 72px rgba(24, 27, 24, 0.28);
+}
+
+.mia-chat-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 59;
+  background: rgba(30, 42, 61, 0.58);
 }
 
 .chat-shell-header {

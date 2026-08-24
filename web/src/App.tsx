@@ -723,7 +723,11 @@ function App() {
 
       const first = elements[0]
       const last = elements[elements.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
+      if (!shell?.contains(document.activeElement)) {
+        event.preventDefault()
+        const destination = event.shiftKey ? last : first
+        destination.focus()
+      } else if (event.shiftKey && document.activeElement === first) {
         event.preventDefault()
         last.focus()
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -732,9 +736,17 @@ function App() {
       }
     }
 
+    function containExpandedChatFocus(event: FocusEvent) {
+      if (shell?.contains(event.target as Node)) return
+      const destination = focusableElements()[0] ?? shell
+      destination?.focus()
+    }
+
     document.addEventListener('keydown', keepFocusInExpandedChat)
+    document.addEventListener('focusin', containExpandedChatFocus)
     return () => {
       document.removeEventListener('keydown', keepFocusInExpandedChat)
+      document.removeEventListener('focusin', containExpandedChatFocus)
       window.requestAnimationFrame(() => previousFocus?.focus())
     }
   }, [isChatExpanded])
@@ -2066,6 +2078,13 @@ function App() {
               )}
             </article>
 
+            {isChatExpanded && (
+              <div
+                className="mia-chat-backdrop"
+                aria-hidden="true"
+                onMouseDown={() => setIsChatExpanded(false)}
+              />
+            )}
             <section
               ref={miaChatShellRef}
               className={`mia-chat-shell ${isChatExpanded ? 'is-expanded' : ''}`}

@@ -1212,6 +1212,9 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   expect(expandedLayout.shellOwnsViewportCenter).toBe(true)
   expect(expandedLayout.bodyOverflow).toBe('hidden')
 
+  await page.getByRole('button', { name: 'Home', exact: true }).focus()
+  expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
+
   const sendButton = page.getByRole('button', { name: 'Send message' })
   await sendButton.focus()
   await page.keyboard.press('Tab')
@@ -1221,6 +1224,22 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeFocused()
+})
+
+test('expanded desktop Ask Mia blocks background interaction and restores its trigger', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop-only modal boundary assertion')
+  await page.goto('/#Ask%20Mia')
+
+  const expandButton = page.getByRole('button', { name: 'Expand Ask Mia chat' })
+  await expandButton.click()
+  await expect(page.getByRole('dialog', { name: 'Ask Mia' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Home', exact: true }).focus()
+  expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
+
+  await page.locator('.mia-chat-backdrop').click({ position: { x: 2, y: 2 } })
+  await expect(page.getByRole('dialog', { name: 'Ask Mia' })).toBeHidden()
+  await expect(expandButton).toBeFocused()
 })
 
 test('incomplete participants get a short first session, private feedback, and a recoverable power-user path', async ({ page }) => {
