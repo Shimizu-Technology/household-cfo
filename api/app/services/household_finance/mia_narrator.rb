@@ -434,29 +434,56 @@ module HouseholdFinance
       transactions.any? do |transaction|
         merchant = Regexp.escape(transaction.fetch(:merchant))
         content.to_enum(:scan, /\b#{merchant}\b/i).any? do
-          start = Regexp.last_match.begin(0)
-          window_start = [ start - 42, 0 ].max
-          window = content[window_start, Regexp.last_match[0].length + 84].to_s
-          amounts = currency_cents_from_text(window)
-          amounts.any? && amounts.exclude?(transaction.fetch(:amount_cents))
+          mention = Regexp.last_match
+          clause = transaction_clause_for_mention(content, mention.begin(0), mention.end(0))
+          amount_matches = clause.fetch(:text).to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
+            amount_match = Regexp.last_match
+            {
+              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              distance: [ (amount_match.begin(0) - clause.fetch(:merchant_start)).abs, (amount_match.end(0) - clause.fetch(:merchant_end)).abs ].min
+            }
+          end
+          nearest_amount = amount_matches.min_by { |match| match.fetch(:distance) }
+          nearest_amount.present? && nearest_amount.fetch(:cents) != transaction.fetch(:amount_cents)
         end
       end || invented_transaction_merchant?(content, transactions)
+    end
+
+    def transaction_clause_for_mention(content, starts_at, ends_at)
+      before = content[0...starts_at].to_s
+      after = content[ends_at..].to_s
+      boundary = /[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i
+      prefix = before.split(boundary).last.to_s
+      suffix = after.split(boundary).first.to_s
+      { text: "#{prefix}#{content[starts_at...ends_at]}#{suffix}", merchant_start: prefix.length, merchant_end: prefix.length + ends_at - starts_at }
     end
 
     def invented_transaction_merchant?(content, transactions)
       matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
       matches.flatten.any? do |merchant|
-        normalized = merchant.squish.downcase.sub(/\s+(?:happened|occurred|posted|cleared|was|is)\z/, "")
-        transactions.none? { |transaction| transaction.fetch(:merchant).downcase == normalized }
+        normalized = normalize_merchant_label(merchant.sub(/\s+(?:happened|occurred|posted|cleared|was|is)\z/i, ""))
+        compatible = transactions.select do |transaction|
+          approved = normalize_merchant_label(transaction.fetch(:merchant))
+          approved == normalized || (normalized.length >= 3 && approved.start_with?("#{normalized} "))
+        end
+        compatible.length != 1
       end
+    end
+
+    def normalize_merchant_label(value)
+      value.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^\p{L}\d ]/, "").squish
     end
 
     def incorrect_transaction_date?(content, transactions)
       return false unless transactions.length == 1
 
       approved_date = Date.iso8601(transactions.first.fetch(:occurred_on))
-      iso_dates = content.scan(/\b\d{4}-\d{2}-\d{2}\b/).filter_map { |date| Date.iso8601(date) rescue nil }
-      named_dates = content.scan(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})\b/i).filter_map do |month, day|
+      merchant = transactions.first.fetch(:merchant)
+      relevant = content.split(/[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i).select do |clause|
+        clause.match?(/\b#{Regexp.escape(merchant)}\b/i) || clause.match?(/\b(?:transaction|charge|purchase|payment)\b/i)
+      end.join(" ")
+      iso_dates = relevant.scan(/\b\d{4}-\d{2}-\d{2}\b/).filter_map { |date| Date.iso8601(date) rescue nil }
+      named_dates = relevant.scan(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})\b/i).filter_map do |month, day|
         Date.new(approved_date.year, Date::ABBR_MONTHNAMES.index(month.first(3).capitalize), day.to_i) rescue nil
       end
 

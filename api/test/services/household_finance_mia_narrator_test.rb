@@ -571,6 +571,84 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "accepts accurate transaction and budget facts without assigning nearby category amounts to the merchant" do
+    narrated = "Starbucks charged $25 on Aug 25, and your Groceries plan is $300."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Compare my Starbucks purchase with the grocery plan",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: "Starbucks charged $25 on Aug 25; Groceries has $300 planned.", write_state: "no_write",
+          annual_plan_summary: { top_categories: [ { name: "Groceries", planned: 300, actual: 25, remaining: 275 } ] },
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
+  test "accepts an unambiguous short form of a saved merchant name" do
+    narrated = "The approved $25 charge at Starbucks happened on Aug 25."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Show the Starbucks transaction",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: "Starbucks Coffee charged $25 on Aug 25.", write_state: "no_write",
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks Coffee", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
+  test "rejects an abbreviated merchant when multiple saved merchants match it" do
+    fallback = "Starbucks Coffee charged $25 and Starbucks Roastery charged $25."
+    response = ok_response(choices: [ { message: { content: "The approved transaction is $25 at Starbucks." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Which Starbucks was the transaction at?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Starbucks Roastery", occurred_on: "2026-08-25", amount: 25 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "does not attach an unrelated planning date to the approved transaction" do
+    narrated = "Starbucks charged $25 on Aug 25, and your next budget review is Sep 10."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When was Starbucks and when should I review the budget?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: "Starbucks charged $25 on Aug 25; review the budget Sep 10.", write_state: "no_write",
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
   test "accepts approved currency followed by sentence punctuation" do
     narrated = "Your approved plan is $6,200, and the remaining amount is $300."
     response = ok_response(choices: [ { message: { content: narrated } } ])
