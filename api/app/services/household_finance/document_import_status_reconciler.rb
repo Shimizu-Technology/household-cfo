@@ -30,8 +30,17 @@ module HouseholdFinance
       return any_resolved ? "partially_applied" : "needs_review" if actionable_items?
       return any_resolved ? "partially_applied" : "needs_review" if pending_transaction_drafts?
       return "applied" if any_resolved
+      return "applied" if completed_without_reviewable_transactions?
 
       "needs_review"
+    end
+
+    def completed_without_reviewable_transactions?
+      metadata = document_import.metadata || {}
+      metadata["no_reviewable_transactions"] == true &&
+        metadata["routing_requires_confirmation"] != true &&
+        !document_import.items.exists? &&
+        !document_import.transaction_drafts.exists?
     end
 
     def actionable_items?

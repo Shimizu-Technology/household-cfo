@@ -79,6 +79,7 @@ module FinancialDocuments
         summary: structured_summary(items, transaction_drafts),
         confidence: "high",
         warnings: warnings.first(Extractor::MAX_WARNINGS),
+        no_reviewable_transactions: items.empty? && transaction_drafts.empty?,
         items: items,
         transaction_drafts: transaction_drafts
       )
@@ -224,14 +225,23 @@ module FinancialDocuments
 
     def transaction_direction(values, header_map)
       explicit_direction = normalized_token(cell(values, header_map, "direction") || cell(values, header_map, "type"))
-      return :credit if explicit_direction.match?(/\A(?:credit|cr|deposit|refund|reimbursement|reversal|income|payroll|direct_deposit|transfer_in|ach_credit|payment_received|cashback|interest)\z/)
+      return :credit if incoming_transaction_direction?(explicit_direction)
       return :debit if explicit_direction.match?(/\A(?:debit|dr|withdrawal|withdraw|purchase|charge|expense|expense_item|payment_sent|ach_debit)\z/)
 
       category = normalized_token(cell(values, header_map, "category"))
-      return :credit if category.match?(/\A(?:credit|deposit|refund|reimbursement|reversal|income|payroll|direct_deposit|transfer_in|interest)\z/)
+      return :credit if incoming_transaction_direction?(category)
       return :debit if category.present?
 
       nil
+    end
+
+    def incoming_transaction_direction?(direction)
+      return false if direction.blank?
+      return true if direction.in?(%w[credit cr direct_deposit transfer_in ach_credit payment_received cashback cash_back interest])
+
+      direction.match?(/(?:\A|_)(?:refund(?:ed|s)?|deposit(?:ed|s)?|payroll|reimburse(?:d|ment|ments)?|reversal|income|cashback|cash_back)(?:_|\z)/) ||
+        direction.match?(/(?:\A|_)interest_(?:earned|income|credit)(?:_|\z)/) ||
+        direction.end_with?("_credit")
     end
 
     def item_from_row(values, header_map, skip_transaction_like: false)

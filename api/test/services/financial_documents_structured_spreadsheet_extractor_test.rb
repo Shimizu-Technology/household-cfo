@@ -149,6 +149,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_empty result.data.fetch(:items)
     assert_empty result.data.fetch(:transaction_drafts)
     assert_equal 2, result.data.fetch(:warnings).length
+    assert_equal true, result.data.fetch(:no_reviewable_transactions)
     assert_includes result.data.fetch(:summary), "no spending transactions"
   ensure
     file&.close!
@@ -212,6 +213,30 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal [ 1_250, 1_825 ], drafts.map { |draft| draft.fetch(:total_amount_cents) }
     assert_includes result.data.fetch(:warnings).join(" "), "Refund"
     assert_includes result.data.fetch(:warnings).join(" "), "Paycheck"
+  ensure
+    file&.close!
+  end
+
+  test "never classifies compound credit labels as categorized spending" do
+    file = Tempfile.new([ "compound-credits", ".csv" ])
+    file.write(<<~CSV)
+      date,description,amount,type,category
+      2026-08-01,Refunded purchase,25.00,store refund,Shopping
+      2026-08-02,Paycheck,2000.00,payroll deposit,Groceries
+      2026-08-03,Card reward,12.00,cash back,Shopping
+      2026-08-04,Savings yield,8.00,interest earned,Household
+      2026-08-05,Reimbursement,33.00,employer reimbursement,Dining Out
+      2026-08-06,Hardware Store,75.00,purchase,Household
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "compound-credits.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Hardware Store" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal 7_500, result.data.fetch(:transaction_drafts).first.fetch(:total_amount_cents)
+    assert_equal 5, result.data.fetch(:warnings).length
+    assert_equal false, result.data.fetch(:no_reviewable_transactions)
   ensure
     file&.close!
   end
