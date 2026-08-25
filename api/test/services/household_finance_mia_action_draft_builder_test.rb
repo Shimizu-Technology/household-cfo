@@ -130,6 +130,24 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects an unknown category from a shared-amount request instead of drafting only known categories" do
+    prompts = [
+      "Increase Travel, Groceries, and Dining Out by $50 each for August",
+      "Increase Groceries, Travel, and Dining Out by $50 each for August",
+      "Increase Groceries, Dining Out, and Travel by $50 each for August"
+    ]
+
+    prompts.each do |prompt|
+      result = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household, prompt, user: @user, annual_budget_manager: @manager,
+        selected_month: 8, raw_input: prompt
+      ).call
+
+      assert_nil result.proposal, prompt
+      assert_includes result.response, "match every requested amount", prompt
+    end
+  end
+
   test "rejects an unmatched third amount even when the model resolves one valid category" do
     prompt = "Set Groceries to $650, Dining Out to $275, and Travel to $100 for August"
     result = HouseholdFinance::MiaActionDraftBuilder.new(
