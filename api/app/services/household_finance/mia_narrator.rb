@@ -479,8 +479,12 @@ module HouseholdFinance
 
       approved_date = Date.iso8601(transactions.first.fetch(:occurred_on))
       merchant = transactions.first.fetch(:merchant)
+      approved_tokens = normalize_merchant_label(merchant).split
+      merchant_aliases = (1..approved_tokens.length).map { |length| approved_tokens.first(length).join(" ") }.select { |name| name.length >= 3 }
       relevant = content.split(/[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i).select do |clause|
-        clause.match?(/\b#{Regexp.escape(merchant)}\b/i) || clause.match?(/\b(?:transaction|charge|purchase|payment)\b/i)
+        normalized_clause = normalize_merchant_label(clause)
+        merchant_aliases.any? { |name| normalized_clause.match?(/\b#{Regexp.escape(name)}\b/i) } ||
+          clause.match?(/\b(?:transaction|charge|purchase|payment)\b/i)
       end.join(" ")
       iso_dates = relevant.scan(/\b\d{4}-\d{2}-\d{2}\b/).filter_map { |date| Date.iso8601(date) rescue nil }
       named_dates = relevant.scan(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})\b/i).filter_map do |month, day|

@@ -608,6 +608,24 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects the wrong transaction date when an approved merchant is shortened" do
+    fallback = "Starbucks Coffee took $25 on Aug 25."
+    response = ok_response(choices: [ { message: { content: "Starbucks took $25 on Aug 24." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When did Starbucks take the payment?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks Coffee", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
   test "rejects an abbreviated merchant when multiple saved merchants match it" do
     fallback = "Starbucks Coffee charged $25 and Starbucks Roastery charged $25."
     response = ok_response(choices: [ { message: { content: "The approved transaction is $25 at Starbucks." } } ])
