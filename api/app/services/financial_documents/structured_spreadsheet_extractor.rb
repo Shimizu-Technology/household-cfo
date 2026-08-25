@@ -2,8 +2,8 @@
 
 module FinancialDocuments
   class StructuredSpreadsheetExtractor
-    REQUIRED_HEADERS = %w[type label amount].freeze
-    TRANSACTION_REQUIRED_HEADERS = %w[date amount].freeze
+    REQUIRED_HEADERS = %w[type label].freeze
+    TRANSACTION_AMOUNT_HEADERS = %w[amount debit credit].freeze
     STRUCTURED_TRANSACTION_CONFIDENCE = BigDecimal("0.90")
     HEADER_ALIASES = {
       "name" => "label",
@@ -13,10 +13,19 @@ module FinancialDocuments
       "transaction date" => "date",
       "posted date" => "date",
       "occurred_on" => "date",
-      "debit" => "amount",
-      "withdrawal" => "amount",
+      "debit amount" => "debit",
+      "withdrawal" => "debit",
+      "withdrawals" => "debit",
+      "credit amount" => "credit",
+      "deposit" => "credit",
+      "deposits" => "credit",
+      "running balance" => "balance",
+      "available balance" => "balance",
+      "ending balance" => "balance",
+      "transaction type" => "direction",
+      "debit/credit" => "direction",
+      "dr/cr" => "direction",
       "value" => "amount",
-      "balance" => "amount",
       "minimum_payment" => "payment",
       "minimum payment" => "payment",
       "debt_payment" => "payment",
@@ -50,6 +59,7 @@ module FinancialDocuments
       @file_path = file_path
       @filename = filename
       @document_kind = document_kind
+      @warnings = []
     end
 
     def call
@@ -59,7 +69,7 @@ module FinancialDocuments
       items = extract_items(summary)
       transaction_drafts = extract_transaction_drafts(summary)
       return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so Mia can stage every transaction.") if transaction_drafts.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
-      return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty?
+      return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty?
 
       success(
         document_kind: document_kind == "statement" ? "statement" : "spreadsheet",
@@ -68,7 +78,7 @@ module FinancialDocuments
         period_end_on: transaction_drafts.filter_map { |draft| draft[:occurred_on] }.max,
         summary: structured_summary(items, transaction_drafts),
         confidence: "high",
-        warnings: [],
+        warnings: warnings.first(Extractor::MAX_WARNINGS),
         items: items,
         transaction_drafts: transaction_drafts
       )
@@ -78,7 +88,7 @@ module FinancialDocuments
 
     private
 
-    attr_reader :file_path, :filename, :document_kind
+    attr_reader :file_path, :filename, :document_kind, :warnings
 
     def truncated_transaction_rows?(summary)
       Array(summary[:sheets]).any? do |sheet|
@@ -104,12 +114,15 @@ module FinancialDocuments
 
     def structured_header?(values)
       normalized = Array(values).map { |value| header_key(value) }
-      REQUIRED_HEADERS.all? { |header| normalized.include?(header) }
+      REQUIRED_HEADERS.all? { |header| normalized.include?(header) } &&
+        (normalized.include?("amount") || normalized.include?("balance"))
     end
 
     def transaction_header?(values)
       normalized = Array(values).map { |value| header_key(value) }
-      TRANSACTION_REQUIRED_HEADERS.all? { |header| normalized.include?(header) } && (normalized.include?("merchant") || normalized.include?("label"))
+      normalized.include?("date") &&
+        (normalized.include?("merchant") || normalized.include?("label")) &&
+        TRANSACTION_AMOUNT_HEADERS.any? { |header| normalized.include?(header) }
     end
 
     def header_map_for(values)
@@ -142,10 +155,12 @@ module FinancialDocuments
     def transaction_draft_from_row(values, header_map, row_number:)
       occurred_on = parsed_date(cell(values, header_map, "date"))
       merchant = clean_text(cell(values, header_map, "merchant") || cell(values, header_map, "label"), max_length: 120)
-      amount_cents = money_cents(cell(values, header_map, "amount"), negative_as_magnitude: true)
+      return if occurred_on.blank? || merchant.blank?
+
+      amount_cents = transaction_amount_cents(values, header_map, merchant: merchant, row_number: row_number)
       category = clean_text(cell(values, header_map, "category"), max_length: 120)
       notes = clean_text(cell(values, header_map, "notes"), max_length: 500)
-      return if occurred_on.blank? || merchant.blank? || amount_cents.blank? || amount_cents <= 0
+      return if amount_cents.blank? || amount_cents <= 0
 
       {
         occurred_on: occurred_on,
@@ -174,6 +189,51 @@ module FinancialDocuments
       }
     end
 
+    def transaction_amount_cents(values, header_map, merchant:, row_number:)
+      debit_cents = money_cents(cell(values, header_map, "debit"), negative_as_magnitude: true).to_i
+      credit_cents = money_cents(cell(values, header_map, "credit"), negative_as_magnitude: true).to_i
+      direction = transaction_direction(values, header_map)
+
+      if debit_cents.positive? && (credit_cents.positive? || direction == :credit)
+        warnings << "Skipped #{merchant} (row #{row_number}): conflicting debit and credit information makes its direction unclear."
+        return
+      end
+
+      if credit_cents.positive?
+        warnings << "Skipped incoming credit/deposit for #{merchant} (row #{row_number}); incoming money is not spending."
+        return
+      end
+
+      return debit_cents if debit_cents.positive?
+
+      amount = cell(values, header_map, "amount")
+      return if amount.blank?
+
+      if direction == :credit
+        warnings << "Skipped incoming credit/deposit for #{merchant} (row #{row_number}); incoming money is not spending."
+        return
+      end
+
+      unless direction == :debit
+        warnings << "Skipped #{merchant} (row #{row_number}): transaction direction is unclear; provide a debit, credit, type, or spending category."
+        return
+      end
+
+      money_cents(amount, negative_as_magnitude: true)
+    end
+
+    def transaction_direction(values, header_map)
+      explicit_direction = normalized_token(cell(values, header_map, "direction") || cell(values, header_map, "type"))
+      return :credit if explicit_direction.match?(/\A(?:credit|cr|deposit|refund|reimbursement|reversal|income|payroll|direct_deposit|transfer_in|ach_credit|payment_received|cashback|interest)\z/)
+      return :debit if explicit_direction.match?(/\A(?:debit|dr|withdrawal|withdraw|purchase|charge|expense|expense_item|payment_sent|ach_debit)\z/)
+
+      category = normalized_token(cell(values, header_map, "category"))
+      return :credit if category.match?(/\A(?:credit|deposit|refund|reimbursement|reversal|income|payroll|direct_deposit|transfer_in|interest)\z/)
+      return :debit if category.present?
+
+      nil
+    end
+
     def item_from_row(values, header_map, skip_transaction_like: false)
       return if skip_transaction_like && transaction_like_row?(values, header_map)
 
@@ -183,7 +243,8 @@ module FinancialDocuments
       label = clean_text(cell(values, header_map, "label"), max_length: 120)
       return if label.blank? && type != "profile_note"
 
-      amount_cents = money_cents(cell(values, header_map, "amount"), negative_as_magnitude: accounting_negative_as_magnitude?(type))
+      amount = cell(values, header_map, "amount").presence || cell(values, header_map, "balance")
+      amount_cents = money_cents(amount, negative_as_magnitude: accounting_negative_as_magnitude?(type))
       category = normalized_token(cell(values, header_map, "category"))
       cadence = normalized_cadence(cell(values, header_map, "cadence"))
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
@@ -342,6 +403,8 @@ module FinancialDocuments
     end
 
     def structured_summary(items, transaction_drafts)
+      return "Mia found no spending transactions to review; incoming or unclear statement rows were safely excluded." if items.empty? && transaction_drafts.empty?
+
       parts = []
       parts << "#{items.length} budget value#{'s' unless items.length == 1}" if items.any?
       parts << "#{transaction_drafts.length} transaction draft#{'s' unless transaction_drafts.length == 1}" if transaction_drafts.any?

@@ -110,6 +110,154 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "imports only debit amounts and never mistakes deposits or running balances for spending" do
+    file = Tempfile.new([ "bank-statement", ".csv" ])
+    file.write(<<~CSV)
+      date,description,debit,credit,balance
+      2026-08-01,Grocery Store,100.00,,4900.00
+      2026-08-02,Payroll,,2000.00,6900.00
+      2026-08-03,Store refund,,25.00,6925.00
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank-statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    drafts = result.data.fetch(:transaction_drafts)
+    assert_equal [ "Grocery Store" ], drafts.map { |draft| draft.fetch(:merchant) }
+    assert_equal 10_000, drafts.first.fetch(:total_amount_cents)
+    assert_includes result.data.fetch(:warnings).join(" "), "Payroll"
+    assert_includes result.data.fetch(:warnings).join(" "), "Store refund"
+    refute_includes drafts.to_json, "490000"
+    refute_includes drafts.to_json, "690000"
+  ensure
+    file&.close!
+  end
+
+  test "keeps a credit-only statement on the structured path without inventing spending" do
+    file = Tempfile.new([ "credits-only", ".csv" ])
+    file.write(<<~CSV)
+      date,description,debit,credit,balance
+      2026-08-01,Payroll,,2000.00,7000.00
+      2026-08-02,Merchant refund,,50.00,7050.00
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "credits-only.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_empty result.data.fetch(:items)
+    assert_empty result.data.fetch(:transaction_drafts)
+    assert_equal 2, result.data.fetch(:warnings).length
+    assert_includes result.data.fetch(:summary), "no spending transactions"
+  ensure
+    file&.close!
+  end
+
+  test "recognizes bank withdrawal deposit and running-balance header variants" do
+    file = Tempfile.new([ "bank-export", ".csv" ])
+    file.write(<<~CSV)
+      transaction date,description,withdrawal,deposit,running balance
+      2026-08-01,Hardware Store,75.50,,4924.50
+      2026-08-02,Employer,,2500.00,7424.50
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "bank-export.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Hardware Store" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal 7_550, result.data.fetch(:transaction_drafts).first.fetch(:total_amount_cents)
+    assert_includes result.data.fetch(:warnings).join(" "), "Employer"
+  ensure
+    file&.close!
+  end
+
+  test "rejects conflicting debit and credit signals without guessing" do
+    file = Tempfile.new([ "conflicting-statement", ".csv" ])
+    file.write(<<~CSV)
+      date,description,debit,credit,type,balance
+      2026-08-01,Both columns populated,20.00,10.00,,4990.00
+      2026-08-02,Contradictory direction,25.00,,credit,5015.00
+      2026-08-03,Valid groceries,30.00,,debit,4985.00
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "conflicting-statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Valid groceries" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal 2, result.data.fetch(:warnings).length
+    assert result.data.fetch(:warnings).all? { |warning| warning.include?("conflicting debit and credit") }
+  ensure
+    file&.close!
+  end
+
+  test "uses explicit transaction direction before treating signed amounts as expenses" do
+    file = Tempfile.new([ "directed-statement", ".csv" ])
+    file.write(<<~CSV)
+      date,description,amount,type,balance
+      2026-08-01,Coffee Shop,-12.50,debit,4987.50
+      2026-08-02,Refund,-25.00,credit,5012.50
+      2026-08-03,Paycheck,2000.00,deposit,7012.50
+      2026-08-04,Pharmacy,18.25,withdrawal,6994.25
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "directed-statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    drafts = result.data.fetch(:transaction_drafts)
+    assert_equal [ "Coffee Shop", "Pharmacy" ], drafts.map { |draft| draft.fetch(:merchant) }
+    assert_equal [ 1_250, 1_825 ], drafts.map { |draft| draft.fetch(:total_amount_cents) }
+    assert_includes result.data.fetch(:warnings).join(" "), "Refund"
+    assert_includes result.data.fetch(:warnings).join(" "), "Paycheck"
+  ensure
+    file&.close!
+  end
+
+  test "does not guess the direction of uncategorized signed transaction amounts" do
+    file = Tempfile.new([ "ambiguous-statement", ".csv" ])
+    file.write(<<~CSV)
+      date,description,amount,category
+      2026-08-01,Unclear reversal,-30.00,
+      2026-08-02,Unclear incoming,45.00,
+      2026-08-03,Payless,-25.00,Groceries
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "ambiguous-statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Payless" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+    assert_equal 2_500, result.data.fetch(:transaction_drafts).first.fetch(:total_amount_cents)
+    assert_equal 2, result.data.fetch(:warnings).length
+    assert_includes result.data.fetch(:warnings).join(" "), "direction"
+  ensure
+    file&.close!
+  end
+
+  test "keeps balance headers available for approved Household CFO setup rows" do
+    file = Tempfile.new([ "household-balances", ".csv" ])
+    file.write(<<~CSV)
+      type,label,balance,cadence,category,payment
+      account,Emergency fund,5000,monthly,emergency_fund,
+      debt,Visa card,3400,monthly,credit_card,175
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "household-balances.csv").call
+
+    assert result.success?, result.error
+    items = result.data.fetch(:items).index_by { |item| item.fetch(:label) }
+    assert_equal 500_000, items.fetch("Emergency fund").fetch(:balance_cents)
+    assert_equal 340_000, items.fetch("Visa card").fetch(:balance_cents)
+    assert_equal 17_500, items.fetch("Visa card").fetch(:payment_cents)
+    assert_empty result.data.fetch(:transaction_drafts)
+  ensure
+    file&.close!
+  end
+
   test "extracts a full monthly CSV beyond the old eighty-row sample" do
     file = Tempfile.new([ "large-statement", ".csv" ])
     file.write("date,description,amount,category,notes\n")
@@ -189,6 +337,30 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
       assert_equal "structured_spreadsheet", result.metadata.fetch(:extraction_mode)
       assert_equal 1, result.data.fetch(:items).length
       assert_equal 175_00, result.data.fetch(:items).first.fetch(:payment_cents)
+    end
+  end
+
+  test "credit-only bank CSV never falls through to AI extraction" do
+    user = User.create!(clerk_id: "clerk_credit_only_extractor_user", email: "credits-only-extractor@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Credit-only Statement Household")
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "uploaded",
+      filename: "credits-only.csv",
+      content_type: "text/csv",
+      byte_size: 100,
+      s3_key: "household-cfo/test/credits-only.csv"
+    )
+
+    with_s3_download("date,description,debit,credit,balance\n2026-08-01,Payroll,,2000,7000\n") do
+      result = FinancialDocuments::Extractor.new(api_key: nil).call(document_import)
+
+      assert result.success?, result.error
+      assert_equal "structured_spreadsheet", result.metadata.fetch(:extraction_mode)
+      assert_empty result.data.fetch(:transaction_drafts)
+      assert_includes result.data.fetch(:warnings).join(" "), "Payroll"
     end
   end
 
