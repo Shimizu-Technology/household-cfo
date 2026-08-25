@@ -475,6 +475,117 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects approved amounts when they are attached to the wrong approved categories" do
+    fallback = "Groceries has $300 planned, while Rent has $500 planned."
+    response = ok_response(choices: [ { message: { content: "Groceries has $500 planned, while Rent has $300 planned." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Compare Groceries and Rent",
+        answer_packet: {
+          kind: "budget_question", fallback_response: fallback, write_state: "no_write",
+          annual_plan_summary: {
+            top_categories: [
+              { name: "Groceries", planned: 300, actual: 20, remaining: 280 },
+              { name: "Rent", planned: 500, actual: 100, remaining: 400 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "rejects an invented merchant and transaction date even when the amount is approved" do
+    fallback = "The approved transaction is $25 at Starbucks on Aug 25."
+    response = ok_response(choices: [ { message: { content: "The approved transaction is $25 at McDonald's on Aug 24." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Which merchant was that $25 transaction?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "rejects an approved category amount attached to that category's wrong metric" do
+    fallback = "Groceries has $300 planned and $20 in confirmed actuals."
+    response = ok_response(choices: [ { message: { content: "Groceries has $20 planned and $300 in confirmed actuals." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Compare grocery actuals and the plan",
+        answer_packet: {
+          kind: "budget_question", fallback_response: fallback, write_state: "no_write",
+          annual_plan_summary: { top_categories: [ { name: "Groceries", planned: 300, actual: 20, remaining: 280 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "rejects the wrong date when the approved transaction merchant and amount match" do
+    fallback = "The approved transaction is $25 at Starbucks on Aug 25."
+    response = ok_response(choices: [ { message: { content: "The approved transaction is $25 at Starbucks on Aug 24." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When was the Starbucks transaction?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "accepts an accurate paraphrase that preserves merchant date and category relationships" do
+    narrated = "Groceries has $300 planned. The approved $25 charge at Starbucks happened on Aug 25."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Show my grocery transaction",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: "Groceries has $300 planned; Starbucks charged $25 on Aug 25.", write_state: "no_write",
+          annual_plan_summary: { top_categories: [ { name: "Groceries", planned: 300, actual: 25, remaining: 275 } ] },
+          spending_report_summary: { top_transactions: [ { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 } ] }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
+  test "accepts approved currency followed by sentence punctuation" do
+    narrated = "Your approved plan is $6,200, and the remaining amount is $300."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "Summarize the plan",
+        answer_packet: { kind: "coaching", fallback_response: "Approved plan: $6,200; remaining: $300.", write_state: "no_write" },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
   test "falls back when OpenRouter truncates the narration" do
     response = ok_response(
       choices: [

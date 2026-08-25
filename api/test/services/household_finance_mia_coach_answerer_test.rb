@@ -226,6 +226,70 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute_includes answer, "-$1,420 × 40% = $0"
   end
 
+  test "uses saved debt balances and minimums without inventing interest rates or due dates" do
+    household = create_yellow_household
+    household.debts.create!(label: "Auto loan", debt_type: "auto_loan", balance_cents: 24_350_25, minimum_payment_cents: 315_75)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Should I use a balance transfer or pay the smallest balance first?").call
+
+    assert_includes answer, "Auto loan: $24,350.25 balance and $315.75 monthly minimum"
+    assert_includes answer, "Debt: $10,000 balance and $920 monthly minimum"
+    assert_includes answer, "smallest saved balance is Debt at $10,000"
+    assert_includes answer, "APRs, fees, due dates, and exact payoff amounts are not stored"
+    refute_includes answer, "I still need balances"
+  end
+
+  test "business-income coaching uses the saved raise effective in the selected budget month" do
+    household = create_yellow_household
+    business = household.income_sources.create!(label: "Consulting", source_type: "business", amount_cents: 120_000, cadence: "monthly", active: true)
+    business.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 245_000, cadence: "monthly", effective_on: Date.new(2027, 3, 1))
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2027)
+
+    february = HouseholdFinance::MiaCoachAnswerer.new(household, "Could I quit my job and focus on my business?", annual_budget_manager: manager, reference_month: 2).call
+    march = HouseholdFinance::MiaCoachAnswerer.new(household, "Could I quit my job and focus on my business?", annual_budget_manager: manager, reference_month: 3).call
+
+    assert_includes february, "business income entered is $1,200 per month"
+    assert_includes march, "business income entered is $2,450 per month"
+    refute_includes march, "business income entered is $1,200"
+  end
+
+  test "compares account coverage with exact saved liquid balances without claiming live bank access" do
+    household = create_yellow_household
+    household.accounts.create!(label: "Everyday checking", account_type: "checking", balance_cents: 245_075)
+    household.accounts.create!(label: "Retirement plan", account_type: "retirement", balance_cents: 99_000_00)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which account could cover $2,450.75?").call
+
+    assert_includes answer, "Everyday checking: $2,450.75 saved"
+    assert_includes answer, "Emergency fund: $25,090 saved"
+    assert_includes answer, "not live available balances"
+    assert_includes answer, "protected emergency runway"
+    refute_includes answer, "Retirement plan"
+  end
+
+  test "does not invent an account that can cover more than any saved liquid balance" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which account can cover $80,000?").call
+
+    assert_includes answer, "No saved liquid household account"
+    assert_includes answer, "$80,000"
+    assert_includes answer, "not live available balances"
+  end
+
+  test "parses comma-separated currency amounts without confusing punctuation for thousands separators" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Can I take a $900 trip, and make a $750 extra debt payment this month?"
+    ).call
+
+    assert_includes answer, "proposed purchase is $900"
+    assert_includes answer, "extra debt payment is $750"
+    assert_includes answer, "together they total $1,650"
+  end
+
   private
 
   def create_yellow_household

@@ -108,11 +108,13 @@ module HouseholdFinance
       actual = sum_for(rows, :actual)
       remaining = sum_for(rows, :remaining)
       pending = pending_total
-      surplus = monthly_income_cents - planned
+      debt_minimums = Money.cents(annual_plan.fetch(:monthly_debt_minimums, 0))
+      total_outflow = planned + debt_minimums
+      surplus = monthly_income_cents - total_outflow
       largest = largest_planned_row
       largest_line = largest ? " Your largest planned category is #{largest.fetch(:name)} at #{money(row_month_cents(largest, :planned))}." : ""
 
-      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(planned)}, leaving a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before pending drafts. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any pending drafts before changing the plan."
+      "For #{month_label}, approved monthly income is #{money(monthly_income_cents)} and active planned outflow is #{money(total_outflow)}: #{money(planned)} in planned categories plus #{money(debt_minimums)} in required debt minimums. That leaves a planned baseline surplus of #{money(surplus)}. Confirmed actuals are #{money(actual)}, so #{remaining_phrase(remaining)} before pending drafts. Pending transaction drafts total #{money(pending)} and are not counted as actuals until you confirm them. #{stack_totals_sentence}.#{largest_line} Next CFO move: review the largest planned category and any pending drafts before changing the plan."
     end
 
     def category_breakdown_answer

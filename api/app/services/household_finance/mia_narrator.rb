@@ -16,7 +16,7 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
-    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
     MONTH_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)\s*months?\b/i
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*%/.freeze
     DANGEROUS_WRITE_CLAIMS = [
@@ -198,6 +198,7 @@ module HouseholdFinance
       return :contradicts_pending_state if contradicts_no_pending_drafts?(content)
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
       return :invented_currency_amount if invented_currency_amount?(content)
+      return :incorrect_financial_fact_relationship if incorrect_financial_fact_relationship?(content)
       return :invented_measurement if invented_measurement?(content)
       return :incorrect_safe_to_spend_relationship if incorrect_safe_to_spend_relationship?(content)
       return :missing_compound_decision_relationship if missing_compound_decision_relationship?(content)
@@ -347,6 +348,121 @@ module HouseholdFinance
       return false if narrated_amounts.empty?
 
       (narrated_amounts - allowed_currency_cents).any?
+    end
+
+    def incorrect_financial_fact_relationship?(content)
+      incorrect_category_amount_relationship?(content) || incorrect_transaction_relationship?(content)
+    end
+
+    def incorrect_category_amount_relationship?(content)
+      categories = approved_category_facts
+      return false if categories.empty?
+
+      mentions = categories.flat_map do |category|
+        content.to_enum(:scan, /\b#{Regexp.escape(category.fetch(:name))}\b/i).map do
+          { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
+        end
+      end.sort_by { |mention| mention.fetch(:starts_at) }
+
+      mentions.each_with_index.any? do |mention, index|
+        boundary = mentions[index + 1]&.fetch(:starts_at) || content.length
+        clause = content[mention.fetch(:ends_at)...boundary].to_s.split(/[;\n]|\.(?=\s|\z)/, 2).first.to_s
+        relevant_clause = clause.first(100)
+        amounts = currency_cents_from_text(relevant_clause)
+        next false if amounts.empty?
+
+        approved = mention.fetch(:category).fetch(:amounts)
+        amounts.any? { |amount| approved.exclude?(amount) } || incorrect_category_metric?(relevant_clause, mention.fetch(:category))
+      end
+    end
+
+    def incorrect_category_metric?(clause, category)
+      clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
+        amount_match = Regexp.last_match
+        amount = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        before = clause[[ amount_match.begin(0) - 18, 0 ].max...amount_match.begin(0)].to_s
+        after = clause[amount_match.end(0), 18].to_s
+        metric = after.match(/\A\s*(?:in\s+)?(planned|actuals?|remaining|pending)\b/i)&.captures&.first ||
+          before.match(/\b(planned|actuals?|remaining|pending)\s*(?:is|of|:)?\s*\z/i)&.captures&.first
+        next false unless metric
+
+        key = metric.downcase.start_with?("actual") ? :actual : metric.downcase.to_sym
+        expected = category.fetch(:metrics)[key]
+        expected.present? && expected != amount
+      end
+    end
+
+    def approved_category_facts
+      summaries = [ answer_packet[:annual_plan_summary], answer_packet[:spending_report_summary] ].compact
+      summaries.flat_map { |summary| Array(summary[:top_categories]) }.filter_map do |category|
+        name = category[:name].to_s.strip
+        next if name.blank?
+
+        metrics = %i[planned actual remaining pending].filter_map do |key|
+          value = category[key]
+          [ key, HouseholdFinance::Money.cents(value) ] unless value.nil?
+        end
+        { name: name, amounts: metrics.map(&:last).uniq, metrics: metrics.to_h } if metrics.any?
+      end
+    end
+
+    def incorrect_transaction_relationship?(content)
+      return false unless answer_packet[:kind].to_s.in?(%w[transaction_lookup transaction_draft])
+
+      transactions = approved_transaction_facts
+      return false if transactions.empty?
+
+      incorrect_merchant_relationship?(content, transactions) || incorrect_transaction_date?(content, transactions)
+    end
+
+    def approved_transaction_facts
+      rows = Array(answer_packet.dig(:spending_report_summary, :top_transactions))
+      rows += [ answer_packet[:transaction_draft] ] if answer_packet[:transaction_draft].present?
+      rows.filter_map do |transaction|
+        merchant = transaction[:merchant].to_s.strip
+        next if merchant.blank?
+
+        amount = transaction[:amount]
+        cents = amount.is_a?(Numeric) ? HouseholdFinance::Money.cents(amount) : currency_cents_from_text(amount).first
+        next unless cents
+
+        { merchant: merchant, amount_cents: cents, occurred_on: transaction[:occurred_on].to_s }
+      end
+    end
+
+    def incorrect_merchant_relationship?(content, transactions)
+      transactions.any? do |transaction|
+        merchant = Regexp.escape(transaction.fetch(:merchant))
+        content.to_enum(:scan, /\b#{merchant}\b/i).any? do
+          start = Regexp.last_match.begin(0)
+          window_start = [ start - 42, 0 ].max
+          window = content[window_start, Regexp.last_match[0].length + 84].to_s
+          amounts = currency_cents_from_text(window)
+          amounts.any? && amounts.exclude?(transaction.fetch(:amount_cents))
+        end
+      end || invented_transaction_merchant?(content, transactions)
+    end
+
+    def invented_transaction_merchant?(content, transactions)
+      matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
+      matches.flatten.any? do |merchant|
+        normalized = merchant.squish.downcase.sub(/\s+(?:happened|occurred|posted|cleared|was|is)\z/, "")
+        transactions.none? { |transaction| transaction.fetch(:merchant).downcase == normalized }
+      end
+    end
+
+    def incorrect_transaction_date?(content, transactions)
+      return false unless transactions.length == 1
+
+      approved_date = Date.iso8601(transactions.first.fetch(:occurred_on))
+      iso_dates = content.scan(/\b\d{4}-\d{2}-\d{2}\b/).filter_map { |date| Date.iso8601(date) rescue nil }
+      named_dates = content.scan(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})\b/i).filter_map do |month, day|
+        Date.new(approved_date.year, Date::ABBR_MONTHNAMES.index(month.first(3).capitalize), day.to_i) rescue nil
+      end
+
+      (iso_dates + named_dates).any? { |date| date != approved_date }
+    rescue ArgumentError
+      false
     end
 
     def invented_measurement?(content)

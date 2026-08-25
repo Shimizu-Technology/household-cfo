@@ -126,6 +126,34 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal 42, continuity.dig("active_topic", "action", "category_id")
   end
 
+  test "preserves cents and supplies saved account and debt records without inventing APRs" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "exact-context-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Exact cents household")
+    household.household_memberships.create!(user: user, role: "owner")
+    household.accounts.create!(label: "Family <checking>", account_type: "checking", balance_cents: 123_456)
+    household.debts.create!(label: "Bank card", debt_type: "credit_card", balance_cents: 654_321, minimum_payment_cents: 4_567)
+    plan = annual_plan(Date.current.year)
+    plan[:rows].first[:months].each { |month| month.merge!(planned: 60.25, actual: 12.34, remaining: 47.91) }
+    plan[:recent_transactions] = [ { merchant: "Coffee", occurred_on: Date.current.iso8601, amount: 8.75, categories: [ "Dining Out" ] } ]
+
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household, annual_plan: plan).call)
+    account = payload.dig("financial_accounts", "records", 0)
+    debt = payload.dig("debts", "records", 0)
+    row = payload.dig("annual_budget", "selected_month_budget_rows", 0)
+
+    assert_equal "$1,234.56", account.fetch("balance")
+    assert_equal "Family checking", account.fetch("label")
+    assert account.fetch("liquid")
+    assert_includes payload.dig("financial_accounts", "balance_note"), "not verified real-time"
+    assert_equal "$6,543.21", debt.fetch("balance")
+    assert_equal "$45.67", debt.fetch("minimum_payment")
+    assert_includes payload.dig("debts", "unavailable_fields"), "apr"
+    assert_equal "$60.25", row.fetch("planned")
+    assert_equal "$12.34", row.fetch("actual")
+    assert_equal "$47.91", row.fetch("remaining")
+    assert_equal "$8.75", payload.dig("annual_budget", "recent_transactions", 0, "amount")
+  end
+
   test "includes document freshness without raw source details" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

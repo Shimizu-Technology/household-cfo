@@ -2,6 +2,7 @@ module HouseholdFinance
   class MiaContextBuilder
     MAX_HOUSEHOLD_NAME_LENGTH = 80
     MAX_PRIMARY_GOAL_LENGTH = 240
+    MAX_FINANCIAL_RECORDS = 50
 
     def initialize(household, annual_plan: nil, reference_month: Date.current.month, conversation_context: nil)
       @household = household
@@ -50,6 +51,8 @@ module HouseholdFinance
           total_debt_entered: money(snapshot.fetch(:total_debt_cents)),
           liquid_assets: money(snapshot.fetch(:liquid_assets_cents))
         },
+        financial_accounts: financial_accounts_context,
+        debts: debt_context,
         expense_stack_totals: expense_stack_totals,
         annual_budget: annual_budget_context,
         documents: document_context,
@@ -85,7 +88,7 @@ module HouseholdFinance
           {
             merchant: sanitized_text(transaction.fetch(:merchant), max_length: 120),
             occurred_on: transaction.fetch(:occurred_on),
-            amount: ActiveSupport::NumberHelper.number_to_currency(transaction.fetch(:amount), precision: 0),
+            amount: money(Money.cents(transaction.fetch(:amount))),
             categories: transaction.fetch(:categories).first(3)
           }
         end,
@@ -115,11 +118,49 @@ module HouseholdFinance
         {
           category: sanitized_text(row.fetch(:name), max_length: 80),
           stack: row.fetch(:stack_label),
-          planned: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:planned), precision: 0),
-          actual: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:actual), precision: 0),
-          remaining: ActiveSupport::NumberHelper.number_to_currency(month.fetch(:remaining), precision: 0)
+          planned: money(Money.cents(month.fetch(:planned))),
+          actual: money(Money.cents(month.fetch(:actual))),
+          remaining: money(Money.cents(month.fetch(:remaining)))
         }
       end
+    end
+
+    def financial_accounts_context
+      accounts = household.accounts.order(:id)
+      total_count = accounts.count
+      {
+        total_count: total_count,
+        coverage: total_count > MAX_FINANCIAL_RECORDS ? "first_50_approved_records" : "all_approved_records",
+        balance_note: "Balances are saved household snapshots, not verified real-time bank balances.",
+        records: accounts.limit(MAX_FINANCIAL_RECORDS).map do |account|
+          {
+            label: sanitized_text(account.label, max_length: 120),
+            account_type: account.account_type,
+            balance: money(account.balance_cents),
+            liquid: account.liquid?,
+            updated_at: account.updated_at.iso8601
+          }
+        end
+      }
+    end
+
+    def debt_context
+      debts = household.debts.order(:id)
+      total_count = debts.count
+      {
+        total_count: total_count,
+        coverage: total_count > MAX_FINANCIAL_RECORDS ? "first_50_approved_records" : "all_approved_records",
+        unavailable_fields: %w[apr due_date fees exact_payoff_amount],
+        records: debts.limit(MAX_FINANCIAL_RECORDS).map do |debt|
+          {
+            label: sanitized_text(debt.label, max_length: 120),
+            debt_type: debt.debt_type,
+            balance: money(debt.balance_cents),
+            minimum_payment: money(debt.minimum_payment_cents),
+            updated_at: debt.updated_at.iso8601
+          }
+        end
+      }
     end
 
     def document_context
@@ -199,7 +240,8 @@ module HouseholdFinance
     end
 
     def money(cents)
-      ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: 0)
+      precision = cents.to_i.abs % 100 == 0 ? 0 : 2
+      ActiveSupport::NumberHelper.number_to_currency(HouseholdFinance::Money.dollars(cents), precision: precision)
     end
   end
 end

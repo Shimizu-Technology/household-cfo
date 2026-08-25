@@ -1,6 +1,6 @@
 module HouseholdFinance
   class MiaCoachAnswerer
-    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
     TRANSACTION_REPORT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
     PURCHASE_INTENT_PATTERNS = [
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:buy|spend|purchase|afford|get|book|order)\b/i,
@@ -34,6 +34,7 @@ module HouseholdFinance
     MEMORY_RECALL_PATTERN = /\b(?:forgot|remember)\b.*\b(?:decided|plan)\b|\bwhat was the plan\b|\blast time\b/i.freeze
     INVESTMENT_PATTERN = /\b(?:stocks?|crypto|bitcoin|invest(?:ing|ment)?|risky products?)\b/i.freeze
     MONEY_MOVEMENT_PATTERN = /\b(?:move|transfer)\b.*\b(?:savings|checking|bank|banker|account)\b/i.freeze
+    ACCOUNT_COVERAGE_PATTERN = /\b(?:which|what)\s+(?:saved\s+)?(?:account|accounts)\b.{0,80}\b(?:cover|afford|fund|pay)\b|\b(?:cover|afford|fund|pay)\b.{0,80}\b(?:which|what)\s+(?:saved\s+)?(?:account|accounts)\b/i.freeze
     PAYCHECK_PATTERN = /\b(?:before|until|next)\s+(?:my\s+|our\s+)?paycheck\b/i.freeze
     EXTERNAL_FACT_PATTERN = /\b(?:current\s+.*rate|look\s+up|dmv|usually\s+cost|cost\s+usually|typical(?:ly)?\s+cost|average\s+cost|bank statement|overdraft|credit score|tax refund|business taxes?|file married|filing status|payoff amount|real-time|official fee)\b/i.freeze
     AMBIGUOUS_HELP_PATTERN = /\A(?:help|what should i do\??|is this bad\??)\z/i.freeze
@@ -50,7 +51,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -98,6 +99,21 @@ module HouseholdFinance
       return nil unless normalized_message.match?(AMBIGUOUS_HELP_PATTERN)
 
       "Based on what I can see, I do not have enough approved data to answer that as a fact yet. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, runway is #{snapshot.fetch(:runway_months)} months, and safe-to-spend is #{money(snapshot.fetch(:safe_to_spend_cents))}, so the default move is to protect the baseline first. Next CFO move: tell me whether this is a bill, a purchase, a debt decision, or family support, and include the amount and due date if money might move."
+    end
+
+    def account_coverage_answer
+      return nil unless normalized_message.match?(ACCOUNT_COVERAGE_PATTERN)
+
+      amount = amount_from_message_cents
+      return "Tell me the exact amount you want to cover, and I can compare it with saved household account snapshots without guessing a live bank balance." unless amount&.positive?
+
+      qualifying_accounts = household.accounts.where(account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
+      if qualifying_accounts.none?
+        return "No saved liquid household account has a recorded balance of at least #{money(amount)}. These are approved saved snapshots, not live available balances; pending transactions, holds, and protected emergency runway can change what is actually usable. Next CFO move: verify the live available balance and protect required bills before choosing a funding account."
+      end
+
+      details = qualifying_accounts.limit(8).map { |account| "#{account.label}: #{money(account.balance_cents)} saved" }.join("; ")
+      "Saved liquid-account snapshots that meet #{money(amount)}: #{details}. These saved amounts are not live available balances and do not prove the money is safe to spend; pending charges, holds, required bills, and protected emergency runway still matter. Next CFO move: verify the selected account's current available balance before approving any payment."
     end
 
     def money_movement_boundary_answer
@@ -184,7 +200,16 @@ module HouseholdFinance
         return "Do not make skipping a debt minimum the plan until you have checked every baseline option. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)} and baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, so debt minimums stay in the protected baseline with roof, food, and utilities. I still need the payment amount, due date, current cash, and late consequences before saying what to do as a fact. Next CFO move: list those four numbers and contact the issuer before the due date if the minimum is at risk."
       end
 
-      "Based on what I can see, I do not have enough approved debt details to answer that as a fact yet. Your approved household numbers show #{money(snapshot.fetch(:total_debt_cents))} debt entered, readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months, but I still need balances, APRs, fees, minimums, and due dates before comparing debt strategies. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: add or send the APR, balance, minimum payment, and fee for each option, then we compare whether it improves cash flow without stealing from runway."
+      saved_debts = household.debts.order(balance_cents: :desc, id: :asc).limit(12)
+      details = saved_debts.map do |debt|
+        "#{debt.label}: #{money(debt.balance_cents)} balance and #{money(debt.minimum_payment_cents)} monthly minimum"
+      end
+      approved_details = details.any? ? " Approved debt details: #{details.join('; ')}." : " No individual debt balances or minimum payments have been saved yet."
+      if normalized_message.match?(/smallest balance/i) && (smallest = household.debts.order(balance_cents: :asc, id: :asc).first)
+        approved_details += " The smallest saved balance is #{smallest.label} at #{money(smallest.balance_cents)}."
+      end
+
+      "Your approved household numbers show #{money(snapshot.fetch(:total_debt_cents))} debt entered, readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months.#{approved_details} APRs, fees, due dates, and exact payoff amounts are not stored, so I cannot invent them or rank debts by interest rate. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: verify each APR, fee, and due date against the lender statement; then compare those facts with the saved balances and minimums without stealing from protected runway."
     end
 
     def car_repair_answer
@@ -652,7 +677,7 @@ module HouseholdFinance
 
     def business_income_cents
       household.income_sources.where(active: true, source_type: "business").sum do |income|
-        Money.monthly_cents(income.amount_cents, income.cadence)
+        IncomeTimeline.recurring_monthly_cents(income, on: snapshot_reference_date)
       end
     end
 
