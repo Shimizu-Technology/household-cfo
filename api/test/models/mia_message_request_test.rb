@@ -38,4 +38,27 @@ class MiaMessageRequestTest < ActiveSupport::TestCase
     refute unsafe.valid?
     refute oversized.valid?
   end
+
+  test "failed requests retain a safe terminal response instead of polling forever" do
+    request = @session.mia_message_requests.create!(request_key: "request-failed", request_fingerprint: "a" * 64)
+
+    request.fail!
+
+    assert request.failed?
+    assert_equal 503, request.response_status
+    assert_equal "mia_request_failed", request.response_payload.fetch("code")
+    assert request.completed_at.present?
+  end
+
+  test "only processing requests older than the recovery threshold expire" do
+    stale = @session.mia_message_requests.create!(request_key: "request-stale", request_fingerprint: "a" * 64)
+    stale.update_column(:updated_at, 4.minutes.ago)
+    fresh = @session.mia_message_requests.create!(request_key: "request-fresh", request_fingerprint: "b" * 64)
+
+    stale.expire_if_stale!
+    fresh.expire_if_stale!
+
+    assert stale.failed?
+    assert fresh.processing?
+  end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_24_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_25_000000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -495,7 +495,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_24_000000) do
     t.index ["chat_session_id", "request_key"], name: "index_mia_message_requests_on_chat_session_id_and_request_key", unique: true
     t.index ["chat_session_id"], name: "index_mia_message_requests_on_chat_session_id"
     t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "mia_message_requests_key_length"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'completed'::character varying]::text[])", name: "mia_message_requests_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "mia_message_requests_status_valid"
   end
 
   create_table "pilot_feedback_reports", force: :cascade do |t|

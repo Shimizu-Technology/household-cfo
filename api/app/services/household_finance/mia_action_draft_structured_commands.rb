@@ -8,6 +8,11 @@ module HouseholdFinance
         return validation_result("That budget action resolved to #{command_year}, but you are working in #{annual_budget_manager.year}. Nothing changed; tell me which year you mean.")
       end
 
+      if command.fetch(:type).to_s.in?(%w[set_allocation increase_allocation decrease_allocation])
+        compound_result = compound_allocation_proposal(month_numbers: structured_month_numbers)
+        return compound_result if compound_result
+      end
+
       case command.fetch(:type).to_s
       when "set_allocation"
         structured_allocation_proposal(:set)
