@@ -64,7 +64,8 @@ class FinancialDocumentExtractionJob < ApplicationJob
       end
       extracted_transaction_drafts = Array(data[:transaction_drafts])
       draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, extracted_transaction_drafts).call
-      if extracted_transaction_drafts.any? && draft_result.fetch(:created_count).zero?
+      if extracted_transaction_drafts.any? && draft_result.fetch(:created_count).zero? &&
+          !document_import.items.where(applied_at: nil, ignored: false).exists?
         reason = draft_result.fetch(:warnings).first.presence || "No transaction could be safely validated."
         raise ArgumentError, "Mia found spending transactions, but none could be saved for review. #{reason}"
       end

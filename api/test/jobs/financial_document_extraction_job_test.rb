@@ -292,6 +292,54 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "failed", @document_import.attempts.last.status
   end
 
+  test "valid household setup items remain reviewable when companion spending drafts are rejected" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Mia found a budget value and a transaction needing attention.",
+          confidence: "high",
+          warnings: [],
+          items: [
+            {
+              target_type: "expense_item",
+              label: "Monthly groceries",
+              amount_cents: 65_000,
+              cadence: "monthly",
+              stack_key: "discretionary",
+              confidence: "high",
+              metadata: {}
+            }
+          ],
+          transaction_drafts: [
+            {
+              occurred_on: "1900-08-01",
+              merchant: "Payless",
+              total_amount: 42.50,
+              source_type: "statement"
+            }
+          ]
+        },
+        error: nil,
+        metadata: { extraction_mode: "pdf_batches" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "needs_review", @document_import.status
+    assert_equal [ "Monthly groceries" ], @document_import.items.pluck(:label)
+    assert_empty @document_import.transaction_drafts
+    assert_includes @document_import.metadata.fetch("warnings").join(" "), "outside supported budget years"
+    assert_not @document_import.metadata.key?("no_reviewable_transactions")
+    assert_equal "succeeded", @document_import.attempts.last.status
+  end
+
   test "successful extraction stages transaction drafts with splits and match proposals" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     period = manager.current_period_for(Date.new(2026, 7, 5))
