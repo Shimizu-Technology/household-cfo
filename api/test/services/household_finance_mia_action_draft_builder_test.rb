@@ -74,6 +74,21 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal [ [ 9 ], [ 9 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
   end
 
+  test "applies an explicitly shared participant-authored amount to each requested category" do
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Increase Groceries and Dining Out by $50 each for August",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 8,
+      raw_input: "Increase Groceries and Dining Out by $50 each for August"
+    ).call
+
+    assert_equal 2, result.proposal.items.length
+    assert_equal [ 55_000, 35_000 ], result.proposal.items.map { |item| item.payload.fetch(:changes).first.fetch(:after_cents) }
+    assert_equal [ [ 8 ], [ 8 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
+  end
+
   test "does not draft a partial edit when an additional category amount is missing or unknown" do
     missing_amount = HouseholdFinance::MiaActionDraftBuilder.new(
       @household, "Set Groceries to $650 and Dining Out", user: @user,

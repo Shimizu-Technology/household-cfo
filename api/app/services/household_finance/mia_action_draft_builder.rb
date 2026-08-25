@@ -392,17 +392,19 @@ module HouseholdFinance
       return month_numbers if month_numbers.is_a?(Result)
       return validation_result("Tell me which month or months these budget edits should affect. Nothing changed.") if month_numbers.empty?
 
+      shared_amount = authored.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})\s*(?:each|apiece)\b/i)
       instructions = mentions.each_with_index.map do |mention, index|
         previous_end = index.zero? ? 0 : mentions[index - 1].fetch(:ends_at)
         prefix = authored[previous_end...mention.fetch(:starts_at)].to_s
         boundary = mentions[index + 1]&.fetch(:starts_at) || authored.length
         suffix = authored[mention.fetch(:ends_at)...boundary].to_s
-        amount_match = suffix.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})|(?<amount_only>\$\s*\d[\d,]*(?:\.\d{1,2})?)/i)
+        amount_match = suffix.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})|(?<amount_only>\$\s*\d[\d,]*(?:\.\d{1,2})?)/i) || shared_amount
         unless amount_match
           return validation_result("Tell me the exact amount for #{mention.fetch(:category).name}. I did not draft a partial change.")
         end
 
-        amount_cents = amount_cents_from(amount_match[:amount].presence || amount_match[:amount_only])
+        explicit_amount = amount_match.names.include?("amount_only") ? amount_match[:amount_only] : nil
+        amount_cents = amount_cents_from(amount_match[:amount].presence || explicit_amount)
         if amount_cents.negative?
           return validation_result("I could not safely read the amount for #{mention.fetch(:category).name}. Nothing changed.")
         end
