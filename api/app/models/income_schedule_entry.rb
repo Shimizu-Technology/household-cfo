@@ -12,6 +12,7 @@ class IncomeScheduleEntry < ApplicationRecord
   validate :one_time_cadence
   validate :one_time_amount
   validate :recurring_cadence
+  validate :continuing_transition_income
 
   private
 
@@ -35,5 +36,12 @@ class IncomeScheduleEntry < ApplicationRecord
     return unless entry_type == "recurring_change" && cadence == "one_time"
 
     errors.add(:cadence, "cannot be one_time for a recurring change")
+  end
+
+  def continuing_transition_income
+    return unless retained_after_transition?
+    return if entry_type == "recurring_change" && amount_cents.to_i.positive?
+
+    errors.add(:retained_after_transition, "requires a continuing recurring income amount")
   end
 end

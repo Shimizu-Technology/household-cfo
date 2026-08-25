@@ -177,12 +177,14 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       household, user = create_household
       household.update!(primary_goal: "Scale back my shifts while I build the business")
       job = household.income_sources.create!(label: "Reduced-hours salary", source_type: "job", amount_cents: 600_000, cadence: "monthly")
-      job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 350_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 350_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1), retained_after_transition: true)
       household.income_sources.create!(label: "Unverified second salary", source_type: "job", amount_cents: 200_000, cadence: "monthly")
       future_job = household.income_sources.create!(label: "Future reduced salary", source_type: "job", amount_cents: 400_000, cadence: "monthly")
-      future_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 250_000, cadence: "monthly", effective_on: Date.new(2026, 9, 1))
+      future_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 250_000, cadence: "monthly", effective_on: Date.new(2026, 9, 1), retained_after_transition: true)
       raised_job = household.income_sources.create!(label: "Raised salary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
-      raised_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 150_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      raised_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 150_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1), retained_after_transition: true)
+      unconfirmed_job = household.income_sources.create!(label: "Unconfirmed reduced salary", source_type: "job", amount_cents: 300_000, cadence: "monthly")
+      unconfirmed_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 150_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
       household.income_sources.create!(label: "Rental", source_type: "rental", amount_cents: 100_000, cadence: "monthly")
       household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 75_000, cadence: "monthly")
       household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 700_000, cadence: "monthly")
@@ -211,7 +213,9 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
         "Move to my business full-time and exit my position",
         "I want to leave my career to start a business",
         "Quit my full-time day job and grow the business",
-        "Resign from my current employer to build the business"
+        "Resign from my current employer to build the business",
+        "Stop working for my employer and build the business",
+        "Close the chapter on corporate life and launch my business"
       ].each do |goal|
         household.update!(primary_goal: goal)
         payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data

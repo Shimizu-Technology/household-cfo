@@ -53,7 +53,7 @@ module Api
       end
 
       def entry_params
-        params.require(:income_schedule_entry).permit(:income_source_id, :entry_type, :label, :amount, :cadence, :effective_on)
+        params.require(:income_schedule_entry).permit(:income_source_id, :entry_type, :label, :amount, :cadence, :effective_on, :retained_after_transition)
       end
 
       def normalized_entry_attributes
@@ -61,13 +61,17 @@ module Api
         date = Date.iso8601(entry_params.require(:effective_on).to_s).beginning_of_month
         raise ArgumentError, "Income schedule date is outside the supported range" unless HouseholdFinance::AnnualBudgetManager.supported_year?(date.year)
 
-        {
+        attributes = {
           entry_type: type,
           label: entry_params[:label].to_s.squish.presence,
           amount_cents: HouseholdFinance::Money.cents!(entry_params[:amount], message: "Income amount must be a number"),
           cadence: type == "one_time" ? "one_time" : entry_params[:cadence].presence || "monthly",
           effective_on: date
         }
+        if entry_params.key?(:retained_after_transition)
+          attributes[:retained_after_transition] = ActiveModel::Type::Boolean.new.cast(entry_params[:retained_after_transition])
+        end
+        attributes
       rescue Date::Error
         raise ArgumentError, "Income schedule date must be a valid date"
       end
@@ -97,7 +101,8 @@ module Api
           label: entry.label,
           amount: HouseholdFinance::Money.dollars(entry.amount_cents),
           cadence: entry.cadence,
-          effective_on: entry.effective_on.iso8601
+          effective_on: entry.effective_on.iso8601,
+          retained_after_transition: entry.retained_after_transition?
         }
       end
     end

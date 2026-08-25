@@ -438,6 +438,7 @@ export type IncomeScheduleEntry = {
   amount: number
   cadence: string
   effective_on: string
+  retained_after_transition?: boolean
 }
 
 export type IncomeTimelineSource = {
@@ -477,6 +478,7 @@ export type IncomeScheduleEntryInput = {
   amount: number | string
   cadence?: string
   effective_on: string
+  retained_after_transition?: boolean
 }
 
 export type BudgetStackKey = 'non_discretionary' | 'discretionary' | 'sinking_expected' | 'sinking_unexpected'

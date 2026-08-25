@@ -6922,6 +6922,7 @@ type IncomeScheduleDraft = {
   amount: string
   cadence: string
   effective_on: string
+  retained_after_transition: boolean
 }
 
 function blankIncomeScheduleDraft(plan: AnnualBudgetPlan): IncomeScheduleDraft {
@@ -6933,6 +6934,7 @@ function blankIncomeScheduleDraft(plan: AnnualBudgetPlan): IncomeScheduleDraft {
     amount: '',
     cadence: 'monthly',
     effective_on: `${plan.year}-${String(currentMonth).padStart(2, '0')}-01`,
+    retained_after_transition: false,
   }
 }
 
@@ -6963,6 +6965,7 @@ function AnnualIncomePlanner({
       amount: String(entry.amount),
       cadence: entry.entry_type === 'one_time' ? 'one_time' : entry.cadence,
       effective_on: entry.effective_on,
+      retained_after_transition: entry.retained_after_transition === true,
     })
   }
 
@@ -6992,6 +6995,10 @@ function AnnualIncomePlanner({
         amount: draft.amount,
         cadence: draft.entry_type === 'one_time' ? 'one_time' : draft.cadence,
         effective_on: draft.effective_on,
+        retained_after_transition: draft.entry_type === 'recurring_change'
+          && selectedSource?.source_type === 'job'
+          && Number(draft.amount) > 0
+          && draft.retained_after_transition,
       }, editingId ?? undefined)
       cancelEdit()
     } catch {
@@ -7051,6 +7058,7 @@ function AnnualIncomePlanner({
                         <div>
                           <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'Recurring amount changes'}</strong>
                           <span>{formatMonthYear(entry.effective_on)} · {currency.format(entry.amount)}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
+                          {entry.retained_after_transition && <small>Confirmed to continue after transition</small>}
                         </div>
                         {isRealWorkspace && (
                           <div>
@@ -7120,6 +7128,20 @@ function AnnualIncomePlanner({
                   </label>
                 )}
               </div>
+
+              {selectedSource?.source_type === 'job' && draft.entry_type === 'recurring_change' && numericAmount > 0 && (
+                <label className="income-transition-retention">
+                  <input
+                    type="checkbox"
+                    checked={draft.retained_after_transition}
+                    onChange={(event) => updateIncomeDraft({ retained_after_transition: event.currentTarget.checked })}
+                  />
+                  <span>
+                    <strong>This job income will continue after my transition</strong>
+                    <small>Only check this when the reduced salary will actually continue. Otherwise, Mia keeps it out of your transition plan.</small>
+                  </span>
+                </label>
+              )}
 
               {formError && <p className="setup-error" role="alert">{formError}</p>}
 
