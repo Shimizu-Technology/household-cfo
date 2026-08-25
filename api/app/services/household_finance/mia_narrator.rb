@@ -446,7 +446,12 @@ module HouseholdFinance
             }
           end
           nearest_amount = amount_matches.min_by { |match| match.fetch(:distance) }
-          nearest_amount.present? && nearest_amount.fetch(:cents) != transaction.fetch(:amount_cents)
+          next false unless nearest_amount
+
+          saved_for_merchant = transactions.select do |candidate|
+            normalize_merchant_label(candidate.fetch(:merchant)) == normalize_merchant_label(transaction.fetch(:merchant))
+          end
+          saved_for_merchant.none? { |candidate| candidate.fetch(:amount_cents) == nearest_amount.fetch(:cents) }
         end
       end || incorrect_merchant_alias_amount?(content, transactions) || invented_transaction_merchant?(content, transactions)
     end

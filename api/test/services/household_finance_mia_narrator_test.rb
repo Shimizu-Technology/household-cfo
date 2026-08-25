@@ -787,6 +787,29 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "accepts the correct amount and date when one merchant has multiple saved transactions" do
+    narrated = "Starbucks charged $25 on Aug 25."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "What was the August 25 Starbucks charge?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: narrated, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Starbucks", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
   test "does not attach an unrelated planning date to the approved transaction" do
     narrated = "Starbucks charged $25 on Aug 25, and your next budget review is Sep 10."
     response = ok_response(choices: [ { message: { content: narrated } } ])
