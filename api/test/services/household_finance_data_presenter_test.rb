@@ -172,6 +172,32 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     end
   end
 
+  test "reduced-hours transitions retain only an approved effective reduced salary" do
+    travel_to Date.new(2026, 8, 24) do
+      household, user = create_household
+      household.update!(primary_goal: "Reduce my work hours and grow my business")
+      job = household.income_sources.create!(label: "Reduced-hours salary", source_type: "job", amount_cents: 600_000, cadence: "monthly")
+      job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 350_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      household.income_sources.create!(label: "Unverified second salary", source_type: "job", amount_cents: 200_000, cadence: "monthly")
+      future_job = household.income_sources.create!(label: "Future reduced salary", source_type: "job", amount_cents: 400_000, cadence: "monthly")
+      future_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 250_000, cadence: "monthly", effective_on: Date.new(2026, 9, 1))
+      raised_job = household.income_sources.create!(label: "Raised salary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+      raised_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 150_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      household.income_sources.create!(label: "Rental", source_type: "rental", amount_cents: 100_000, cadence: "monthly")
+      household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 75_000, cadence: "monthly")
+      household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 700_000, cadence: "monthly")
+
+      payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+      levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+      business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
+
+      assert_equal 4_500, levers.fetch("Income continuing after transition").fetch(:amount)
+      assert_equal 2_500, levers.fetch("Business needs to pay").fetch(:amount)
+      assert_equal 1_750, payload.dig(:optionality, :monthly_gap)
+      assert_equal 2_500, business_target.fetch(:target)
+    end
+  end
+
   test "irregular expense cadences reconcile across profile setup dashboard and the current budget month" do
     travel_to Date.new(2026, 1, 15) do
       household, user = create_household

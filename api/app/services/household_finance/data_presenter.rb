@@ -476,12 +476,34 @@ module HouseholdFinance
 
     def transition_retained_income_cents
       # Employment is the income being replaced in a founder/career transition.
-      # Bonus and "other" are too ambiguous to assume, so only independently
-      # recurring rental/passive sources count until the product stores an
-      # explicit participant attestation for every retained source.
+      # Independently recurring rental/passive sources remain available. A job
+      # counts only when the participant explicitly describes a reduced-hours
+      # transition and has approved an effective recurring pay reduction.
+      # Bonus and "other" are too ambiguous to assume without an attestation.
       income_sources
-        .select { |income| income.source_type.in?(%w[rental passive]) }
+        .select { |income| income.source_type.in?(%w[rental passive]) || approved_reduced_hours_salary?(income) }
         .sum { |income| current_recurring_income_cents(income) }
+    end
+
+    def approved_reduced_hours_salary?(income)
+      return false unless income.source_type == "job" && reduced_hours_transition?
+
+      changes = income.income_schedule_entries
+        .select { |entry| entry.entry_type == "recurring_change" && entry.effective_on <= Date.current.end_of_month }
+        .sort_by { |entry| [ entry.effective_on, entry.id ] }
+      return false if changes.empty?
+
+      preceding = changes[-2]
+      previous_amount_cents = preceding&.amount_cents || income.amount_cents
+      previous_cadence = preceding&.cadence || income.cadence
+      previous_monthly_cents = Money.period_cents(previous_amount_cents, previous_cadence, month: Date.current.month)
+
+      current_recurring_income_cents(income) < previous_monthly_cents
+    end
+
+    def reduced_hours_transition?
+      goal_text = [ transition_goal&.label, household.primary_goal ].compact.join(" ")
+      goal_text.match?(/\b(?:reduc(?:e|ed|ing)|cut(?:ting)?)(?:\s+\w+){0,3}\s+hours?\b|\bpart[ -]?time\b|\bhybrid\b/i)
     end
 
     def monthly_business_income_cents
