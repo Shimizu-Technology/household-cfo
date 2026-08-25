@@ -62,9 +62,7 @@ export function ChatHistory({
             {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
             <div className={`message ${message.role}`}>
               <strong>{message.author}</strong>
-              {messageParagraphs(message).map((paragraph, paragraphIndex) => (
-                <p key={`${message.author}-${hiddenMessageCount + index}-${paragraphIndex}`}>{paragraph}</p>
-              ))}
+              {messageContent(message, `${message.author}-${hiddenMessageCount + index}`)}
               {(message.attachments ?? []).length > 0 && (
                 <MessageAttachmentList
                   attachments={message.attachments ?? []}
@@ -154,9 +152,40 @@ function messageKey(message: MiaMessage, index: number) {
   return message.id ? `server-${message.id}` : message.client_id ?? `${message.author}-${index}`
 }
 
-function messageParagraphs(message: MiaMessage) {
+function messageContent(message: MiaMessage, keyPrefix: string) {
   const content = message.role === 'assistant' ? message.content.replace(/^Mia:\s*/i, '') : message.content
-  return content.replace(/\*\*(.*?)\*\*/g, '$1').replace(/^\s*[-*]\s+/gm, '').split(/\n{2,}/).map((paragraph) => paragraph.trim()).filter(Boolean)
+  const blocks: Array<{ type: 'paragraph' | 'list'; lines: string[] }> = []
+  let startsNewParagraph = false
+
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim()
+    if (!line) {
+      startsNewParagraph = true
+      continue
+    }
+
+    const listMatch = message.role === 'assistant' ? line.match(/^[-*]\s+(.+)$/) : null
+    const type = listMatch ? 'list' : 'paragraph'
+    const value = listMatch?.[1] ?? line
+    const current = blocks.at(-1)
+    if (current?.type === type && !(type === 'paragraph' && startsNewParagraph)) current.lines.push(value)
+    else blocks.push({ type, lines: [value] })
+    startsNewParagraph = false
+  }
+
+  return blocks.map((block, blockIndex) => block.type === 'list'
+    ? <ul key={`${keyPrefix}-${blockIndex}`}>
+      {block.lines.map((line, lineIndex) => <li key={`${keyPrefix}-${blockIndex}-${lineIndex}`}>{messageInlineText(line, message.role === 'assistant')}</li>)}
+    </ul>
+    : <p key={`${keyPrefix}-${blockIndex}`}>{messageInlineText(block.lines.join(' '), message.role === 'assistant')}</p>)
+}
+
+function messageInlineText(value: string, allowFormatting: boolean): ReactNode {
+  if (!allowFormatting) return value
+
+  return value.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith('**') && part.endsWith('**')
+    ? <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>
+    : part)
 }
 
 function attachmentDisplayName(attachment: MiaMessageAttachment) {

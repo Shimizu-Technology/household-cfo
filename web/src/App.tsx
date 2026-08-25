@@ -273,6 +273,7 @@ function App() {
   const auth = useAuthContext()
   const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
   const [data, setData] = useState<AppData | null>(null)
+  const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
   const [isProfileEditing, setIsProfileEditing] = useState(false)
   const [setupSaving, setSetupSaving] = useState(false)
@@ -296,6 +297,7 @@ function App() {
   const [miaAttachmentNotice, setMiaAttachmentNotice] = useState<string | null>(null)
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
+  const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
   const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
   const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
   const [spendingReportLoading, setSpendingReportLoading] = useState(false)
@@ -578,7 +580,18 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [canLoadWorkspace, chatStorageKey, shouldUseRealWorkspace])
+  }, [canLoadWorkspace, chatStorageKey, shouldUseRealWorkspace, workspaceLoadAttempt])
+
+  useEffect(() => {
+    if (!hasUnsavedBudgetChanges) return
+
+    const preventUnsavedNavigation = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', preventUnsavedNavigation)
+    return () => window.removeEventListener('beforeunload', preventUnsavedNavigation)
+  }, [hasUnsavedBudgetChanges])
 
   useEffect(() => {
     if (!workspaceLoadKey) return
@@ -927,6 +940,11 @@ function App() {
   }, [handleVoiceRecordingComplete, isRealWorkspace, miaLoading, stopVoiceStream, voiceRecording, voiceTranscribing])
 
   function switchSection(section: string) {
+    if (activeSection === 'Budget' && section !== 'Budget' && hasUnsavedBudgetChanges) {
+      setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
+      return
+    }
+
     captureAnalyticsEvent('section_selected', {
       section: section.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
       from_section: activeSection.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
@@ -1973,7 +1991,15 @@ function App() {
         <section className="hero-panel">
           <p className="eyebrow">Household CFO Method powered by VERA</p>
           <h1>Loading your first cohort workspace.</h1>
-          <p>{error ?? 'Pulling first cohort preview data...'}</p>
+          <p role={error ? 'alert' : undefined}>{error ?? 'Pulling first cohort preview data...'}</p>
+          {error && (
+            <button type="button" className="workspace-retry-button" onClick={() => {
+              setError(null)
+              setWorkspaceLoadAttempt((attempt) => attempt + 1)
+            }}>
+              Try again
+            </button>
+          )}
         </section>
       </main>
     )
@@ -2055,11 +2081,12 @@ function App() {
                 <span className="spark" aria-hidden="true"><MiaMark /></span>
                 <div>
                   <span>Assistant context</span>
-                  <h3>Approved data loaded</h3>
+                  <h3>{isFirstSessionSetup ? 'Add your starting numbers' : 'Approved data loaded'}</h3>
                 </div>
               </div>
-              <p>
-                Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.
+              <p>{isFirstSessionSetup
+                ? 'Mia can explain the process now. Add and approve your starting household numbers before asking her to make a financial call.'
+                : 'Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.'}
               </p>
               {isRealWorkspace ? (
                 <DocumentContextCard
@@ -2530,6 +2557,7 @@ function App() {
               onDeleteIncomeScheduleEntry={handleDeleteIncomeScheduleEntry}
               onBudgetViewChange={handleBudgetViewChange}
               onSaveBudgetEdits={handleBudgetEditSave}
+              onUnsavedChangesChange={setHasUnsavedBudgetChanges}
               onAskMia={() => {
                 setQuestion('I want to update my budget. Help me make this change safely: ')
                 switchSection('Ask Mia')
@@ -7153,6 +7181,7 @@ function AnnualBudgetPlanner({
   onDeleteIncomeScheduleEntry,
   onBudgetViewChange,
   onSaveBudgetEdits,
+  onUnsavedChangesChange,
   onAskMia,
   onArchiveCategory,
   onRestoreCategory,
@@ -7182,6 +7211,7 @@ function AnnualBudgetPlanner({
   onDeleteIncomeScheduleEntry: (entry: IncomeScheduleEntry) => void
   onBudgetViewChange: (year: number, monthIndex: number) => void
   onSaveBudgetEdits: (changes: BudgetEditChanges) => Promise<void>
+  onUnsavedChangesChange: (hasChanges: boolean) => void
   onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
@@ -7244,6 +7274,11 @@ function AnnualBudgetPlanner({
   const currentCalendarMonthIndex = today.getMonth()
   const isViewingCurrentYear = plan.year === currentCalendarYear
   const isViewingCurrentMonth = isViewingCurrentYear && currentMonthIndex === currentCalendarMonthIndex
+
+  useEffect(() => {
+    onUnsavedChangesChange(hasUnsavedBudgetChanges)
+    return () => onUnsavedChangesChange(false)
+  }, [hasUnsavedBudgetChanges, onUnsavedChangesChange])
 
   function beginBudgetEdit() {
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
