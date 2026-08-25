@@ -466,7 +466,9 @@ module HouseholdFinance
           approved = normalize_merchant_label(transaction.fetch(:merchant))
           approved == normalized || (normalized.length >= 3 && approved.start_with?("#{normalized} "))
         end
-        compatible.length != 1
+        exact_matches = compatible.select { |transaction| normalize_merchant_label(transaction.fetch(:merchant)) == normalized }
+        compatible = exact_matches if exact_matches.any?
+        compatible.map { |transaction| normalize_merchant_label(transaction.fetch(:merchant)) }.uniq.length != 1
       end
     end
 
@@ -513,7 +515,9 @@ module HouseholdFinance
           merchant = normalize_merchant_label(candidate.fetch(:merchant))
           merchant if merchant == name || merchant.start_with?("#{name} ")
         end.uniq
-        matching_merchants.one?
+        exact_merchants = matching_merchants.select { |merchant| merchant == name }
+        matching_merchants = exact_merchants if exact_merchants.any?
+        matching_merchants.one? && matching_merchants.first == normalize_merchant_label(transaction.fetch(:merchant))
       end
     end
 

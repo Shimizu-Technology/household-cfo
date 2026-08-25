@@ -695,6 +695,52 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects an incorrect date for an exact merchant name shared by a longer saved merchant" do
+    fallback = "Starbucks charged $25 on Aug 25; Starbucks Coffee charged $40 on Aug 24."
+    response = ok_response(choices: [ { message: { content: "The approved transaction is $25 at Starbucks on Aug 24." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When was the Starbucks transaction?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "accepts an exact saved merchant name even when another merchant has the same prefix" do
+    narrated = "The approved transaction is $25 at Starbucks on Aug 25."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When was the Starbucks transaction?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: narrated, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
   test "does not attach an unrelated planning date to the approved transaction" do
     narrated = "Starbucks charged $25 on Aug 25, and your next budget review is Sep 10."
     response = ok_response(choices: [ { message: { content: narrated } } ])
