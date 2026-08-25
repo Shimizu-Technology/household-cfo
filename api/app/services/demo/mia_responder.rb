@@ -21,8 +21,8 @@ module Demo
       groceries grocery food medicine medication rent mortgage power water utilities utility
       insurance gas daycare childcare school tuition diapers formula doctor medical dental
     ].freeze
-    TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
-    BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
+    TRANSACTION_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    BARE_TRANSACTION_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:%|percent\b)/i.freeze
     RUNWAY_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s+months?\s+of\s+runway\b/i.freeze
@@ -246,16 +246,16 @@ module Demo
 
     def financial_values_grounded?(content, payload:, user_message: nil)
       metrics = payload.fetch("metrics", {})
-      grounded_currency_mentions?(content, metrics: metrics, user_message: user_message) &&
+      grounded_currency_mentions?(content, metrics: metrics, payload: payload, user_message: user_message) &&
         grounded_percent_mentions?(content, metrics: metrics, user_message: user_message) &&
         runway_values_grounded?(content, approved_runway: metrics.fetch("runway_months", nil))
     end
 
-    def grounded_currency_mentions?(content, metrics:, user_message: nil)
+    def grounded_currency_mentions?(content, metrics:, payload:, user_message: nil)
       mentions = currency_mentions(content)
       return true if mentions.empty?
 
-      metric_mentions = approved_metric_mentions(content, metrics: metrics)
+      metric_mentions = approved_metric_mentions(content, metrics: metrics) + approved_saved_record_mentions(content, payload: payload)
       participant_values = currency_values(user_message)
       mentions.all? do |mention|
         nearest = metric_mentions.min_by { |metric| range_distance(metric, mention) }
@@ -294,6 +294,53 @@ module Demo
           match = Regexp.last_match
           { start: match.begin(0), finish: match.end(0), value: approved }
         end
+      end
+    end
+
+    def approved_saved_record_mentions(content, payload:)
+      records = []
+      Array(payload.dig("financial_accounts", "records")).each do |account|
+        records << { label: account["label"], fields: { "balance" => account["balance"] } }
+      end
+      Array(payload.dig("debts", "records")).each do |debt|
+        records << { label: debt["label"], fields: { "balance" => debt["balance"], "minimum" => debt["minimum_payment"] } }
+      end
+      Array(payload.dig("annual_budget", "selected_month_budget_rows")).each do |category|
+        records << {
+          label: category["category"],
+          fields: { "planned" => category["planned"], "actual" => category["actual"], "remaining" => category["remaining"] }
+        }
+      end
+
+      records.flat_map { |record| saved_record_label_mentions(content, record) }
+    end
+
+    def saved_record_label_mentions(content, record)
+      label = record.fetch(:label).to_s.strip
+      return [] if label.blank?
+
+      fields = record.fetch(:fields).filter_map do |name, value|
+        approved = currency_values(value.to_s).first
+        [ name, approved ] if approved
+      end.to_h
+      return [] if fields.empty?
+
+      content.to_s.to_enum(:scan, /\b#{Regexp.escape(label)}\b/i).flat_map do
+        label_match = Regexp.last_match
+        anchors = [ { start: label_match.begin(0), finish: label_match.end(0), value: fields.values.first } ]
+        clause = content[label_match.end(0), 120].to_s.split(/[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i).first.to_s
+        fields.each do |name, value|
+          descriptor = name == "minimum" ? /\b(?:monthly\s+)?minimum(?:\s+payment)?\b/i : /\b#{name}(?:s|ning)?\b/i
+          clause.to_enum(:scan, descriptor).each do
+            field_match = Regexp.last_match
+            anchors << {
+              start: label_match.end(0) + field_match.begin(0),
+              finish: label_match.end(0) + field_match.end(0),
+              value: value
+            }
+          end
+        end
+        anchors
       end
     end
 
