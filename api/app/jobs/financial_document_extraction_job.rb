@@ -62,8 +62,15 @@ class FinancialDocumentExtractionJob < ApplicationJob
       Array(data[:items]).each do |item_attributes|
         document_import.items.create!(item_attributes.merge(selected: false))
       end
-      draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, data[:transaction_drafts]).call
-      no_reviewable_transactions = !document_import.items.exists? && !document_import.transaction_drafts.exists?
+      extracted_transaction_drafts = Array(data[:transaction_drafts])
+      draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, extracted_transaction_drafts).call
+      if extracted_transaction_drafts.any? && draft_result.fetch(:created_count).zero?
+        reason = draft_result.fetch(:warnings).first.presence || "No transaction could be safely validated."
+        raise ArgumentError, "Mia found spending transactions, but none could be saved for review. #{reason}"
+      end
+
+      no_reviewable_transactions = Array(data[:items]).empty? && extracted_transaction_drafts.empty? &&
+        !document_import.items.exists? && !document_import.transaction_drafts.exists?
       warnings = Array(data[:warnings]) + Array(draft_result.fetch(:warnings))
       if routing.conflict
         warning = if routing.conflict_reason == "participant_signals"

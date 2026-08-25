@@ -253,6 +253,45 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal true, @document_import.metadata.fetch("routing_requires_confirmation")
   end
 
+  test "an extraction whose spending drafts all fail persistence becomes a recoverable failure" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Mia found a purchase that could not be saved.",
+          confidence: "high",
+          warnings: [],
+          items: [],
+          transaction_drafts: [
+            {
+              occurred_on: "1900-08-01",
+              merchant: "Payless",
+              total_amount: 42.50,
+              source_type: "statement"
+            }
+          ]
+        },
+        error: nil,
+        metadata: { extraction_mode: "pdf_batches" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "failed", @document_import.status
+    assert_nil @document_import.applied_at
+    assert_empty @document_import.transaction_drafts
+    assert_includes @document_import.extraction_error, "none could be saved for review"
+    assert_includes @document_import.extraction_error, "outside supported budget years"
+    assert_not @document_import.metadata.key?("no_reviewable_transactions")
+    assert_equal "failed", @document_import.attempts.last.status
+  end
+
   test "successful extraction stages transaction drafts with splits and match proposals" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     period = manager.current_period_for(Date.new(2026, 7, 5))
