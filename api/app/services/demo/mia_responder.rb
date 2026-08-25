@@ -235,6 +235,7 @@ module Demo
     def ungrounded_generic_financial_claim?(content, context:, user_message: nil)
       payload = parsed_context(context)
       return true if content.to_s.match?(UNSUPPORTED_SCENARIO_CONCLUSION_PATTERN)
+      return true if unsupported_debt_detail_claim?(content, payload: payload)
       return true unless financial_values_grounded?(content, payload: payload, user_message: user_message)
 
       claimed_readiness = content.to_s.scan(READINESS_CLAIM_PATTERN).flatten.map(&:downcase)
@@ -242,6 +243,17 @@ module Demo
 
       approved_readiness = payload.dig("metrics", "readiness").to_s[/\b(red|yellow|green)\b/i, 1].to_s.downcase
       approved_readiness.blank? || claimed_readiness.any? { |claim| claim != approved_readiness }
+    end
+
+    def unsupported_debt_detail_claim?(content, payload:)
+      return false if Array(payload.dig("debts", "records")).empty?
+
+      text = content.to_s
+      factual_rate = text.match?(/\b(?:apr|interest rate)\s+(?:is|of|at|:)\s*(?!(?:not|unknown|unavailable|missing|unstored)\b)(?:\d|[a-z])/i)
+      factual_due_date = text.match?(/\b(?:due date\s+(?:is|:)|(?:payment|minimum|card|loan)\s+is\s+due|due\s+on)\s+(?:(?:the\s+)?\d|jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)/i)
+      factual_fee_or_payoff = text.match?(/\b(?:late fee|exact payoff(?: amount)?)\s+(?:is|of|at|:)\s*\$?\d/i)
+
+      factual_rate || factual_due_date || factual_fee_or_payoff
     end
 
     def financial_values_grounded?(content, payload:, user_message: nil)

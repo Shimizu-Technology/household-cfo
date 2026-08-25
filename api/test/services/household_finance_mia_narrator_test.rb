@@ -649,6 +649,52 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects approved transaction dates when they are attached to the wrong approved merchants" do
+    fallback = "Starbucks Coffee charged $25 on Aug 25, and Pay-Less charged $40 on Aug 24."
+    response = ok_response(choices: [ { message: { content: "Starbucks charged $25 on Aug 24, and Pay-Less charged $40 on Aug 25." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When were the Starbucks and Pay-Less transactions?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Pay-Less", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
+  test "accepts accurate dates for multiple approved transaction merchants" do
+    narrated = "Starbucks charged $25 on Aug 25, and Pay-Less charged $40 on Aug 24."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "When were the Starbucks and Pay-Less transactions?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: narrated, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Pay-Less", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
   test "does not attach an unrelated planning date to the approved transaction" do
     narrated = "Starbucks charged $25 on Aug 25, and your next budget review is Sep 10."
     response = ok_response(choices: [ { message: { content: narrated } } ])
