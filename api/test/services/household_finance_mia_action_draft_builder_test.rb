@@ -83,11 +83,17 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
       @household, "Set Groceries to $650 and Travel to $275", user: @user,
       annual_budget_manager: @manager, raw_input: "Set Groceries to $650 and Travel to $275"
     ).call
+    plain_unknown_category = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, "Set Groceries to 650 and Travel to 275", user: @user,
+      annual_budget_manager: @manager, raw_input: "Set Groceries to 650 and Travel to 275"
+    ).call
 
     assert_nil missing_amount.proposal
     assert_includes missing_amount.response, "exact amount for Dining Out"
     assert_nil unknown_category.proposal
     assert_includes unknown_category.response, "match every requested amount"
+    assert_nil plain_unknown_category.proposal
+    assert_includes plain_unknown_category.response, "match every requested amount"
   end
 
   test "does not widen a compound edit when the model resolves the wrong year" do

@@ -379,7 +379,8 @@ module HouseholdFinance
     def compound_allocation_proposal(month_numbers: nil)
       authored = raw_input.to_s.squish
       mentions = compound_category_mentions(authored)
-      if mentions.one? && authored.scan(/\$\s*\d[\d,]*(?:\.\d{1,2})?/).length > 1
+      explicit_amount_count = authored.scan(/(?:\$\s*|\b(?:to|at|by)\s*\$?\s*)\d[\d,]*(?:\.\d{1,2})?/i).length
+      if mentions.one? && explicit_amount_count > 1
         return validation_result("I could not safely match every requested amount to an active budget category. Restate each category and amount; nothing changed.")
       end
       return if mentions.length < 2
@@ -443,8 +444,9 @@ module HouseholdFinance
     end
 
     def compound_category_mentions(authored)
+      categories = household.budget_categories.active.where(id: active_rows.map { |row| row.fetch(:id) }).index_by(&:id)
       candidates = active_rows.flat_map do |row|
-        category = household.budget_categories.active.find_by(id: row.fetch(:id))
+        category = categories[row.fetch(:id).to_i]
         next [] unless category
 
         authored.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(category.name)}(?![[:alnum:]])/i).map do
