@@ -435,6 +435,8 @@ module HouseholdFinance
         merchant = Regexp.escape(transaction.fetch(:merchant))
         content.to_enum(:scan, /\b#{merchant}\b/i).any? do
           mention = Regexp.last_match
+          next false if longer_saved_merchant_at?(content, mention.begin(0), transaction, transactions)
+
           clause = transaction_clause_for_mention(content, mention.begin(0), mention.end(0))
           amount_matches = clause.fetch(:text).to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
             amount_match = Regexp.last_match
@@ -446,7 +448,48 @@ module HouseholdFinance
           nearest_amount = amount_matches.min_by { |match| match.fetch(:distance) }
           nearest_amount.present? && nearest_amount.fetch(:cents) != transaction.fetch(:amount_cents)
         end
-      end || invented_transaction_merchant?(content, transactions)
+      end || incorrect_merchant_alias_amount?(content, transactions) || invented_transaction_merchant?(content, transactions)
+    end
+
+    def longer_saved_merchant_at?(content, starts_at, transaction, transactions)
+      approved_name = normalize_merchant_label(transaction.fetch(:merchant))
+      transactions.any? do |candidate|
+        candidate_name = normalize_merchant_label(candidate.fetch(:merchant))
+        next false unless candidate_name.start_with?("#{approved_name} ")
+
+        content[starts_at..].to_s.match?(/\A#{Regexp.escape(candidate.fetch(:merchant))}\b/i)
+      end
+    end
+
+    def incorrect_merchant_alias_amount?(content, transactions)
+      clauses = content.split(/[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i)
+      clauses.any? do |clause|
+        matching = transactions.select { |transaction| transaction_merchant_in_clause?(clause, transaction, transactions) }
+        matching.group_by { |transaction| normalize_merchant_label(transaction.fetch(:merchant)) }.any? do |_merchant, approved|
+          mention = transaction_merchant_alias_match(clause, approved.first)
+          next false unless mention
+
+          amount_matches = clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
+            amount_match = Regexp.last_match
+            {
+              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              distance: [ (amount_match.begin(0) - mention.begin(0)).abs, (amount_match.end(0) - mention.end(0)).abs ].min
+            }
+          end
+          nearest_amount = amount_matches.min_by { |amount| amount.fetch(:distance) }
+          nearest_amount.present? && approved.none? { |transaction| transaction.fetch(:amount_cents) == nearest_amount.fetch(:cents) }
+        end
+      end
+    end
+
+    def transaction_merchant_alias_match(clause, transaction)
+      tokens = transaction.fetch(:merchant).to_s.split
+      aliases = (1..tokens.length).map { |length| tokens.first(length).join(" ") }.sort_by { |name| -name.length }
+      aliases.filter_map do |name|
+        next if normalize_merchant_label(name).length < 3
+
+        clause.match(/(?<![\p{L}\d])#{Regexp.escape(name)}(?![\p{L}\d])/i)
+      end.first
     end
 
     def transaction_clause_for_mention(content, starts_at, ends_at)

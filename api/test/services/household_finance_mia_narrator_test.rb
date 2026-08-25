@@ -672,6 +672,29 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects another approved transaction amount attached to an unambiguous merchant alias" do
+    fallback = "Starbucks Coffee charged $25, and Pay-Less charged $40."
+    response = ok_response(choices: [ { message: { content: "Starbucks charged $40." } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How much was the Starbucks transaction?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: fallback, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Pay-Less", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal fallback, answer
+    end
+  end
+
   test "accepts accurate dates for multiple approved transaction merchants" do
     narrated = "Starbucks charged $25 on Aug 25, and Pay-Less charged $40 on Aug 24."
     response = ok_response(choices: [ { message: { content: narrated } } ])
@@ -725,6 +748,29 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     with_net_http_start_stub(response) do
       answer = HouseholdFinance::MiaNarrator.new(
         user_message: "When was the Starbucks transaction?",
+        answer_packet: {
+          kind: "transaction_lookup", fallback_response: narrated, write_state: "no_write",
+          spending_report_summary: {
+            top_transactions: [
+              { merchant: "Starbucks", occurred_on: "2026-08-25", amount: 25 },
+              { merchant: "Starbucks Coffee", occurred_on: "2026-08-24", amount: 40 }
+            ]
+          }
+        },
+        api_key: "test-key"
+      ).call
+
+      assert_equal narrated, answer
+    end
+  end
+
+  test "accepts the longer exact merchant without attaching the shorter saved merchant's amount" do
+    narrated = "Starbucks Coffee charged $40 on Aug 24."
+    response = ok_response(choices: [ { message: { content: narrated } } ])
+
+    with_net_http_start_stub(response) do
+      answer = HouseholdFinance::MiaNarrator.new(
+        user_message: "How much was the Starbucks Coffee transaction?",
         answer_packet: {
           kind: "transaction_lookup", fallback_response: narrated, write_state: "no_write",
           spending_report_summary: {
