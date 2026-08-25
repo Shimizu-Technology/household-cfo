@@ -266,6 +266,101 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     )
   end
 
+  test "generic model responses can state exact approved account balances without swapping accounts" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: { readiness: "Yellow — protect the baseline" },
+      financial_accounts: {
+        records: [
+          { label: "Everyday checking", balance: "$2,450.75" },
+          { label: "Emergency savings", balance: "$7,100" }
+        ]
+      }
+    }.to_json
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your saved Everyday checking balance is $2,450.75; this is not a live bank balance.",
+      context: context
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Your saved Everyday checking balance is $7,100.",
+      context: context
+    )
+  end
+
+  test "generic model responses keep saved debt balances and minimums attached to the right fields" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: { readiness: "Yellow — protect the baseline" },
+      debts: { records: [ { label: "Bank card", balance: "$6,543.21", minimum_payment: "$45.67" } ] }
+    }.to_json
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Bank card has a $6,543.21 balance and a $45.67 monthly minimum payment.",
+      context: context
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Bank card has a $45.67 balance and a $6,543.21 monthly minimum payment.",
+      context: context
+    )
+  end
+
+  test "generic model responses cannot invent unstored debt APRs due dates or payoff details" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: { readiness: "Yellow — protect the baseline" },
+      debts: {
+        unavailable_fields: %w[apr due_date fees exact_payoff_amount],
+        records: [ { label: "Bank card", balance: "$6,543.21", minimum_payment: "$45.67" } ]
+      }
+    }.to_json
+
+    [
+      "The Bank card APR is twenty percent.",
+      "Your Bank card payment is due Aug 25.",
+      "The Bank card late fee is $45.67.",
+      "The exact payoff amount is $6,543.21."
+    ].each do |content|
+      assert responder.send(:ungrounded_generic_financial_claim?, content, context: context), content
+    end
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "The Bank card minimum is $45.67, but its APR and due date are not stored.",
+      context: context
+    )
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "The Bank card APR is not stored, so I cannot determine its interest rate.",
+      context: context
+    )
+  end
+
+  test "generic model responses preserve approved category planned and actual relationships" do
+    responder = Demo::MiaResponder.new(api_key: nil)
+    context = {
+      metrics: { readiness: "Yellow — protect the baseline" },
+      annual_budget: {
+        selected_month_budget_rows: [ { category: "Groceries", planned: "$300.25", actual: "$80.50", remaining: "$219.75" } ]
+      }
+    }.to_json
+
+    refute responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Groceries has $300.25 planned, with $80.50 in actual spending and $219.75 remaining.",
+      context: context
+    )
+    assert responder.send(
+      :ungrounded_generic_financial_claim?,
+      "Groceries has $80.50 planned and $300.25 in actual spending.",
+      context: context
+    )
+  end
+
   test "generic model responses may repeat a current participant scenario amount" do
     responder = Demo::MiaResponder.new(api_key: nil)
     context = { metrics: { readiness: "Yellow — protect the baseline", safe_to_spend: "$262" } }.to_json

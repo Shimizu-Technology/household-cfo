@@ -16,7 +16,7 @@ module HouseholdFinance
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
     BANNED_OPENERS = /\A(?:(?:(?:that['’]s|that is|this is) a )?(?:good|smart|great) question[.!]?)\s*/i
-    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    MONEY_AMOUNT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
     MONTH_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*(?:-|\s)\s*months?\b/i
     PERCENT_AMOUNT_PATTERN = /\b(\d+(?:\.\d+)?)\s*%/.freeze
     DANGEROUS_WRITE_CLAIMS = [
@@ -198,6 +198,7 @@ module HouseholdFinance
       return :contradicts_pending_state if contradicts_no_pending_drafts?(content)
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
       return :invented_currency_amount if invented_currency_amount?(content)
+      return :incorrect_financial_fact_relationship if incorrect_financial_fact_relationship?(content)
       return :invented_measurement if invented_measurement?(content)
       return :incorrect_safe_to_spend_relationship if incorrect_safe_to_spend_relationship?(content)
       return :missing_compound_decision_relationship if missing_compound_decision_relationship?(content)
@@ -347,6 +348,234 @@ module HouseholdFinance
       return false if narrated_amounts.empty?
 
       (narrated_amounts - allowed_currency_cents).any?
+    end
+
+    def incorrect_financial_fact_relationship?(content)
+      incorrect_category_amount_relationship?(content) || incorrect_transaction_relationship?(content)
+    end
+
+    def incorrect_category_amount_relationship?(content)
+      categories = approved_category_facts
+      return false if categories.empty?
+
+      mentions = categories.flat_map do |category|
+        content.to_enum(:scan, /\b#{Regexp.escape(category.fetch(:name))}\b/i).map do
+          { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
+        end
+      end.sort_by { |mention| mention.fetch(:starts_at) }
+
+      mentions.each_with_index.any? do |mention, index|
+        boundary = mentions[index + 1]&.fetch(:starts_at) || content.length
+        clause = content[mention.fetch(:ends_at)...boundary].to_s.split(/[;\n]|\.(?=\s|\z)/, 2).first.to_s
+        relevant_clause = clause.first(100)
+        amounts = currency_cents_from_text(relevant_clause)
+        next false if amounts.empty?
+
+        approved = mention.fetch(:category).fetch(:amounts)
+        amounts.any? { |amount| approved.exclude?(amount) } || incorrect_category_metric?(relevant_clause, mention.fetch(:category))
+      end
+    end
+
+    def incorrect_category_metric?(clause, category)
+      clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).any? do
+        amount_match = Regexp.last_match
+        amount = HouseholdFinance::Money.cents(amount_match[1].delete(","))
+        before = clause[[ amount_match.begin(0) - 18, 0 ].max...amount_match.begin(0)].to_s
+        after = clause[amount_match.end(0), 18].to_s
+        metric = after.match(/\A\s*(?:in\s+)?(planned|actuals?|remaining|pending)\b/i)&.captures&.first ||
+          before.match(/\b(planned|actuals?|remaining|pending)\s*(?:is|of|:)?\s*\z/i)&.captures&.first
+        next false unless metric
+
+        key = metric.downcase.start_with?("actual") ? :actual : metric.downcase.to_sym
+        expected = category.fetch(:metrics)[key]
+        expected.present? && expected != amount
+      end
+    end
+
+    def approved_category_facts
+      summaries = [ answer_packet[:annual_plan_summary], answer_packet[:spending_report_summary] ].compact
+      summaries.flat_map { |summary| Array(summary[:top_categories]) }.filter_map do |category|
+        name = category[:name].to_s.strip
+        next if name.blank?
+
+        metrics = %i[planned actual remaining pending].filter_map do |key|
+          value = category[key]
+          [ key, HouseholdFinance::Money.cents(value) ] unless value.nil?
+        end
+        { name: name, amounts: metrics.map(&:last).uniq, metrics: metrics.to_h } if metrics.any?
+      end
+    end
+
+    def incorrect_transaction_relationship?(content)
+      return false unless answer_packet[:kind].to_s.in?(%w[transaction_lookup transaction_draft])
+
+      transactions = approved_transaction_facts
+      return false if transactions.empty?
+
+      incorrect_merchant_relationship?(content, transactions) || incorrect_transaction_date?(content, transactions)
+    end
+
+    def approved_transaction_facts
+      rows = Array(answer_packet.dig(:spending_report_summary, :top_transactions))
+      rows += [ answer_packet[:transaction_draft] ] if answer_packet[:transaction_draft].present?
+      rows.filter_map do |transaction|
+        merchant = transaction[:merchant].to_s.strip
+        next if merchant.blank?
+
+        amount = transaction[:amount]
+        cents = amount.is_a?(Numeric) ? HouseholdFinance::Money.cents(amount) : currency_cents_from_text(amount).first
+        next unless cents
+
+        { merchant: merchant, amount_cents: cents, occurred_on: transaction[:occurred_on].to_s }
+      end
+    end
+
+    def incorrect_merchant_relationship?(content, transactions)
+      transactions.any? do |transaction|
+        merchant = Regexp.escape(transaction.fetch(:merchant))
+        content.to_enum(:scan, /\b#{merchant}\b/i).any? do
+          mention = Regexp.last_match
+          next false if longer_saved_merchant_at?(content, mention.begin(0), transaction, transactions)
+
+          clause = transaction_clause_for_mention(content, mention.begin(0), mention.end(0))
+          amount_matches = clause.fetch(:text).to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
+            amount_match = Regexp.last_match
+            {
+              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              distance: [ (amount_match.begin(0) - clause.fetch(:merchant_start)).abs, (amount_match.end(0) - clause.fetch(:merchant_end)).abs ].min
+            }
+          end
+          nearest_amount = amount_matches.min_by { |match| match.fetch(:distance) }
+          next false unless nearest_amount
+
+          saved_for_merchant = transactions.select do |candidate|
+            normalize_merchant_label(candidate.fetch(:merchant)) == normalize_merchant_label(transaction.fetch(:merchant))
+          end
+          saved_for_merchant.none? { |candidate| candidate.fetch(:amount_cents) == nearest_amount.fetch(:cents) }
+        end
+      end || incorrect_merchant_alias_amount?(content, transactions) || invented_transaction_merchant?(content, transactions)
+    end
+
+    def longer_saved_merchant_at?(content, starts_at, transaction, transactions)
+      approved_name = normalize_merchant_label(transaction.fetch(:merchant))
+      transactions.any? do |candidate|
+        candidate_name = normalize_merchant_label(candidate.fetch(:merchant))
+        next false unless candidate_name.start_with?("#{approved_name} ")
+
+        content[starts_at..].to_s.match?(/\A#{Regexp.escape(candidate.fetch(:merchant))}\b/i)
+      end
+    end
+
+    def incorrect_merchant_alias_amount?(content, transactions)
+      clauses = content.split(/[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i)
+      clauses.any? do |clause|
+        matching = transactions.select { |transaction| transaction_merchant_in_clause?(clause, transaction, transactions) }
+        matching.group_by { |transaction| normalize_merchant_label(transaction.fetch(:merchant)) }.any? do |_merchant, approved|
+          mention = transaction_merchant_alias_match(clause, approved.first)
+          next false unless mention
+
+          amount_matches = clause.to_enum(:scan, MONEY_AMOUNT_PATTERN).map do
+            amount_match = Regexp.last_match
+            {
+              cents: HouseholdFinance::Money.cents(amount_match[1].delete(",")),
+              distance: [ (amount_match.begin(0) - mention.begin(0)).abs, (amount_match.end(0) - mention.end(0)).abs ].min
+            }
+          end
+          nearest_amount = amount_matches.min_by { |amount| amount.fetch(:distance) }
+          nearest_amount.present? && approved.none? { |transaction| transaction.fetch(:amount_cents) == nearest_amount.fetch(:cents) }
+        end
+      end
+    end
+
+    def transaction_merchant_alias_match(clause, transaction)
+      tokens = transaction.fetch(:merchant).to_s.split
+      aliases = (1..tokens.length).map { |length| tokens.first(length).join(" ") }.sort_by { |name| -name.length }
+      aliases.filter_map do |name|
+        next if normalize_merchant_label(name).length < 3
+
+        clause.match(/(?<![\p{L}\d])#{Regexp.escape(name)}(?![\p{L}\d])/i)
+      end.first
+    end
+
+    def transaction_clause_for_mention(content, starts_at, ends_at)
+      before = content[0...starts_at].to_s
+      after = content[ends_at..].to_s
+      boundary = /[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i
+      prefix = before.split(boundary).last.to_s
+      suffix = after.split(boundary).first.to_s
+      { text: "#{prefix}#{content[starts_at...ends_at]}#{suffix}", merchant_start: prefix.length, merchant_end: prefix.length + ends_at - starts_at }
+    end
+
+    def invented_transaction_merchant?(content, transactions)
+      matches = content.scan(/\$\s*[\d,]+(?:\.\d{1,2})?\s+(?:charge\s+|purchase\s+|transaction\s+)?(?:at|from)\s+([\p{L}\d][\p{L}\d'’&.\- ]{1,45}?)(?=[,;.]|\s+(?:on|for|in|and|that|which)\b|\z)/i)
+      matches.flatten.any? do |merchant|
+        normalized = normalize_merchant_label(merchant.sub(/\s+(?:happened|occurred|posted|cleared|was|is)\z/i, ""))
+        compatible = transactions.select do |transaction|
+          approved = normalize_merchant_label(transaction.fetch(:merchant))
+          approved == normalized || (normalized.length >= 3 && approved.start_with?("#{normalized} "))
+        end
+        exact_matches = compatible.select { |transaction| normalize_merchant_label(transaction.fetch(:merchant)) == normalized }
+        compatible = exact_matches if exact_matches.any?
+        compatible.map { |transaction| normalize_merchant_label(transaction.fetch(:merchant)) }.uniq.length != 1
+      end
+    end
+
+    def normalize_merchant_label(value)
+      value.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^\p{L}\d ]/, "").squish
+    end
+
+    def incorrect_transaction_date?(content, transactions)
+      clauses = content.split(/[;\n]|\.(?=\s|\z)|,\s+(?=(?:and|but|while)\b)/i)
+      clauses.any? do |clause|
+        matching_transactions = transactions.select { |transaction| transaction_merchant_in_clause?(clause, transaction, transactions) }
+        if matching_transactions.empty?
+          next false unless transactions.one? && clause.match?(/\b(?:transaction|charge|purchase|payment)\b/i)
+
+          matching_transactions = transactions
+        end
+
+        amounts = currency_cents_from_text(clause)
+        amount_matches = matching_transactions.select { |transaction| amounts.include?(transaction.fetch(:amount_cents)) }
+        matching_transactions = amount_matches if amount_matches.any?
+
+        approved_dates = matching_transactions.filter_map do |transaction|
+          Date.iso8601(transaction.fetch(:occurred_on)) rescue nil
+        end
+        next false if approved_dates.empty?
+
+        transaction_dates_from_clause(clause, reference_year: approved_dates.first.year).any? do |date|
+          approved_dates.exclude?(date)
+        end
+      end
+    rescue ArgumentError
+      false
+    end
+
+    def transaction_merchant_in_clause?(clause, transaction, transactions)
+      approved_tokens = normalize_merchant_label(transaction.fetch(:merchant)).split
+      aliases = (1..approved_tokens.length).map { |length| approved_tokens.first(length).join(" ") }.select { |name| name.length >= 3 }
+      normalized_clause = normalize_merchant_label(clause)
+
+      aliases.any? do |name|
+        next false unless normalized_clause.match?(/\b#{Regexp.escape(name)}\b/i)
+
+        matching_merchants = transactions.filter_map do |candidate|
+          merchant = normalize_merchant_label(candidate.fetch(:merchant))
+          merchant if merchant == name || merchant.start_with?("#{name} ")
+        end.uniq
+        exact_merchants = matching_merchants.select { |merchant| merchant == name }
+        matching_merchants = exact_merchants if exact_merchants.any?
+        matching_merchants.one? && matching_merchants.first == normalize_merchant_label(transaction.fetch(:merchant))
+      end
+    end
+
+    def transaction_dates_from_clause(clause, reference_year:)
+      iso_dates = clause.scan(/\b\d{4}-\d{2}-\d{2}\b/).filter_map { |date| Date.iso8601(date) rescue nil }
+      named_dates = clause.scan(/\b(January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)\.?\s+(\d{1,2})\b/i).filter_map do |month, day|
+        Date.new(reference_year, Date::ABBR_MONTHNAMES.index(month.first(3).capitalize), day.to_i) rescue nil
+      end
+
+      iso_dates + named_dates
     end
 
     def invented_measurement?(content)

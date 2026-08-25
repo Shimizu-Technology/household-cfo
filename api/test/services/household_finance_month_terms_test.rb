@@ -98,6 +98,22 @@ class HouseholdFinanceMonthTermsTest < ActiveSupport::TestCase
     assert_includes overview, "Pending transaction drafts total $100"
   end
 
+  test "budget overviews include required debt minimums in outflow and baseline surplus" do
+    plan = annual_plan_with_breakdown(2026)
+    plan[:monthly_debt_minimums] = 175.25
+
+    overview = HouseholdFinance::BudgetQuestionAnswerer.new(
+      "Give me an overview of my July budget",
+      annual_plan: plan,
+      today: Date.new(2026, 7, 15)
+    ).call
+
+    assert_includes overview, "$6,275.25"
+    assert_includes overview, "$6,100 in planned categories plus $175.25 in required debt minimums"
+    assert_includes overview, "baseline surplus of $7,924.75"
+    refute_includes overview, "baseline surplus of $8,100"
+  end
+
   test "spending report query resolves relative weekdays without widening to the month" do
     assert_equal(
       { start_on: Date.new(2026, 7, 14), end_on: Date.new(2026, 7, 14) },
