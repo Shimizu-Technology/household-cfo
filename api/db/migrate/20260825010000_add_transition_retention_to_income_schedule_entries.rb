@@ -65,13 +65,7 @@ class AddTransitionRetentionToIncomeScheduleEntries < ActiveRecord::Migration[8.
       WHERE income_schedule_entries.id = normalized_changes.id
         AND income_schedule_entries.amount_cents > 0
         AND income_schedule_entries.retained_after_transition IS NULL
-        AND (
-          normalized_changes.current_annual_cents / 12
-          + CASE WHEN #{current_date.month} <= MOD(normalized_changes.current_annual_cents, 12) THEN 1 ELSE 0 END
-        ) < (
-          normalized_changes.previous_annual_cents / 12
-          + CASE WHEN #{current_date.month} <= MOD(normalized_changes.previous_annual_cents, 12) THEN 1 ELSE 0 END
-        )
+        AND normalized_changes.current_annual_cents < normalized_changes.previous_annual_cents
     SQL
   end
 

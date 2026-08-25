@@ -200,6 +200,32 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     end
   end
 
+  test "an approved cadence-changing salary reduction stays retained in every calendar month" do
+    household, user = create_household
+    household.update!(primary_goal: "Reduce my hours while building the business")
+    job = household.income_sources.create!(label: "Reduced-hours salary", source_type: "job", amount_cents: 1_000, cadence: "weekly")
+    job.income_schedule_entries.create!(
+      entry_type: "recurring_change",
+      amount_cents: 4_333,
+      cadence: "monthly",
+      effective_on: Date.new(2026, 1, 1),
+      retained_after_transition: true
+    )
+    household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 10_000, cadence: "monthly")
+
+    [ Date.new(2026, 1, 15), Date.new(2026, 8, 25) ].each do |date|
+      travel_to date do
+        payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+        levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+        business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
+
+        assert_equal 43.33, levers.fetch("Income continuing after transition").fetch(:amount), date.to_s
+        assert_equal 56.67, levers.fetch("Business needs to pay").fetch(:amount), date.to_s
+        assert_equal 56.67, business_target.fetch(:target), date.to_s
+      end
+    end
+  end
+
   test "a full job departure excludes a prior pay reduction from retained income" do
     travel_to Date.new(2026, 8, 24) do
       household, user = create_household

@@ -100,6 +100,20 @@ class AddTransitionRetentionToIncomeScheduleEntriesTest < ActiveSupport::TestCas
     assert_nil not_reduced.reload.retained_after_transition
   end
 
+  test "recognizes an annualized cadence reduction even when the current monthly amounts tie" do
+    reduced = create_income_change(
+      goal: "Reduce my work hours and build the business",
+      amount_cents: 4_333,
+      cadence: "monthly",
+      source_amount_cents: 1_000,
+      source_cadence: "weekly"
+    )
+
+    backfill_legacy_income
+
+    assert reduced.reload.retained_after_transition?
+  end
+
   test "never approves an inactive salary or an older change when the current change was declined" do
     inactive = create_income_change(goal: "Reduce my work hours and build the business")
     inactive.income_source.update!(active: false)
@@ -133,10 +147,11 @@ class AddTransitionRetentionToIncomeScheduleEntriesTest < ActiveSupport::TestCas
   end
 
   def create_income_change(goal:, source_type: "job", amount_cents: 350_000, cadence: "monthly",
+                           source_amount_cents: 600_000, source_cadence: "monthly",
                            effective_on: Date.new(2026, 8, 1), retained_after_transition: nil)
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Legacy transition income", primary_goal: goal)
-    source = household.income_sources.create!(label: "Scheduled income", source_type: source_type, amount_cents: 600_000, cadence: "monthly")
+    source = household.income_sources.create!(label: "Scheduled income", source_type: source_type, amount_cents: source_amount_cents, cadence: source_cadence)
     source.income_schedule_entries.create!(
       entry_type: "recurring_change",
       amount_cents: amount_cents,

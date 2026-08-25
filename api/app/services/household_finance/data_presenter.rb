@@ -498,9 +498,9 @@ module HouseholdFinance
       preceding = changes[-2]
       previous_amount_cents = preceding&.amount_cents || income.amount_cents
       previous_cadence = preceding&.cadence || income.cadence
-      previous_monthly_cents = Money.period_cents(previous_amount_cents, previous_cadence, month: Date.current.month)
 
-      current_recurring_income_cents(income) < previous_monthly_cents
+      Money.annualized_cents(changes.last.amount_cents, changes.last.cadence) <
+        Money.annualized_cents(previous_amount_cents, previous_cadence)
     end
 
     def monthly_business_income_cents
