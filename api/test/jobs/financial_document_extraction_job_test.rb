@@ -124,6 +124,222 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_includes @document_import.metadata.fetch("warnings").first, "You described this as pay stub"
   end
 
+  test "a credit-only statement completes without leaving an impossible review task" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Mia found no spending transactions to review; incoming rows were safely excluded.",
+          confidence: "high",
+          warnings: [ "Skipped incoming credit/deposit for Payroll; incoming money is not spending." ],
+          no_reviewable_transactions: true,
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: { extraction_mode: "structured_spreadsheet" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "applied", @document_import.status
+    assert @document_import.applied_at.present?
+    assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
+    assert_includes @document_import.metadata.fetch("warnings").first, "Payroll"
+    assert_empty @document_import.items
+    assert_empty @document_import.transaction_drafts
+    assert_equal "succeeded", @document_import.attempts.last.status
+
+    HouseholdFinance::DocumentImportStatusReconciler.new(@document_import).call
+    assert_equal "applied", @document_import.reload.status
+  end
+
+  test "an empty general AI extraction completes without depending on a spreadsheet-specific marker" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "No actionable spending was present.",
+          confidence: "medium",
+          warnings: [ "Only incoming transfers were visible." ],
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: { finish_reason: "stop" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "applied", @document_import.status
+    assert @document_import.applied_at.present?
+    assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
+    assert_includes @document_import.metadata.fetch("warnings").first, "incoming transfers"
+  end
+
+  test "an empty batched PDF extraction completes without an impossible review task" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Processed four statement pages without spending transactions.",
+          confidence: "high",
+          warnings: [ "Processed all 4 PDF pages in 2 extraction batches." ],
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: { extraction_mode: "pdf_batches", page_count: 4, batch_count: 2 }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "applied", @document_import.status
+    assert_equal "pdf_batches", @document_import.metadata.fetch("extraction_mode")
+    assert_equal 4, @document_import.metadata.fetch("extraction_page_count")
+    assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
+  end
+
+  test "an empty statement with conflicting participant routing still requires explicit review" do
+    @document_import.update!(
+      document_kind: "pay_stub",
+      metadata: {
+        "declared_document_kind" => "pay_stub",
+        "upload_origin" => "mia",
+        "upload_context" => "This is my latest pay stub. Use it to help update my income."
+      }
+    )
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "No spending transactions found.",
+          confidence: "high",
+          warnings: [ "Skipped incoming payroll deposit." ],
+          no_reviewable_transactions: true,
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: { extraction_mode: "structured_spreadsheet" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    assert_equal "needs_review", @document_import.reload.status
+    assert_equal true, @document_import.metadata.fetch("routing_requires_confirmation")
+  end
+
+  test "an extraction whose spending drafts all fail persistence becomes a recoverable failure" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Mia found a purchase that could not be saved.",
+          confidence: "high",
+          warnings: [],
+          items: [],
+          transaction_drafts: [
+            {
+              occurred_on: "1900-08-01",
+              merchant: "Payless",
+              total_amount: 42.50,
+              source_type: "statement"
+            }
+          ]
+        },
+        error: nil,
+        metadata: { extraction_mode: "pdf_batches" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "failed", @document_import.status
+    assert_nil @document_import.applied_at
+    assert_empty @document_import.transaction_drafts
+    assert_includes @document_import.extraction_error, "none could be saved for review"
+    assert_includes @document_import.extraction_error, "outside supported budget years"
+    assert_not @document_import.metadata.key?("no_reviewable_transactions")
+    assert_equal "failed", @document_import.attempts.last.status
+  end
+
+  test "valid household setup items remain reviewable when companion spending drafts are rejected" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Mia found a budget value and a transaction needing attention.",
+          confidence: "high",
+          warnings: [],
+          items: [
+            {
+              target_type: "expense_item",
+              label: "Monthly groceries",
+              amount_cents: 65_000,
+              cadence: "monthly",
+              stack_key: "discretionary",
+              confidence: "high",
+              metadata: {}
+            }
+          ],
+          transaction_drafts: [
+            {
+              occurred_on: "1900-08-01",
+              merchant: "Payless",
+              total_amount: 42.50,
+              source_type: "statement"
+            }
+          ]
+        },
+        error: nil,
+        metadata: { extraction_mode: "pdf_batches" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "needs_review", @document_import.status
+    assert_equal [ "Monthly groceries" ], @document_import.items.pluck(:label)
+    assert_empty @document_import.transaction_drafts
+    assert_includes @document_import.metadata.fetch("warnings").join(" "), "outside supported budget years"
+    assert_not @document_import.metadata.key?("no_reviewable_transactions")
+    assert_equal "succeeded", @document_import.attempts.last.status
+  end
+
   test "successful extraction stages transaction drafts with splits and match proposals" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     period = manager.current_period_for(Date.new(2026, 7, 5))
@@ -303,7 +519,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
       end
     end
 
-    assert_equal "needs_review", @document_import.reload.status
+    assert_equal "applied", @document_import.reload.status
     assert_equal "failed", stale_attempt.reload.status
     assert_equal true, stale_attempt.metadata.fetch("stalled")
     assert_equal "succeeded", @document_import.attempts.order(:id).last.status
@@ -355,6 +571,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
       metadata: {
         "confidence" => "high",
         "warnings" => [ "old warning" ],
+        "no_reviewable_transactions" => true,
         "extraction_model" => "old/model",
         "last_extracted_at" => "2026-06-01T00:00:00Z",
         "upload_request_id" => "keep-me"
@@ -378,6 +595,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal true, @document_import.metadata.key?("last_extraction_failed_at")
     assert_not @document_import.metadata.key?("confidence")
     assert_not @document_import.metadata.key?("warnings")
+    assert_not @document_import.metadata.key?("no_reviewable_transactions")
   end
 
   test "failed extraction marks import failed and records attempt" do
