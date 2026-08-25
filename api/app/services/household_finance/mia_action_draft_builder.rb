@@ -380,7 +380,7 @@ module HouseholdFinance
       authored = raw_input.to_s.squish
       mentions = compound_category_mentions(authored)
       explicit_amount_count = authored.scan(/(?:\$\s*|\b(?:to|at|by)\s*\$?\s*)\d[\d,]*(?:\.\d{1,2})?/i).length
-      if mentions.one? && explicit_amount_count > 1
+      if mentions.any? && explicit_amount_count > mentions.length
         return validation_result("I could not safely match every requested amount to an active budget category. Restate each category and amount; nothing changed.")
       end
       return if mentions.length < 2

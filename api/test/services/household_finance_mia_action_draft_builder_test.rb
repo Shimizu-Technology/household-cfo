@@ -111,6 +111,55 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_includes plain_unknown_category.response, "match every requested amount"
   end
 
+  test "rejects unknown third-category amounts regardless of their position or dollar formatting" do
+    prompts = [
+      "Set Travel to $100, Groceries to $650, and Dining Out to $275 for August",
+      "Set Groceries to $650, Travel to $100, and Dining Out to $275 for August",
+      "Set Groceries to $650, Dining Out to $275, and Travel to $100 for August",
+      "Set Groceries to 650, Dining Out to 275, and Travel to 100 for August"
+    ]
+
+    prompts.each do |prompt|
+      result = HouseholdFinance::MiaActionDraftBuilder.new(
+        @household, prompt, user: @user, annual_budget_manager: @manager,
+        selected_month: 8, raw_input: prompt
+      ).call
+
+      assert_nil result.proposal, prompt
+      assert_includes result.response, "match every requested amount", prompt
+    end
+  end
+
+  test "rejects an unmatched third amount even when the model resolves one valid category" do
+    prompt = "Set Groceries to $650, Dining Out to $275, and Travel to $100 for August"
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, user: @user, annual_budget_manager: @manager, selected_month: 8,
+      raw_input: prompt,
+      command: {
+        type: "set_allocation", category_id: @groceries.id, category_name: "Groceries",
+        amount: "650", months: [ 8 ], year: 2026
+      }
+    ).call
+
+    assert_nil result.proposal
+    assert_includes result.response, "match every requested amount"
+  end
+
+  test "drafts three known category amounts atomically without counting the budget year" do
+    utilities = @manager.create_category!(name: "Utilities", stack_key: "non_discretionary", monthly_amount: 200)
+    prompt = "Set Groceries to $650, Dining Out to $275, and Utilities to $225 for August 2026"
+
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, prompt, user: @user, annual_budget_manager: @manager,
+      selected_month: 8, raw_input: prompt
+    ).call
+
+    assert result.proposal
+    assert_equal [ @groceries.id, @dining.id, utilities.id ], result.proposal.items.map { |item| item.payload.fetch(:category_id) }
+    assert_equal [ 65_000, 27_500, 22_500 ], result.proposal.items.map { |item| item.payload.fetch(:changes).first.fetch(:after_cents) }
+    assert_equal [ [ 8 ], [ 8 ], [ 8 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
+  end
+
   test "does not widen a compound edit when the model resolves the wrong year" do
     result = HouseholdFinance::MiaActionDraftBuilder.new(
       @household, user: @user, annual_budget_manager: @manager,
