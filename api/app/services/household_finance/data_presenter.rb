@@ -477,16 +477,19 @@ module HouseholdFinance
     def transition_retained_income_cents
       # Employment is the income being replaced in a founder/career transition.
       # Independently recurring rental/passive sources remain available. A job
-      # counts only when the participant explicitly describes a reduced-hours
-      # transition and has approved an effective recurring pay reduction.
+      # counts only when an approved, currently effective recurring change
+      # proves that its pay was reduced and the stated transition is not a full
+      # departure. The financial schedule is the source of truth here; partial
+      # transitions must not depend on recognizing a small list of goal phrases.
       # Bonus and "other" are too ambiguous to assume without an attestation.
       income_sources
-        .select { |income| income.source_type.in?(%w[rental passive]) || approved_reduced_hours_salary?(income) }
+        .select { |income| income.source_type.in?(%w[rental passive]) || approved_continuing_salary?(income) }
         .sum { |income| current_recurring_income_cents(income) }
     end
 
-    def approved_reduced_hours_salary?(income)
-      return false unless income.source_type == "job" && reduced_hours_transition?
+    def approved_continuing_salary?(income)
+      return false unless income.source_type == "job"
+      return false if full_job_departure_transition?
 
       changes = income.income_schedule_entries
         .select { |entry| entry.entry_type == "recurring_change" && entry.effective_on <= Date.current.end_of_month }
@@ -501,9 +504,9 @@ module HouseholdFinance
       current_recurring_income_cents(income) < previous_monthly_cents
     end
 
-    def reduced_hours_transition?
+    def full_job_departure_transition?
       goal_text = [ transition_goal&.label, household.primary_goal ].compact.join(" ")
-      goal_text.match?(/\b(?:reduc(?:e|ed|ing)|cut(?:ting)?)(?:\s+\w+){0,3}\s+hours?\b|\bpart[ -]?time\b|\bhybrid\b/i)
+      goal_text.match?(/\b(?:leave|leaving|quit|quitting|resign|resigning|retire|retiring|exit|exiting)(?:\s+\w+){0,3}\s+(?:my\s+)?(?:job|role|position|employment)\b|\b(?:run|grow|work in|move to|transition to)(?:\s+\w+){0,4}\s+full[ -]?time\b|\bfull[ -]?time\s+(?:founder|business|self[- ]?employ)/i)
     end
 
     def monthly_business_income_cents
