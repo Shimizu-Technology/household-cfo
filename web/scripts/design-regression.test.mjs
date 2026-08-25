@@ -89,9 +89,13 @@ for (const uploadLabel of ['Upload spreadsheet', 'Upload statement', 'Upload pay
 assert.ok(app.includes('Approved data loaded'), 'the visible workspace status should identify approved data')
 assert.ok(!app.includes('Source-derived design requirements'), 'production accessibility output must not contain test-only source copy')
 
-for (const token of ['--cream', '--ink', '--emerald', '--status-green', '--status-yellow', '--status-red']) {
+for (const token of ['--cream', '--ink', '--ink-soft', '--paper-deep', '--emerald', '--berry', '--font-display', '--serif-font', '--status-green', '--status-yellow', '--status-red']) {
   assert.ok(css.includes(token), `CSS should include cleaned design token ${token}`)
 }
+assert.ok(css.includes('.insight-card.red,'), 'critical dashboard alerts should carry the same red visual status as other red financial cards')
+assert.ok(app.includes('onUnsavedChangesChange'), 'unsaved budget changes must be communicated to participant navigation')
+assert.ok(app.includes('Try again'), 'an initial workspace loading failure should offer a real recovery action')
+assert.ok(chatHistory.includes('<ul') && chatHistory.includes('<strong key='), 'Mia answers should preserve safe semantic lists and emphasis')
 
 assert.ok(css.includes('--emerald: #7b4a58'), 'primary brand token should shift from green to deep mauve')
 assert.ok(css.includes('--emerald-soft: #f1e2e3'), 'soft brand token should use dusty rose')

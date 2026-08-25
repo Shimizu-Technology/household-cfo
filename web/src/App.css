@@ -3,11 +3,14 @@
   --cream: #f7f2ea;
   --paper: #fffdf8;
   --paper-warm: #fbf7ef;
+  --paper-deep: #f1e9df;
   --ink: #1f2421;
+  --ink-soft: #706d66;
   --muted: #706d66;
   --line: #e2d9cb;
   --emerald: #7b4a58;
   --mauve: #7b4a58;
+  --berry: #7b4a58;
   --emerald-soft: #f1e2e3;
   --gold: #b97352;
   --plum: #3f2930;
@@ -15,6 +18,8 @@
   --status-yellow: #a86b34;
   --status-red: #9d4b45;
   --number-font: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Cormorant Garamond", Georgia, serif;
+  --serif-font: "Cormorant Garamond", Georgia, serif;
   font-family: Montserrat, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: var(--ink);
   background: var(--cream);
@@ -528,6 +533,17 @@ textarea:focus-visible {
   min-height: 100vh;
   display: grid;
   place-items: center;
+}
+
+.workspace-retry-button {
+  justify-self: start;
+  min-height: 44px;
+  margin-top: 8px;
+  padding: 10px 18px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-weight: 800;
 }
 
 .shell-header,
@@ -1391,6 +1407,7 @@ h3 {
   border-left: 5px solid var(--status-yellow);
 }
 
+.insight-card.red,
 .stack-card.red,
 .choice-card.red {
   border-left: 5px solid var(--status-red);
@@ -4899,6 +4916,26 @@ h3 {
 
 .message-row .message p {
   margin: 0;
+}
+
+.message-row .message ul {
+  display: grid;
+  gap: 6px;
+  margin: 9px 0 0;
+  padding-left: 20px;
+}
+
+.message-row .message li {
+  line-height: 1.55;
+}
+
+.message-row .message p strong,
+.message-row .message li strong {
+  display: inline;
+  margin: 0;
+  font-size: inherit;
+  letter-spacing: normal;
+  text-transform: none;
 }
 
 .empty-chat-state {

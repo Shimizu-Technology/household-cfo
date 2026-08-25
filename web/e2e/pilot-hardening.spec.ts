@@ -332,6 +332,25 @@ test.beforeEach(async ({ page }) => {
   }, chatMessages(100))
 })
 
+test('an initial workspace loading failure offers a real retry and restores the participant app', async ({ page }) => {
+  let attempts = 0
+  let recoveryAllowed = false
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    attempts += 1
+    return recoveryAllowed
+      ? route.fulfill({ status: 200, json: realWorkspaceData(true) })
+      : route.fulfill({ status: 503, json: { error: 'The household workspace is temporarily unavailable.' } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByRole('alert')).toContainText('temporarily unavailable')
+  recoveryAllowed = true
+  await page.getByRole('button', { name: 'Try again' }).click()
+
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+  expect(attempts).toBeGreaterThan(1)
+})
+
 test('participant workflow remains usable when Plaid is not configured', async ({ page }) => {
   await mockEmptyPlaidState(page, false)
 
@@ -693,6 +712,27 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await page.getByRole('button', { name: 'Load earlier messages (40 remaining)' }).click()
   await expect(page.locator('.message-row')).toHaveCount(100)
   await expect(page.locator('.chat-history-load')).toHaveCount(0)
+})
+
+test('Mia preserves accessible financial lists and emphasis instead of flattening the answer', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify([{
+      id: 9901,
+      role: 'assistant',
+      author: 'Mia',
+      content: '**Approved household plan**\n\nOnly approved numbers are included.\n- Groceries: **$300.25** planned\n- Dining Out: **$80.50** confirmed',
+      attachments: [],
+    }]))
+  })
+
+  await page.goto('/#Ask%20Mia')
+
+  const answer = page.locator('.message.assistant')
+  await expect(answer.getByRole('list')).toBeVisible()
+  await expect(answer.getByRole('listitem')).toHaveCount(2)
+  await expect(answer.locator('p')).toHaveCount(2)
+  await expect(answer.locator('p strong')).toHaveText('Approved household plan')
+  await expect(answer.locator('li strong')).toHaveText(['$300.25', '$80.50'])
 })
 
 test('chat-first Mia reviews household, income, and budget writes without bypassing approval', async ({ page }) => {
@@ -1068,6 +1108,10 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   await expect(page.getByRole('button', { name: 'Previous year' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Next year' })).toBeDisabled()
   await expect(page.getByLabel('Report month')).toBeDisabled()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
+  await expect(januaryDining).toHaveValue('650')
+  await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(manager).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manage manually' })).toBeFocused()
@@ -1076,6 +1120,56 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   const composer = page.getByRole('textbox', { name: 'Ask Mia' })
   await expect(composer).toBeFocused()
   await expect(composer).toHaveValue('I want to update my budget. Help me make this change safely: ')
+})
+
+test('a partially saved budget keeps the approved change and protects unapplied drafts until retry', async ({ page }) => {
+  const savedAmounts = new Map<number, number>()
+  let rejectFebruaryOnce = true
+
+  await page.route('http://api.test/api/v1/budget_allocations/*', (route) => {
+    const allocationId = Number(new URL(route.request().url()).pathname.split('/').at(-1))
+    if (allocationId === 202 && rejectFebruaryOnce) {
+      rejectFebruaryOnce = false
+      return route.fulfill({ status: 503, json: { error: 'February could not be saved.' } })
+    }
+
+    savedAmounts.set(allocationId, Number(route.request().postDataJSON().allocation.planned_amount))
+    const updatedBudget = structuredClone(realWorkspaceData(true).budget)
+    updatedBudget.annual_plan.rows = updatedBudget.annual_plan.rows.map((row) => ({
+      ...row,
+      months: row.months.map((month) => ({
+        ...month,
+        planned: savedAmounts.get(month.allocation_id) ?? month.planned,
+      })),
+    }))
+    return route.fulfill({ status: 200, json: { budget: updatedBudget } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('button', { name: 'Manage manually' }).click()
+  await page.getByRole('button', { name: 'Edit monthly plan' }).click()
+
+  const manager = page.locator('.budget-manual-manager')
+  const januaryDining = page.getByLabel('Dining out planned for Jan')
+  const februaryDining = page.getByLabel('Dining out planned for Feb')
+  await januaryDining.fill('650')
+  await februaryDining.fill('700')
+  await page.getByRole('button', { name: 'Save 2 changes' }).click()
+
+  await expect(manager.getByRole('alert')).toContainText('Earlier changes were saved; your remaining edits are still available to retry.')
+  await expect(januaryDining).toHaveValue('650')
+  await expect(februaryDining).toHaveValue('700')
+  await expect(manager).toContainText('1 unsaved change. Save or cancel before switching tools.')
+  await expect(page.getByLabel('Report month')).toBeDisabled()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
+  await expect(februaryDining).toHaveValue('700')
+
+  await page.getByRole('button', { name: 'Save 1 change' }).click()
+  await expect(manager).toHaveCount(0)
+  expect(savedAmounts.get(201)).toBe(650)
+  expect(savedAmounts.get(202)).toBe(700)
 })
 
 test('participant navigation remains available after deep scrolling', async ({ page }) => {
@@ -1367,6 +1461,15 @@ test('incomplete participants get a short first session, private feedback, and a
   expect(await advancedProfile.evaluate((element: HTMLDetailsElement) => element.open)).toBe(false)
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Mia explains when starting numbers have not been approved yet', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const context = page.locator('.mia-context')
+  await expect(context.getByRole('heading', { name: 'Add your starting numbers' })).toBeVisible()
+  await expect(context).toContainText('Add and approve your starting household numbers')
+  await expect(context.getByText('Approved data loaded')).toHaveCount(0)
 })
 
 test('ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {
