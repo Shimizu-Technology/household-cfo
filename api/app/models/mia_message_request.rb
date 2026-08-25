@@ -1,6 +1,12 @@
 class MiaMessageRequest < ApplicationRecord
-  STATUSES = %w[processing completed].freeze
+  STATUSES = %w[processing completed failed].freeze
   REQUEST_KEY_FORMAT = /\A[a-zA-Z0-9._:-]+\z/
+  STALE_AFTER = 3.minutes
+  FAILURE_RESPONSE = {
+    "status" => "failed",
+    "code" => "mia_request_failed",
+    "error" => "Mia could not finish that request safely. Your approved household numbers were not changed; send the message again."
+  }.freeze
 
   belongs_to :chat_session
 
@@ -20,6 +26,14 @@ class MiaMessageRequest < ApplicationRecord
     status == "completed"
   end
 
+  def failed?
+    status == "failed"
+  end
+
+  def stale?
+    processing? && updated_at <= STALE_AFTER.ago
+  end
+
   def complete!(payload, response_status: 201)
     update!(
       status: "completed",
@@ -27,5 +41,20 @@ class MiaMessageRequest < ApplicationRecord
       response_status: response_status,
       completed_at: Time.current
     )
+  end
+
+  def fail!
+    return unless processing?
+
+    update!(
+      status: "failed",
+      response_payload: FAILURE_RESPONSE,
+      response_status: 503,
+      completed_at: Time.current
+    )
+  end
+
+  def expire_if_stale!
+    fail! if stale?
   end
 end

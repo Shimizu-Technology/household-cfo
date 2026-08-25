@@ -1035,6 +1035,53 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ 60_000 ], planned_amounts_for(groceries)
   end
 
+  test "mia drafts and applies multiple category amounts together" do
+    user = create_user(email: "mia-action-compound@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 8, message: "Set Groceries to $650 and Dining Out to $275 for August" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    assert_equal 2, draft.fetch("items").length
+    assert_equal [ 50_000 ], planned_amounts_for(groceries)
+    assert_equal [ 30_000 ], planned_amounts_for(dining)
+
+    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply", headers: auth_headers(user), as: :json
+
+    assert_response :success
+    assert_equal 65_000, planned_amount_for_month(groceries, 8)
+    assert_equal 27_500, planned_amount_for_month(dining, 8)
+  end
+
+  test "a stale item rejects a compound Mia edit without applying any other item" do
+    user = create_user(email: "mia-action-compound-stale@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
+    post "/api/v1/mia/messages",
+      params: { year: Date.current.year, month: 8, message: "Set Groceries to $650 and Dining Out to $275 for August" },
+      headers: auth_headers(user),
+      as: :json
+    draft = JSON.parse(response.body).fetch("mia_action_draft")
+    dining.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(Date.current.year, 8, 1) }).update!(planned_amount_cents: 31_000)
+
+    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply", headers: auth_headers(user), as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal 50_000, planned_amount_for_month(groceries, 8)
+    assert_equal 31_000, planned_amount_for_month(dining, 8)
+    assert_equal "pending", MiaActionDraft.find(draft.fetch("id")).status
+  end
+
   private
 
   def with_intent_resolver(resolver)

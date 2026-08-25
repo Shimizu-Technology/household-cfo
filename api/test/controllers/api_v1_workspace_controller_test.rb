@@ -690,6 +690,49 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "1", response.headers.fetch("Retry-After")
   end
 
+  test "mia chat turns a stale in-flight duplicate into a terminal safe failure" do
+    user = create_user(email: "mia-idempotent-stale@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    content = "Can I buy the purse?"
+    fingerprint = Digest::SHA256.hexdigest(
+      { message: content, year: Date.current.year, month: Date.current.month, document_import_ids: [] }.to_json
+    )
+    request = session.mia_message_requests.create!(request_key: "mia-request-stale-1", request_fingerprint: fingerprint)
+    request.update_column(:updated_at, 4.minutes.ago)
+
+    assert_no_difference("ChatMessage.count") do
+      post "/api/v1/mia/messages",
+           params: { message: content, request_id: "mia-request-stale-1" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_equal "mia_request_failed", JSON.parse(response.body).fetch("code")
+    assert request.reload.failed?
+  end
+
+  test "mia chat records an unexpected post-reservation failure as terminal and replays it safely" do
+    user = create_user(email: "mia-idempotent-exception@example.com")
+    request = { message: "Can I buy the purse?", request_id: "mia-request-exception-1" }
+    replacement = ->(*) { raise "simulated post-reservation failure" }
+
+    assert_raises(RuntimeError) do
+      with_singleton_stub(HouseholdFinance::ConversationTranscriptBuilder, :new, replacement) do
+        post "/api/v1/mia/messages", params: request, headers: auth_headers(user), as: :json
+      end
+    end
+
+    failed = MiaMessageRequest.find_by!(request_key: "mia-request-exception-1")
+    assert failed.failed?
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count" ]) do
+      post "/api/v1/mia/messages", params: request, headers: auth_headers(user), as: :json
+    end
+    assert_response :service_unavailable
+    assert_equal "mia_request_failed", JSON.parse(response.body).fetch("code")
+  end
+
   test "mia chat validates request IDs before any financial work" do
     user = create_user(email: "mia-idempotent-invalid@example.com")
 
@@ -1288,6 +1331,22 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal "mia_request_processing", JSON.parse(response.body).fetch("code")
     assert MiaMessageRequest.exists?(active_request.id)
     assert active_request.reload.processing?
+  end
+
+  test "clearing Mia chat expires abandoned requests instead of blocking forever" do
+    user = create_user(email: "clear-stale-request@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    stale_request = session.mia_message_requests.create!(
+      request_key: "mia-request-stale-clear-1",
+      request_fingerprint: "a" * 64
+    )
+    stale_request.update_column(:updated_at, 4.minutes.ago)
+
+    delete "/api/v1/mia/messages", headers: auth_headers(user)
+
+    assert_response :no_content
+    refute MiaMessageRequest.exists?(stale_request.id)
   end
 
   test "clearing empty Mia chat does not create a chat session" do

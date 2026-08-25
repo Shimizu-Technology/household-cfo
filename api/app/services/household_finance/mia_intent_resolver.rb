@@ -26,8 +26,8 @@ module HouseholdFinance
       rename_category reclassify_category archive_category restore_category
     ].freeze
     STACK_KEYS = [ "", "non_discretionary", "discretionary", "sinking_expected", "sinking_unexpected" ].freeze
-    MONEY_TEXT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
-    NUMBER_TEXT_PATTERN = /(?<![\w$])((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\w,])/.freeze
+    MONEY_TEXT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
+    NUMBER_TEXT_PATTERN = /(?<![\w$])((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\w|,\d)/.freeze
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
 
     Result = Struct.new(

@@ -39,6 +39,68 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal %w[update_allocation update_allocation], move.proposal.items.map(&:action_type)
   end
 
+  test "drafts multiple participant-authored category amounts as one atomic review" do
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      "Set Groceries to $650, and Dining Out to $275 for August",
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 8,
+      raw_input: "Set Groceries to $650, and Dining Out to $275 for August"
+    ).call
+
+    assert_equal 2, result.proposal.items.length
+    assert_equal [ @groceries.id, @dining.id ], result.proposal.items.map { |item| item.payload.fetch(:category_id) }
+    assert_equal [ 65_000, 27_500 ], result.proposal.items.map { |item| item.payload.fetch(:changes).first.fetch(:after_cents) }
+    assert_equal [ [ 8 ], [ 8 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
+    assert_includes result.response, "one review"
+  end
+
+  test "preserves structured month scope and participant-authored mixed adjustment directions" do
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: 7,
+      raw_input: "Increase Groceries by $125 and reduce Dining Out by $50",
+      command: {
+        type: "increase_allocation", category_id: @groceries.id, category_name: "Groceries",
+        amount: "125", months: [ 9 ], year: 2026
+      }
+    ).call
+
+    assert_equal 2, result.proposal.items.length
+    assert_equal [ 62_500, 25_000 ], result.proposal.items.map { |item| item.payload.fetch(:changes).first.fetch(:after_cents) }
+    assert_equal [ [ 9 ], [ 9 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
+  end
+
+  test "does not draft a partial edit when an additional category amount is missing or unknown" do
+    missing_amount = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, "Set Groceries to $650 and Dining Out", user: @user,
+      annual_budget_manager: @manager, raw_input: "Set Groceries to $650 and Dining Out"
+    ).call
+    unknown_category = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, "Set Groceries to $650 and Travel to $275", user: @user,
+      annual_budget_manager: @manager, raw_input: "Set Groceries to $650 and Travel to $275"
+    ).call
+
+    assert_nil missing_amount.proposal
+    assert_includes missing_amount.response, "exact amount for Dining Out"
+    assert_nil unknown_category.proposal
+    assert_includes unknown_category.response, "match every requested amount"
+  end
+
+  test "does not widen a compound edit when the model resolves the wrong year" do
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, user: @user, annual_budget_manager: @manager,
+      raw_input: "Set Groceries to $650 and Dining Out to $275",
+      command: { type: "set_allocation", category_id: @groceries.id, amount: "650", months: [ 7 ], year: 2027 }
+    ).call
+
+    assert_nil result.proposal
+    assert_includes result.response, "working in 2026"
+  end
+
   test "builds structured category create rename and reclassify proposals" do
     create_result = build_command(
       type: "create_category",

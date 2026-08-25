@@ -101,6 +101,7 @@ module HouseholdFinance
         reclassify_category_proposal ||
         archive_or_restore_category_proposal ||
         create_category_proposal ||
+        compound_allocation_proposal ||
         allocation_amount_proposal
     end
 
@@ -373,6 +374,89 @@ module HouseholdFinance
         items: [ item ],
         metadata: { source: "mia_chat", parser: "allocation_amount", month_numbers: month_numbers, mode: parsed.fetch(:mode) }
       )
+    end
+
+    def compound_allocation_proposal(month_numbers: nil)
+      authored = raw_input.to_s.squish
+      mentions = compound_category_mentions(authored)
+      if mentions.one? && authored.scan(/\$\s*\d[\d,]*(?:\.\d{1,2})?/).length > 1
+        return validation_result("I could not safely match every requested amount to an active budget category. Restate each category and amount; nothing changed.")
+      end
+      return if mentions.length < 2
+      if mentions.map { |mention| mention.fetch(:category).id }.uniq.length != mentions.length
+        return validation_result("One category was requested more than once. Give each category one clear amount; nothing changed.")
+      end
+
+      month_numbers ||= month_numbers_for_message
+      return month_numbers if month_numbers.is_a?(Result)
+      return validation_result("Tell me which month or months these budget edits should affect. Nothing changed.") if month_numbers.empty?
+
+      instructions = mentions.each_with_index.map do |mention, index|
+        previous_end = index.zero? ? 0 : mentions[index - 1].fetch(:ends_at)
+        prefix = authored[previous_end...mention.fetch(:starts_at)].to_s
+        boundary = mentions[index + 1]&.fetch(:starts_at) || authored.length
+        suffix = authored[mention.fetch(:ends_at)...boundary].to_s
+        amount_match = suffix.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})|(?<amount_only>\$\s*\d[\d,]*(?:\.\d{1,2})?)/i)
+        unless amount_match
+          return validation_result("Tell me the exact amount for #{mention.fetch(:category).name}. I did not draft a partial change.")
+        end
+
+        amount_cents = amount_cents_from(amount_match[:amount].presence || amount_match[:amount_only])
+        if amount_cents.negative?
+          return validation_result("I could not safely read the amount for #{mention.fetch(:category).name}. Nothing changed.")
+        end
+
+        verb = prefix.scan(/\b(set|change|update|adjust|make|increase|raise|decrease|lower|reduce|cut)\b/i).flatten.last
+        inherited = authored[0...mentions.first.fetch(:starts_at)].to_s[/\b(set|change|update|adjust|make|increase|raise|decrease|lower|reduce|cut)\b/i, 1]
+        chosen_verb = (verb.presence || inherited).to_s.downcase
+        mode = if amount_match[:modifier].to_s.downcase.in?(%w[to at])
+          :set
+        elsif chosen_verb.in?(%w[increase raise])
+          :increase_by
+        elsif chosen_verb.in?(%w[decrease lower reduce cut])
+          :decrease_by
+        else
+          :set
+        end
+
+        { category: mention.fetch(:category), amount_cents: amount_cents, mode: mode }
+      end
+
+      items = instructions.map do |instruction|
+        category = instruction.fetch(:category)
+        changes = allocation_changes_for(category, month_numbers: month_numbers, mode: instruction.fetch(:mode), amount_cents: instruction.fetch(:amount_cents))
+        return changes if changes.is_a?(Result)
+        if no_allocation_change?(changes)
+          return no_allocation_change_result(category, changes, mode: instruction.fetch(:mode), amount_cents: instruction.fetch(:amount_cents), month_numbers: month_numbers)
+        end
+
+        allocation_item(category, changes, allocation_label(category, instruction.fetch(:mode), instruction.fetch(:amount_cents)))
+      end
+      labels = instructions.map { |instruction| allocation_label(instruction.fetch(:category), instruction.fetch(:mode), instruction.fetch(:amount_cents)) }
+      proposal_result(
+        title: "Edit multiple planned budget amounts",
+        summary: "I drafted #{labels.to_sentence} for #{scope_label(month_numbers)} as one review.",
+        rationale: "All requested planned amounts change together only after you approve. Actual spending does not change.",
+        items: items,
+        metadata: { source: "mia_chat", parser: "compound_allocation", month_numbers: month_numbers }
+      )
+    end
+
+    def compound_category_mentions(authored)
+      candidates = active_rows.flat_map do |row|
+        category = household.budget_categories.active.find_by(id: row.fetch(:id))
+        next [] unless category
+
+        authored.to_enum(:scan, /(?<![[:alnum:]])#{Regexp.escape(category.name)}(?![[:alnum:]])/i).map do
+          { category: category, starts_at: Regexp.last_match.begin(0), ends_at: Regexp.last_match.end(0) }
+        end
+      end.sort_by { |mention| [ mention.fetch(:starts_at), -(mention.fetch(:ends_at) - mention.fetch(:starts_at)) ] }
+
+      candidates.each_with_object([]) do |mention, selected|
+        selected << mention unless selected.any? do |existing|
+          mention.fetch(:starts_at) < existing.fetch(:ends_at) && mention.fetch(:ends_at) > existing.fetch(:starts_at)
+        end
+      end
     end
 
     def existing_category_name_result(category)

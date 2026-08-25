@@ -49,4 +49,17 @@ describe('Mia request idempotency polling', () => {
     await expect(sendMiaMessage('Edited', [], true, 2026, 9, [], 'mia-request-conflict-1'))
       .rejects.toThrow('already used for different content')
   })
+
+  it('surfaces a failed request as a terminal safe error without polling forever', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      status: 'failed',
+      code: 'mia_request_failed',
+      error: 'Mia could not finish that request safely. Your approved household numbers were not changed; send the message again.',
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-failed-1'))
+      .rejects.toThrow('approved household numbers were not changed')
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })

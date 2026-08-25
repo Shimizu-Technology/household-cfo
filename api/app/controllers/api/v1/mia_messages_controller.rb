@@ -21,6 +21,7 @@ module Api
         session = current_chat_session
         message_request, request_handled = reserve_message_request(session, content, attached_imports)
         return if request_handled
+        @active_mia_message_request = message_request
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
         history = transcript.map { |message| message.slice(:role, :content) }
@@ -117,11 +118,15 @@ module Api
         }
         complete_message_request(message_request, response_payload)
         render json: response_payload, status: :created
+      rescue StandardError => error
+        fail_active_message_request(error)
+        raise
       end
 
       def destroy
         if (session = current_household.chat_sessions.find_by(user: current_user))
           session.with_lock do
+            session.mia_message_requests.where(status: "processing").find_each(&:expire_if_stale!)
             if session.mia_message_requests.where(status: "processing").exists?
               render json: {
                 error: "Mia is still working on a message. Wait for it to finish before clearing this conversation.",
@@ -210,8 +215,14 @@ module Api
           return true
         end
 
+        message_request.expire_if_stale!
         if message_request.completed?
           render json: message_request.response_payload, status: message_request.response_status || :created
+          return true
+        end
+
+        if message_request.failed?
+          render json: message_request.response_payload, status: message_request.response_status || :service_unavailable
           return true
         end
 
@@ -237,6 +248,15 @@ module Api
 
       def complete_message_request(message_request, response_payload)
         message_request&.complete!(response_payload.as_json, response_status: 201)
+      end
+
+      def fail_active_message_request(original_error)
+        request = @active_mia_message_request
+        return unless request&.reload&.processing?
+
+        request.fail!
+      rescue StandardError => failure
+        Rails.logger.error("[Api::V1::MiaMessagesController] request failure recovery failed: #{failure.class}; original error: #{original_error.class}")
       end
 
       def attached_document_imports
