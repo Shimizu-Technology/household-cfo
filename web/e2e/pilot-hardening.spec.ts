@@ -1055,6 +1055,46 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await expect(diningDraft).toContainText('Actuals stay unchanged until you confirm.')
 })
 
+test('continuing job income is never assumed and requires explicit participant approval', async ({ page }) => {
+  const submittedChanges: Array<{ retained_after_transition?: boolean }> = []
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/income_schedule_entries**', (route) => {
+    const submitted = route.request().postDataJSON().income_schedule_entry as { retained_after_transition?: boolean; amount: string; effective_on: string }
+    submittedChanges.push(submitted)
+    const updatedBudget = structuredClone(realWorkspaceData(true).budget)
+    updatedBudget.annual_plan.income_sources[0].schedule_entries = [{
+      id: 27,
+      entry_type: 'recurring_change',
+      label: null,
+      amount: Number(submitted.amount),
+      cadence: 'monthly',
+      effective_on: submitted.effective_on,
+      retained_after_transition: submitted.retained_after_transition === true,
+    }]
+    return route.fulfill({ status: route.request().method() === 'POST' ? 201 : 200, json: { budget: updatedBudget } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('button', { name: 'Manage manually' }).click()
+  await page.getByRole('button', { name: 'Schedule income' }).click()
+  await page.getByRole('spinbutton', { name: 'Amount' }).fill('7500')
+
+  const retention = page.getByRole('checkbox', { name: /This job income will continue after my transition/ })
+  await expect(retention).not.toBeChecked()
+  await retention.check()
+  await page.getByRole('button', { name: 'Schedule income change' }).click()
+  await expect(page.getByText('Confirmed to continue after transition')).toBeVisible()
+  expect(submittedChanges[0].retained_after_transition).toBe(true)
+
+  await page.locator('.annual-income-planner').getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(retention).toBeChecked()
+  await retention.uncheck()
+  await page.getByRole('button', { name: 'Save income change' }).click()
+  await expect(page.getByText('Confirmed to continue after transition')).toBeHidden()
+  expect(submittedChanges[1].retained_after_transition).toBe(false)
+})
+
 test('Budget keeps headline, cockpit, and chart on the selected report month', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()

@@ -32,6 +32,22 @@ class IncomeScheduleEntryTest < ActiveSupport::TestCase
     assert reimbursement.valid?
   end
 
+  test "only positive recurring income can be explicitly retained after a transition" do
+    household = create_household
+    source = household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+
+    continuing = source.income_schedule_entries.new(entry_type: "recurring_change", amount_cents: 75_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1), retained_after_transition: true)
+    assert continuing.valid?
+
+    ending = source.income_schedule_entries.new(entry_type: "recurring_change", amount_cents: 0, cadence: "monthly", effective_on: Date.new(2026, 9, 1), retained_after_transition: true)
+    refute ending.valid?
+    assert_includes ending.errors[:retained_after_transition], "requires a continuing recurring income amount"
+
+    bonus = source.income_schedule_entries.new(entry_type: "one_time", amount_cents: 10_000, cadence: "one_time", effective_on: Date.new(2026, 10, 1), retained_after_transition: true)
+    refute bonus.valid?
+    assert_includes bonus.errors[:retained_after_transition], "requires a continuing recurring income amount"
+  end
+
   private
 
   def create_household

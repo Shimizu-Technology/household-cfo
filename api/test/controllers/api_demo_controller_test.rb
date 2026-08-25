@@ -92,11 +92,23 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Founder transition", body.fetch("scenario")
     assert body.fetch("choices").all? { |choice| choice.key?("fit_label") && choice.key?("fit_tone") }
     refute body.fetch("choices").any? { |choice| choice.key?("readiness_score") }
-    assert_equal 3_845, body.fetch("monthly_gap")
+    assert_equal 4_795, body.fetch("monthly_gap")
     assert_equal(
-      [ [ "Business needs to pay", 5_045 ], [ "Current business income", 1_200 ], [ "Six-month runway gap", 21_980 ] ],
+      [ [ "Income continuing after transition", 1_850 ], [ "Business needs to pay", 5_995 ], [ "Current business income", 1_200 ], [ "Six-month runway gap", 21_980 ] ],
       body.fetch("levers").map { |lever| [ lever.fetch("label"), lever.fetch("amount") ] }
     )
+  end
+
+  test "founder transition target uses the rental income shown in the profile" do
+    get "/api/demo/profile"
+    income_items = JSON.parse(response.body).fetch("sections").find { |section| section.fetch("label") == "Income" }.fetch("items")
+    rental_income = income_items.find { |item| item.fetch("label") == "Rental/passive income" }.fetch("amount")
+
+    get "/api/demo/cfo-filter"
+    target = JSON.parse(response.body).fetch("targets").find { |item| item.fetch("label") == "Monthly business revenue" }
+
+    assert_equal 1_850, rental_income
+    assert_equal 7_845 - rental_income, target.fetch("target")
   end
 
   test "cfo filter returns strategic spending recommendations" do

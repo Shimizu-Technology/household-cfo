@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_25_000000) do
+ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -367,11 +367,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_000000) do
     t.string "entry_type", default: "recurring_change", null: false
     t.bigint "income_source_id", null: false
     t.string "label"
+    t.boolean "retained_after_transition"
     t.datetime "updated_at", null: false
     t.index ["income_source_id", "effective_on"], name: "index_income_schedule_entries_on_recurring_source_and_date", unique: true, where: "((entry_type)::text = 'recurring_change'::text)"
     t.index ["income_source_id"], name: "index_income_schedule_entries_on_income_source_id"
     t.check_constraint "amount_cents >= 0", name: "income_schedule_entries_amount_cents_non_negative"
     t.check_constraint "entry_type::text = ANY (ARRAY['recurring_change'::character varying, 'one_time'::character varying]::text[])", name: "income_schedule_entries_type_valid"
+    t.check_constraint "retained_after_transition IS NOT TRUE OR entry_type::text = 'recurring_change'::text AND amount_cents > 0", name: "income_schedule_entries_retained_income_valid"
   end
 
   create_table "income_sources", force: :cascade do |t|

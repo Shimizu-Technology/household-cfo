@@ -65,6 +65,29 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("errors"), "Effective on has already been taken"
   end
 
+  test "participants explicitly approve and revoke continuing transition salary on an income change" do
+    user = create_user(email: "income-transition-retention@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    source = household.income_sources.create!(label: "Primary", source_type: "job", amount_cents: 600_000, cadence: "monthly")
+
+    post "/api/v1/income_schedule_entries?year=2026",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: 3_500, cadence: "monthly", effective_on: "2026-08-01", retained_after_transition: true } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :created
+    entry = source.income_schedule_entries.sole
+    assert entry.retained_after_transition?
+    assert JSON.parse(response.body).dig("budget", "annual_plan", "income_sources", 0, "schedule_entries", 0, "retained_after_transition")
+
+    patch "/api/v1/income_schedule_entries/#{entry.id}?year=2026",
+      params: { income_schedule_entry: { income_source_id: source.id, entry_type: "recurring_change", amount: 3_500, cadence: "monthly", effective_on: "2026-08-01", retained_after_transition: false } },
+      headers: auth_headers(user),
+      as: :json
+    assert_response :success
+    refute entry.reload.retained_after_transition?
+    refute JSON.parse(response.body).dig("income_schedule_entry", "retained_after_transition")
+  end
+
   test "participant can edit and remove a scheduled income change" do
     user = create_user(email: "income-edit@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

@@ -119,6 +119,32 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     refute_includes payload.to_json, "Leap now"
   end
 
+  test "founder transition counts only recurring income that continues after leaving a job" do
+    travel_to Date.new(2026, 8, 24) do
+      household, user = create_household
+      household.update!(primary_goal: "Leave my job and run the business full-time")
+      household.income_sources.create!(label: "Departing salary", source_type: "job", amount_cents: 545_000, cadence: "monthly")
+      rental = household.income_sources.create!(label: "Rental property", source_type: "rental", amount_cents: 140_000, cadence: "monthly")
+      rental.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 145_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      household.income_sources.create!(label: "Royalties", source_type: "passive", amount_cents: 40_000, cadence: "monthly")
+      household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 120_000, cadence: "monthly")
+      household.income_sources.create!(label: "Old rental", source_type: "rental", amount_cents: 500_000, cadence: "monthly", active: false)
+      household.expense_items.create!(label: "Monthly categories", stack_key: "non_discretionary", amount_cents: 692_500, cadence: "monthly")
+      household.debts.create!(label: "Credit card", debt_type: "credit_card", balance_cents: 735_000, minimum_payment_cents: 92_000)
+
+      optionality = HouseholdFinance::DataPresenter.new(household, user: user).optionality
+      levers = optionality.fetch(:levers).index_by { |lever| lever.fetch(:label) }
+      business_target = HouseholdFinance::DataPresenter.new(household, user: user).cfo_filter.fetch(:targets)
+        .find { |target| target.fetch(:label) == "Monthly business revenue" }
+
+      assert_equal 1_850, levers.fetch("Income continuing after transition").fetch(:amount)
+      assert_equal 5_995, levers.fetch("Business needs to pay").fetch(:amount)
+      assert_equal 1_200, levers.fetch("Current business income").fetch(:amount)
+      assert_equal 4_795, optionality.fetch(:monthly_gap)
+      assert_equal 5_995, business_target.fetch(:target)
+    end
+  end
+
   test "current recurring income changes reconcile across dashboard profile and optionality" do
     travel_to Date.new(2026, 8, 24) do
       household, user = create_household
@@ -135,13 +161,98 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       income_items = payload.dig(:profile, :sections).find { |section| section.fetch(:label) == "Income" }.fetch(:items).index_by { |item| item.fetch(:label) }
 
       assert_equal 9_000, payload.dig(:dashboard, :summary, :monthly_income)
-      assert_equal 500, levers.fetch("Business needs to pay").fetch(:amount)
+      assert_equal 0, levers.fetch("Income continuing after transition").fetch(:amount)
+      assert_equal 7_500, levers.fetch("Business needs to pay").fetch(:amount)
       assert_equal 2_000, levers.fetch("Current business income").fetch(:amount)
-      assert_equal 0, payload.dig(:optionality, :monthly_gap)
+      assert_equal 5_500, payload.dig(:optionality, :monthly_gap)
       assert_equal 7_000, income_items.fetch("Primary income").fetch(:amount)
       assert_equal 2_000, income_items.fetch("Business").fetch(:amount)
       assert_equal 7_000, payload.dig(:workspace, :setup_values, :primary_income)
       assert_equal 2_000, payload.dig(:workspace, :setup_values, :business_income)
+    end
+  end
+
+  test "approved reduced salary is retained without depending on narrow transition wording" do
+    travel_to Date.new(2026, 8, 24) do
+      household, user = create_household
+      household.update!(primary_goal: "Scale back my shifts while I build the business")
+      job = household.income_sources.create!(label: "Reduced-hours salary", source_type: "job", amount_cents: 600_000, cadence: "monthly")
+      job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 350_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1), retained_after_transition: true)
+      household.income_sources.create!(label: "Unverified second salary", source_type: "job", amount_cents: 200_000, cadence: "monthly")
+      future_job = household.income_sources.create!(label: "Future reduced salary", source_type: "job", amount_cents: 400_000, cadence: "monthly")
+      future_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 250_000, cadence: "monthly", effective_on: Date.new(2026, 9, 1), retained_after_transition: true)
+      raised_job = household.income_sources.create!(label: "Raised salary", source_type: "job", amount_cents: 100_000, cadence: "monthly")
+      raised_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 150_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1), retained_after_transition: true)
+      unconfirmed_job = household.income_sources.create!(label: "Unconfirmed reduced salary", source_type: "job", amount_cents: 300_000, cadence: "monthly")
+      unconfirmed_job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 150_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      household.income_sources.create!(label: "Rental", source_type: "rental", amount_cents: 100_000, cadence: "monthly")
+      household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 75_000, cadence: "monthly")
+      household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 700_000, cadence: "monthly")
+
+      payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+      levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+      business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
+
+      assert_equal 4_500, levers.fetch("Income continuing after transition").fetch(:amount)
+      assert_equal 2_500, levers.fetch("Business needs to pay").fetch(:amount)
+      assert_equal 1_750, payload.dig(:optionality, :monthly_gap)
+      assert_equal 2_500, business_target.fetch(:target)
+    end
+  end
+
+  test "an approved cadence-changing salary reduction stays retained in every calendar month" do
+    household, user = create_household
+    household.update!(primary_goal: "Reduce my hours while building the business")
+    job = household.income_sources.create!(label: "Reduced-hours salary", source_type: "job", amount_cents: 1_000, cadence: "weekly")
+    job.income_schedule_entries.create!(
+      entry_type: "recurring_change",
+      amount_cents: 4_333,
+      cadence: "monthly",
+      effective_on: Date.new(2026, 1, 1),
+      retained_after_transition: true
+    )
+    household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 10_000, cadence: "monthly")
+
+    [ Date.new(2026, 1, 15), Date.new(2026, 8, 25) ].each do |date|
+      travel_to date do
+        payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+        levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+        business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
+
+        assert_equal 43.33, levers.fetch("Income continuing after transition").fetch(:amount), date.to_s
+        assert_equal 56.67, levers.fetch("Business needs to pay").fetch(:amount), date.to_s
+        assert_equal 56.67, business_target.fetch(:target), date.to_s
+      end
+    end
+  end
+
+  test "a full job departure excludes a prior pay reduction from retained income" do
+    travel_to Date.new(2026, 8, 24) do
+      household, user = create_household
+      job = household.income_sources.create!(label: "Departing salary", source_type: "job", amount_cents: 600_000, cadence: "monthly")
+      job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 350_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
+      household.income_sources.create!(label: "Rental", source_type: "rental", amount_cents: 100_000, cadence: "monthly")
+      household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 75_000, cadence: "monthly")
+      household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 700_000, cadence: "monthly")
+
+      [
+        "Move to my business full-time and exit my position",
+        "I want to leave my career to start a business",
+        "Quit my full-time day job and grow the business",
+        "Resign from my current employer to build the business",
+        "Stop working for my employer and build the business",
+        "Close the chapter on corporate life and launch my business"
+      ].each do |goal|
+        household.update!(primary_goal: goal)
+        payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+        levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+        business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
+
+        assert_equal 1_000, levers.fetch("Income continuing after transition").fetch(:amount), goal
+        assert_equal 6_000, levers.fetch("Business needs to pay").fetch(:amount), goal
+        assert_equal 5_250, payload.dig(:optionality, :monthly_gap), goal
+        assert_equal 6_000, business_target.fetch(:target), goal
+      end
     end
   end
 

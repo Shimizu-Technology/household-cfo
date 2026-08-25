@@ -292,6 +292,42 @@
   border-color: var(--mauve);
 }
 
+.income-schedule-form .income-transition-retention {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid rgba(143, 74, 95, 0.16);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.68);
+}
+
+.income-schedule-form .income-transition-retention input {
+  width: 18px;
+  min-width: 18px;
+  min-height: 18px;
+  margin-top: 2px;
+  padding: 0;
+  accent-color: var(--mauve);
+  box-shadow: none;
+}
+
+.income-schedule-form .income-transition-retention > span {
+  display: grid;
+  gap: 4px;
+  color: var(--ink);
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.4;
+  text-transform: none;
+}
+
+.income-transition-retention small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 500;
+}
+
 .income-schedule-form-actions {
   align-items: center;
   justify-content: flex-end;

@@ -271,7 +271,8 @@ module HouseholdFinance
               label: entry.label,
               amount: Money.dollars(entry.amount_cents),
               cadence: entry.cadence,
-              effective_on: entry.effective_on.iso8601
+              effective_on: entry.effective_on.iso8601,
+              retained_after_transition: entry.retained_after_transition?
             }
           end
         }
