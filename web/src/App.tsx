@@ -198,6 +198,16 @@ type BudgetEditChanges = {
   categories: BudgetCategoryChange[]
 }
 
+class BudgetEditPartialSaveError extends Error {
+  budget: BudgetData
+
+  constructor(message: string, budget: BudgetData, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'BudgetEditPartialSaveError'
+    this.budget = budget
+  }
+}
+
 const documentUploadCards: Array<{
   kind: DocumentImportKind
   label: string
@@ -1314,12 +1324,10 @@ function App() {
       for (const change of changes.categories) {
         latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key }, selectedBudgetYear)
         appliedChanges += 1
-        setData((current) => current ? { ...current, budget: latestBudget } : current)
       }
       for (const change of changes.allocations) {
         latestBudget = await updateBudgetAllocation(change.allocation_id, change.planned_amount || 0)
         appliedChanges += 1
-        setData((current) => current ? { ...current, budget: latestBudget } : current)
       }
       setData((current) => current ? { ...current, budget: latestBudget } : current)
       refreshSpendingReportForBudget(latestBudget)
@@ -1332,8 +1340,15 @@ function App() {
         ]).size,
       })
     } catch (caught) {
-      if (appliedChanges > 0) setData((current) => current ? { ...current, budget: latestBudget } : current)
-      setBudgetError(caught instanceof Error ? `${caught.message} Some earlier changes may have saved; refresh before retrying.` : 'Budget edits could not be saved. Some earlier changes may have saved; refresh before retrying.')
+      const message = caught instanceof Error ? caught.message : 'Budget edits could not be saved.'
+      if (appliedChanges > 0) {
+        setData((current) => current ? { ...current, budget: latestBudget } : current)
+        refreshSpendingReportForBudget(latestBudget)
+        setBudgetError(`${message} Earlier changes were saved; your remaining edits are still available to retry.`)
+        throw new BudgetEditPartialSaveError(message, latestBudget, { cause: caught })
+      }
+
+      setBudgetError(message)
       throw caught
     } finally {
       setBudgetAction(null)
@@ -7301,8 +7316,11 @@ function AnnualBudgetPlanner({
       cancelBudgetEdit()
       setManualTool(null)
       window.setTimeout(() => manualTriggerRef.current?.focus(), 0)
-    } catch {
-      // The parent keeps the server-owned error visible and the drafts available to retry.
+    } catch (caught) {
+      if (caught instanceof BudgetEditPartialSaveError && caught.budget.annual_plan) {
+        const updatedSignature = annualBudgetPlanSignature(caught.budget.annual_plan)
+        setBudgetEditState((current) => ({ ...current, signature: updatedSignature, isEditing: true }))
+      }
     }
   }
 

@@ -1122,6 +1122,56 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   await expect(composer).toHaveValue('I want to update my budget. Help me make this change safely: ')
 })
 
+test('a partially saved budget keeps the approved change and protects unapplied drafts until retry', async ({ page }) => {
+  const savedAmounts = new Map<number, number>()
+  let rejectFebruaryOnce = true
+
+  await page.route('http://api.test/api/v1/budget_allocations/*', (route) => {
+    const allocationId = Number(new URL(route.request().url()).pathname.split('/').at(-1))
+    if (allocationId === 202 && rejectFebruaryOnce) {
+      rejectFebruaryOnce = false
+      return route.fulfill({ status: 503, json: { error: 'February could not be saved.' } })
+    }
+
+    savedAmounts.set(allocationId, Number(route.request().postDataJSON().allocation.planned_amount))
+    const updatedBudget = structuredClone(realWorkspaceData(true).budget)
+    updatedBudget.annual_plan.rows = updatedBudget.annual_plan.rows.map((row) => ({
+      ...row,
+      months: row.months.map((month) => ({
+        ...month,
+        planned: savedAmounts.get(month.allocation_id) ?? month.planned,
+      })),
+    }))
+    return route.fulfill({ status: 200, json: { budget: updatedBudget } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('button', { name: 'Manage manually' }).click()
+  await page.getByRole('button', { name: 'Edit monthly plan' }).click()
+
+  const manager = page.locator('.budget-manual-manager')
+  const januaryDining = page.getByLabel('Dining out planned for Jan')
+  const februaryDining = page.getByLabel('Dining out planned for Feb')
+  await januaryDining.fill('650')
+  await februaryDining.fill('700')
+  await page.getByRole('button', { name: 'Save 2 changes' }).click()
+
+  await expect(manager.getByRole('alert')).toContainText('Earlier changes were saved; your remaining edits are still available to retry.')
+  await expect(januaryDining).toHaveValue('650')
+  await expect(februaryDining).toHaveValue('700')
+  await expect(manager).toContainText('1 unsaved change. Save or cancel before switching tools.')
+  await expect(page.getByLabel('Report month')).toBeDisabled()
+  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
+  await expect(februaryDining).toHaveValue('700')
+
+  await page.getByRole('button', { name: 'Save 1 change' }).click()
+  await expect(manager).toHaveCount(0)
+  expect(savedAmounts.get(201)).toBe(650)
+  expect(savedAmounts.get(202)).toBe(700)
+})
+
 test('participant navigation remains available after deep scrolling', async ({ page }) => {
   await page.goto('/')
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
