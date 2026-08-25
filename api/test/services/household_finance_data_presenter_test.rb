@@ -201,21 +201,28 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
   test "a full job departure excludes a prior pay reduction from retained income" do
     travel_to Date.new(2026, 8, 24) do
       household, user = create_household
-      household.update!(primary_goal: "Move to my business full-time and exit my position")
       job = household.income_sources.create!(label: "Departing salary", source_type: "job", amount_cents: 600_000, cadence: "monthly")
       job.income_schedule_entries.create!(entry_type: "recurring_change", amount_cents: 350_000, cadence: "monthly", effective_on: Date.new(2026, 8, 1))
       household.income_sources.create!(label: "Rental", source_type: "rental", amount_cents: 100_000, cadence: "monthly")
       household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 75_000, cadence: "monthly")
       household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 700_000, cadence: "monthly")
 
-      payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
-      levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
-      business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
+      [
+        "Move to my business full-time and exit my position",
+        "I want to leave my career to start a business",
+        "Quit my full-time day job and grow the business",
+        "Resign from my current employer to build the business"
+      ].each do |goal|
+        household.update!(primary_goal: goal)
+        payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+        levers = payload.dig(:optionality, :levers).index_by { |lever| lever.fetch(:label) }
+        business_target = payload.dig(:cfoFilter, :targets).find { |target| target.fetch(:label) == "Monthly business revenue" }
 
-      assert_equal 1_000, levers.fetch("Income continuing after transition").fetch(:amount)
-      assert_equal 6_000, levers.fetch("Business needs to pay").fetch(:amount)
-      assert_equal 5_250, payload.dig(:optionality, :monthly_gap)
-      assert_equal 6_000, business_target.fetch(:target)
+        assert_equal 1_000, levers.fetch("Income continuing after transition").fetch(:amount), goal
+        assert_equal 6_000, levers.fetch("Business needs to pay").fetch(:amount), goal
+        assert_equal 5_250, payload.dig(:optionality, :monthly_gap), goal
+        assert_equal 6_000, business_target.fetch(:target), goal
+      end
     end
   end
 

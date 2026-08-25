@@ -505,8 +505,8 @@ module HouseholdFinance
     end
 
     def full_job_departure_transition?
-      goal_text = [ transition_goal&.label, household.primary_goal ].compact.join(" ")
-      goal_text.match?(/\b(?:leave|leaving|quit|quitting|resign|resigning|retire|retiring|exit|exiting)(?:\s+\w+){0,3}\s+(?:my\s+)?(?:job|role|position|employment)\b|\b(?:run|grow|work in|move to|transition to)(?:\s+\w+){0,4}\s+full[ -]?time\b|\bfull[ -]?time\s+(?:founder|business|self[- ]?employ)/i)
+      goal_text = [ transition_goal&.label, household.primary_goal ].compact.join(" ").downcase.gsub(/[^a-z0-9]+/, " ").squish
+      goal_text.match?(/\b(?:leave|leaving|quit|quitting|resign|resigning|retire|retiring|exit|exiting)(?:\s+\w+){0,5}\s+(?:job|role|position|employment|career|employer|workplace|workforce|occupation|profession|paycheck|salary)\b|\b(?:run|grow|work in|move to|transition to)(?:\s+\w+){0,4}\s+full\s*time\b|\bfull\s*time\s+(?:founder|business|self\s*employ)/i)
     end
 
     def monthly_business_income_cents
