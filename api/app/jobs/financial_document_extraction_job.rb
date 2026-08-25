@@ -63,6 +63,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         document_import.items.create!(item_attributes.merge(selected: false))
       end
       draft_result = HouseholdFinance::DocumentTransactionDraftPersister.new(document_import, data[:transaction_drafts]).call
+      no_reviewable_transactions = !document_import.items.exists? && !document_import.transaction_drafts.exists?
       warnings = Array(data[:warnings]) + Array(draft_result.fetch(:warnings))
       if routing.conflict
         warning = if routing.conflict_reason == "participant_signals"
@@ -83,7 +84,7 @@ class FinancialDocumentExtractionJob < ApplicationJob
         "last_extracted_at" => Time.current.iso8601,
         "transaction_draft_count" => draft_result.fetch(:created_count),
         "transaction_match_count" => draft_result.fetch(:match_count),
-        "no_reviewable_transactions" => data[:no_reviewable_transactions].presence,
+        "no_reviewable_transactions" => no_reviewable_transactions.presence,
         "routing_detected_kind" => routing.detected_kind,
         "routing_resolved_kind" => routing.resolved_kind,
         "routing_source" => routing.source,

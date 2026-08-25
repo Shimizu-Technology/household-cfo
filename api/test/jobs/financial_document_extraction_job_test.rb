@@ -160,6 +160,64 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
     assert_equal "applied", @document_import.reload.status
   end
 
+  test "an empty general AI extraction completes without depending on a spreadsheet-specific marker" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "No actionable spending was present.",
+          confidence: "medium",
+          warnings: [ "Only incoming transfers were visible." ],
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: { finish_reason: "stop" }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "applied", @document_import.status
+    assert @document_import.applied_at.present?
+    assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
+    assert_includes @document_import.metadata.fetch("warnings").first, "incoming transfers"
+  end
+
+  test "an empty batched PDF extraction completes without an impossible review task" do
+    extractor = fake_extractor(
+      FinancialDocuments::Extractor::Result.new(
+        success: true,
+        data: {
+          document_kind: "statement",
+          document_date: nil,
+          period_start_on: nil,
+          period_end_on: nil,
+          summary: "Processed four statement pages without spending transactions.",
+          confidence: "high",
+          warnings: [ "Processed all 4 PDF pages in 2 extraction batches." ],
+          items: [],
+          transaction_drafts: []
+        },
+        error: nil,
+        metadata: { extraction_mode: "pdf_batches", page_count: 4, batch_count: 2 }
+      )
+    )
+
+    with_extractor_stub(extractor) { FinancialDocumentExtractionJob.perform_now(@document_import.id) }
+
+    @document_import.reload
+    assert_equal "applied", @document_import.status
+    assert_equal "pdf_batches", @document_import.metadata.fetch("extraction_mode")
+    assert_equal 4, @document_import.metadata.fetch("extraction_page_count")
+    assert_equal true, @document_import.metadata.fetch("no_reviewable_transactions")
+  end
+
   test "an empty statement with conflicting participant routing still requires explicit review" do
     @document_import.update!(
       document_kind: "pay_stub",
@@ -374,7 +432,7 @@ class FinancialDocumentExtractionJobTest < ActiveJob::TestCase
       end
     end
 
-    assert_equal "needs_review", @document_import.reload.status
+    assert_equal "applied", @document_import.reload.status
     assert_equal "failed", stale_attempt.reload.status
     assert_equal true, stale_attempt.metadata.fetch("stalled")
     assert_equal "succeeded", @document_import.attempts.order(:id).last.status
