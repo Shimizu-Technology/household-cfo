@@ -14,7 +14,7 @@ module Demo
     AUTO_LOAN_BALANCE = 11_900
     RETIREMENT_BALANCE = 136_960
     BUSINESS_INCOME = 1_200
-    TRANSITION_STABLE_INCOME = 2_800
+    RENTAL_PASSIVE_INCOME = 1_850
 
     def self.persona
       ::Mia::Persona.default
@@ -56,7 +56,7 @@ module Demo
             summary: "Base pay, rental income, bonuses, and business revenue.",
             items: [
               { label: "Primary income", amount: facts.fetch(:monthly_income) - 3_050 },
-              { label: "Rental/passive income", amount: 1850 },
+              { label: "Rental/passive income", amount: RENTAL_PASSIVE_INCOME },
               { label: "Business income", amount: BUSINESS_INCOME }
             ]
           },
@@ -367,7 +367,7 @@ module Demo
 
     def self.optionality
       facts = financial_facts
-      required_business_income = [ facts.fetch(:total_monthly_outflow) - TRANSITION_STABLE_INCOME, 0 ].max
+      required_business_income = [ facts.fetch(:total_monthly_outflow) - RENTAL_PASSIVE_INCOME, 0 ].max
       monthly_gap = [ required_business_income - BUSINESS_INCOME, 0 ].max
       {
         scenario: "Founder transition",
@@ -399,6 +399,7 @@ module Demo
           }
         ],
         levers: [
+          { label: "Income continuing after transition", amount: RENTAL_PASSIVE_INCOME },
           { label: "Business needs to pay", amount: required_business_income },
           { label: "Current business income", amount: BUSINESS_INCOME },
           { label: "Six-month runway gap", amount: facts.fetch(:green_runway_gap) }
@@ -436,7 +437,7 @@ module Demo
         targets: [
           { label: "Protected runway", current: PROTECTED_LIQUID, target: facts.fetch(:green_runway_target) },
           { label: "Debt payoff", current: CREDIT_CARD_BALANCE + AUTO_LOAN_BALANCE, target: 0 },
-          { label: "Monthly business revenue", current: BUSINESS_INCOME, target: [ facts.fetch(:total_monthly_outflow) - TRANSITION_STABLE_INCOME, 0 ].max }
+          { label: "Monthly business revenue", current: BUSINESS_INCOME, target: [ facts.fetch(:total_monthly_outflow) - RENTAL_PASSIVE_INCOME, 0 ].max }
         ],
         priority_stack: [ "Protect the roof", "Protect food/gas", "Protect runway", "Attack high-interest debt", "Fund the dream with evidence" ]
       }

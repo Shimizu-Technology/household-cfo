@@ -106,7 +106,8 @@ module HouseholdFinance
       target_cash_cents = (monthly_need_cents * runway_target).round
       runway_gap_cents = [ target_cash_cents - snapshot.fetch(:liquid_assets_cents), 0 ].max
       business_income_cents = monthly_business_income_cents
-      required_business_cents = [ monthly_need_cents - stable_income_cents, 0 ].max
+      retained_income_cents = transition_retained_income_cents
+      required_business_cents = [ monthly_need_cents - retained_income_cents, 0 ].max
       transition_mode = business_transition_optionality?
       scenario = if transition_mode
         transition_goal&.label || "Founder transition"
@@ -115,6 +116,7 @@ module HouseholdFinance
       end
       levers = if transition_mode
         [
+          { label: "Income continuing after transition", amount: dollars(retained_income_cents) },
           { label: "Business needs to pay", amount: dollars(required_business_cents) },
           { label: "Current business income", amount: dollars(business_income_cents) },
           { label: "Runway gap", amount: dollars(runway_gap_cents) }
@@ -472,8 +474,14 @@ module HouseholdFinance
       snapshot.fetch(:target_runway_months)
     end
 
-    def stable_income_cents
-      income_sources.reject { |income| income.source_type == "business" }.sum { |income| current_recurring_income_cents(income) }
+    def transition_retained_income_cents
+      # Employment is the income being replaced in a founder/career transition.
+      # Bonus and "other" are too ambiguous to assume, so only independently
+      # recurring rental/passive sources count until the product stores an
+      # explicit participant attestation for every retained source.
+      income_sources
+        .select { |income| income.source_type.in?(%w[rental passive]) }
+        .sum { |income| current_recurring_income_cents(income) }
     end
 
     def monthly_business_income_cents
@@ -610,7 +618,7 @@ module HouseholdFinance
       [
         { label: "Emergency fund", current: dollars(account_by_type("emergency_fund")), target: dollars(snapshot.fetch(:total_outflow_cents) * target_runway_months) },
         { label: "Debt payoff", current: dollars(snapshot.fetch(:total_debt_cents)), target: 0 },
-        { label: "Monthly business revenue", current: dollars(monthly_business_income_cents), target: dollars([ snapshot.fetch(:total_outflow_cents) - stable_income_cents, 0 ].max) }
+        { label: "Monthly business revenue", current: dollars(monthly_business_income_cents), target: dollars([ snapshot.fetch(:total_outflow_cents) - transition_retained_income_cents, 0 ].max) }
       ]
     end
 
