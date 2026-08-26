@@ -1060,6 +1060,32 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 27_500, planned_amount_for_month(dining, 8)
   end
 
+  test "mia never creates a partial review when a third requested category cannot be matched" do
+    user = create_user(email: "mia-action-compound-unknown-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
+
+    assert_no_difference("MiaActionDraft.count") do
+      post "/api/v1/mia/messages",
+        params: {
+          year: Date.current.year,
+          month: 8,
+          message: "Set Groceries to $650, Dining Out to $275, and Travel to $100 for August"
+        },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("mia_action_draft")
+    assert_includes body.fetch("assistant_message").fetch("content"), "match every requested amount"
+    assert_equal 50_000, planned_amount_for_month(groceries, 8)
+    assert_equal 30_000, planned_amount_for_month(dining, 8)
+  end
+
   test "a stale item rejects a compound Mia edit without applying any other item" do
     user = create_user(email: "mia-action-compound-stale@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

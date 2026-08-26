@@ -380,7 +380,8 @@ module HouseholdFinance
       authored = raw_input.to_s.squish
       mentions = compound_category_mentions(authored)
       explicit_amount_count = authored.scan(/(?:\$\s*|\b(?:to|at|by)\s*\$?\s*)\d[\d,]*(?:\.\d{1,2})?/i).length
-      if mentions.one? && explicit_amount_count > 1
+      shared_amount = authored.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})\s*(?:each|apiece)\b/i)
+      if mentions.any? && (explicit_amount_count > mentions.length || unmatched_shared_category_text?(authored, mentions, shared_amount))
         return validation_result("I could not safely match every requested amount to an active budget category. Restate each category and amount; nothing changed.")
       end
       return if mentions.length < 2
@@ -392,7 +393,6 @@ module HouseholdFinance
       return month_numbers if month_numbers.is_a?(Result)
       return validation_result("Tell me which month or months these budget edits should affect. Nothing changed.") if month_numbers.empty?
 
-      shared_amount = authored.match(/\b(?<modifier>to|at|by)\s*(?<amount>#{MONEY_PATTERN})\s*(?:each|apiece)\b/i)
       instructions = mentions.each_with_index.map do |mention, index|
         previous_end = index.zero? ? 0 : mentions[index - 1].fetch(:ends_at)
         prefix = authored[previous_end...mention.fetch(:starts_at)].to_s
@@ -461,6 +461,23 @@ module HouseholdFinance
           mention.fetch(:starts_at) < existing.fetch(:ends_at) && mention.fetch(:ends_at) > existing.fetch(:starts_at)
         end
       end
+    end
+
+    def unmatched_shared_category_text?(authored, mentions, shared_amount)
+      return false unless shared_amount && mentions.many?
+
+      first_mention_start = mentions.first.fetch(:starts_at)
+      action_prefix = authored[0...first_mention_start].to_s
+      action_start = action_prefix.to_enum(:scan, /\b(?:set|change|update|adjust|make|increase|raise|decrease|lower|reduce|cut)\b/i)
+        .map { Regexp.last_match.begin(0) }.last || 0
+      category_list = authored[action_start...shared_amount.begin(0)].to_s
+      mentions.map { |mention| mention.fetch(:category).name }.uniq.each do |category_name|
+        category_list.gsub!(/(?<![[:alnum:]])#{Regexp.escape(category_name)}(?![[:alnum:]])/i, " ")
+      end
+      category_list.gsub!(/\b(?:for|in)\s+(?:#{MonthTerms.pattern}|this month|current month|next month|last month|all year|every month)(?:\s+\d{4})?\b/i, " ")
+      category_list.gsub!(/\b(?:set|change|update|adjust|make|increase|raise|decrease|lower|reduce|cut|my|our|the|both|budget|budgets|category|categories|allocation|allocations|planned|plan|amount|amounts|and|plus)\b/i, " ")
+
+      category_list.match?(/[[:alpha:]]/)
     end
 
     def existing_category_name_result(category)
