@@ -89,6 +89,19 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     assert_equal [ [ 8 ], [ 8 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
   end
 
+  test "preserves month scope written before an explicitly shared amount" do
+    prompt = "Increase Groceries and Dining Out in August by $50 each"
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household, prompt, user: @user, annual_budget_manager: @manager,
+      selected_month: 8, raw_input: prompt
+    ).call
+
+    assert result.proposal
+    assert_equal [ @groceries.id, @dining.id ], result.proposal.items.map { |item| item.payload.fetch(:category_id) }
+    assert_equal [ 55_000, 35_000 ], result.proposal.items.map { |item| item.payload.fetch(:changes).first.fetch(:after_cents) }
+    assert_equal [ [ 8 ], [ 8 ] ], result.proposal.items.map { |item| item.payload.fetch(:changes).pluck(:month) }
+  end
+
   test "does not draft a partial edit when an additional category amount is missing or unknown" do
     missing_amount = HouseholdFinance::MiaActionDraftBuilder.new(
       @household, "Set Groceries to $650 and Dining Out", user: @user,
@@ -134,7 +147,8 @@ class HouseholdFinanceMiaActionDraftBuilderTest < ActiveSupport::TestCase
     prompts = [
       "Increase Travel, Groceries, and Dining Out by $50 each for August",
       "Increase Groceries, Travel, and Dining Out by $50 each for August",
-      "Increase Groceries, Dining Out, and Travel by $50 each for August"
+      "Increase Groceries, Dining Out, and Travel by $50 each for August",
+      "Increase Groceries and Dining Out in August plus Travel by $50 each"
     ]
 
     prompts.each do |prompt|

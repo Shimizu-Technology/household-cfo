@@ -474,6 +474,7 @@ module HouseholdFinance
       mentions.map { |mention| mention.fetch(:category).name }.uniq.each do |category_name|
         category_list.gsub!(/(?<![[:alnum:]])#{Regexp.escape(category_name)}(?![[:alnum:]])/i, " ")
       end
+      category_list.gsub!(/\b(?:for|in)\s+(?:#{MonthTerms.pattern}|this month|current month|next month|last month|all year|every month)(?:\s+\d{4})?\b/i, " ")
       category_list.gsub!(/\b(?:set|change|update|adjust|make|increase|raise|decrease|lower|reduce|cut|my|our|the|both|budget|budgets|category|categories|allocation|allocations|planned|plan|amount|amounts|and|plus)\b/i, " ")
 
       category_list.match?(/[[:alpha:]]/)
