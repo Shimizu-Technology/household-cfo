@@ -37,7 +37,7 @@ gem "plaid", "~> 47.0"
 gem "resend", "~> 0.16.0"
 
 # Private S3 storage and spreadsheet parsing for financial document imports
-gem "aws-sdk-s3", "~> 1.0"
+gem "aws-sdk-s3", "~> 1.229"
 gem "roo", "~> 2.10"
 gem "roo-xls", "~> 1.2"
 gem "combine_pdf", "~> 1.0"
