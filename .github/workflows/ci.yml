@@ -133,6 +133,9 @@ jobs:
       - name: Build web app
         run: npm run build
 
+      - name: Install WebKit browser dependencies
+        run: npx playwright install --with-deps webkit
+
       - name: Run rendered desktop and mobile browser checks
         run: npm run test:browser
 

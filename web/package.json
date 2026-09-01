@@ -9,7 +9,9 @@
     "build": "tsc -b && vite build",
     "lint": "eslint .",
     "test": "node scripts/design-regression.test.mjs && node scripts/privacy-regression.test.mjs && vitest run",
-    "test:browser": "playwright test",
+    "test:browser": "npm run test:browser:chromium && npm run test:browser:webkit",
+    "test:browser:chromium": "playwright test --project=desktop-chrome --project=tablet-768-chrome --project=tablet-1024-chrome --project=mobile-chrome --project=compact-mobile-chrome",
+    "test:browser:webkit": "playwright test --project=mobile-webkit",
     "preview": "vite preview"
   },
   "engines": {

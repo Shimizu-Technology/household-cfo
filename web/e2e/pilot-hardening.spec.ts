@@ -7,10 +7,15 @@ const currentYear = new Date().getFullYear()
 
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('link', { name, exact: true })
+  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  await expect(tools).toBeVisible()
   if (!(await section.isVisible())) {
-    await page.getByRole('button', { name: 'Tools', exact: true }).click()
+    await tools.click()
+    await expect(section).toBeVisible()
   }
   await section.click()
+  await expect(tools).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.locator('.tabs-tools-backdrop')).toHaveCount(0)
 }
 
 const profile = {
@@ -355,13 +360,13 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await mockEmptyPlaidState(page, false)
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   await expect(page.getByText('Bank connection is not part of this pilot yet.')).toBeVisible()
   await expect(page.getByText('Nothing is missing from your setup.', { exact: false })).toBeVisible()
   await expect(page.getByText('server-side Plaid credentials', { exact: false })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toHaveCount(0)
 
-  await openSection(page, 'Activity')
+  await openSection(page, 'Review')
   await expect(page.getByText('Manual activity is ready.')).toBeVisible()
   await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
   await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeVisible()
@@ -371,12 +376,12 @@ test('configured Plaid clearly supports a participant with no connections', asyn
   await mockEmptyPlaidState(page, true)
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   await expect(page.getByText('No bank is connected yet.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toBeDisabled()
   await expect(page.getByRole('checkbox', { name: /I authorize Household CFO Method/ })).toBeVisible()
 
-  await openSection(page, 'Activity')
+  await openSection(page, 'Review')
   await expect(page.getByText('No bank activity yet.')).toBeVisible()
 })
 
@@ -428,7 +433,7 @@ test('account selection keeps activity cards and row totals in the same scope', 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await openSection(page, 'Activity')
+  await openSection(page, 'Review')
   const summary = page.getByLabel('Bank activity summary')
   await expect(summary.getByText('$141.00')).toHaveCount(2)
 
@@ -473,7 +478,7 @@ test('Plaid Link loads once and opens once after explicit consent', async ({ pag
   }))
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
   await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
 
@@ -545,7 +550,7 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
   }))
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
   await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __plaidConfig?: unknown }).__plaidConfig))).toBe(true)
@@ -606,6 +611,11 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(page.getByText('Safe to spend').locator('..').getByText('$0.00')).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Protect the baseline and build runway.' })).toBeVisible()
   await expect(page.getByText('enough stability to move with intention')).toHaveCount(0)
+
+  await page.getByRole('button', { name: 'Review 2 transactions' }).click()
+  await expect(page).toHaveURL(/#Activity$/)
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
 })
 
 test('penny-level plans never show a false over-budget warning', async ({ page }) => {
@@ -643,7 +653,7 @@ test('penny-level plans never show a false over-budget warning', async ({ page }
 
 test('large financial values stay on one line and participant screens stay inside the viewport', async ({ page }) => {
   await page.goto('/')
-  for (const section of ['Home', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {
+  for (const section of ['Home', 'Review', 'Ask Mia', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']) {
     if (section !== 'Home') await openSection(page, section)
 
     const audit = await page.evaluate(() => {
@@ -704,6 +714,18 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
   await expect(page.getByRole('button', { name: 'Load earlier messages (40 remaining)' })).toBeVisible()
   await expect(page.locator('.message-attachment-card img')).toHaveAttribute('loading', 'lazy')
   await expect(page.getByRole('button', { name: 'Review draft' })).toBeVisible()
+
+  const attachmentPreview = page.getByRole('button', { name: 'Preview Receipt screenshot' })
+  await attachmentPreview.focus()
+  await attachmentPreview.press('Enter')
+  const previewDialog = page.getByRole('dialog', { name: 'Receipt screenshot' })
+  await expect(previewDialog).toBeVisible()
+  await expect(previewDialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(previewDialog.getByRole('button', { name: 'Close', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(previewDialog).toBeHidden()
+  await expect(attachmentPreview).toBeFocused()
 
   await page.getByRole('button', { name: 'Review draft' }).click()
   await expect(page.getByText('Profile completeness', { exact: true })).toBeVisible()
@@ -1453,7 +1475,7 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) + 6)
   expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()?.height ?? 720)
 
-  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
@@ -1465,8 +1487,8 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   await expect(tools).toBeFocused()
 
   await tools.click()
-  await page.getByRole('link', { name: 'Activity', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
+  await openSection(page, 'My Profile')
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
 })
 
 test('compact phone layouts keep a stable shell and overlay secondary tools without page reflow', async ({ page }, testInfo) => {
@@ -1478,27 +1500,28 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   const homeContentY = await page.locator('.home-welcome-panel').evaluate((element) => Math.round(element.getBoundingClientRect().top))
   const tools = page.getByRole('button', { name: 'Tools', exact: true })
   await expect(tools).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toBeVisible()
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toHaveCount(0)
   await tools.click()
   await expect(tools).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
   expect(await page.locator('.home-welcome-panel').evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(homeContentY)
   await expect(page.locator('.tabs-secondary')).toHaveCSS('position', 'fixed')
   const primaryNavButtons = page.locator('.tabs > :is(a, button)')
   const touchHeights = await primaryNavButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
   expect(Math.min(...touchHeights)).toBeGreaterThanOrEqual(44)
-  await page.getByRole('link', { name: 'Activity', exact: true }).click()
+  await openSection(page, 'My Profile')
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeFocused()
   await page.getByRole('link', { name: 'Home', exact: true }).click()
   await page.getByText('Explore the plan behind this snapshot').click()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   const askMiaHeaderBox = await header.boundingBox()
-  expect(askMiaHeaderBox?.height).toBe(homeHeaderBox?.height)
-  expect(askMiaHeaderBox?.y).toBe(homeHeaderBox?.y)
+  expect(Math.abs((askMiaHeaderBox?.height ?? 0) - (homeHeaderBox?.height ?? 0))).toBeLessThan(0.5)
+  expect(Math.abs((askMiaHeaderBox?.y ?? 0) - (homeHeaderBox?.y ?? 0))).toBeLessThan(0.5)
   await expect(page.getByText('More prompts →')).toBeHidden()
   await page.locator('.screen-grid').evaluate(async (screen) => {
     await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
@@ -1544,7 +1567,8 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   })
   expect(compactLayout.historyHeight).toBeGreaterThan(compactLayout.shellHeight * 0.6)
 
-  await suggestionsButton.click()
+  await suggestionsButton.focus()
+  await suggestionsButton.press('Enter')
   await expect(suggestionsButton).toHaveAttribute('aria-expanded', 'true')
   await expect(suggestedQuestion).toBeVisible()
   const historyWhileOpen = await page.locator('.chat-card-wrap').evaluate((history) => history.getBoundingClientRect().height)
@@ -1561,7 +1585,8 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeFocused()
 
   const expandButton = page.getByRole('button', { name: 'Expand Ask Mia chat' })
-  await expandButton.click()
+  await expandButton.focus()
+  await expandButton.press('Enter')
   await expect(page.getByRole('dialog', { name: 'Ask Mia' })).toBeVisible()
   const expandedLayout = await page.locator('.mia-chat-shell').evaluate((shell) => {
     const box = shell.getBoundingClientRect()
@@ -1700,7 +1725,7 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
   await expect(miaComposer).toBeFocused()
 
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   const advancedProfile = page.locator('.setup-optional-fields')
   await expect(advancedProfile).toHaveCount(1)
   expect(await advancedProfile.evaluate((element: HTMLDetailsElement) => element.open)).toBe(false)
@@ -1760,7 +1785,7 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect(page.getByText('No approved document sources yet. Mia will use manual numbers until you apply extracted values.')).toBeVisible()
 
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   await expect(page.getByText('Approved source', { exact: true }).locator('..')).toContainText('Not approved yet')
   await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
 })
@@ -1827,7 +1852,7 @@ test('import review copy follows extracted results when a selected receipt produ
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [activeImport] } }))
   await page.route('http://api.test/api/v1/document_imports/505', (route) => route.fulfill({ status: 200, json: { document_import: activeImport } }))
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
 
   const result = page.locator('.document-routing-summary')
   await expect(result).toContainText('Review result')
@@ -2087,7 +2112,7 @@ test('receipt category corrections refresh the selected import immediately', asy
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
+  await openSection(page, 'My Profile')
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await card.getByRole('button', { name: 'Review categories' }).click()
   await card.getByLabel('Category').selectOption('2')

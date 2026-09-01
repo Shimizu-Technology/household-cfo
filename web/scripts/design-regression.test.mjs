@@ -16,7 +16,7 @@ const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHisto
 const demoHouseholdData = readFileSync(resolve(__dirname, '../../api/app/services/demo/household_data.rb'), 'utf8')
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 
-const expectedNav = "['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']"
+const expectedNav = "['Home', 'Activity', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']"
 assert.ok(
   app.replace(/\s+/g, ' ').includes(expectedNav),
   'participant navigation must keep the complete set of participant modules',

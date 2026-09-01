@@ -129,8 +129,8 @@ function MessageAttachmentList({
               aria-label={`Preview ${label}`}
               onClick={() => {
                 if (documentImport) onOpenImport(documentImport)
-                else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
                 else if (attachment.preview_url) onOpenLocal(attachment)
+                else if (attachment.document_import_id) onOpenImportId(attachment.document_import_id)
               }}
             >
               {hasImagePreview ? <img src={attachment.preview_url} alt={label} loading="lazy" decoding="async" /> : <AttachmentIcon />}
