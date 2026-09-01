@@ -1268,6 +1268,7 @@ test('participant links preserve browser history, heading focus, and section scr
 
 test('unfinished Plaid returns keep Profile and the URL aligned through reload and history', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'desktop history assertion')
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   await page.addInitScript(() => {
     window.localStorage.setItem('household-cfo:plaid-oauth:v1', JSON.stringify({
       userId: '901',
@@ -1280,21 +1281,37 @@ test('unfinished Plaid returns keep Profile and the URL aligned through reload a
   await page.goto('/#Home')
   await page.goto('/?pilot_e2e_role=participant&oauth_state_id=unfinished#Budget')
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
-  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
   await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
-  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
   await page.reload()
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
-  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 
   await page.goBack()
   await expect(page).toHaveURL(/#Home$/)
   await page.goForward()
   await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
+})
+
+test('stale Plaid return queries recover normal participant navigation', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop callback recovery assertion')
+  await page.goto('/?pilot_e2e_role=participant&oauth_state_id=stale#Budget')
+
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
+  await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeFocused()
+
+  await page.reload()
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
+  await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeVisible()
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {

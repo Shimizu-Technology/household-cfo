@@ -22,6 +22,7 @@ import {
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
 import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
+import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -152,6 +153,12 @@ function sectionHash(section: string) {
 
 function hasPendingPlaidOAuthReturn() {
   return new URLSearchParams(window.location.search).has('oauth_state_id')
+}
+
+function clearPlaidOAuthStateFromUrl(section: string) {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('oauth_state_id')
+  return `${url.pathname}${url.search}${sectionHash(section)}`
 }
 
 function sectionFromLocation() {
@@ -397,6 +404,12 @@ function App() {
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const isFirstSessionSetup = Boolean(isRealWorkspace && !data?.workspace?.setup_complete)
+  const canResumePlaidOAuthReturn = Boolean(
+    hasPendingPlaidOAuthReturn()
+    && data?.workspace?.setup_complete
+    && auth.currentUser?.id
+    && readPlaidOAuthSession(String(auth.currentUser.id)),
+  )
   const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
@@ -985,13 +998,22 @@ function App() {
     source?: 'history' | 'ui'
   } = {}) => {
     const targetSection = visibleSections.includes(section) ? section : sections[0]
+    let replacedStaleOAuthLocation = false
     if (activeSection === 'Budget' && targetSection !== 'Budget' && hasUnsavedBudgetChanges) {
       setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
       return false
     }
-    if (hasPendingPlaidOAuthReturn() && targetSection !== 'My Profile') {
+    if (canResumePlaidOAuthReturn && targetSection !== 'My Profile') {
       setRouteAnnouncement('Finish the bank connection before leaving My Profile.')
       return false
+    }
+    if (hasPendingPlaidOAuthReturn() && !canResumePlaidOAuthReturn) {
+      window.history.replaceState(
+        { section: targetSection },
+        '',
+        clearPlaidOAuthStateFromUrl(targetSection),
+      )
+      replacedStaleOAuthLocation = true
     }
 
     if (targetSection === activeSection) return true
@@ -1019,7 +1041,7 @@ function App() {
     if (targetSection !== 'My Profile') setFirstSessionUploadOpen(false)
 
     const historyMode = options.historyMode ?? 'push'
-    if (historyMode !== 'none') {
+    if (historyMode !== 'none' && !replacedStaleOAuthLocation) {
       window.history[historyMode === 'push' ? 'pushState' : 'replaceState'](
         { section: targetSection },
         '',
@@ -1027,17 +1049,20 @@ function App() {
       )
     }
     return true
-  }, [activeSection, hasUnsavedBudgetChanges, visibleSections])
+  }, [activeSection, canResumePlaidOAuthReturn, hasUnsavedBudgetChanges, visibleSections])
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
     window.history.scrollRestoration = 'manual'
 
-    if (hasPendingPlaidOAuthReturn() && window.location.hash !== sectionHash('My Profile')) {
+    if (hasPendingPlaidOAuthReturn() && data && auth.currentUser) {
+      const callbackUrl = canResumePlaidOAuthReturn
+        ? `${window.location.pathname}${window.location.search}${sectionHash('My Profile')}`
+        : clearPlaidOAuthStateFromUrl('My Profile')
       window.history.replaceState(
         { section: 'My Profile' },
         '',
-        `${window.location.pathname}${window.location.search}${sectionHash('My Profile')}`,
+        callbackUrl,
       )
     }
 
@@ -1068,7 +1093,7 @@ function App() {
       window.removeEventListener('popstate', followBrowserLocation)
       window.removeEventListener('hashchange', followBrowserLocation)
     }
-  }, [activeSection, switchSection, visibleSections])
+  }, [activeSection, auth.currentUser, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
 
   useLayoutEffect(() => {
     const pendingNavigation = pendingSectionNavigationRef.current
