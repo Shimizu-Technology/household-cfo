@@ -8,7 +8,7 @@ const currentYear = new Date().getFullYear()
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('button', { name, exact: true })
   if (!(await section.isVisible())) {
-    await page.getByRole('button', { name: 'More', exact: true }).click()
+    await page.getByRole('button', { name: 'Tools', exact: true }).click()
   }
   await section.click()
 }
@@ -1214,7 +1214,10 @@ test('a partially saved budget keeps the approved change and protects unapplied 
 
 test('participant navigation remains available after deep scrolling', async ({ page }) => {
   await page.goto('/')
+  const homeHeaderHeight = await page.locator('.shell-header').evaluate((element) => Math.round(element.getBoundingClientRect().height))
   await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  const budgetHeaderHeight = await page.locator('.shell-header').evaluate((element) => Math.round(element.getBoundingClientRect().height))
+  expect(budgetHeaderHeight).toBe(homeHeaderHeight)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect(page.locator('.tabs-shell')).toBeInViewport()
   const top = await page.locator('.tabs-shell').evaluate((element) => Math.round(element.getBoundingClientRect().top))
@@ -1222,7 +1225,7 @@ test('participant navigation remains available after deep scrolling', async ({ p
   await page.getByRole('button', { name: 'Home', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
-  await expect(page.locator('.shell-header')).not.toHaveClass(/is-compact/)
+  await expect(page.locator('.shell-header')).toHaveCount(1)
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
@@ -1265,35 +1268,36 @@ test('Wealth stays accurate while the frontend and API metric contracts roll out
   await expect(page.getByText('$190,000.00', { exact: true })).toHaveCount(0)
 })
 
-test('compact phone layouts keep the status card legible and progressively reveal secondary navigation', async ({ page }, testInfo) => {
+test('compact phone layouts keep a stable shell and overlay secondary tools without page reflow', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only responsive assertion')
   await page.goto('/')
 
-  const statusCard = page.locator('.mia-status-card')
-  const headingBox = await statusCard.locator('strong').boundingBox()
-  const copyBox = await statusCard.locator('p').boundingBox()
-  expect(headingBox).not.toBeNull()
-  expect(copyBox).not.toBeNull()
-  expect((headingBox?.width ?? 0)).toBeGreaterThan(80)
-  expect((headingBox?.y ?? 0) + (headingBox?.height ?? 0)).toBeLessThanOrEqual((copyBox?.y ?? 0) + 1)
-  const more = page.getByRole('button', { name: 'More', exact: true })
-  await expect(more).toBeVisible()
-  await expect(more).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('button', { name: 'Activity', exact: true })).not.toBeVisible()
-  await more.click()
-  await expect(more).toHaveAttribute('aria-expanded', 'true')
+  const header = page.locator('.shell-header')
+  const homeHeaderBox = await header.boundingBox()
+  const homeContentY = await page.locator('.home-welcome-panel').evaluate((element) => Math.round(element.getBoundingClientRect().top))
+  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  await expect(tools).toBeVisible()
+  await expect(tools).toHaveAttribute('aria-expanded', 'false')
+  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toHaveCount(0)
+  await tools.click()
+  await expect(tools).toHaveAttribute('aria-expanded', 'true')
   await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeVisible()
+  expect(await page.locator('.home-welcome-panel').evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(homeContentY)
+  await expect(page.locator('.tabs-secondary')).toHaveCSS('position', 'fixed')
   const primaryNavButtons = page.locator('.tabs > button')
   const touchHeights = await primaryNavButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
   expect(Math.min(...touchHeights)).toBeGreaterThanOrEqual(44)
   await page.getByRole('button', { name: 'Activity', exact: true }).click()
-  await expect(more).toHaveAttribute('aria-expanded', 'false')
-  await expect(more).toBeFocused()
+  await expect(tools).toHaveAttribute('aria-expanded', 'false')
+  await expect(tools).toBeFocused()
   await page.getByRole('button', { name: 'Home', exact: true }).click()
   await page.getByText('Explore the plan behind this snapshot').click()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
   await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
-  await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
+  await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
+  const askMiaHeaderBox = await header.boundingBox()
+  expect(askMiaHeaderBox?.height).toBe(homeHeaderBox?.height)
+  expect(askMiaHeaderBox?.y).toBe(homeHeaderBox?.y)
   await expect(page.getByText('More prompts →')).toBeHidden()
   await page.locator('.screen-grid').evaluate(async (screen) => {
     await Promise.all(screen.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
@@ -1436,9 +1440,9 @@ test('incomplete participants get a short first session, private feedback, and a
     const firstSessionColumns = await page.locator('.first-session-heading').evaluate((element) => getComputedStyle(element).gridTemplateColumns)
     expect(firstSessionColumns.split(' ')).toHaveLength(1)
   }
-  await expect(page.getByText('Give Mia a useful starting point', { exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Tester guide' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Report a problem' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Feedback', exact: true })).toBeVisible()
 
   await page.getByRole('button', { name: 'Read the 3-minute guide' }).click()
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()
@@ -1451,7 +1455,7 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(page.getByRole('heading', { name: 'Upload evidence. Review draft facts. Apply only what is right.' })).toBeVisible()
   await page.getByRole('button', { name: 'Home', exact: true }).click()
 
-  await page.getByRole('button', { name: 'Report a problem' }).click()
+  await page.getByRole('button', { name: 'Feedback', exact: true }).click()
   const feedback = page.getByRole('dialog')
   await feedback.getByLabel('Screen or workflow').selectOption('setup')
   await feedback.getByLabel('What did you attempt?').fill('I tried to save the first session form.')
@@ -1489,7 +1493,7 @@ test('incomplete participants get a short first session, private feedback, and a
     flexible_spend: 600,
     business_income: 0,
   })
-  await expect(page.locator('.shell-header')).toHaveClass(/is-compact/)
+  await expect(page.locator('.shell-header')).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   const miaComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
   await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
