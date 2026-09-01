@@ -7,10 +7,10 @@ type ParticipantTabsProps = {
   onChange: (section: string) => void
 }
 
-const primarySections = new Set(['Home', 'Ask Mia', 'My Profile', 'Budget'])
+const primarySections = new Set(['Home', 'Review', 'Ask Mia', 'Budget'])
 
 const sectionDescriptions: Record<string, string> = {
-  Activity: 'Review transactions and recent household changes.',
+  'My Profile': 'Update household context, documents, and bank connections.',
   Wealth: 'See debt, assets, and long-range capacity.',
   'CFO Filter': 'Pressure-test a purchase before money moves.',
   Optionality: 'Compare choices against stability and runway.',

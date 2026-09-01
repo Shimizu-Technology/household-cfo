@@ -120,7 +120,7 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Ask Mia', 'Activity', 'My Profile', 'Budget', 'Wealth', 'CFO Filter', 'Optionality']
+const sections = ['Home', 'Review', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 const allSections = [...sections, ADMIN_SECTION]
@@ -166,6 +166,7 @@ function sectionFromLocation() {
 
   try {
     const hashSection = decodeURIComponent(window.location.hash.replace(/^#/, ''))
+    if (hashSection === 'Activity') return 'Review'
     return allSections.includes(hashSection) ? hashSection : sections[0]
   } catch {
     return sections[0]
@@ -2230,7 +2231,7 @@ function App() {
             dashboard={data.dashboard}
             budget={data.budget}
             onAskMia={() => switchSection('Ask Mia')}
-            onReviewTransactions={() => switchSection('Budget')}
+            onReviewTransactions={() => switchSection('Review')}
             onReviewMiaActions={() => switchSection('Ask Mia')}
           />
         </>
@@ -2511,12 +2512,12 @@ function App() {
         </section>
       )}
 
-      {activeSection === 'Activity' && (
+      {activeSection === 'Review' && (
         <section className="screen-grid activity-screen">
           <ScreenHeading
-            eyebrow="Activity"
+            eyebrow="Review"
             title="Review what changed before it becomes household truth."
-            copy="Manual reports work today. If bank connections become available, authorized activity will appear here too. You always control what becomes an official budget actual."
+            copy="Review transactions and recent changes in one place. You always control what becomes an official budget actual."
           />
 
           {isRealWorkspace && auth.currentUser ? (
@@ -2934,11 +2935,12 @@ function PendingAttachmentTray({
 
 function LocalAttachmentPreview({ attachment, onClose }: { attachment: PendingMiaAttachment; onClose: () => void }) {
   const isImage = pendingAttachmentHasImagePreview(attachment)
+  const dialogRef = usePilotDialog(onClose)
 
   return (
     <div className="document-preview-overlay" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close attachment preview" onClick={onClose} />
-      <section className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)}>
+      <section ref={dialogRef} className="local-attachment-preview" role="dialog" aria-modal="true" aria-label={attachmentDisplayName(attachment)} tabIndex={-1}>
         <div className="document-preview-header">
           <div>
             <span className="document-status blue">Attachment preview</span>
@@ -3167,6 +3169,7 @@ function usePilotDialog(onClose: () => void) {
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousBodyOverflow = document.body.style.overflow
     const dialog = dialogRef.current
     const focusableSelector = 'button:not([disabled]), select:not([disabled]), textarea:not([disabled]), input:not([disabled]), [href], [tabindex]:not([tabindex="-1"])'
     const focusableElements = () => Array.from(dialog?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
@@ -3207,10 +3210,12 @@ function usePilotDialog(onClose: () => void) {
 
     document.addEventListener('keydown', handleKeyDown)
     document.addEventListener('focusin', handleFocusIn)
+    document.body.style.overflow = 'hidden'
     return () => {
       window.cancelAnimationFrame(focusFrame)
       document.removeEventListener('keydown', handleKeyDown)
       document.removeEventListener('focusin', handleFocusIn)
+      document.body.style.overflow = previousBodyOverflow
       previousFocus?.focus()
     }
   }, [])
@@ -4101,6 +4106,7 @@ function DocumentSourcePreview({
   onFetchSourceUrl: (id: number) => Promise<DocumentSourceUrl>
   onFetchSourcePreview: (id: number) => Promise<DocumentSourcePreviewData>
 }) {
+  const dialogRef = usePilotDialog(onClose)
   const [source, setSource] = useState<DocumentSourceUrl | null>(null)
   const [preview, setPreview] = useState<DocumentSourcePreviewData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -4142,19 +4148,6 @@ function DocumentSourcePreview({
     }
   }, [documentImport.id, onFetchSourcePreview, onFetchSourceUrl])
 
-  useEffect(() => {
-    const handleKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
-    }
-
-    document.addEventListener('keydown', handleKeyDown)
-    document.body.style.overflow = 'hidden'
-    return () => {
-      document.removeEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = ''
-    }
-  }, [onClose])
-
   const filename = source?.filename ?? documentImport.filename
   const previewTitle = documentImportDisplayName(documentImport)
   const contentType = source?.content_type ?? documentImport.content_type
@@ -4165,7 +4158,7 @@ function DocumentSourcePreview({
   return (
     <div className="document-preview-overlay" role="presentation">
       <button type="button" className="document-preview-backdrop" aria-label="Close document preview" onClick={onClose} />
-      <section className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewTitle}`}>
+      <section ref={dialogRef} className="document-preview-modal" role="dialog" aria-modal="true" aria-label={`Preview ${previewTitle}`} tabIndex={-1}>
         <header className="document-preview-header">
           <div>
             <span className="document-status blue">Private preview</span>
@@ -4184,7 +4177,14 @@ function DocumentSourcePreview({
 
           {source && !loading && !error && (
             <>
-              {isPdf && <iframe src={`${source.url}#toolbar=1&navpanes=0`} title={filename} />}
+              {isPdf && (
+                <div className="document-preview-state document-pdf-handoff">
+                  <StatementIcon />
+                  <h4>Open this PDF in a separate browser tab</h4>
+                  <p>The browser PDF viewer opens outside this private preview so keyboard focus and Close controls remain predictable here.</p>
+                  <a href={source.url} target="_blank" rel="noopener noreferrer">Open PDF in new tab</a>
+                </div>
+              )}
               {isImage && <img src={source.url} alt={filename} />}
               {serverPreviewType && previewLoading && <div className="document-preview-state"><span className="document-preview-spinner" />Building safe in-app preview…</div>}
               {serverPreviewType && previewError && <div className="document-preview-state error">{previewError}</div>}

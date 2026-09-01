@@ -619,6 +619,10 @@ textarea:focus-visible {
   max-width: 1180px;
   margin: 0 auto;
   padding: 24px clamp(14px, 3vw, 32px) 64px;
+  padding-top: calc(24px + env(safe-area-inset-top));
+  padding-right: calc(clamp(14px, 3vw, 32px) + env(safe-area-inset-right));
+  padding-bottom: calc(64px + env(safe-area-inset-bottom));
+  padding-left: calc(clamp(14px, 3vw, 32px) + env(safe-area-inset-left));
 }
 
 .sr-only {
@@ -1079,7 +1083,7 @@ h3 {
 
 .tabs-shell {
   position: sticky;
-  top: 0;
+  top: env(safe-area-inset-top, 0px);
   z-index: 40;
   padding-block: 1px;
   background: rgba(246, 239, 229, 0.92);
@@ -3188,12 +3192,12 @@ h3 {
   }
 
   .app {
-    padding: 10px 10px 40px;
+    padding: calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(40px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
     overflow-x: clip;
   }
 
   .loading-state {
-    padding: 10px;
+    padding: calc(10px + env(safe-area-inset-top)) calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));
   }
 
   h1 {
@@ -4589,14 +4593,6 @@ h3 {
   background: #f2ede4;
 }
 
-.document-preview-body iframe {
-  width: 100%;
-  height: 100%;
-  min-height: 620px;
-  border: 0;
-  background: white;
-}
-
 .document-preview-body img {
   display: block;
   max-width: calc(100% - 32px);
@@ -4604,6 +4600,19 @@ h3 {
   margin: 16px auto;
   border-radius: 18px;
   box-shadow: 0 16px 40px rgba(47, 38, 28, 0.18);
+}
+
+.document-pdf-handoff a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  border-radius: 999px;
+  padding: 10px 14px;
+  background: var(--emerald);
+  color: white;
+  font-size: 0.8rem;
+  font-weight: 900;
+  text-decoration: none;
 }
 
 .document-spreadsheet-preview,
@@ -4773,16 +4782,16 @@ h3 {
 }
 
 .mia-screen {
-  gap: 12px;
+  gap: 18px;
 }
 
 .mia-screen .screen-heading {
-  max-width: 820px;
-  padding-block: 2px 0;
+  max-width: 760px;
+  padding: 8px 4px;
 }
 
 .mia-screen .screen-heading h2 {
-  margin-bottom: 6px;
+  margin-bottom: 10px;
 }
 
 .mia-layout {
@@ -5699,13 +5708,12 @@ h3 {
     min-width: 28px !important;
   }
 
-  .mia-screen .screen-heading h2 {
-    font-size: clamp(1.72rem, 8vw, 2.08rem);
+  .mia-screen {
+    gap: 13px;
   }
 
-  .mia-screen .screen-heading p {
-    margin-bottom: 0;
-    font-size: 0.9rem;
+  .mia-screen .screen-heading {
+    padding: 2px 2px 0;
   }
 
   .mia-layout {
