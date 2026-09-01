@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
 import { createPortal } from 'react-dom'
 
 type ParticipantTabsProps = {
@@ -41,6 +41,7 @@ function ArrowIcon() {
 
 export function ParticipantTabs({ sections, activeSection, onChange }: ParticipantTabsProps) {
   const [moreOpen, setMoreOpen] = useState(false)
+  const [toolsPosition, setToolsPosition] = useState({ top: 0, right: 16 })
   const shellRef = useRef<HTMLDivElement | null>(null)
   const moreButtonRef = useRef<HTMLButtonElement | null>(null)
   const secondaryRef = useRef<HTMLDivElement | null>(null)
@@ -48,43 +49,87 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
   const secondary = sections.filter((section) => !primarySections.has(section))
   const secondaryIsActive = secondary.includes(activeSection)
 
+  const closeTools = useCallback(() => {
+    setMoreOpen(false)
+    window.requestAnimationFrame(() => moreButtonRef.current?.focus({ preventScroll: true }))
+  }, [])
+
+  const updateToolsPosition = useCallback(() => {
+    const triggerBox = moreButtonRef.current?.getBoundingClientRect()
+    if (!triggerBox) return
+
+    setToolsPosition({
+      top: Math.round(triggerBox.bottom + 8),
+      right: Math.max(16, Math.round(window.innerWidth - triggerBox.right)),
+    })
+  }, [])
+
   useEffect(() => {
     if (!moreOpen) return
 
     const closeOnOutsidePointer = (event: PointerEvent) => {
       const target = event.target as Node
-      if (!shellRef.current?.contains(target) && !secondaryRef.current?.contains(target)) setMoreOpen(false)
+      if (!shellRef.current?.contains(target) && !secondaryRef.current?.contains(target)) closeTools()
     }
     const closeOnEscape = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape') return
-      setMoreOpen(false)
-      moreButtonRef.current?.focus()
+      if (event.key === 'Escape') {
+        closeTools()
+        return
+      }
+      if (event.key !== 'Tab') return
+
+      const dialog = secondaryRef.current
+      const focusable = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+      const first = focusable[0]
+      const last = focusable.at(-1)
+      if (!first || !last) {
+        event.preventDefault()
+        return
+      }
+
+      if (event.shiftKey && (document.activeElement === first || !dialog?.contains(document.activeElement))) {
+        event.preventDefault()
+        last.focus()
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault()
+        first.focus()
+      }
     }
+
+    updateToolsPosition()
+    window.addEventListener('resize', updateToolsPosition)
+    window.addEventListener('scroll', updateToolsPosition, true)
 
     document.addEventListener('pointerdown', closeOnOutsidePointer)
     document.addEventListener('keydown', closeOnEscape)
     return () => {
+      window.removeEventListener('resize', updateToolsPosition)
+      window.removeEventListener('scroll', updateToolsPosition, true)
       document.removeEventListener('pointerdown', closeOnOutsidePointer)
       document.removeEventListener('keydown', closeOnEscape)
     }
+  }, [closeTools, moreOpen, updateToolsPosition])
+
+  useEffect(() => {
+    if (!moreOpen) return
+
+    window.requestAnimationFrame(() => secondaryRef.current?.querySelector<HTMLButtonElement>('.tabs-tools-list button')?.focus())
   }, [moreOpen])
 
   const chooseSection = (section: string) => {
-    setMoreOpen(false)
+    if (secondary.includes(section)) closeTools()
+    else setMoreOpen(false)
     onChange(section)
-    if (secondary.includes(section)) {
-      window.requestAnimationFrame(() => moreButtonRef.current?.focus({ preventScroll: true }))
-    }
   }
 
   const toggleTools = () => {
-    setMoreOpen((current) => {
-      const next = !current
-      if (next) {
-        window.requestAnimationFrame(() => secondaryRef.current?.querySelector<HTMLButtonElement>('.tabs-tools-list button')?.focus())
-      }
-      return next
-    })
+    if (moreOpen) {
+      closeTools()
+      return
+    }
+
+    updateToolsPosition()
+    setMoreOpen(true)
   }
 
   return (
@@ -124,30 +169,30 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
             className="tabs-tools-backdrop"
             aria-label="Close tools"
             tabIndex={-1}
-            onClick={() => {
-              setMoreOpen(false)
-              moreButtonRef.current?.focus({ preventScroll: true })
-            }}
+            onClick={closeTools}
           />
           <div
             ref={secondaryRef}
             className="tabs-secondary"
             id="participant-more-sections"
-            aria-label="Household financial tools"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="participant-tools-title"
+            style={{
+              '--tools-top': `${toolsPosition.top}px`,
+              '--tools-right': `${toolsPosition.right}px`,
+            } as CSSProperties}
           >
             <header>
               <div>
                 <span>Household tools</span>
-                <strong>Go deeper when you need to.</strong>
+                <strong id="participant-tools-title">Go deeper when you need to.</strong>
               </div>
               <button
                 type="button"
                 className="tabs-tools-close"
                 aria-label="Close tools"
-                onClick={() => {
-                  setMoreOpen(false)
-                  moreButtonRef.current?.focus({ preventScroll: true })
-                }}
+                onClick={closeTools}
               >
                 <span aria-hidden="true">×</span>
               </button>

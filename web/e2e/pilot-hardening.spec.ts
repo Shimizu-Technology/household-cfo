@@ -1268,6 +1268,39 @@ test('Wealth stays accurate while the frontend and API metric contracts roll out
   await expect(page.getByText('$190,000.00', { exact: true })).toHaveCount(0)
 })
 
+test('desktop Tools stays anchored to its trigger and contains keyboard focus', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop-only popover assertion')
+  await page.goto('/')
+
+  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  const triggerBox = await tools.boundingBox()
+  await tools.click()
+
+  const dialog = page.getByRole('dialog', { name: 'Go deeper when you need to.' })
+  await expect(dialog).toBeVisible()
+  const dialogBox = await dialog.boundingBox()
+  expect(triggerBox).not.toBeNull()
+  expect(dialogBox).not.toBeNull()
+  expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) + 6)
+  expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()?.height ?? 720)
+
+  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('button', { name: 'Optionality', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(tools).toBeFocused()
+
+  await tools.click()
+  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeVisible()
+  await expect(tools).toBeFocused()
+})
+
 test('compact phone layouts keep a stable shell and overlay secondary tools without page reflow', async ({ page }, testInfo) => {
   test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only responsive assertion')
   await page.goto('/')

@@ -68,7 +68,7 @@ assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category pan
 assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
 assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
 assert.ok(
-  participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('Household financial tools'),
+  participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('role="dialog"') && participantTabs.includes('aria-modal="true"'),
   'secondary modules should open from an accessible Tools control',
 )
 assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')

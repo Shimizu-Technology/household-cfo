@@ -710,7 +710,7 @@ textarea:focus-visible {
 .shell-mia-mark svg {
   width: 12px;
   height: 12px;
-  fill: currentColor;
+  fill: currentcolor;
 }
 
 .hero-panel {
@@ -937,9 +937,9 @@ h3 {
 }
 
 .tabs-secondary {
-  position: absolute;
-  top: calc(100% - 2px);
-  right: clamp(14px, 3vw, 32px);
+  position: fixed;
+  top: var(--tools-top, 0);
+  right: var(--tools-right, 16px);
   z-index: 52;
   display: grid;
   width: min(390px, calc(100vw - 32px));
@@ -961,7 +961,7 @@ h3 {
   width: 15px;
   height: 15px;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.8;
 }
 
@@ -1047,7 +1047,7 @@ h3 {
   height: 18px;
   flex: 0 0 auto;
   fill: none;
-  stroke: currentColor;
+  stroke: currentcolor;
   stroke-width: 1.8;
 }
 
@@ -1143,7 +1143,7 @@ h3 {
 .home-readiness-chip svg {
   width: 18px;
   height: 18px;
-  fill: currentColor;
+  fill: currentcolor;
 }
 
 .home-readiness-chip div {
