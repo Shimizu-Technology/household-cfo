@@ -45,7 +45,7 @@ for (const rejectedCopy of [
 ]) {
   assert.ok(!app.includes(rejectedCopy), `App should not include rejected UI copy: ${rejectedCopy}`)
 }
-assert.ok(home.includes('<h2>CFO snapshot</h2>'), 'home copy should keep the section heading simple')
+assert.ok(home.includes('data-page-heading') && home.includes('CFO snapshot</h2>'), 'home copy should keep a focusable section heading')
 assert.ok(home.includes('What needs review?'), 'home should lead with pending review work')
 assert.ok(budgetVisuals.includes('Month-to-date inside the annual plan'), 'home should connect the current month to the annual plan')
 assert.ok(home.includes('Your path from Red to Yellow to Green'), 'home should explain the deterministic readiness progression')
@@ -72,6 +72,11 @@ assert.ok(
   'secondary modules should open from an accessible Tools control',
 )
 assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')
+assert.ok(participantTabs.includes('<a') && participantTabs.includes('href={sectionHref(section)}'), 'participant destinations should keep native link semantics')
+assert.ok(app.includes("addEventListener('popstate'") && app.includes("scrollRestoration = 'manual'"), 'participant routing should support browser history and route-keyed scroll restoration')
+assert.ok(app.includes('canResumePlaidOAuthReturn') && app.includes('readPlaidOAuthSession') && app.includes('clearPlaidOAuthStateFromUrl'), 'Plaid returns should lock only while a stored callback is resumable')
+assert.ok(app.includes('[data-page-heading]') && app.includes('focus({ preventScroll: true })'), 'section navigation should move focus to the new page heading')
+assert.ok(!css.includes('transform: translateY(7px)'), 'page entry motion should not transform the structural screen ancestor')
 assert.ok(button.includes("variant?: 'primary' | 'secondary' | 'ghost' | 'danger'"), 'shared button variants should fully define important action states')
 assert.ok(css.includes('.button--secondary,\n.secondary-button'), 'legacy secondary actions should receive complete shared styling')
 assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant navigation shell should stay available while scrolling')

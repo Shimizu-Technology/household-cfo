@@ -22,6 +22,7 @@ import {
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
 import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
+import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -137,6 +138,39 @@ const MIA_UPDATE_EXAMPLES = [
   'My credit card balance is $3,100 and my monthly minimum is $175.',
   'Set Dining Out to $250 per month beginning next month.',
 ]
+
+type SectionHistoryMode = 'none' | 'push' | 'replace'
+
+type PendingSectionNavigation = {
+  focusHeading: boolean
+  scrollTop: number
+  section: string
+}
+
+function sectionHash(section: string) {
+  return `#${encodeURIComponent(section)}`
+}
+
+function hasPendingPlaidOAuthReturn() {
+  return new URLSearchParams(window.location.search).has('oauth_state_id')
+}
+
+function clearPlaidOAuthStateFromUrl(section: string) {
+  const url = new URL(window.location.href)
+  url.searchParams.delete('oauth_state_id')
+  return `${url.pathname}${url.search}${sectionHash(section)}`
+}
+
+function sectionFromLocation() {
+  if (hasPendingPlaidOAuthReturn()) return 'My Profile'
+
+  try {
+    const hashSection = decodeURIComponent(window.location.hash.replace(/^#/, ''))
+    return allSections.includes(hashSection) ? hashSection : sections[0]
+  } catch {
+    return sections[0]
+  }
+}
 
 function mergeLatestMiaMessages(current: MiaMessage[], latestPage: MiaMessage[]) {
   const firstLatestServerId = latestPage.find((message) => message.id)?.id
@@ -291,10 +325,12 @@ function App() {
   const [setupError, setSetupError] = useState<string | null>(null)
   const [firstSessionUploadOpen, setFirstSessionUploadOpen] = useState(false)
   const [active, setActive] = useState(() => {
-    if (new URLSearchParams(window.location.search).has('oauth_state_id')) return 'My Profile'
-    const hashSection = decodeURIComponent(window.location.hash.replace('#', ''))
-    return allSections.includes(hashSection) ? hashSection : sections[0]
+    return sectionFromLocation()
   })
+  const [routeAnnouncement, setRouteAnnouncement] = useState('')
+  const sectionScrollPositionsRef = useRef(new Map<string, number>())
+  const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
+  const lastHandledLocationRef = useRef('')
   const [messages, setMessages] = useState<MiaMessage[]>([])
   const [visibleMessageCount, setVisibleMessageCount] = useState(CHAT_HISTORY_PAGE_SIZE)
   const [oldestServerMessageId, setOldestServerMessageId] = useState<number | null>(null)
@@ -368,6 +404,12 @@ function App() {
   const shouldUseRealWorkspace = auth.isClerkEnabled || e2eRealWorkspace
   const isRealWorkspace = data?.workspace?.mode === 'real'
   const isFirstSessionSetup = Boolean(isRealWorkspace && !data?.workspace?.setup_complete)
+  const canResumePlaidOAuthReturn = Boolean(
+    hasPendingPlaidOAuthReturn()
+    && data?.workspace?.setup_complete
+    && auth.currentUser?.id
+    && readPlaidOAuthSession(String(auth.currentUser.id)),
+  )
   const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
@@ -949,27 +991,136 @@ function App() {
     }
   }, [handleVoiceRecordingComplete, isRealWorkspace, miaLoading, stopVoiceStream, voiceRecording, voiceTranscribing])
 
-  function switchSection(section: string) {
-    if (activeSection === 'Budget' && section !== 'Budget' && hasUnsavedBudgetChanges) {
+  const switchSection = useCallback((section: string, options: {
+    focusHeading?: boolean
+    historyMode?: SectionHistoryMode
+    restoreScroll?: boolean
+    source?: 'history' | 'ui'
+  } = {}) => {
+    const targetSection = visibleSections.includes(section) ? section : sections[0]
+    let replacedStaleOAuthLocation = false
+    if (activeSection === 'Budget' && targetSection !== 'Budget' && hasUnsavedBudgetChanges) {
       setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
-      return
+      return false
+    }
+    if (canResumePlaidOAuthReturn && targetSection !== 'My Profile') {
+      setRouteAnnouncement('Finish the bank connection before leaving My Profile.')
+      return false
+    }
+    if (hasPendingPlaidOAuthReturn() && data && !canResumePlaidOAuthReturn) {
+      window.history.replaceState(
+        { section: targetSection },
+        '',
+        clearPlaidOAuthStateFromUrl(targetSection),
+      )
+      replacedStaleOAuthLocation = true
     }
 
-    captureAnalyticsEvent('section_selected', {
-      section: section.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-      from_section: activeSection.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-    })
-    setActive(section)
-    if (section !== 'Ask Mia') {
+    if (targetSection === activeSection) return true
+
+    if (options.source !== 'history') lastHandledLocationRef.current = ''
+
+    sectionScrollPositionsRef.current.set(activeSection, window.scrollY)
+    if (options.source !== 'history') {
+      captureAnalyticsEvent('section_selected', {
+        section: targetSection.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+        from_section: activeSection.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      })
+    }
+
+    pendingSectionNavigationRef.current = {
+      focusHeading: options.focusHeading ?? true,
+      scrollTop: options.restoreScroll ? sectionScrollPositionsRef.current.get(targetSection) ?? 0 : 0,
+      section: targetSection,
+    }
+    setActive(targetSection)
+    if (targetSection !== 'Ask Mia') {
       setIsChatExpanded(false)
       setShowMiaSuggestions(false)
     }
-    if (section !== 'My Profile') setFirstSessionUploadOpen(false)
-    window.history.replaceState(null, '', `#${encodeURIComponent(section)}`)
-    if (section !== activeSection) {
-      window.requestAnimationFrame(() => window.scrollTo({ top: 0, left: 0, behavior: 'auto' }))
+    if (targetSection !== 'My Profile') setFirstSessionUploadOpen(false)
+
+    const historyMode = options.historyMode ?? 'push'
+    if (historyMode !== 'none' && !replacedStaleOAuthLocation) {
+      window.history[historyMode === 'push' ? 'pushState' : 'replaceState'](
+        { section: targetSection },
+        '',
+        sectionHash(targetSection),
+      )
     }
-  }
+    return true
+  }, [activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, visibleSections])
+
+  useEffect(() => {
+    const previousScrollRestoration = window.history.scrollRestoration
+    window.history.scrollRestoration = 'manual'
+
+    if (hasPendingPlaidOAuthReturn() && data && auth.currentUser) {
+      const callbackUrl = canResumePlaidOAuthReturn
+        ? `${window.location.pathname}${window.location.search}${sectionHash('My Profile')}`
+        : clearPlaidOAuthStateFromUrl('My Profile')
+      window.history.replaceState(
+        { section: 'My Profile' },
+        '',
+        callbackUrl,
+      )
+    }
+
+    const followBrowserLocation = () => {
+      const locationKey = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      if (lastHandledLocationRef.current === locationKey) return
+
+      const requestedSection = sectionFromLocation()
+      if (requestedSection === ADMIN_SECTION && auth.isClerkEnabled && !auth.currentUser) return
+      lastHandledLocationRef.current = locationKey
+      const targetSection = visibleSections.includes(requestedSection) ? requestedSection : sections[0]
+      const targetHash = sectionHash(targetSection)
+      if (window.location.hash !== targetHash) {
+        window.history.replaceState(
+          { section: targetSection },
+          '',
+          `${window.location.pathname}${window.location.search}${targetHash}`,
+        )
+        lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      }
+      if (targetSection === activeSection) return
+
+      const changed = switchSection(targetSection, {
+        historyMode: 'none',
+        restoreScroll: true,
+        source: 'history',
+      })
+      if (!changed) {
+        window.history.pushState({ section: activeSection }, '', sectionHash(activeSection))
+        lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      }
+    }
+
+    followBrowserLocation()
+    window.addEventListener('popstate', followBrowserLocation)
+    window.addEventListener('hashchange', followBrowserLocation)
+    return () => {
+      window.history.scrollRestoration = previousScrollRestoration
+      window.removeEventListener('popstate', followBrowserLocation)
+      window.removeEventListener('hashchange', followBrowserLocation)
+    }
+  }, [activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
+
+  useLayoutEffect(() => {
+    const pendingNavigation = pendingSectionNavigationRef.current
+    if (!pendingNavigation || pendingNavigation.section !== activeSection) return
+
+    const animationFrame = window.requestAnimationFrame(() => {
+      window.scrollTo({ top: pendingNavigation.scrollTop, left: 0, behavior: 'auto' })
+      if (pendingNavigation.focusHeading) {
+        document.querySelector<HTMLElement>('[data-page-heading]')?.focus({ preventScroll: true })
+      }
+      setRouteAnnouncement(`${activeSection} screen loaded.`)
+      pendingSectionNavigationRef.current = null
+    })
+
+    return () => window.cancelAnimationFrame(animationFrame)
+  }, [activeSection])
 
   function prepareMiaUpdate(prompt: string) {
     setQuestion(prompt)
@@ -2031,6 +2182,7 @@ function App() {
   return (
     <main className="app">
       <SeoManager section={activeSection} />
+      <p className="sr-only" aria-live="polite" aria-atomic="true">{routeAnnouncement}</p>
       <header className="shell-header">
         <div className="shell-brand">
           <p className="eyebrow">Household CFO Method powered by VERA</p>
@@ -2899,7 +3051,7 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
   return (
     <div className="screen-heading">
       <p className="eyebrow">{eyebrow}</p>
-      <h2>{title}</h2>
+      <h2 data-page-heading tabIndex={-1}>{title}</h2>
       <p>{copy}</p>
     </div>
   )

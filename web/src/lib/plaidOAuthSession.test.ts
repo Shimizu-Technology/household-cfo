@@ -47,6 +47,18 @@ describe('Plaid OAuth session storage', () => {
 
     expect(readPlaidOAuthSession('42', storage, 2_000)).toBeNull()
   })
+
+  it('does not throw when browser storage access and cleanup are unavailable', () => {
+    const unavailableStorage = {
+      getItem: () => { throw new Error('Storage is blocked') },
+      setItem: () => { throw new Error('Storage is blocked') },
+      removeItem: () => { throw new Error('Storage is blocked') },
+    }
+
+    expect(() => readPlaidOAuthSession('42', unavailableStorage)).not.toThrow()
+    expect(readPlaidOAuthSession('42', unavailableStorage)).toBeNull()
+    expect(() => clearPlaidOAuthSession('42', unavailableStorage)).not.toThrow()
+  })
 })
 
 describe('Plaid OAuth return URL handling', () => {
