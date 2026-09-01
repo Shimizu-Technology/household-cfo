@@ -1269,6 +1269,18 @@ test('participant links preserve browser history, heading focus, and section scr
 test('unfinished Plaid returns keep Profile and the URL aligned through reload and history', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'desktop history assertion')
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('https://cdn.plaid.com/link/v2/stable/link-initialize.js', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: `
+      window.Plaid = {
+        create: function (config) {
+          setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
+          return { open: function () {}, submit: function () {}, exit: function (_options, callback) { if (callback) callback(); }, destroy: function () {} };
+        }
+      };
+    `,
+  }))
   await page.addInitScript(() => {
     window.localStorage.setItem('household-cfo:plaid-oauth:v1', JSON.stringify({
       userId: '901',
