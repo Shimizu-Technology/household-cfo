@@ -1266,6 +1266,37 @@ test('participant links preserve browser history, heading focus, and section scr
   await expect(budgetHeading).toBeFocused()
 })
 
+test('unfinished Plaid returns keep Profile and the URL aligned through reload and history', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop history assertion')
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:plaid-oauth:v1', JSON.stringify({
+      userId: '901',
+      linkToken: 'link-oauth-regression',
+      updateItemId: null,
+      createdAt: Date.now(),
+    }))
+  })
+
+  await page.goto('/#Home')
+  await page.goto('/?pilot_e2e_role=participant&oauth_state_id=unfinished#Budget')
+  await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
+  await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+
+  await page.reload()
+  await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+
+  await page.goBack()
+  await expect(page).toHaveURL(/#Home$/)
+  await page.goForward()
+  await expect(page).toHaveURL(/oauth_state_id=unfinished#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
+})
+
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Wealth')

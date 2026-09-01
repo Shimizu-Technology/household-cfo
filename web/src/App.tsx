@@ -150,8 +150,12 @@ function sectionHash(section: string) {
   return `#${encodeURIComponent(section)}`
 }
 
+function hasPendingPlaidOAuthReturn() {
+  return new URLSearchParams(window.location.search).has('oauth_state_id')
+}
+
 function sectionFromLocation() {
-  if (new URLSearchParams(window.location.search).has('oauth_state_id')) return 'My Profile'
+  if (hasPendingPlaidOAuthReturn()) return 'My Profile'
 
   try {
     const hashSection = decodeURIComponent(window.location.hash.replace(/^#/, ''))
@@ -985,6 +989,10 @@ function App() {
       setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
       return false
     }
+    if (hasPendingPlaidOAuthReturn() && targetSection !== 'My Profile') {
+      setRouteAnnouncement('Finish the bank connection before leaving My Profile.')
+      return false
+    }
 
     if (targetSection === activeSection) return true
 
@@ -1024,6 +1032,14 @@ function App() {
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
     window.history.scrollRestoration = 'manual'
+
+    if (hasPendingPlaidOAuthReturn() && window.location.hash !== sectionHash('My Profile')) {
+      window.history.replaceState(
+        { section: 'My Profile' },
+        '',
+        `${window.location.pathname}${window.location.search}${sectionHash('My Profile')}`,
+      )
+    }
 
     const followBrowserLocation = () => {
       const locationKey = `${window.location.pathname}${window.location.search}${window.location.hash}`

@@ -74,6 +74,7 @@ assert.ok(
 assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')
 assert.ok(participantTabs.includes('<a') && participantTabs.includes('href={sectionHref(section)}'), 'participant destinations should keep native link semantics')
 assert.ok(app.includes("addEventListener('popstate'") && app.includes("scrollRestoration = 'manual'"), 'participant routing should support browser history and route-keyed scroll restoration')
+assert.ok(app.includes('hasPendingPlaidOAuthReturn()') && app.includes("targetSection !== 'My Profile'"), 'unfinished Plaid returns should remain on the canonical Profile route')
 assert.ok(app.includes('[data-page-heading]') && app.includes('focus({ preventScroll: true })'), 'section navigation should move focus to the new page heading')
 assert.ok(!css.includes('transform: translateY(7px)'), 'page entry motion should not transform the structural screen ancestor')
 assert.ok(button.includes("variant?: 'primary' | 'secondary' | 'ghost' | 'danger'"), 'shared button variants should fully define important action states')
