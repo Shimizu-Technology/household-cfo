@@ -256,7 +256,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     item = household.plaid_items.create!(connected_by_user: user, plaid_item_id: "general-bank-item", access_token: "general-secret", institution_name: "Sandbox Bank", environment: "sandbox", consented_at: Time.current, consent_policy_version: "test")
     account = item.plaid_accounts.create!(plaid_account_id: "general-bank-account", name: "Checking", account_type: "depository")
-    item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "general-starbucks", name: "Starbucks", merchant_name: "Starbucks", occurred_on: Date.current - 1.day, amount_cents: 433, pending: false, source_fingerprint: SecureRandom.hex(32))
+    item.plaid_transactions.create!(plaid_account: account, plaid_transaction_id: "general-starbucks", name: "Starbucks", merchant_name: "Starbucks", occurred_on: Date.current, amount_cents: 433, pending: false, source_fingerprint: SecureRandom.hex(32))
     intent = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "general",
       confidence: 0.91,
