@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState, type CSSProperties, type MouseEvent } from 'react'
 import { createPortal } from 'react-dom'
 
 type ParticipantTabsProps = {
@@ -37,6 +37,10 @@ function ArrowIcon() {
       <path d="m9 5 7 7-7 7" />
     </svg>
   )
+}
+
+function sectionHref(section: string) {
+  return `#${encodeURIComponent(section)}`
 }
 
 export function ParticipantTabs({ sections, activeSection, onChange }: ParticipantTabsProps) {
@@ -79,7 +83,7 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
       if (event.key !== 'Tab') return
 
       const dialog = secondaryRef.current
-      const focusable = Array.from(dialog?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? [])
+      const focusable = Array.from(dialog?.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)') ?? [])
       const first = focusable[0]
       const last = focusable.at(-1)
       if (!first || !last) {
@@ -113,10 +117,13 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
   useEffect(() => {
     if (!moreOpen) return
 
-    window.requestAnimationFrame(() => secondaryRef.current?.querySelector<HTMLButtonElement>('.tabs-tools-list button')?.focus())
+    window.requestAnimationFrame(() => secondaryRef.current?.querySelector<HTMLAnchorElement>('.tabs-tools-list a')?.focus())
   }, [moreOpen])
 
-  const chooseSection = (section: string) => {
+  const chooseSection = (event: MouseEvent<HTMLAnchorElement>, section: string) => {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return
+
+    event.preventDefault()
     if (secondary.includes(section)) closeTools()
     else setMoreOpen(false)
     onChange(section)
@@ -136,17 +143,17 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
     <div className={`tabs-shell${moreOpen ? ' is-tools-open' : ''}`} ref={shellRef}>
       <nav className="tabs" aria-label="Household CFO participant sections">
         {primary.map((section) => (
-          <button
+          <a
             key={section}
-            type="button"
+            href={sectionHref(section)}
             className={activeSection === section ? 'active' : ''}
             aria-label={section}
             aria-current={activeSection === section ? 'page' : undefined}
-            onClick={() => chooseSection(section)}
+            onClick={(event) => chooseSection(event, section)}
           >
             <span className="tabs-label-full">{section}</span>
             <span className="tabs-label-short" aria-hidden="true">{compactLabels[section] ?? section}</span>
-          </button>
+          </a>
         ))}
         {secondary.length > 0 && (
           <button
@@ -199,20 +206,20 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
             </header>
             <div className="tabs-tools-list">
               {secondary.map((section) => (
-                <button
+                <a
                   key={section}
-                  type="button"
+                  href={sectionHref(section)}
                   className={activeSection === section ? 'active' : ''}
                   aria-label={section}
                   aria-current={activeSection === section ? 'page' : undefined}
-                  onClick={() => chooseSection(section)}
+                  onClick={(event) => chooseSection(event, section)}
                 >
                   <span>
                     <strong>{section}</strong>
                     <small>{sectionDescriptions[section] ?? 'Open this Household CFO workspace.'}</small>
                   </span>
                   <ArrowIcon />
-                </button>
+                </a>
               ))}
             </div>
           </div>

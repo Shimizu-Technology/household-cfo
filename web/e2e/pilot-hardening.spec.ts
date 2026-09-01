@@ -6,7 +6,7 @@ const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).f
 const currentYear = new Date().getFullYear()
 
 async function openSection(page: Page, name: string) {
-  const section = page.getByRole('button', { name, exact: true })
+  const section = page.getByRole('link', { name, exact: true })
   if (!(await section.isVisible())) {
     await page.getByRole('button', { name: 'Tools', exact: true }).click()
   }
@@ -355,7 +355,7 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await mockEmptyPlaidState(page, false)
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await expect(page.getByText('Bank connection is not part of this pilot yet.')).toBeVisible()
   await expect(page.getByText('Nothing is missing from your setup.', { exact: false })).toBeVisible()
   await expect(page.getByText('server-side Plaid credentials', { exact: false })).toHaveCount(0)
@@ -364,14 +364,14 @@ test('participant workflow remains usable when Plaid is not configured', async (
   await openSection(page, 'Activity')
   await expect(page.getByText('Manual activity is ready.')).toBeVisible()
   await expect(page.getByText('Connect an account from My Profile.', { exact: false })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Budget', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Budget', exact: true })).toBeVisible()
 })
 
 test('configured Plaid clearly supports a participant with no connections', async ({ page }) => {
   await mockEmptyPlaidState(page, true)
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await expect(page.getByText('No bank is connected yet.')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Connect a bank', exact: true })).toBeDisabled()
   await expect(page.getByRole('checkbox', { name: /I authorize Household CFO Method/ })).toBeVisible()
@@ -473,7 +473,7 @@ test('Plaid Link loads once and opens once after explicit consent', async ({ pag
   }))
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
   await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
 
@@ -545,7 +545,7 @@ test('initial Plaid sync refreshes the workspace when transaction history is rea
   }))
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await page.getByRole('checkbox', { name: /I authorize Household CFO Method/ }).check()
   await page.getByRole('button', { name: 'Connect a bank', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Boolean((window as Window & { __plaidConfig?: unknown }).__plaidConfig))).toBe(true)
@@ -684,7 +684,7 @@ test('large financial values stay on one line and participant screens stay insid
 
 test('Ask Mia renders bounded history and lazy attachment previews', async ({ page }) => {
   await page.goto('/')
-  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   const suggestedQuestion = page.getByRole('button', { name: 'Why is my readiness Red?' })
   if ((page.viewportSize()?.width ?? 0) <= 620) {
     await expect(suggestedQuestion).toBeHidden()
@@ -707,7 +707,7 @@ test('Ask Mia renders bounded history and lazy attachment previews', async ({ pa
 
   await page.getByRole('button', { name: 'Review draft' }).click()
   await expect(page.getByText('Profile completeness', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
 
   await page.getByRole('button', { name: 'Load earlier messages (40 remaining)' }).click()
   await expect(page.locator('.message-row')).toHaveCount(100)
@@ -1013,7 +1013,7 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
 
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
   const outflowBreakdown = page.getByRole('group', { name: 'Monthly money out breakdown' })
   await expect(outflowBreakdown).toContainText('Category plan')
@@ -1075,7 +1075,7 @@ test('continuing job income is never assumed and requires explicit participant a
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Schedule income' }).click()
   await page.getByRole('spinbutton', { name: 'Amount' }).fill('7500')
@@ -1097,7 +1097,7 @@ test('continuing job income is never assumed and requires explicit participant a
 
 test('Budget keeps headline, cockpit, and chart on the selected report month', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
 
   const reportMonth = page.getByLabel('Report month')
   const headline = page.locator('.budget-period-summary')
@@ -1126,7 +1126,7 @@ test('Budget keeps headline, cockpit, and chart on the selected report month', a
 
 test('focused manual budget tools expose exact controls without a page hunt and protect dirty edits', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await page.getByRole('button', { name: 'Manage manually' }).click()
 
   const manager = page.locator('.budget-manual-manager')
@@ -1148,10 +1148,14 @@ test('focused manual budget tools expose exact controls without a page hunt and 
   await expect(page.getByRole('button', { name: 'Previous year' })).toBeDisabled()
   await expect(page.getByRole('button', { name: 'Next year' })).toBeDisabled()
   await expect(page.getByLabel('Report month')).toBeDisabled()
-  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
   await expect(januaryDining).toHaveValue('650')
   await expect(page.getByRole('heading', { name: 'Money in, money out, and what is left.' })).toBeVisible()
+  await page.goBack()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
+  await expect(januaryDining).toHaveValue('650')
   await page.getByRole('button', { name: 'Cancel', exact: true }).click()
   await expect(manager).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manage manually' })).toBeFocused()
@@ -1186,7 +1190,7 @@ test('a partially saved budget keeps the approved change and protects unapplied 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Edit monthly plan' }).click()
 
@@ -1202,7 +1206,7 @@ test('a partially saved budget keeps the approved change and protects unapplied 
   await expect(februaryDining).toHaveValue('700')
   await expect(manager).toContainText('1 unsaved change. Save or cancel before switching tools.')
   await expect(page.getByLabel('Report month')).toBeDisabled()
-  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(manager.getByRole('alert')).toContainText('Save or cancel them before leaving Budget')
   await expect(februaryDining).toHaveValue('700')
 
@@ -1215,17 +1219,51 @@ test('a partially saved budget keeps the approved change and protects unapplied 
 test('participant navigation remains available after deep scrolling', async ({ page }) => {
   await page.goto('/')
   const homeHeaderHeight = await page.locator('.shell-header').evaluate((element) => Math.round(element.getBoundingClientRect().height))
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   const budgetHeaderHeight = await page.locator('.shell-header').evaluate((element) => Math.round(element.getBoundingClientRect().height))
   expect(budgetHeaderHeight).toBe(homeHeaderHeight)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect(page.locator('.tabs-shell')).toBeInViewport()
   const top = await page.locator('.tabs-shell').evaluate((element) => Math.round(element.getBoundingClientRect().top))
   expect(top).toBe(0)
-  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   await expect(page.locator('.shell-header')).toHaveCount(1)
+})
+
+test('participant links preserve browser history, heading focus, and section scroll', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop history and focus assertion')
+  await page.goto('/#Home')
+
+  const budgetLink = page.getByRole('link', { name: 'Budget', exact: true })
+  await expect(budgetLink).toHaveAttribute('href', '#Budget')
+  await budgetLink.click()
+  await expect(page).toHaveURL(/#Budget$/)
+  const budgetHeading = page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })
+  await expect(budgetHeading).toBeFocused()
+
+  await page.evaluate(() => window.scrollTo(0, Math.min(900, document.documentElement.scrollHeight - window.innerHeight)))
+  const budgetScrollTop = await page.evaluate(() => Math.round(window.scrollY))
+  expect(budgetScrollTop).toBeGreaterThan(0)
+
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
+  await expect(page).toHaveURL(/#Ask%20Mia$/)
+  await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeFocused()
+  await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
+
+  await page.goBack()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(budgetHeading).toBeFocused()
+  await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(budgetScrollTop)
+
+  await page.goBack()
+  await expect(page).toHaveURL(/#Home$/)
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeFocused()
+
+  await page.goForward()
+  await expect(page).toHaveURL(/#Budget$/)
+  await expect(budgetHeading).toBeFocused()
 })
 
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
@@ -1287,11 +1325,11 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   expect(dialogBox?.y ?? 0).toBeGreaterThanOrEqual((triggerBox?.y ?? 0) + (triggerBox?.height ?? 0) + 6)
   expect((dialogBox?.y ?? 0) + (dialogBox?.height ?? 0)).toBeLessThanOrEqual(page.viewportSize()?.height ?? 720)
 
-  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
   await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
   await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('button', { name: 'Optionality', exact: true })).toBeFocused()
+  await expect(page.getByRole('link', { name: 'Optionality', exact: true })).toBeFocused()
   await page.keyboard.press('Tab')
   await expect(dialog.getByRole('button', { name: 'Close tools' })).toBeFocused()
   await page.keyboard.press('Escape')
@@ -1299,9 +1337,8 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
   await expect(tools).toBeFocused()
 
   await tools.click()
-  await page.getByRole('button', { name: 'Activity', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeVisible()
-  await expect(tools).toBeFocused()
+  await page.getByRole('link', { name: 'Activity', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
 })
 
 test('compact phone layouts keep a stable shell and overlay secondary tools without page reflow', async ({ page }, testInfo) => {
@@ -1314,22 +1351,22 @@ test('compact phone layouts keep a stable shell and overlay secondary tools with
   const tools = page.getByRole('button', { name: 'Tools', exact: true })
   await expect(tools).toBeVisible()
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
-  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toHaveCount(0)
   await tools.click()
   await expect(tools).toHaveAttribute('aria-expanded', 'true')
-  await expect(page.getByRole('button', { name: 'Activity', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Activity', exact: true })).toBeVisible()
   expect(await page.locator('.home-welcome-panel').evaluate((element) => Math.round(element.getBoundingClientRect().top))).toBe(homeContentY)
   await expect(page.locator('.tabs-secondary')).toHaveCSS('position', 'fixed')
-  const primaryNavButtons = page.locator('.tabs > button')
+  const primaryNavButtons = page.locator('.tabs > :is(a, button)')
   const touchHeights = await primaryNavButtons.evaluateAll((buttons) => buttons.map((button) => button.getBoundingClientRect().height))
   expect(Math.min(...touchHeights)).toBeGreaterThanOrEqual(44)
-  await page.getByRole('button', { name: 'Activity', exact: true }).click()
+  await page.getByRole('link', { name: 'Activity', exact: true }).click()
   await expect(tools).toHaveAttribute('aria-expanded', 'false')
-  await expect(tools).toBeFocused()
-  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
   await page.getByText('Explore the plan behind this snapshot').click()
   await expect(page.locator('.home-financial-visuals .cash-flow-month')).toHaveCount(12)
-  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect.poll(() => page.evaluate(() => Math.round(window.scrollY))).toBe(0)
   const askMiaHeaderBox = await header.boundingBox()
   expect(askMiaHeaderBox?.height).toBe(homeHeaderBox?.height)
@@ -1419,7 +1456,7 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   expect(expandedLayout.shellOwnsViewportCenter).toBe(true)
   expect(expandedLayout.bodyOverflow).toBe('hidden')
 
-  await page.getByRole('button', { name: 'Home', exact: true }).focus()
+  await page.getByRole('link', { name: 'Home', exact: true }).focus()
   expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
 
   const sendButton = page.getByRole('button', { name: 'Send message' })
@@ -1458,7 +1495,7 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
   await expect(clearButton).toBeHidden()
   await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeFocused()
 
-  await page.getByRole('button', { name: 'Home', exact: true }).focus()
+  await page.getByRole('link', { name: 'Home', exact: true }).focus()
   expect(await page.locator('.mia-chat-shell').evaluate((shell) => shell.contains(document.activeElement))).toBe(true)
 
   await page.locator('.mia-chat-backdrop').click({ position: { x: 2, y: 2 } })
@@ -1489,7 +1526,7 @@ test('incomplete participants get a short first session, private feedback, and a
 
   await page.getByRole('button', { name: 'Test a private upload' }).click()
   await expect(page.getByRole('heading', { name: 'Upload evidence. Review draft facts. Apply only what is right.' })).toBeVisible()
-  await page.getByRole('button', { name: 'Home', exact: true }).click()
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
 
   await page.getByRole('button', { name: 'Feedback', exact: true }).click()
   const feedback = page.getByRole('dialog')
@@ -1535,7 +1572,7 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(miaComposer).toHaveValue('Based on my income, spending, and goal, what should I focus on first this month?')
   await expect(miaComposer).toBeFocused()
 
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   const advancedProfile = page.locator('.setup-optional-fields')
   await expect(advancedProfile).toHaveCount(1)
   expect(await advancedProfile.evaluate((element: HTMLDetailsElement) => element.open)).toBe(false)
@@ -1592,10 +1629,10 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [ignoredImport] } }))
   await page.goto('/?pilot_e2e_role=participant')
 
-  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await expect(page.getByText('No approved document sources yet. Mia will use manual numbers until you apply extracted values.')).toBeVisible()
 
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   await expect(page.getByText('Approved source', { exact: true }).locator('..')).toContainText('Not approved yet')
   await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
 })
@@ -1662,7 +1699,7 @@ test('import review copy follows extracted results when a selected receipt produ
   await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [activeImport] } }))
   await page.route('http://api.test/api/v1/document_imports/505', (route) => route.fulfill({ status: 200, json: { document_import: activeImport } }))
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
 
   const result = page.locator('.document-routing-summary')
   await expect(result).toContainText('Review result')
@@ -1724,7 +1761,7 @@ test('admin can privately review and resolve submitted pilot feedback', async ({
 
 test('real review controls keep transaction and Mia changes behind explicit participant actions', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
 
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await expect(transactionCard).toContainText('Actuals stay unchanged until you confirm.')
@@ -1803,7 +1840,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await expect(card.getByText('3 splits need a category')).toBeVisible()
   await expect(card.getByText('Cleaning products')).toBeVisible()
@@ -1922,7 +1959,7 @@ test('receipt category corrections refresh the selected import immediately', asy
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'My Profile', exact: true }).click()
+  await page.getByRole('link', { name: 'My Profile', exact: true }).click()
   const card = page.locator('.transaction-draft-card').filter({ hasText: "Tita's Demo Market" })
   await card.getByRole('button', { name: 'Review categories' }).click()
   await card.getByLabel('Category').selectOption('2')
@@ -1979,7 +2016,7 @@ test('a late spending report cannot overwrite the refresh triggered by a transac
 
   await page.goto('/?pilot_e2e_role=participant')
   await firstRequestStarted
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
 
@@ -2030,10 +2067,10 @@ test('a late Mia response cannot replace the ledger after the participant change
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await page.getByLabel('Report month').selectOption(String(targetMonthIndex))
   await page.getByText('Monthly activity and transactions', { exact: true }).click()
   await expect(page.getByText('Selected month transaction')).toBeVisible()
@@ -2091,10 +2128,10 @@ test('a same-month Mia response cannot undo a newer transaction refresh', async 
   })
 
   await page.goto('/?pilot_e2e_role=participant')
-  await page.getByRole('button', { name: 'Ask Mia', exact: true }).click()
+  await page.getByRole('link', { name: 'Ask Mia', exact: true }).click()
   await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
-  await page.getByRole('button', { name: 'Budget', exact: true }).click()
+  await page.getByRole('link', { name: 'Budget', exact: true }).click()
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   const monthSummary = page.getByRole('region', { name: `${currentShortMonth} ${currentYear} plan position` })

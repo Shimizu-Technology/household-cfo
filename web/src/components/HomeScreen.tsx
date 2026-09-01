@@ -42,7 +42,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
     <section className="screen-grid home-screen">
       <div className="screen-heading">
         <p className="eyebrow">Home</p>
-        <h2>CFO snapshot</h2>
+        <h2 data-page-heading tabIndex={-1}>CFO snapshot</h2>
         <p>Review what needs your call, see where the month sits inside the annual plan, and make one next move.</p>
       </div>
 
