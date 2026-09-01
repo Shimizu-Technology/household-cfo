@@ -1076,7 +1076,11 @@ function App() {
       const targetSection = visibleSections.includes(requestedSection) ? requestedSection : sections[0]
       const targetHash = sectionHash(targetSection)
       if (window.location.hash !== targetHash) {
-        window.history.replaceState({ section: targetSection }, '', targetHash)
+        window.history.replaceState(
+          { section: targetSection },
+          '',
+          `${window.location.pathname}${window.location.search}${targetHash}`,
+        )
         lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
       }
       if (targetSection === activeSection) return

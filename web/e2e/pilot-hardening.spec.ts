@@ -1310,6 +1310,44 @@ test('unfinished Plaid returns keep Profile and the URL aligned through reload a
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 })
 
+test('query-only Plaid returns preserve callback state while the workspace loads', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop callback loading assertion')
+  let releaseWorkspace!: () => void
+  const workspaceReady = new Promise<void>((resolve) => { releaseWorkspace = resolve })
+  await page.route('http://api.test/api/v1/workspace', async (route) => {
+    await workspaceReady
+    await route.fulfill({ status: 200, json: realWorkspaceData(true) })
+  })
+  await page.route('https://cdn.plaid.com/link/v2/stable/link-initialize.js', (route) => route.fulfill({
+    status: 200,
+    contentType: 'text/javascript',
+    body: `
+      window.Plaid = {
+        create: function (config) {
+          setTimeout(function () { if (config.onLoad) config.onLoad(); }, 0);
+          return { open: function () {}, submit: function () {}, exit: function (_options, callback) { if (callback) callback(); }, destroy: function () {} };
+        }
+      };
+    `,
+  }))
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:plaid-oauth:v1', JSON.stringify({
+      userId: '901',
+      linkToken: 'link-oauth-delayed-workspace',
+      updateItemId: null,
+      createdAt: Date.now(),
+    }))
+  })
+
+  await page.goto('/?pilot_e2e_role=participant&oauth_state_id=delayed')
+  await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Loading your first cohort workspace.' })).toBeVisible()
+
+  releaseWorkspace()
+  await expect(page).toHaveURL(/oauth_state_id=delayed#My%20Profile$/)
+  await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
+})
+
 test('stale Plaid return queries recover normal participant navigation', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'desktop callback recovery assertion')
   await page.goto('/?pilot_e2e_role=participant&oauth_state_id=stale#Budget')

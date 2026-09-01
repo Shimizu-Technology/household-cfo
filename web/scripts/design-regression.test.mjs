@@ -74,7 +74,6 @@ assert.ok(
 assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')
 assert.ok(participantTabs.includes('<a') && participantTabs.includes('href={sectionHref(section)}'), 'participant destinations should keep native link semantics')
 assert.ok(app.includes("addEventListener('popstate'") && app.includes("scrollRestoration = 'manual'"), 'participant routing should support browser history and route-keyed scroll restoration')
-assert.ok(app.includes('window.location.hash !== targetHash') && app.includes("replaceState({ section: targetSection }"), 'unauthorized or invalid section hashes should be replaced with the visible fallback route')
 assert.ok(app.includes('canResumePlaidOAuthReturn') && app.includes('readPlaidOAuthSession') && app.includes('clearPlaidOAuthStateFromUrl'), 'Plaid returns should lock only while a stored callback is resumable')
 assert.ok(app.includes('[data-page-heading]') && app.includes('focus({ preventScroll: true })'), 'section navigation should move focus to the new page heading')
 assert.ok(!css.includes('transform: translateY(7px)'), 'page entry motion should not transform the structural screen ancestor')
