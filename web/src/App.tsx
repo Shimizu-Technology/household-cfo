@@ -1072,7 +1072,13 @@ function App() {
       lastHandledLocationRef.current = locationKey
 
       const requestedSection = sectionFromLocation()
+      if (requestedSection === ADMIN_SECTION && auth.isClerkEnabled && !auth.currentUser) return
       const targetSection = visibleSections.includes(requestedSection) ? requestedSection : sections[0]
+      const targetHash = sectionHash(targetSection)
+      if (window.location.hash !== targetHash) {
+        window.history.replaceState({ section: targetSection }, '', targetHash)
+        lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+      }
       if (targetSection === activeSection) return
 
       const changed = switchSection(targetSection, {
@@ -1086,6 +1092,7 @@ function App() {
       }
     }
 
+    followBrowserLocation()
     window.addEventListener('popstate', followBrowserLocation)
     window.addEventListener('hashchange', followBrowserLocation)
     return () => {
@@ -1093,7 +1100,7 @@ function App() {
       window.removeEventListener('popstate', followBrowserLocation)
       window.removeEventListener('hashchange', followBrowserLocation)
     }
-  }, [activeSection, auth.currentUser, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
+  }, [activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
 
   useLayoutEffect(() => {
     const pendingNavigation = pendingSectionNavigationRef.current

@@ -1314,6 +1314,24 @@ test('stale Plaid return queries recover normal participant navigation', async (
   await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeVisible()
 })
 
+test('participant history canonicalizes unauthorized Admin routes to Home', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop authorization history assertion')
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+  await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeVisible()
+
+  await page.goto('/?pilot_e2e_role=participant#Admin')
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Home$/)
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
+  await expect(page.getByRole('heading', { name: 'Know what came in, what went out, and what is left.' })).toBeFocused()
+
+  await page.goForward()
+  await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Home$/)
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeFocused()
+})
+
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Wealth')

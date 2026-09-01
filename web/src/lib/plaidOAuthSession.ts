@@ -12,7 +12,19 @@ type SessionStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 function browserStorage(): SessionStorage | null {
   if (typeof window === 'undefined') return null
-  return window.localStorage
+  try {
+    return window.localStorage
+  } catch {
+    return null
+  }
+}
+
+function removePlaidOAuthSession(storage: SessionStorage) {
+  try {
+    storage.removeItem(PLAID_OAUTH_SESSION_KEY)
+  } catch {
+    // Storage can be unavailable in locked-down browser contexts.
+  }
 }
 
 export function savePlaidOAuthSession(
@@ -47,14 +59,14 @@ export function readPlaidOAuthSession(
     // Treat malformed or unavailable browser storage as an expired session.
   }
 
-  storage.removeItem(PLAID_OAUTH_SESSION_KEY)
+  removePlaidOAuthSession(storage)
   return null
 }
 
 export function clearPlaidOAuthSession(userId: string, storage: SessionStorage | null = browserStorage()) {
   if (!storage) return
   const session = readPlaidOAuthSession(userId, storage)
-  if (session) storage.removeItem(PLAID_OAUTH_SESSION_KEY)
+  if (session) removePlaidOAuthSession(storage)
 }
 
 export function isPlaidOAuthReturn(href: string) {
