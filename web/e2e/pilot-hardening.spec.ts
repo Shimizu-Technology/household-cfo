@@ -1278,6 +1278,9 @@ test('desktop Tools stays anchored to its trigger and contains keyboard focus', 
 
   const dialog = page.getByRole('dialog', { name: 'Go deeper when you need to.' })
   await expect(dialog).toBeVisible()
+  await dialog.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map((animation) => animation.finished.catch(() => undefined)))
+  })
   const dialogBox = await dialog.boundingBox()
   expect(triggerBox).not.toBeNull()
   expect(dialogBox).not.toBeNull()
