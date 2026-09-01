@@ -120,7 +120,7 @@ const currency = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 2,
 })
 
-const sections = ['Home', 'Activity', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
+const sections = ['Home', 'Review', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 const allSections = [...sections, ADMIN_SECTION]
@@ -166,6 +166,7 @@ function sectionFromLocation() {
 
   try {
     const hashSection = decodeURIComponent(window.location.hash.replace(/^#/, ''))
+    if (hashSection === 'Activity') return 'Review'
     return allSections.includes(hashSection) ? hashSection : sections[0]
   } catch {
     return sections[0]
@@ -2230,7 +2231,7 @@ function App() {
             dashboard={data.dashboard}
             budget={data.budget}
             onAskMia={() => switchSection('Ask Mia')}
-            onReviewTransactions={() => switchSection('Activity')}
+            onReviewTransactions={() => switchSection('Review')}
             onReviewMiaActions={() => switchSection('Ask Mia')}
           />
         </>
@@ -2511,7 +2512,7 @@ function App() {
         </section>
       )}
 
-      {activeSection === 'Activity' && (
+      {activeSection === 'Review' && (
         <section className="screen-grid activity-screen">
           <ScreenHeading
             eyebrow="Review"
@@ -4176,7 +4177,14 @@ function DocumentSourcePreview({
 
           {source && !loading && !error && (
             <>
-              {isPdf && <iframe src={`${source.url}#toolbar=1&navpanes=0`} title={filename} />}
+              {isPdf && (
+                <div className="document-preview-state document-pdf-handoff">
+                  <StatementIcon />
+                  <h4>Open this PDF in a separate browser tab</h4>
+                  <p>The browser PDF viewer opens outside this private preview so keyboard focus and Close controls remain predictable here.</p>
+                  <a href={source.url} target="_blank" rel="noopener noreferrer">Open PDF in new tab</a>
+                </div>
+              )}
               {isImage && <img src={source.url} alt={filename} />}
               {serverPreviewType && previewLoading && <div className="document-preview-state"><span className="document-preview-spinner" />Building safe in-app preview…</div>}
               {serverPreviewType && previewError && <div className="document-preview-state error">{previewError}</div>}

@@ -7,7 +7,7 @@ type ParticipantTabsProps = {
   onChange: (section: string) => void
 }
 
-const primarySections = new Set(['Home', 'Activity', 'Ask Mia', 'Budget'])
+const primarySections = new Set(['Home', 'Review', 'Ask Mia', 'Budget'])
 
 const sectionDescriptions: Record<string, string> = {
   'My Profile': 'Update household context, documents, and bank connections.',
@@ -18,14 +18,9 @@ const sectionDescriptions: Record<string, string> = {
 }
 
 const compactLabels: Record<string, string> = {
-  Activity: 'Review',
   'Ask Mia': 'Mia',
   'My Profile': 'Profile',
   Budget: 'Plan',
-}
-
-const sectionLabels: Record<string, string> = {
-  Activity: 'Review',
 }
 
 function ToolsIcon() {
@@ -152,11 +147,11 @@ export function ParticipantTabs({ sections, activeSection, onChange }: Participa
             key={section}
             href={sectionHref(section)}
             className={activeSection === section ? 'active' : ''}
-            aria-label={sectionLabels[section] ?? section}
+            aria-label={section}
             aria-current={activeSection === section ? 'page' : undefined}
             onClick={(event) => chooseSection(event, section)}
           >
-            <span className="tabs-label-full">{sectionLabels[section] ?? section}</span>
+            <span className="tabs-label-full">{section}</span>
             <span className="tabs-label-short" aria-hidden="true">{compactLabels[section] ?? section}</span>
           </a>
         ))}

@@ -54,7 +54,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia/,
+      grep: /large financial values|Ask Mia renders bounded history|compact phone layouts|mobile Ask Mia|PDF document preview/,
       use: {
         browserName: 'webkit',
         viewport: { width: 390, height: 844 },

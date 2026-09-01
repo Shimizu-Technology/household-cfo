@@ -613,7 +613,7 @@ test('Home centers review work and keeps Red guidance internally consistent', as
   await expect(page.getByText('enough stability to move with intention')).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Review 2 transactions' }).click()
-  await expect(page).toHaveURL(/#Activity$/)
+  await expect(page).toHaveURL(/#Review$/)
   await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
   await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeFocused()
 })
@@ -1288,6 +1288,17 @@ test('participant links preserve browser history, heading focus, and section scr
   await expect(budgetHeading).toBeFocused()
 })
 
+test('Review is canonical and legacy Activity links remain compatible', async ({ page }) => {
+  await page.goto('/#Review')
+  await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
+  await expect(page.getByRole('heading', { name: 'Review what changed before it becomes household truth.' })).toBeVisible()
+
+  await page.goto('/#Activity')
+  await expect(page).toHaveURL(/#Review$/)
+  await expect(page.getByRole('link', { name: 'Review', exact: true })).toHaveAttribute('aria-current', 'page')
+})
+
 test('unfinished Plaid returns keep Profile and the URL aligned through reload and history', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'desktop history assertion')
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
@@ -1788,6 +1799,73 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await openSection(page, 'My Profile')
   await expect(page.getByText('Approved source', { exact: true }).locator('..')).toContainText('Not approved yet')
   await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
+})
+
+test('PDF document preview keeps keyboard focus inside accessible controls', async ({ page }) => {
+  const pdfImport = {
+    id: 606,
+    household_id: 77,
+    document_kind: 'statement',
+    status: 'needs_review',
+    filename: 'checking-statement.pdf',
+    content_type: 'application/pdf',
+    byte_size: 48_000,
+    document_date: `${currentYear}-08-01`,
+    period_start_on: `${currentYear}-08-01`,
+    period_end_on: `${currentYear}-08-31`,
+    extracted_summary: 'Mia found a statement ready for review.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: null,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:00:00Z`,
+    source_available: true,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [],
+    attempts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [pdfImport] } }))
+  await page.route('http://api.test/api/v1/document_imports/606/source_url', (route) => route.fulfill({
+    status: 200,
+    json: {
+      url: 'https://signed.example/checking-statement.pdf',
+      download_url: 'https://signed.example/checking-statement-download.pdf',
+      expires_in: 300,
+      filename: pdfImport.filename,
+      content_type: pdfImport.content_type,
+      inline_supported: true,
+    },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  const opener = page.getByRole('button', { name: 'Preview original' })
+  await opener.focus()
+  await page.keyboard.press('Enter')
+
+  const dialog = page.getByRole('dialog', { name: 'Preview checking-statement.pdf' })
+  const downloadLink = dialog.getByRole('link', { name: 'Download source' })
+  const closeButton = dialog.getByRole('button', { name: 'Close', exact: true })
+  const openPdfLink = dialog.getByRole('link', { name: 'Open PDF in new tab' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog.locator('iframe')).toHaveCount(0)
+  await expect(openPdfLink).toHaveAttribute('href', 'https://signed.example/checking-statement.pdf')
+  await expect(closeButton).toBeVisible()
+  await expect.poll(() => dialog.evaluate((element) => element.contains(document.activeElement))).toBe(true)
+
+  await openPdfLink.focus()
+  await page.keyboard.press('Tab')
+  await expect(downloadLink).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(openPdfLink).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).toHaveCount(0)
+  await expect(opener).toBeFocused()
 })
 
 test('import review copy follows extracted results when a selected receipt produces household values', async ({ page }) => {
