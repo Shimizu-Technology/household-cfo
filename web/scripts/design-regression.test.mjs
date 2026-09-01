@@ -11,6 +11,7 @@ const home = readFileSync(resolve(__dirname, '../src/components/HomeScreen.tsx')
 const budgetVisuals = readFileSync(resolve(__dirname, '../src/components/BudgetVisuals.tsx'), 'utf8')
 const budgetPosition = readFileSync(resolve(__dirname, '../src/lib/budgetPosition.ts'), 'utf8')
 const participantTabs = readFileSync(resolve(__dirname, '../src/components/ParticipantTabs.tsx'), 'utf8')
+const button = readFileSync(resolve(__dirname, '../src/components/Button.tsx'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 const demoHouseholdData = readFileSync(resolve(__dirname, '../../api/app/services/demo/household_data.rb'), 'utf8')
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
@@ -23,7 +24,8 @@ assert.ok(
 
 assert.ok(!app.includes("'Dashboard'"), 'Dashboard label should be converted to Home')
 assert.ok(!app.includes("'Cohort'"), 'Cohort/admin should not appear in participant nav')
-assert.ok(app.includes("compactShell ? 'Household CFO' : 'Household CFO Method'"), 'Home should lead with the full product name while task screens use the compact name')
+assert.ok(app.includes('<h1>Household CFO</h1>'), 'every participant destination should use the same product header')
+assert.ok(!app.includes('compactShell'), 'participant destinations should not switch shell geometry')
 assert.ok(app.includes('chat-prompts-cue') && app.includes('More prompts →'), 'Mia prompts should disclose horizontal choices')
 assert.ok(css.includes('.chat-prompts-cue {\n    display: none;'), 'wrapped mobile prompts should not show a misleading horizontal-scroll cue')
 assert.ok(css.includes('@media (prefers-reduced-motion: reduce)'), 'screen motion should respect reduced-motion preferences')
@@ -32,7 +34,7 @@ assert.ok(app.includes('<ActivityPreview'), 'demo Activity should provide a usef
 assert.ok(app.includes('resizeMiaComposer'), 'Mia composer should grow and shrink with typed or programmatically inserted text')
 assert.ok(css.includes('max-height: 160px') && css.includes('overflow-y: hidden'), 'Mia composer should cap before switching to internal scrolling')
 assert.ok(html.includes('<meta name="mobile-web-app-capable" content="yes" />'), 'installable mobile app markup should use the current capability flag')
-assert.ok(css.includes('.shell-header.is-compact'), 'non-Home tasks should use a compact application shell')
+assert.ok(css.includes('.shell-brand h1') && css.includes('.home-welcome-panel'), 'the stable shell should keep Home-specific coaching content inside Home')
 assert.ok(app.includes('Run your home like the C-Suite'), 'hero copy should use Mrs. Mel’s transformation language')
 for (const rejectedCopy of [
   'Mia, your household CFO.',
@@ -66,9 +68,12 @@ assert.ok(!budgetVisuals.includes('id="category-pressure-title"'), 'category pan
 assert.ok(budgetPosition.includes('pendingAmountsByCategory'), 'monthly cockpit should derive pending amounts without adding them to actuals')
 assert.ok(budgetPosition.includes('transactionDraftBudgetImpacts'), 'transaction review should derive its category impact from the annual plan')
 assert.ok(
-  participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('participant-more-sections'),
-  'mobile navigation should disclose secondary modules behind an accessible More control',
+  participantTabs.includes('aria-expanded={moreOpen}') && participantTabs.includes('role="dialog"') && participantTabs.includes('aria-modal="true"'),
+  'secondary modules should open from an accessible Tools control',
 )
+assert.ok(participantTabs.includes('tabs-tools-backdrop') && css.includes('position: fixed;'), 'mobile Tools should overlay content instead of expanding the navigation layout')
+assert.ok(button.includes("variant?: 'primary' | 'secondary' | 'ghost' | 'danger'"), 'shared button variants should fully define important action states')
+assert.ok(css.includes('.button--secondary,\n.secondary-button'), 'legacy secondary actions should receive complete shared styling')
 assert.ok(css.includes('.tabs-shell {\n  position: sticky;'), 'the participant navigation shell should stay available while scrolling')
 assert.ok(css.includes('.income-schedule-form :where(input, select)'), 'income schedule controls should share the application input styling')
 assert.ok(css.includes('.income-schedule-submit'), 'income timeline changes should use an intentional primary action style')

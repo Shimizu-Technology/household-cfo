@@ -4,6 +4,7 @@ import './App.css'
 import { HomeScreen } from './components/HomeScreen'
 import { ActivityPreview } from './components/ActivityPreview'
 import { ParticipantTabs } from './components/ParticipantTabs'
+import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
@@ -372,7 +373,6 @@ function App() {
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
   const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
-  const compactShell = activeSection !== 'Home'
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
@@ -2031,21 +2031,12 @@ function App() {
   return (
     <main className="app">
       <SeoManager section={activeSection} />
-      <header className={`shell-header${compactShell ? ' is-compact' : ''}`}>
-        <div>
+      <header className="shell-header">
+        <div className="shell-brand">
           <p className="eyebrow">Household CFO Method powered by VERA</p>
-          <h1>{compactShell ? 'Household CFO' : 'Household CFO Method'}</h1>
-          <p className="hero-copy">
-            Run your home like the C-Suite — not the unpaid maintenance staff. Build the annual budget,
-            track the running totals, and use Mia as your AI coach when the next money decision needs a CFO call.
-          </p>
+          <h1>Household CFO</h1>
         </div>
-        <aside className="mia-status-card">
-          <span className="spark" aria-hidden="true"><MiaMark /></span>
-          <strong>{compactShell ? 'Mia is ready' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia a useful starting point' : 'Your CFO workspace is ready'}</strong>
-          <p>{isRealWorkspace && !data.workspace?.setup_complete
-            ? 'Start with money in, money out, and one goal. Mia can help you make sense of the rest.'
-            : `Mia can coach from your approved profile · ${data.dashboard.summary.readiness_label}`}</p>
+        <div className="shell-actions">
           {auth.currentUser && (
             <div className="account-pill">
               <span>{auth.currentUser.full_name}</span>
@@ -2053,12 +2044,18 @@ function App() {
               {auth.isClerkEnabled && <UserButton afterSignOutUrl="/" />}
             </div>
           )}
-          {(!compactShell || activeSection !== 'Ask Mia') && (
-            <button type="button" onClick={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}>
-              {compactShell ? 'Open Mia' : isRealWorkspace && !data.workspace?.setup_complete ? 'Give Mia my starting numbers' : 'Tell Mia what changed'}
-            </button>
-          )}
-        </aside>
+          <Button
+            className="shell-mia-button"
+            variant="secondary"
+            size="compact"
+            aria-label="Open Mia"
+            aria-current={activeSection === 'Ask Mia' ? 'page' : undefined}
+            onClick={() => switchSection('Ask Mia')}
+          >
+            <span className="shell-mia-mark" aria-hidden="true"><MiaMark /></span>
+            <span>Open Mia</span>
+          </Button>
+        </div>
       </header>
 
       <ParticipantTabs sections={visibleSections} activeSection={activeSection} onChange={switchSection} />
@@ -2069,6 +2066,11 @@ function App() {
 
       {activeSection === 'Home' && (
         <>
+          <HomeWelcomePanel
+            needsSetup={Boolean(isRealWorkspace && !data.workspace?.setup_complete)}
+            readinessLabel={data.dashboard.summary.readiness_label}
+            onPrimaryAction={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}
+          />
           {isRealWorkspace && !data.workspace?.setup_complete && (
             <FirstSessionCard onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
           )}
@@ -2903,6 +2905,40 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
   )
 }
 
+function HomeWelcomePanel({
+  needsSetup,
+  onPrimaryAction,
+  readinessLabel,
+}: {
+  needsSetup: boolean
+  onPrimaryAction: () => void
+  readinessLabel: string
+}) {
+  return (
+    <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
+      <div className="home-welcome-copy">
+        <p className="eyebrow">Your household command center</p>
+        <h2 id="home-welcome-title">{needsSetup ? 'Give Mia a useful starting point.' : 'Your CFO workspace is ready.'}</h2>
+        <p>{needsSetup
+          ? 'Run your home like the C-Suite. Start with money in, money out, and one goal; you can refine the rest as real decisions come up.'
+          : 'Run your home like the C-Suite: review what needs your call, see this month inside the annual plan, and make one clear next move.'}</p>
+      </div>
+      <div className="home-welcome-actions">
+        <div className="home-readiness-chip">
+          <span aria-hidden="true"><MiaMark /></span>
+          <div>
+            <small>{needsSetup ? 'First step' : 'Current readiness'}</small>
+            <strong>{needsSetup ? 'Add the five essentials' : readinessLabel}</strong>
+          </div>
+        </div>
+        <Button onClick={onPrimaryAction}>
+          {needsSetup ? 'Give Mia my starting numbers' : 'Tell Mia what changed'}
+        </Button>
+      </div>
+    </section>
+  )
+}
+
 function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => void; onUpload: () => void; onGuide: () => void }) {
   return (
     <section className="first-session-card" aria-labelledby="first-session-title">
@@ -2912,7 +2948,7 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
           <h2 id="first-session-title">Start with money in, money out.</h2>
           <p>Give Mia five essentials, then bring her one real money question. You do not need every account, tab, or statement today.</p>
         </div>
-        <button type="button" className="secondary-button" onClick={onGuide}>Read the 3-minute guide</button>
+        <Button variant="secondary" onClick={onGuide}>Read the 3-minute guide</Button>
       </div>
       <div className="first-session-paths">
         <article>
@@ -2925,7 +2961,7 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
           <span>Optional pilot check</span>
           <h3>Use a file only if it helps</h3>
           <p>Try a demo-safe budget, statement, pay stub, or receipt. Report any failure; no extracted draft changes your numbers until you approve it.</p>
-          <button type="button" className="secondary-button" onClick={onUpload}>Test a private upload</button>
+          <Button variant="secondary" onClick={onUpload}>Test a private upload</Button>
         </article>
       </div>
     </section>
@@ -2935,10 +2971,10 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
 function PilotSupportBar({ onOpenGuide, onOpenFeedback }: { onOpenGuide: () => void; onOpenFeedback: () => void }) {
   return (
     <aside className="pilot-support-bar" aria-label="Pilot help and feedback">
-      <span><ShieldIcon /> Private uploads require household access. Feedback stays outside product analytics.</span>
+      <span><ShieldIcon /> <span>Private pilot workspace</span></span>
       <div>
-        <button type="button" className="secondary-button" onClick={onOpenGuide}><GuideIcon /> Tester guide</button>
-        <button type="button" className="secondary-button" onClick={onOpenFeedback}><FeedbackIcon /> Report a problem</button>
+        <Button variant="ghost" size="compact" onClick={onOpenGuide}><GuideIcon /> Guide</Button>
+        <Button variant="ghost" size="compact" onClick={onOpenFeedback}><FeedbackIcon /> Feedback</Button>
       </div>
     </aside>
   )
