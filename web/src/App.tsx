@@ -1007,7 +1007,7 @@ function App() {
       setRouteAnnouncement('Finish the bank connection before leaving My Profile.')
       return false
     }
-    if (hasPendingPlaidOAuthReturn() && !canResumePlaidOAuthReturn) {
+    if (hasPendingPlaidOAuthReturn() && data && !canResumePlaidOAuthReturn) {
       window.history.replaceState(
         { section: targetSection },
         '',
@@ -1049,7 +1049,7 @@ function App() {
       )
     }
     return true
-  }, [activeSection, canResumePlaidOAuthReturn, hasUnsavedBudgetChanges, visibleSections])
+  }, [activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, visibleSections])
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
