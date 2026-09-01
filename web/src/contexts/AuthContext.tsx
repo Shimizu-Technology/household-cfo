@@ -76,9 +76,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 }
 
 function NoAuthBridge({ children }: { children: ReactNode }) {
-  const pilotE2ERole = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true'
-    ? new URLSearchParams(window.location.search).get('pilot_e2e_role')
-    : null
+  const pilotE2ERole = e2eAuthRole()
   const currentUser = useMemo(
     () => pilotE2ERole === 'admin' || pilotE2ERole === 'participant'
       ? e2eCurrentUser(pilotE2ERole)
@@ -103,6 +101,34 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
+function DelayedParticipantE2EAuthBridge({ children }: { children: ReactNode }) {
+  const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setCurrentUser(e2eCurrentUser('participant')), 250)
+    return () => window.clearTimeout(timer)
+  }, [])
+
+  const value = useMemo<AuthContextValue>(() => ({
+    isClerkEnabled: !currentUser,
+    isSignedIn: true,
+    isLoading: false,
+    isVerifyingApi: !currentUser,
+    currentUser,
+    authError: null,
+    refreshCurrentUser: async () => undefined,
+    signOut: async () => undefined,
+  }), [currentUser])
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
+}
+
+function e2eAuthRole() {
+  return import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true'
+    ? new URLSearchParams(window.location.search).get('pilot_e2e_role')
+    : null
+}
+
 function e2eCurrentUser(role: 'admin' | 'participant'): CurrentUser {
   return {
     id: role === 'admin' ? 900 : 901,
@@ -125,5 +151,8 @@ function e2eCurrentUser(role: 'admin' | 'participant'): CurrentUser {
 }
 
 export function AuthProvider({ children, isClerkEnabled }: { children: ReactNode; isClerkEnabled: boolean }) {
+  if (!isClerkEnabled && e2eAuthRole() === 'delayed_participant') {
+    return <DelayedParticipantE2EAuthBridge>{children}</DelayedParticipantE2EAuthBridge>
+  }
   return isClerkEnabled ? <ClerkAuthBridge>{children}</ClerkAuthBridge> : <NoAuthBridge>{children}</NoAuthBridge>
 }

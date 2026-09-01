@@ -1069,10 +1069,10 @@ function App() {
     const followBrowserLocation = () => {
       const locationKey = `${window.location.pathname}${window.location.search}${window.location.hash}`
       if (lastHandledLocationRef.current === locationKey) return
-      lastHandledLocationRef.current = locationKey
 
       const requestedSection = sectionFromLocation()
       if (requestedSection === ADMIN_SECTION && auth.isClerkEnabled && !auth.currentUser) return
+      lastHandledLocationRef.current = locationKey
       const targetSection = visibleSections.includes(requestedSection) ? requestedSection : sections[0]
       const targetHash = sectionHash(targetSection)
       if (window.location.hash !== targetHash) {

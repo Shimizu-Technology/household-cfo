@@ -1382,6 +1382,18 @@ test('participant history canonicalizes unauthorized Admin routes to Home', asyn
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeFocused()
 })
 
+test('Clerk-enabled route recovery waits for participant authorization before canonicalizing', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop authorization loading assertion')
+  await page.goto('/?pilot_e2e_role=delayed_participant#Admin')
+
+  await expect(page).toHaveURL(/#Admin$/)
+  await expect(page).toHaveURL(/#Home$/)
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+
+  await page.goto('/?pilot_e2e_role=delayed_participant#Not%20A%20Screen')
+  await expect(page).toHaveURL(/#Home$/)
+})
+
 test('Wealth and Optionality explain decisions without fake payoff progress or conflicting scores', async ({ page }) => {
   await page.goto('/')
   await openSection(page, 'Wealth')
