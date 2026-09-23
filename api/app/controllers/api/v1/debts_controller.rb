@@ -9,6 +9,8 @@ module Api
         debt = current_household.debts.create!(normalized_params)
         audit!(debt, "debt.created")
         render json: { debt: serialize(debt) }, status: :created
+      rescue ArgumentError => e
+        render json: { errors: [ e.message ] }, status: :unprocessable_entity
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
@@ -17,6 +19,8 @@ module Api
         @debt.update!(normalized_params)
         audit!(@debt, "debt.updated")
         render json: { debt: serialize(@debt) }
+      rescue ArgumentError => e
+        render json: { errors: [ e.message ] }, status: :unprocessable_entity
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
@@ -38,8 +42,8 @@ module Api
         permitted = params.require(:debt).permit(:label, :debt_type, :balance, :minimum_payment, :interest_rate_percent)
         attributes = permitted.slice(:label, :debt_type, :interest_rate_percent).to_h
         attributes[:interest_rate_percent] = nil if permitted.key?(:interest_rate_percent) && permitted[:interest_rate_percent].blank?
-        attributes[:balance_cents] = HouseholdFinance::Money.cents(permitted[:balance]) if permitted.key?(:balance)
-        attributes[:minimum_payment_cents] = HouseholdFinance::Money.cents(permitted[:minimum_payment]) if permitted.key?(:minimum_payment)
+        attributes[:balance_cents] = HouseholdFinance::Money.cents!(permitted[:balance], message: "Balance must be a number with no more than two decimal places") if permitted.key?(:balance)
+        attributes[:minimum_payment_cents] = HouseholdFinance::Money.cents!(permitted[:minimum_payment], message: "Minimum payment must be a number with no more than two decimal places") if permitted.key?(:minimum_payment)
         attributes
       end
 

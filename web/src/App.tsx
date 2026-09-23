@@ -2106,7 +2106,7 @@ function App() {
   async function refreshWorkspaceAfterDebtChange() {
     const payload = await fetchAppData(true)
     setData(payload)
-    setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
     replaceMiaHistory(payload.mia)
   }
 
@@ -6175,10 +6175,16 @@ function DebtManager({ debts, onChanged }: { debts: DebtRecord[]; onChanged: () 
     try {
       if (editingId === 'new') await createDebt(values)
       else if (typeof editingId === 'number') await updateDebt(editingId, values)
-      await onChanged()
       setEditingId(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'This debt could not be saved. Try again.')
+      setSaving(false)
+      return
+    }
+    try {
+      await onChanged()
+    } catch (caught) {
+      setError(caught instanceof Error ? `The debt was saved, but the latest workspace could not be loaded: ${caught.message}` : 'The debt was saved, but the latest workspace could not be loaded. Refresh the page.')
     } finally {
       setSaving(false)
     }
@@ -6193,10 +6199,16 @@ function DebtManager({ debts, onChanged }: { debts: DebtRecord[]; onChanged: () 
     setSaving(true)
     try {
       await deleteDebt(debt.id)
-      await onChanged()
       cancelEdit()
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'This debt could not be removed. Try again.')
+      setSaving(false)
+      return
+    }
+    try {
+      await onChanged()
+    } catch (caught) {
+      setError(caught instanceof Error ? `The debt was removed, but the latest workspace could not be loaded: ${caught.message}` : 'The debt was removed, but the latest workspace could not be loaded. Refresh the page.')
     } finally {
       setSaving(false)
     }

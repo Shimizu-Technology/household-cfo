@@ -1,6 +1,7 @@
 require "digest"
 require "base64"
 require "marcel"
+require "tempfile"
 require "zip"
 
 module Api
@@ -153,6 +154,9 @@ module Api
         render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
       rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
         render json: { errors: [ "The private upload expired. Choose the file and try again." ] }, status: :unprocessable_entity
+      rescue Aws::S3::Errors::ServiceError => e
+        Rails.logger.warn("[DocumentImportsController] direct upload verification unavailable: #{e.class}")
+        render json: { errors: [ "Private storage could not verify the upload yet. Wait a moment and try again." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordNotUnique
         existing_import = completed_direct_upload(metadata)
         if existing_import
@@ -373,7 +377,22 @@ module Api
         return false unless object[:server_side_encryption].to_s == "AES256"
 
         expected_checksum = Base64.strict_encode64([ metadata.fetch(:checksum_sha256) ].pack("H*"))
-        ActiveSupport::SecurityUtils.secure_compare(object[:checksum_sha256].to_s, expected_checksum)
+        return false unless ActiveSupport::SecurityUtils.secure_compare(object[:checksum_sha256].to_s, expected_checksum)
+
+        direct_upload_file_format_valid?(metadata)
+      end
+
+      def direct_upload_file_format_valid?(metadata)
+        extension = File.extname(metadata.fetch(:filename)).downcase
+        Tempfile.create([ "direct-document-upload", extension ]) do |file|
+          S3Service.download_to_io!(metadata.fetch(:s3_key), file)
+          file.rewind
+          detected_type = Marcel::MimeType.for(Pathname(file.path), name: metadata.fetch(:filename))
+          return false unless detected_type.in?(ALLOWED_CONTENT_TYPES_BY_EXTENSION.fetch(extension))
+          return valid_ooxml_package?(file.path, extension) if extension.in?(%w[.docx .xlsx])
+
+          true
+        end
       end
 
       def completed_direct_upload(metadata)

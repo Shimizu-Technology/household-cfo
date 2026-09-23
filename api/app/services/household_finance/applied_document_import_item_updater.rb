@@ -58,7 +58,7 @@ module HouseholdFinance
       when Debt
         item.balance_cents = record.balance_cents if item.balance_cents.nil?
         item.payment_cents = record.minimum_payment_cents if item.payment_cents.nil?
-        item.interest_rate_percent = record.interest_rate_percent if item.interest_rate_percent.nil?
+        item.interest_rate_percent = record.interest_rate_percent if item.interest_rate_percent.nil? && !attributes.key?(:interest_rate_percent)
       when Goal
         item.amount_cents = record.target_amount_cents if item.amount_cents.nil?
       end
@@ -123,14 +123,14 @@ module HouseholdFinance
 
     def sync_debt!
       record = typed_record!(Debt)
-      attributes = {
+      updates = {
         label: item.label,
         debt_type: item.debt_type.presence_in(Debt::DEBT_TYPES) || record.debt_type || "other"
       }
-      attributes[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
-      attributes[:minimum_payment_cents] = item.payment_cents unless item.payment_cents.nil?
-      attributes[:interest_rate_percent] = item.interest_rate_percent unless item.interest_rate_percent.nil?
-      record.update!(attributes)
+      updates[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
+      updates[:minimum_payment_cents] = item.payment_cents unless item.payment_cents.nil?
+      updates[:interest_rate_percent] = item.interest_rate_percent if !item.interest_rate_percent.nil? || attributes.key?(:interest_rate_percent)
+      record.update!(updates)
     end
 
     def sync_goal!

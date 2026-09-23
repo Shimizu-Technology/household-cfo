@@ -69,14 +69,18 @@ class S3Service
     end
 
     def download_to_io(key, io)
+      download_to_io!(key, io)
+    rescue Aws::S3::Errors::ServiceError => e
+      Rails.logger.error("[S3Service] Stream download failed for #{key}: #{e.message}")
+      false
+    end
+
+    def download_to_io!(key, io)
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
       s3_client.get_object(bucket: bucket_name, key: key, response_target: io)
       io.flush if io.respond_to?(:flush)
       true
-    rescue Aws::S3::Errors::ServiceError => e
-      Rails.logger.error("[S3Service] Stream download failed for #{key}: #{e.message}")
-      false
     end
 
     def presigned_url(key, expires_in: 300, filename: nil, disposition: :attachment)
@@ -104,21 +108,18 @@ class S3Service
 
       presigner = Aws::S3::Presigner.new(client: s3_client)
       checksum_base64 = Base64.strict_encode64([ checksum_sha256 ].pack("H*"))
+      url, signed_headers = presigner.presigned_request(
+        :put_object,
+        bucket: bucket_name,
+        key: key,
+        content_type: content_type,
+        checksum_sha256: checksum_base64,
+        server_side_encryption: "AES256",
+        expires_in: expires_in
+      )
       {
-        url: presigner.presigned_url(
-          :put_object,
-          bucket: bucket_name,
-          key: key,
-          content_type: content_type,
-          checksum_sha256: checksum_base64,
-          server_side_encryption: "AES256",
-          expires_in: expires_in
-        ),
-        headers: {
-          "Content-Type" => content_type,
-          "x-amz-checksum-sha256" => checksum_base64,
-          "x-amz-server-side-encryption" => "AES256"
-        },
+        url: url,
+        headers: signed_headers.merge("Content-Type" => content_type),
         expires_in: expires_in
       }
     rescue Aws::S3::Errors::ServiceError => e
@@ -138,9 +139,6 @@ class S3Service
         server_side_encryption: response.server_side_encryption
       }
     rescue Aws::S3::Errors::NotFound, Aws::S3::Errors::NoSuchKey
-      nil
-    rescue Aws::S3::Errors::ServiceError => e
-      Rails.logger.error("[S3Service] Object metadata failed for #{key}: #{e.message}")
       nil
     end
 

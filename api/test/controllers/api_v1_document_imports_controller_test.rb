@@ -195,6 +195,66 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "direct upload rejects bytes that do not match the declared file format" do
+    checksum = "f" * 64
+    deleted_keys = []
+    token = nil
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+      object_metadata: ->(_key) {
+        {
+          byte_size: 48,
+          content_type: "application/pdf",
+          checksum_sha256: Base64.strict_encode64([ checksum ].pack("H*")),
+          etag: "etag-mismatch",
+          server_side_encryption: "AES256"
+        }
+      },
+      download_to_io!: lambda { |_key, io|
+        io.write("<html><script>not a PDF</script></html>")
+        io.flush
+        true
+      },
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "statement.pdf", content_type: "application/pdf", byte_size: 48, checksum_sha256: checksum, document_kind: "statement" },
+        headers: auth_headers(@user), as: :json
+      token = JSON.parse(response.body).fetch("upload_token")
+
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal 1, deleted_keys.length
+  end
+
+  test "direct upload completion treats storage verification failures as retryable" do
+    checksum = "1" * 64
+    deleted_keys = []
+    token = nil
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+      object_metadata: ->(_key) { raise Aws::S3::Errors::ServiceError.new(nil, "temporary S3 failure") },
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32, checksum_sha256: checksum, document_kind: "spreadsheet" },
+        headers: auth_headers(@user), as: :json
+      token = JSON.parse(response.body).fetch("upload_token")
+
+      post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_includes JSON.parse(response.body).fetch("errors").join, "try again"
+    assert_empty deleted_keys
+  end
+
   test "direct upload requires a browser-computed SHA-256 checksum" do
     with_s3_stubs(configured?: true) do
       post "/api/v1/document_imports/presign",
@@ -823,6 +883,37 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal BigDecimal("19.75"), item.reload.interest_rate_percent
     assert_equal BigDecimal("19.75"), debt.reload.interest_rate_percent
     assert_equal 19.75, JSON.parse(response.body).dig("item", "interest_rate_percent")
+  end
+
+  test "item update can explicitly clear APR on an applied saved debt" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Visa",
+      debt_type: "credit_card",
+      balance_cents: 4_200_00,
+      minimum_payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("24.99")
+    )
+    item = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa",
+      balance_cents: 4_200_00,
+      payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("24.99"),
+      debt_type: "credit_card",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { interest_rate_percent: "" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    assert_nil item.reload.interest_rate_percent
+    assert_nil debt.reload.interest_rate_percent
   end
 
   test "applied item update rolls back saved value if import reconciliation fails" do
@@ -1669,6 +1760,13 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
   end
 
   def with_s3_stubs(stubs)
+    stubs = {
+      download_to_io!: lambda { |_key, io|
+        io.write("type,label,amount\nincome,Pay,5000")
+        io.flush
+        true
+      }
+    }.merge(stubs)
     originals = {}
     singleton = class << S3Service; self; end
     stubs.each do |method_name, replacement|

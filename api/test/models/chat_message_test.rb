@@ -21,10 +21,11 @@ class ChatMessageTest < ActiveSupport::TestCase
   end
 
   test "allows a bounded assistant response longer than the participant limit" do
-    message = @session.chat_messages.new(role: "assistant", content: "a" * 8_000)
+    message = @session.chat_messages.create!(role: "assistant", content: "a" * 8_000)
 
-    assert message.valid?
-    message.content = "a" * 8_001
-    assert_not message.valid?
+    assert message.persisted?
+    assert_raises(ActiveRecord::StatementInvalid) do
+      @session.chat_messages.insert_all!([ { role: "assistant", content: "a" * 8_001, created_at: Time.current, updated_at: Time.current } ])
+    end
   end
 end

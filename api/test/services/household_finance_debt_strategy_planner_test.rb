@@ -97,4 +97,16 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     assert_includes answer, "Treat the $2,000 tax refund"
     refute_includes answer, "Treat the $900 tax refund"
   end
+
+  test "does not route an unrelated readiness follow-up from an assistant debt mention" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "Help me make a plan to get to Yellow.",
+      conversation_messages: [
+        { role: "assistant", content: "Keep all debt minimums current while you build runway." }
+      ]
+    ).call
+
+    assert_nil answer
+  end
 end

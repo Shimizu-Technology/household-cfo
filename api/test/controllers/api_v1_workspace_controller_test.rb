@@ -954,12 +954,32 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal document_import.id, attachment.fetch("document_import_id")
     assert_equal "receipt.png", attachment.fetch("filename")
     assert_equal "needs_review", attachment.fetch("status")
+    operation = household.household_audit_events.find_by!(event_type: "mia.request.completed")
+    assert_equal 1, operation.metadata.fetch("attachment_count")
+    assert_operator operation.metadata.fetch("assistant_characters"), :>, 0
 
     get "/api/v1/mia/messages", headers: auth_headers(user)
 
     assert_response :success
     user_message = JSON.parse(response.body).fetch("messages").find { |message| message.fetch("role") == "user" }
     assert_equal document_import.id, user_message.fetch("attachments").first.fetch("document_import_id")
+  end
+
+  test "mia persistence bounds an oversized assistant response without failing the turn" do
+    user = create_user(email: "mia-bounded-assistant@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+
+    _user_message, assistant_message = Api::V1::MiaMessagesController.new.send(
+      :persist_chat_messages,
+      session,
+      "Please give me the detailed plan.",
+      [],
+      "a" * (ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH + 500)
+    )
+
+    assert_equal ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, assistant_message.content.length
+    assert assistant_message.persisted?
   end
 
   test "mia chat reports one complete transaction total after every attached statement finishes" do

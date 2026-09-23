@@ -10,6 +10,7 @@ module HouseholdFinance
       "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6,
       "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10, "eleven" => 11, "twelve" => 12
     }.freeze
+    RECENT_USER_MESSAGE_LIMIT = 6
 
     def self.question?(message)
       text = message.to_s
@@ -126,12 +127,7 @@ module HouseholdFinance
 
     def parsed_scenario_debts
       @parsed_scenario_debts ||= begin
-        prior_user_messages = conversation_messages.filter_map do |entry|
-          role = entry.respond_to?(:role) ? entry.role : entry[:role] || entry["role"]
-          content = entry.respond_to?(:content) ? entry.content : entry[:content] || entry["content"]
-          content if role.to_s == "user"
-        end
-        text = ([ *prior_user_messages, message ]).join(" ")
+        text = recent_user_conversation
         text.split(/(?<=[.!?])\s+/).filter_map do |sentence|
           values = sentence.match(SCENARIO_VALUES_PATTERN)
           next unless values
@@ -164,12 +160,12 @@ module HouseholdFinance
     end
 
     def temporary_income_drop_cents
-      match = combined_conversation.match(TEMPORARY_INCOME_PATTERN)
+      match = recent_user_conversation.match(TEMPORARY_INCOME_PATTERN)
       match ? dollars_to_cents(match[1]) : 0
     end
 
     def temporary_income_months
-      match = combined_conversation.match(/(?:for|over)\s+(?:the\s+)?(?:next\s+)?(\d+|#{MONTH_WORDS.keys.join('|')})\s+months?/i)
+      match = recent_user_conversation.match(/(?:for|over)\s+(?:the\s+)?(?:next\s+)?(\d+|#{MONTH_WORDS.keys.join('|')})\s+months?/i)
       return unless match
 
       MONTH_WORDS.fetch(match[1].downcase, match[1].to_i).clamp(1, 24)
@@ -187,13 +183,21 @@ module HouseholdFinance
       match ? dollars_to_cents(match.captures.compact.last) : 0
     end
 
-    def combined_conversation
-      @combined_conversation ||= ([ *conversation_messages.filter_map { |entry| entry.respond_to?(:content) ? entry.content : entry[:content] || entry["content"] }, message ]).join(" ")
+    def recent_user_messages
+      @recent_user_messages ||= conversation_messages.filter_map do |entry|
+        role = entry.respond_to?(:role) ? entry.role : entry[:role] || entry["role"]
+        content = entry.respond_to?(:content) ? entry.content : entry[:content] || entry["content"]
+        content if role.to_s == "user"
+      end.last(RECENT_USER_MESSAGE_LIMIT)
+    end
+
+    def recent_user_conversation
+      @recent_user_conversation ||= ([ *recent_user_messages, message ]).join(" ")
     end
 
     def debt_plan_followup?
-      message.match?(/\b(?:plan|steps?|what (?:do|should) i do|income).{0,80}(?:down|drop|reduc|cut|lower)?/i) &&
-        combined_conversation.match?(/\b(?:debt|credit card|loan|APR)\b/i)
+      followup_signal = message.match?(/\b(?:now|next|then|that|this|those|same|continue|what (?:do|should) i do|income (?:is |has )?(?:down|dropp|reduc|cut|lower))\b/i)
+      followup_signal && recent_user_messages.join(" ").match?(/\b(?:debt|credit card|loan|APR)\b/i)
     end
 
     def missing_debts_answer

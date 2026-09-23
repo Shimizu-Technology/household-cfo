@@ -58,4 +58,17 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     assert_equal :admitted_after_wait, admission.call { :admitted_after_wait }
     assert_operator attempts, :>=, 3
   end
+
+  test "falls back after the bounded wait without invoking the provider" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(provider: "deadline-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 120)
+    admission.define_singleton_method(:acquire) { |_connection| nil }
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    result = admission.call { flunk("timed-out admission must not run the provider block") }
+    elapsed_ms = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000
+
+    assert_nil result
+    assert_operator elapsed_ms, :>=, 100
+    assert_operator elapsed_ms, :<, 500
+  end
 end

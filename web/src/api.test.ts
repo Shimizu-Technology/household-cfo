@@ -82,8 +82,9 @@ describe('private document upload', () => {
     expect(result.id).toBe(42)
     expect(fetchMock).toHaveBeenCalledTimes(3)
     expect(String(fetchMock.mock.calls[0][0])).toContain('/api/v1/document_imports/presign')
-    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).checksum_sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body)).checksum_sha256).toBe('4cfe69bb4e953d676b7517da64886344a4b1d09db8a03c7852e506f4d09b53ce')
     expect(fetchMock.mock.calls[1][0]).toBe('https://private-storage.example/upload')
+    expect((fetchMock.mock.calls[1][1] as RequestInit).method).toBe('PUT')
     expect((fetchMock.mock.calls[1][1] as RequestInit).body).toBeInstanceOf(File)
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toEqual({
       'Content-Type': 'text/csv',

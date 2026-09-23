@@ -44,6 +44,22 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 100_000, debt.reload.balance_cents
   end
 
+  test "participant cannot save malformed or fractional-cent debt amounts" do
+    user = create_user(email: "debt-invalid-amount@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+
+    [ "not-a-number", "12.345", "1,200" ].each do |invalid_balance|
+      assert_no_difference("household.debts.count") do
+        post "/api/v1/debts",
+          params: { debt: { label: "Invalid #{invalid_balance}", debt_type: "credit_card", balance: invalid_balance, minimum_payment: 25 } },
+          headers: auth_headers(user), as: :json
+      end
+
+      assert_response :unprocessable_entity
+      assert_includes JSON.parse(response.body).fetch("errors"), "Balance must be a number with no more than two decimal places"
+    end
+  end
+
   private
 
   def create_user(email:)

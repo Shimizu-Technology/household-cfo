@@ -185,6 +185,7 @@ module Api
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: processed_imports)
         render json: response_payload, status: :created
       end
 
@@ -284,7 +285,10 @@ module Api
         ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(role: "assistant", content: assistant_content)
+            session.chat_messages.create!(
+              role: "assistant",
+              content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…")
+            )
           ]
         end
       end
