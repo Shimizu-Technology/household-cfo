@@ -93,4 +93,22 @@ describe('private document upload', () => {
     expect(String(fetchMock.mock.calls[2][0])).toContain('/api/v1/document_imports/complete')
     expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({ upload_token: 'signed-upload-token' })
   })
+
+  it('uses the canonical extension MIME type when the browser reports a nonstandard CSV type', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        upload_url: 'https://private-storage.example/upload',
+        upload_headers: { 'Content-Type': 'text/csv' },
+        upload_token: 'signed-upload-token',
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+      .mockResolvedValueOnce(new Response('', { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ document_import: { id: 43 } }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await uploadDocumentImport(new File(['amount\n10'], 'budget.csv', { type: 'text/comma-separated-values' }), 'spreadsheet')
+
+    const presignBody = JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))
+    expect(presignBody.content_type).toBe('text/csv')
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toEqual({ 'Content-Type': 'text/csv' })
+  })
 })

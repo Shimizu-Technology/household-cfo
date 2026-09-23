@@ -42,6 +42,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, row.fetch("member_count")
     assert_equal 1, row.fetch("participant_count")
     assert_equal({
+      "available" => true,
       "period_days" => 7,
       "mia_requests" => 0,
       "mia_failures" => 0,
@@ -108,6 +109,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     body = JSON.parse(response.body)
     summary = body.dig("cohort", "operational_summary")
+    assert_equal true, summary.fetch("available")
     assert_equal 7, summary.fetch("period_days")
     assert_equal 2, summary.fetch("mia_requests")
     assert_equal 1, summary.fetch("mia_failures")
@@ -119,6 +121,33 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_not_includes response.body, "private-budget.csv"
     assert_not_includes response.body, "assistant_characters"
     assert_not_includes response.body, "Timeout::Error"
+  end
+
+  test "cohort operations report unavailable metrics instead of false zero activity" do
+    admin = create_user(email: "operations-unavailable-admin@example.com", role: "admin")
+    cohort = Cohort.create!(name: "Unavailable Operations Pilot", status: "active", created_by_user: admin)
+
+    membership_class = HouseholdMembership.singleton_class
+    original_where = membership_class.instance_method(:where)
+    membership_class.define_method(:where) { |*| raise ActiveRecord::StatementInvalid, "metrics query unavailable" }
+
+    begin
+      get "/api/v1/admin/cohorts/#{cohort.id}", headers: auth_headers(admin)
+    ensure
+      membership_class.send(:remove_method, :where)
+      membership_class.define_method(:where, original_where)
+    end
+
+    assert_response :success
+    summary = JSON.parse(response.body).dig("cohort", "operational_summary")
+    assert_equal false, summary.fetch("available")
+    assert_equal 7, summary.fetch("period_days")
+    assert_nil summary.fetch("mia_requests")
+    assert_nil summary.fetch("mia_failures")
+    assert_nil summary.fetch("average_mia_latency_ms")
+    assert_nil summary.fetch("uploads")
+    assert_nil summary.fetch("upload_failures")
+    assert_nil summary.fetch("participants_active")
   end
 
   test "cohort index and detail use the same setup complete progress result" do

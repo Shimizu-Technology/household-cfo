@@ -129,7 +129,7 @@ module HouseholdFinance
       }
       updates[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
       updates[:minimum_payment_cents] = item.payment_cents unless item.payment_cents.nil?
-      updates[:interest_rate_percent] = item.interest_rate_percent if !item.interest_rate_percent.nil? || attributes.key?(:interest_rate_percent)
+      updates[:interest_rate_percent] = item.interest_rate_percent if attributes.key?(:interest_rate_percent)
       record.update!(updates)
     end
 

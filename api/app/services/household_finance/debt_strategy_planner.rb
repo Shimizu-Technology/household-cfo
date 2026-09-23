@@ -3,7 +3,8 @@
 module HouseholdFinance
   class DebtStrategyPlanner
     QUESTION_PATTERN = /\b(?:debt (?:plan|strategy|management|payoff)|pay (?:down|off) (?:my |our )?(?:debt|cards?|loans?)|which (?:debt|card|loan)|avalanche|snowball|highest (?:apr|interest)|smallest balance|extra (?:debt )?payment|use (?:it|this|the .{0,20}) (?:on|for|toward) debt|plan for (?:my |our )?debt)\b/i.freeze
-    TEMPORARY_INCOME_PATTERN = /(?:income|pay|take-home).{0,35}(?:down|drop|reduc|cut|lower).{0,20}\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/i.freeze
+    TEMPORARY_INCOME_PATTERN = /(?:income|pay(?!\s+(?:down|off)\b)|take-home).{0,35}(?:down|drop|reduc|cut|lower).{0,20}\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/i.freeze
+    DEBT_FOLLOWUP_PATTERN = /\b(?:debt|cards?|loans?|apr|avalanche|snowball|minimums?|principal|extra payment|pay(?:ing)? (?:it|them|those) (?:down|off)|(?:concrete|detailed|three-step|step-by-step) (?:debt )?plan)\b/i.freeze
     DOLLAR_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)/.freeze
     SCENARIO_VALUES_PATTERN = /\$\s*(?<balance>[\d,]+(?:\.\d{1,2})?)\s*(?:balance\s*)?(?:at|with|,|and)?\s*(?:a\s*)?(?<apr>[\d.]+)\s*%\s*(?:APR|interest).*?\$\s*(?<minimum>[\d,]+(?:\.\d{1,2})?)\s*(?:monthly\s*)?(?:minimum|min)/i.freeze
     MONTH_WORDS = {
@@ -148,7 +149,7 @@ module HouseholdFinance
     def scenario_label(prefix)
       prefix.to_s
         .sub(/\A.*?\b(?:I|we)\s+(?:also\s+)?have\s+(?:an?\s+|the\s+)?/i, "")
-        .sub(/\s+(?:that|which)\b.*\z/i, "")
+        .sub(/\s+(?:that|which|I|we)\b.*\z/i, "")
         .sub(/\s+(?:is|has|balance(?:\s+is)?|saved\s+at)\s*\z/i, "")
         .sub(/[:;,\-\s]+\z/, "")
         .squish
@@ -196,8 +197,7 @@ module HouseholdFinance
     end
 
     def debt_plan_followup?
-      followup_signal = message.match?(/\b(?:now|next|then|that|this|those|same|continue|what (?:do|should) i do|income (?:is |has )?(?:down|dropp|reduc|cut|lower))\b/i)
-      followup_signal && recent_user_messages.join(" ").match?(/\b(?:debt|credit card|loan|APR)\b/i)
+      message.match?(DEBT_FOLLOWUP_PATTERN) && recent_user_messages.join(" ").match?(/\b(?:debt|credit card|loan|APR)\b/i)
     end
 
     def missing_debts_answer

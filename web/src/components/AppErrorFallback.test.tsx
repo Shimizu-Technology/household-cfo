@@ -15,7 +15,7 @@ describe('AppErrorFallback', () => {
     )) as ReactElement<{ onClick: () => void }>
 
     expect(markup).toContain('This screen hit an unexpected problem.')
-    expect(markup).toContain('Your approved household numbers were not changed.')
+    expect(markup).toContain('verify any changes you made just before the error')
     retry.props.onClick()
     expect(resetError).toHaveBeenCalledOnce()
   })

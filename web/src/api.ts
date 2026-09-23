@@ -695,13 +695,14 @@ export type AdminCohort = {
   staff_count: number
   setup_complete_count: number
   operational_summary: {
+    available: boolean
     period_days: number
-    mia_requests: number
-    mia_failures: number
+    mia_requests: number | null
+    mia_failures: number | null
     average_mia_latency_ms: number | null
-    uploads: number
-    upload_failures: number
-    participants_active: number
+    uploads: number | null
+    upload_failures: number | null
+    participants_active: number | null
   }
   created_at: string
   updated_at: string
@@ -1502,7 +1503,6 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
 }
 
 function uploadContentType(file: File) {
-  if (file.type) return file.type
   const extension = file.name.split('.').pop()?.toLowerCase()
   const types: Record<string, string> = {
     csv: 'text/csv',
@@ -1517,7 +1517,7 @@ function uploadContentType(file: File) {
     heic: 'image/heic',
     heif: 'image/heif',
   }
-  return types[extension ?? ''] ?? 'application/octet-stream'
+  return types[extension ?? ''] ?? (file.type || 'application/octet-stream')
 }
 
 async function fileSha256(file: File) {

@@ -122,53 +122,39 @@ module Api
         end
 
         existing_import = completed_direct_upload(metadata)
-        if existing_import
-          FinancialDocumentExtractionJob.perform_later(existing_import.id) if existing_import.status == "uploaded"
-          return render json: { document_import: serialize_document_import(existing_import) }, status: :ok
-        end
+        return render_completed_direct_upload(existing_import) if existing_import
 
         object = S3Service.object_metadata(metadata.fetch(:s3_key))
-        unless valid_direct_upload_object?(object, metadata)
-          S3Service.delete(metadata.fetch(:s3_key)) if object
-          return render json: { errors: [ "The private upload was incomplete. Choose the file and try again." ] }, status: :unprocessable_entity
+        object_valid = valid_direct_upload_object?(object, metadata)
+        outcome = register_completed_direct_upload(metadata, object, object_valid: object_valid)
+        case outcome.fetch(:status)
+        when :existing
+          render_completed_direct_upload(outcome.fetch(:document_import))
+        when :invalid_object
+          render json: { errors: [ "The private upload was incomplete. Choose the file and try again." ] }, status: :unprocessable_entity
+        when :duplicate_file
+          render json: { errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ] }, status: :unprocessable_entity
+        when :created
+          document_import = outcome.fetch(:document_import)
+          FinancialDocumentExtractionJob.perform_later(document_import.id)
+          render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
         end
-
-        document_import = FinancialDocumentImport.new(
-          household: current_household,
-          uploaded_by_user: current_user,
-          document_kind: metadata.fetch(:document_kind),
-          status: "uploaded",
-          filename: metadata.fetch(:filename),
-          content_type: metadata.fetch(:content_type),
-          byte_size: metadata.fetch(:byte_size),
-          checksum_sha256: metadata[:checksum_sha256],
-          s3_key: metadata.fetch(:s3_key),
-          metadata: metadata.fetch(:metadata, {}).merge("direct_to_s3" => true, "s3_etag" => object[:etag]).compact
-        )
-        if duplicate_active_import?(document_import)
-          S3Service.delete(metadata.fetch(:s3_key))
-          return render json: { errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ] }, status: :unprocessable_entity
-        end
-        document_import.save!
-        FinancialDocumentExtractionJob.perform_later(document_import.id)
-        render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
       rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
         render json: { errors: [ "The private upload expired. Choose the file and try again." ] }, status: :unprocessable_entity
       rescue Aws::S3::Errors::ServiceError => e
         Rails.logger.warn("[DocumentImportsController] direct upload verification unavailable: #{e.class}")
         render json: { errors: [ "Private storage could not verify the upload yet. Wait a moment and try again." ] }, status: :service_unavailable
       rescue ActiveRecord::RecordNotUnique
-        existing_import = completed_direct_upload(metadata)
+        existing_import = with_direct_upload_key_lock(metadata.fetch(:s3_key)) { completed_direct_upload(metadata) }
         if existing_import
-          FinancialDocumentExtractionJob.perform_later(existing_import.id) if existing_import.status == "uploaded"
-          render json: { document_import: serialize_document_import(existing_import) }, status: :ok
+          render_completed_direct_upload(existing_import)
         else
           render json: { errors: [ "Could not safely register the private upload. Choose the file and try again." ] }, status: :conflict
         end
       rescue S3Service::MissingConfigurationError
         render_s3_not_configured
       rescue ActiveRecord::RecordInvalid => e
-        S3Service.delete(metadata[:s3_key]) if defined?(metadata) && metadata&.dig(:s3_key)
+        delete_unregistered_direct_upload!(metadata[:s3_key]) if defined?(metadata) && metadata&.dig(:s3_key)
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
@@ -401,6 +387,71 @@ module Api
           uploaded_by_user_id: current_user.id,
           checksum_sha256: metadata.fetch(:checksum_sha256)
         )
+      end
+
+      def register_completed_direct_upload(metadata, object, object_valid:)
+        s3_key = metadata.fetch(:s3_key)
+        with_direct_upload_key_lock(s3_key) do
+          existing_import = completed_direct_upload(metadata)
+          next({ status: :existing, document_import: existing_import }) if existing_import
+
+          unless object_valid
+            delete_direct_upload_object_unless_registered(s3_key) if object
+            next({ status: :invalid_object })
+          end
+
+          document_import = FinancialDocumentImport.new(
+            household: current_household,
+            uploaded_by_user: current_user,
+            document_kind: metadata.fetch(:document_kind),
+            status: "uploaded",
+            filename: metadata.fetch(:filename),
+            content_type: metadata.fetch(:content_type),
+            byte_size: metadata.fetch(:byte_size),
+            checksum_sha256: metadata[:checksum_sha256],
+            s3_key: s3_key,
+            metadata: metadata.fetch(:metadata, {}).merge("direct_to_s3" => true, "s3_etag" => object[:etag]).compact
+          )
+          if duplicate_active_import?(document_import)
+            delete_direct_upload_object_unless_registered(s3_key)
+            next({ status: :duplicate_file })
+          end
+
+          document_import.save!
+          { status: :created, document_import: document_import }
+        end
+      end
+
+      def render_completed_direct_upload(document_import)
+        FinancialDocumentExtractionJob.perform_later(document_import.id) if document_import.status == "uploaded"
+        render json: { document_import: serialize_document_import(document_import) }, status: :ok
+      end
+
+      def with_direct_upload_key_lock(s3_key)
+        ApplicationRecord.transaction(requires_new: true) do
+          first_key, second_key = Digest::SHA256.digest(s3_key).unpack("l>2")
+          integer_type = ActiveRecord::Type::Integer.new
+          binds = [
+            ActiveRecord::Relation::QueryAttribute.new("first_key", first_key, integer_type),
+            ActiveRecord::Relation::QueryAttribute.new("second_key", second_key, integer_type)
+          ]
+          ApplicationRecord.connection.exec_query(
+            "SELECT pg_advisory_xact_lock($1, $2)",
+            "Direct upload key lock",
+            binds
+          )
+          yield
+        end
+      end
+
+      def delete_unregistered_direct_upload!(s3_key)
+        with_direct_upload_key_lock(s3_key) { delete_direct_upload_object_unless_registered(s3_key) }
+      end
+
+      def delete_direct_upload_object_unless_registered(s3_key)
+        return false if FinancialDocumentImport.where(s3_key: s3_key).exists?
+
+        S3Service.delete(s3_key)
       end
 
       def inferred_document_kind(filename)

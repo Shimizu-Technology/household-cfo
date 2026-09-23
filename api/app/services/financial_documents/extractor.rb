@@ -308,6 +308,9 @@ module FinancialDocuments
         content << { type: "file", file: { filename: document_import.filename, file_data: data_url(file_path, "application/pdf") } }
       elsif document_import.spreadsheet?
         summary = SpreadsheetSummarizer.new(file_path: file_path, filename: document_import.filename).call
+        summary.fetch(:sheets, []).each do |sheet|
+          sheet.fetch(:rows, []).each { |row| row.except!(:cell_types, :cell_formats) }
+        end
         content << { type: "text", text: "Spreadsheet sample JSON:\n#{JSON.generate(summary)}" }
       elsif document_import.word_document?
         summary = DocxSummarizer.new(file_path: file_path, filename: document_import.filename).call

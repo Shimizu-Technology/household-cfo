@@ -133,6 +133,7 @@ module Api
           end
           imports = FinancialDocumentImport.where(household_id: household_ids, created_at: since..)
           {
+            available: true,
             period_days: 7,
             mia_requests: completed.count,
             mia_failures: events.where(event_type: "mia.request.failed").count,
@@ -143,7 +144,16 @@ module Api
           }
         rescue ActiveRecord::StatementInvalid => e
           Rails.logger.warn("Cohort operational summary unavailable cohort_id=#{cohort.id}: #{e.class}")
-          { period_days: 7, mia_requests: 0, mia_failures: 0, average_mia_latency_ms: nil, uploads: 0, upload_failures: 0, participants_active: 0 }
+          {
+            available: false,
+            period_days: 7,
+            mia_requests: nil,
+            mia_failures: nil,
+            average_mia_latency_ms: nil,
+            uploads: nil,
+            upload_failures: nil,
+            participants_active: nil
+          }
         end
 
         def render_not_found(error)

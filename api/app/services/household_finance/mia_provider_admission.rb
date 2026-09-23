@@ -15,30 +15,42 @@ module HouseholdFinance
       new(**options).call(&block)
     end
 
-    def initialize(provider: PROVIDER, limit: configured_limit, wait_ms: configured_wait_ms)
+    def initialize(provider: PROVIDER, limit: configured_limit, wait_ms: configured_wait_ms, connection_pool: ActiveRecord::Base.connection_pool)
       @provider = provider
       @limit = limit.to_i.clamp(1, MAX_LIMIT)
       @wait_ms = wait_ms.to_i.clamp(0, MAX_WAIT_MS)
+      @connection_pool = connection_pool
     end
 
     def call
-      ActiveRecord::Base.connection_pool.with_connection do |connection|
-        started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        slot = acquire_with_wait(connection)
-        waited_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round
-        unless slot
-          instrument(admitted: false, waited_ms: waited_ms)
-          Rails.logger.info("[HouseholdFinance::MiaProviderAdmission] provider capacity full after #{waited_ms}ms; using deterministic fallback")
-          return nil
+      started_at = monotonic_time
+      deadline = started_at + (wait_ms / 1000.0)
+
+      loop do
+        connection_pool.with_connection do |connection|
+          next if wait_ms.positive? && monotonic_time >= deadline
+
+          slot = acquire(connection)
+          if slot
+            instrument(admitted: true, waited_ms: elapsed_ms(started_at))
+            begin
+              return yield
+            ensure
+              release(connection, slot)
+            end
+          end
         end
 
-        instrument(admitted: true, waited_ms: waited_ms)
-        begin
-          yield
-        ensure
-          release(connection, slot)
-        end
+        remaining = deadline - monotonic_time
+        break if remaining <= 0
+
+        sleep([ POLL_INTERVAL_SECONDS, remaining ].min)
       end
+
+      waited_ms = elapsed_ms(started_at)
+      instrument(admitted: false, waited_ms: waited_ms)
+      Rails.logger.info("[HouseholdFinance::MiaProviderAdmission] provider capacity full after #{waited_ms}ms; using deterministic fallback")
+      nil
     rescue ActiveRecord::ActiveRecordError => e
       Rails.logger.warn("[HouseholdFinance::MiaProviderAdmission] admission fallback: #{e.class}: #{e.message}")
       nil
@@ -46,18 +58,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :provider, :limit, :wait_ms
-
-    def acquire_with_wait(connection)
-      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + (wait_ms / 1000.0)
-      loop do
-        slot = acquire(connection)
-        return slot if slot
-        return if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
-
-        sleep(POLL_INTERVAL_SECONDS)
-      end
-    end
+    attr_reader :provider, :limit, :wait_ms, :connection_pool
 
     def acquire(connection)
       (1..limit).find do |slot|
@@ -75,6 +76,14 @@ module HouseholdFinance
 
     def provider_key
       @provider_key ||= Digest::SHA256.digest(provider).unpack1("l>")
+    end
+
+    def monotonic_time
+      Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    end
+
+    def elapsed_ms(started_at)
+      ((monotonic_time - started_at) * 1000).round
     end
 
     def instrument(admitted:, waited_ms:)

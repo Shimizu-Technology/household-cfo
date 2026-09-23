@@ -109,4 +109,48 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
 
     assert_nil answer
   end
+
+  test "does not route an unrelated registration question after participant debt context" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "What about car registration next month?",
+      conversation_messages: [
+        { role: "user", content: "Help me compare my credit card debt using avalanche and snowball." }
+      ]
+    ).call
+
+    assert_nil answer
+  end
+
+  test "does not treat paying down debt as a temporary income reduction" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "I can pay down $300 on my debt this month. Give me a concrete debt plan."
+    ).call
+
+    refute_includes answer, "temporary monthly income drop"
+  end
+
+  test "still recognizes a genuine pay reduction" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "My pay is down $300 for two months. Give me a concrete debt plan."
+    ).call
+
+    assert_includes answer, "$300 temporary monthly income drop for two months"
+  end
+
+  test "does not double count a repeated scenario debt when the participant changes the qualifier" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "I also have a personal loan I have not saved: $8,000 at 11.5% APR with a $240 minimum. Compare avalanche and snowball.",
+      conversation_messages: [
+        { role: "user", content: "I also have a personal loan that I have not entered yet: $8,000 at 11.5% APR with a $240 minimum." }
+      ]
+    ).call
+
+    assert_equal 1, answer.scan("personal loan (scenario only, not saved)").length
+    assert_includes answer, "$500 total"
+    refute_includes answer, "$740 total"
+  end
 end

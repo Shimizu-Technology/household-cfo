@@ -158,6 +158,18 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_empty deleted_keys
   end
 
+  test "direct upload failure cleanup never deletes a source owned by a committed import" do
+    s3_key = "household-cfo/test/registered-direct-upload.csv"
+    create_import!(s3_key: s3_key)
+    controller = Api::V1::DocumentImportsController.new
+
+    with_s3_stubs(delete: ->(_key) { flunk("registered S3 source must not be deleted") }) do
+      assert_equal false, controller.send(:delete_unregistered_direct_upload!, s3_key)
+    end
+
+    assert FinancialDocumentImport.exists?(s3_key: s3_key)
+  end
+
   test "direct upload completion rejects missing or tampered storage objects" do
     checksum = "c" * 64
     checksum_base64 = Base64.strict_encode64([ checksum ].pack("H*"))
@@ -883,6 +895,69 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal BigDecimal("19.75"), item.reload.interest_rate_percent
     assert_equal BigDecimal("19.75"), debt.reload.interest_rate_percent
     assert_equal 19.75, JSON.parse(response.body).dig("item", "interest_rate_percent")
+  end
+
+  test "item update without APR preserves a newer APR on the applied saved debt" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Visa",
+      debt_type: "credit_card",
+      balance_cents: 4_200_00,
+      minimum_payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("24.99")
+    )
+    item = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa",
+      balance_cents: 4_200_00,
+      payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("19.99"),
+      debt_type: "credit_card",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { balance: "4000" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    assert_equal 4_000_00, debt.reload.balance_cents
+    assert_equal BigDecimal("24.99"), debt.interest_rate_percent
+    assert_equal BigDecimal("19.99"), item.reload.interest_rate_percent
+  end
+
+  test "item update without APR preserves saved APR when the import item APR is missing" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Visa",
+      debt_type: "credit_card",
+      balance_cents: 4_200_00,
+      minimum_payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("24.99")
+    )
+    item = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa",
+      balance_cents: 4_200_00,
+      payment_cents: 125_00,
+      interest_rate_percent: nil,
+      debt_type: "credit_card",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { balance: "4000" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    assert_equal BigDecimal("24.99"), debt.reload.interest_rate_percent
+    assert_equal BigDecimal("24.99"), item.reload.interest_rate_percent
   end
 
   test "item update can explicitly clear APR on an applied saved debt" do

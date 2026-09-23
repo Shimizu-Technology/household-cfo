@@ -2226,6 +2226,18 @@ h3 {
   background: rgba(255, 253, 248, 0.76);
 }
 
+.admin-operations > p {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(180, 126, 39, 0.32);
+  border-radius: 14px;
+  background: rgba(180, 126, 39, 0.08);
+  color: var(--ink);
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
 .admin-operations small,
 .admin-privacy-copy {
   color: var(--muted);

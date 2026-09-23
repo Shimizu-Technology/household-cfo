@@ -22,6 +22,7 @@ import {
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
 import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
+import { changedInterestRateInput } from './lib/documentItemUpdate'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import {
   applyDocumentImport,
@@ -4340,7 +4341,7 @@ function DocumentImportItemEditor({
   }
 
   async function saveEdits() {
-    await onUpdate(documentItemUpdatePayload(draft))
+    await onUpdate(documentItemUpdatePayload(draft, item))
     setEditing(false)
   }
 
@@ -4882,7 +4883,7 @@ function moneyDraftValue(value: number | null) {
   return value === null ? '' : String(value)
 }
 
-function documentItemUpdatePayload(draft: EditableDocumentItemDraft): DocumentImportItemInput {
+function documentItemUpdatePayload(draft: EditableDocumentItemDraft, item: DocumentImportItem): DocumentImportItemInput {
   const payload: DocumentImportItemInput = {
     target_type: draft.target_type,
     label: draft.label.trim(),
@@ -4899,7 +4900,13 @@ function documentItemUpdatePayload(draft: EditableDocumentItemDraft): DocumentIm
     return { ...payload, balance: draft.balance, account_type: draft.account_type }
   }
   if (draft.target_type === 'debt') {
-    return { ...payload, balance: draft.balance, payment: draft.payment, interest_rate_percent: draft.interest_rate_percent || null, debt_type: draft.debt_type }
+    return {
+      ...payload,
+      balance: draft.balance,
+      payment: draft.payment,
+      debt_type: draft.debt_type,
+      ...changedInterestRateInput(item.interest_rate_percent, draft.interest_rate_percent),
+    }
   }
   if (draft.target_type === 'goal') {
     return { ...payload, amount: draft.amount }
@@ -5050,13 +5057,14 @@ const cohortStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'co
 const userRoles: UserRole[] = ['participant', 'coach', 'admin']
 const invitationStatuses: InvitationStatus[] = ['pending', 'accepted', 'revoked']
 const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
+  available: false,
   period_days: 7,
-  mia_requests: 0,
-  mia_failures: 0,
+  mia_requests: null,
+  mia_failures: null,
   average_mia_latency_ms: null,
-  uploads: 0,
-  upload_failures: 0,
-  participants_active: 0,
+  uploads: null,
+  upload_failures: null,
+  participants_active: null,
 }
 
 function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
@@ -5497,12 +5505,18 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                 <span>{cohortDateRange(selectedCohort)}</span>
               </div>
               <div className="admin-operations" aria-label="Privacy-safe cohort operations for the last seven days">
-                <div><small>Active participants</small><strong>{selectedCohort.operational_summary.participants_active}</strong></div>
-                <div><small>Mia requests</small><strong>{selectedCohort.operational_summary.mia_requests}</strong></div>
-                <div><small>Typical Mia time</small><strong>{selectedCohort.operational_summary.average_mia_latency_ms === null ? '—' : `${(selectedCohort.operational_summary.average_mia_latency_ms / 1000).toFixed(1)}s`}</strong></div>
-                <div><small>Mia failures</small><strong>{selectedCohort.operational_summary.mia_failures}</strong></div>
-                <div><small>Uploads</small><strong>{selectedCohort.operational_summary.uploads}</strong></div>
-                <div><small>Upload failures</small><strong>{selectedCohort.operational_summary.upload_failures}</strong></div>
+                {selectedCohort.operational_summary.available ? (
+                  <>
+                    <div><small>Active participants</small><strong>{selectedCohort.operational_summary.participants_active}</strong></div>
+                    <div><small>Mia requests</small><strong>{selectedCohort.operational_summary.mia_requests}</strong></div>
+                    <div><small>Typical Mia time</small><strong>{selectedCohort.operational_summary.average_mia_latency_ms === null ? '—' : `${(selectedCohort.operational_summary.average_mia_latency_ms / 1000).toFixed(1)}s`}</strong></div>
+                    <div><small>Mia failures</small><strong>{selectedCohort.operational_summary.mia_failures}</strong></div>
+                    <div><small>Uploads</small><strong>{selectedCohort.operational_summary.uploads}</strong></div>
+                    <div><small>Upload failures</small><strong>{selectedCohort.operational_summary.upload_failures}</strong></div>
+                  </>
+                ) : (
+                  <p role="status">Activity metrics are temporarily unavailable. Refresh before using this cohort summary to judge participation.</p>
+                )}
               </div>
               <p className="admin-privacy-copy">Last 7 days · aggregate operational activity only. Financial values, uploaded document contents, and Mia conversations are not shown.</p>
               <label className="admin-field wide">

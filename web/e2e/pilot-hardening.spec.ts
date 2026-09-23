@@ -204,7 +204,7 @@ function realWorkspaceData(setupComplete = false) {
 const pilotCohort = {
   id: 41, name: 'Household CFO pilot', status: 'active', starts_on: '2026-07-01', ends_on: '2026-08-31', notes: '',
   member_count: 1, participant_count: 1, staff_count: 0, setup_complete_count: 0,
-  operational_summary: { period_days: 7, mia_requests: 18, mia_failures: 1, average_mia_latency_ms: 840, uploads: 7, upload_failures: 1, participants_active: 1 },
+  operational_summary: { available: true, period_days: 7, mia_requests: 18, mia_failures: 1, average_mia_latency_ms: 840, uploads: 7, upload_failures: 1, participants_active: 1 },
   created_at: '2026-07-01T00:00:00Z', updated_at: '2026-07-01T00:00:00Z',
   created_by: { id: 900, email: 'admin@pilot.test', full_name: 'Pilot Admin' },
 }
