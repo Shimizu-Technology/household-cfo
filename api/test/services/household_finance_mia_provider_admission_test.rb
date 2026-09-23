@@ -12,7 +12,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     threads = 2.times.map do
       Thread.new do
         ActiveRecord::Base.connection_pool.with_connection do
-          result = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 2).call do
+          result = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 2, wait_ms: 0).call do
             entered << true
             release.pop
             :completed
@@ -23,7 +23,7 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     end
 
     Timeout.timeout(3) { 2.times { entered.pop } }
-    rejected = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 2).call { flunk("saturated admission must not run the provider block") }
+    rejected = HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 2, wait_ms: 0).call { flunk("saturated admission must not run the provider block") }
 
     assert_nil rejected
 
@@ -39,9 +39,110 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     provider = "raised-#{SecureRandom.hex(6)}"
 
     assert_raises(RuntimeError) do
-      HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1).call { raise "provider failed" }
+      HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: 0).call { raise "provider failed" }
     end
 
-    assert_equal :reused, HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1).call { :reused }
+    assert_equal :reused, HouseholdFinance::MiaProviderAdmission.new(provider: provider, limit: 1, wait_ms: 0).call { :reused }
+  end
+
+
+  test "waits briefly for a busy provider slot before falling back" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(provider: "waiting-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 500)
+    attempts = 0
+    admission.define_singleton_method(:acquire) do |_connection|
+      attempts += 1
+      attempts >= 3 ? 1 : nil
+    end
+    admission.define_singleton_method(:release) { |_connection, _slot| true }
+
+    assert_equal :admitted_after_wait, admission.call { :admitted_after_wait }
+    assert_operator attempts, :>=, 3
+  end
+
+  test "checks a failed admission connection back in before sleeping" do
+    fake_pool = Class.new do
+      attr_reader :checked_out
+
+      def with_connection
+        @checked_out = true
+        yield Object.new
+      ensure
+        @checked_out = false
+      end
+    end.new
+    admission = HouseholdFinance::MiaProviderAdmission.new(
+      provider: "pool-release-#{SecureRandom.hex(6)}",
+      limit: 1,
+      wait_ms: 120,
+      connection_pool: fake_pool
+    )
+    admission.define_singleton_method(:acquire) { |_connection| nil }
+    sleep_states = []
+    admission.define_singleton_method(:sleep) do |_duration|
+      sleep_states << fake_pool.checked_out
+      Thread.pass
+    end
+
+    assert_nil admission.call { flunk("saturated admission must not run the provider block") }
+    assert_not_empty sleep_states
+    assert_equal [ false ], sleep_states.uniq
+  end
+
+  test "counts connection checkout time against the admission deadline" do
+    attempts = 0
+    fake_pool = Class.new do
+      def with_connection
+        sleep(0.08)
+        yield Object.new
+      end
+    end.new
+    admission = HouseholdFinance::MiaProviderAdmission.new(
+      provider: "checkout-deadline-#{SecureRandom.hex(6)}",
+      limit: 1,
+      wait_ms: 40,
+      connection_pool: fake_pool
+    )
+    admission.define_singleton_method(:acquire) do |_connection|
+      attempts += 1
+      nil
+    end
+
+    assert_nil admission.call { flunk("expired admission must not run the provider block") }
+    assert_equal 0, attempts
+  end
+
+  test "releases a slot acquired after the admission deadline without calling the provider" do
+    fake_pool = Class.new do
+      def with_connection
+        yield Object.new
+      end
+    end.new
+    admission = HouseholdFinance::MiaProviderAdmission.new(
+      provider: "late-slot-#{SecureRandom.hex(6)}",
+      limit: 1,
+      wait_ms: 40,
+      connection_pool: fake_pool
+    )
+    times = [ 0.0, 0.01, 0.05, 0.05, 0.05 ]
+    released_slots = []
+    admission.define_singleton_method(:monotonic_time) { times.shift || 0.05 }
+    admission.define_singleton_method(:acquire) { |_connection| 1 }
+    admission.define_singleton_method(:release) { |_connection, slot| released_slots << slot }
+
+    assert_nil admission.call { flunk("late admission must not run the provider block") }
+    assert_equal [ 1 ], released_slots
+  end
+
+  test "falls back after the bounded wait without invoking the provider" do
+    admission = HouseholdFinance::MiaProviderAdmission.new(provider: "deadline-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 120)
+    admission.define_singleton_method(:acquire) { |_connection| nil }
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    result = admission.call { flunk("timed-out admission must not run the provider block") }
+    elapsed_ms = (Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000
+
+    assert_nil result
+    assert_operator elapsed_ms, :>=, 100
+    assert_operator elapsed_ms, :<, 500
   end
 end

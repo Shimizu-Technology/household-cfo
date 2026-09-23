@@ -154,6 +154,18 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal "$8.75", payload.dig("annual_budget", "recent_transactions", 0, "amount")
   end
 
+  test "includes a saved APR in Mia debt context" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "apr-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "APR household")
+    household.household_memberships.create!(user: user, role: "owner")
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 310_000, minimum_payment_cents: 17_500, interest_rate_percent: 28.9)
+
+    debt_context = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call).fetch("debts")
+
+    assert_equal 28.9, debt_context.dig("records", 0, "apr_percent")
+    assert_not_includes debt_context.fetch("unavailable_fields"), "apr"
+  end
+
   test "includes document freshness without raw source details" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

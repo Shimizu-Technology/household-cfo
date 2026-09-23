@@ -27,6 +27,16 @@ class PilotFeedbackReportTest < ActiveSupport::TestCase
     end
   end
 
+  test "database accepts every application workflow and status" do
+    PilotFeedbackReport::WORKFLOWS.product(PilotFeedbackReport::STATUSES).each do |workflow, status|
+      report = create_report
+      report.update_columns(workflow: workflow, status: status)
+      assert_equal workflow, report.reload.workflow
+      assert_equal status, report.status
+      report.destroy!
+    end
+  end
+
   private
 
   def create_report

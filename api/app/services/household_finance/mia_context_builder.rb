@@ -150,17 +150,24 @@ module HouseholdFinance
       {
         total_count: total_count,
         coverage: total_count > MAX_FINANCIAL_RECORDS ? "first_50_approved_records" : "all_approved_records",
-        unavailable_fields: %w[apr due_date fees exact_payoff_amount],
+        unavailable_fields: debt_unavailable_fields(debts),
         records: debts.limit(MAX_FINANCIAL_RECORDS).map do |debt|
           {
             label: sanitized_text(debt.label, max_length: 120),
             debt_type: debt.debt_type,
             balance: money(debt.balance_cents),
             minimum_payment: money(debt.minimum_payment_cents),
+            apr_percent: debt.interest_rate_percent&.to_f,
             updated_at: debt.updated_at.iso8601
           }
         end
       }
+    end
+
+    def debt_unavailable_fields(debts)
+      fields = %w[due_date fees exact_payoff_amount]
+      fields.unshift("apr") if debts.where(interest_rate_percent: nil).exists?
+      fields
     end
 
     def document_context

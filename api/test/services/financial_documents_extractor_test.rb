@@ -59,6 +59,34 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     file&.close!
   end
 
+  test "spreadsheet prompt keeps values but omits per-cell type and format metadata" do
+    user = User.create!(clerk_id: "clerk_extractor_sheet_prompt", email: "sheet-prompt@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Spreadsheet Prompt Household")
+    document_import = FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: user,
+      document_kind: "spreadsheet",
+      status: "uploaded",
+      filename: "budget.csv",
+      content_type: "text/csv",
+      byte_size: 30,
+      s3_key: "household-cfo/test/budget.csv"
+    )
+    file = Tempfile.new([ "budget", ".csv" ])
+    file.write("Category,Amount\nGroceries,425\n")
+    file.flush
+
+    content = FinancialDocuments::Extractor.new(api_key: "test-key").send(:user_content, document_import, file.path)
+    prompt = content.last.fetch(:text)
+
+    assert_includes prompt, "Groceries"
+    assert_includes prompt, "425"
+    refute_includes prompt, "cell_types"
+    refute_includes prompt, "cell_formats"
+  ensure
+    file&.close!
+  end
+
   test "batches every page of a multi-page PDF and merges all transaction rows" do
     user = User.create!(clerk_id: "clerk_extractor_pdf_batch_user", email: "extractor-pdf-batch@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Extractor PDF Batch Household")

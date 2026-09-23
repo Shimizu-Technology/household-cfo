@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_23_040000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -91,7 +91,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
     t.index ["chat_session_id", "created_at"], name: "index_chat_messages_on_chat_session_id_and_created_at"
     t.index ["chat_session_id"], name: "index_chat_messages_on_chat_session_id"
     t.index ["role"], name: "index_chat_messages_on_role"
-    t.check_constraint "char_length(content) <= 2000", name: "chat_messages_content_length"
+    t.check_constraint "role::text = 'user'::text AND char_length(content) <= 2000 OR role::text = 'assistant'::text AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
   end
 
   create_table "chat_sessions", force: :cascade do |t|
@@ -206,6 +206,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
     t.text "evidence"
     t.bigint "financial_document_import_id", null: false
     t.boolean "ignored", default: false, null: false
+    t.decimal "interest_rate_percent", precision: 6, scale: 2
     t.string "label", null: false
     t.jsonb "metadata", default: {}, null: false
     t.integer "payment_cents"
@@ -223,6 +224,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
     t.check_constraint "amount_cents IS NULL OR amount_cents >= 0", name: "financial_doc_items_amount_cents_non_negative"
     t.check_constraint "balance_cents IS NULL OR balance_cents >= 0", name: "financial_doc_items_balance_cents_non_negative"
     t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying, 'medium'::character varying, 'low'::character varying]::text[]))", name: "financial_document_import_items_confidence_valid"
+    t.check_constraint "interest_rate_percent IS NULL OR interest_rate_percent >= 0::numeric AND interest_rate_percent <= 999.99", name: "financial_doc_items_apr_valid"
     t.check_constraint "payment_cents IS NULL OR payment_cents >= 0", name: "financial_doc_items_payment_cents_non_negative"
     t.check_constraint "target_type::text = ANY (ARRAY['income_source'::character varying, 'expense_item'::character varying, 'account'::character varying, 'debt'::character varying, 'goal'::character varying, 'profile_note'::character varying]::text[])", name: "financial_document_import_items_target_type_valid"
   end
@@ -255,7 +257,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
     t.index ["household_id", "document_kind"], name: "idx_on_household_id_document_kind_5f848ae7ff"
     t.index ["household_id", "status"], name: "index_financial_document_imports_on_household_id_and_status"
     t.index ["household_id"], name: "index_financial_document_imports_on_household_id"
-    t.index ["s3_key"], name: "index_financial_document_imports_on_s3_key"
+    t.index ["s3_key"], name: "index_financial_document_imports_on_s3_key", unique: true, where: "(s3_key IS NOT NULL)"
     t.index ["source_deleted_by_user_id"], name: "index_financial_document_imports_on_source_deleted_by_user_id"
     t.index ["uploaded_by_user_id"], name: "index_financial_document_imports_on_uploaded_by_user_id"
     t.check_constraint "byte_size >= 0", name: "financial_document_imports_byte_size_non_negative"
@@ -881,14 +883,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_08_25_010000) do
   add_foreign_key "mia_action_drafts", "users", column: "requested_by_user_id"
   add_foreign_key "mia_action_items", "mia_action_drafts"
   add_foreign_key "mia_message_requests", "chat_sessions"
+  add_foreign_key "pilot_feedback_reports", "households"
+  add_foreign_key "pilot_feedback_reports", "users"
   add_foreign_key "plaid_accounts", "plaid_items"
   add_foreign_key "plaid_items", "households"
   add_foreign_key "plaid_items", "users", column: "connected_by_user_id"
   add_foreign_key "plaid_transactions", "plaid_accounts"
   add_foreign_key "plaid_transactions", "plaid_items"
   add_foreign_key "plaid_transactions", "transaction_drafts", on_delete: :nullify
-  add_foreign_key "pilot_feedback_reports", "households"
-  add_foreign_key "pilot_feedback_reports", "users"
   add_foreign_key "solid_queue_blocked_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_claimed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade
   add_foreign_key "solid_queue_failed_executions", "solid_queue_jobs", column: "job_id", on_delete: :cascade

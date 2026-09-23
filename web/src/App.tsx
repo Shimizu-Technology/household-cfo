@@ -22,6 +22,7 @@ import {
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
 import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
+import { changedInterestRateInput } from './lib/documentItemUpdate'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import {
   applyDocumentImport,
@@ -35,9 +36,11 @@ import {
   createAdminCohort,
   createAdminUser,
   createBudgetCategory,
+  createDebt,
   createIncomeScheduleEntry,
   deleteDocumentImport,
   deleteDocumentImportSource,
+  deleteDebt,
   deleteIncomeScheduleEntry,
   fetchAdminCohorts,
   fetchAdminPlaidHealth,
@@ -63,6 +66,7 @@ import {
   updateBudgetAllocation,
   updateAdminCohort,
   updateBudgetCategory,
+  updateDebt,
   updateAdminUser,
   updateDocumentImportItem,
   updateIncomeScheduleEntry,
@@ -87,6 +91,9 @@ import type {
   DocumentImportItem,
   DocumentImportItemInput,
   DocumentImportKind,
+  DebtInput,
+  DebtRecord,
+  DebtType,
   DocumentSourcePreview as DocumentSourcePreviewData,
   DocumentSourceUrl,
   FinancialDocumentImport,
@@ -2097,6 +2104,13 @@ function App() {
     }
   }
 
+  async function refreshWorkspaceAfterDebtChange() {
+    const payload = await fetchAppData(true)
+    setData(payload)
+    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+    replaceMiaHistory(payload.mia)
+  }
+
   function updateSetupDraft(key: keyof WorkspaceSetupValues, value: string) {
     if (!isProfileEditing && !isFirstSessionSetup) return
 
@@ -2188,6 +2202,7 @@ function App() {
         <div className="shell-brand">
           <p className="eyebrow">Household CFO Method powered by VERA</p>
           <h1>Household CFO</h1>
+          {data.workspace?.cohort && <span className="cohort-brand-chip">{data.workspace.cohort.name} cohort</span>}
         </div>
         <div className="shell-actions">
           {auth.currentUser && (
@@ -2614,6 +2629,14 @@ function App() {
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
               firstSession={isFirstSessionSetup}
+            />
+          )}
+
+
+          {isRealWorkspace && !isFirstSessionSetup && (
+            <DebtManager
+              debts={data.workspace?.debts ?? []}
+              onChanged={refreshWorkspaceAfterDebtChange}
             />
           )}
 
@@ -4272,6 +4295,7 @@ type EditableDocumentItemDraft = {
   amount: string
   balance: string
   payment: string
+  interest_rate_percent: string
   cadence: string
   source_type: string
   stack_key: string
@@ -4317,7 +4341,7 @@ function DocumentImportItemEditor({
   }
 
   async function saveEdits() {
-    await onUpdate(documentItemUpdatePayload(draft))
+    await onUpdate(documentItemUpdatePayload(draft, item))
     setEditing(false)
   }
 
@@ -4419,12 +4443,18 @@ function DocumentImportItemEditor({
           </label>
         )}
         {draft.target_type === 'debt' && (
-          <label className="document-field">
-            <span>Debt type</span>
-            <select value={draft.debt_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ debt_type: event.currentTarget.value })}>
-              {debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
-            </select>
-          </label>
+          <>
+            <label className="document-field">
+              <span>Debt type</span>
+              <select value={draft.debt_type} disabled={fieldsDisabled} onChange={(event) => updateDraft({ debt_type: event.currentTarget.value })}>
+                {debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}
+              </select>
+            </label>
+            <label className="document-field">
+              <span>APR %</span>
+              <input type="number" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} disabled={fieldsDisabled} onChange={(event) => updateDraft({ interest_rate_percent: event.currentTarget.value })} />
+            </label>
+          </>
         )}
       </div>
 
@@ -4839,6 +4869,7 @@ function editableDocumentItemDraft(item: DocumentImportItem): EditableDocumentIt
     amount: moneyDraftValue(item.amount),
     balance: moneyDraftValue(item.balance),
     payment: moneyDraftValue(item.payment),
+    interest_rate_percent: item.interest_rate_percent === null ? '' : String(item.interest_rate_percent),
     cadence: item.cadence ?? 'monthly',
     source_type: item.source_type ?? 'other',
     stack_key: item.stack_key ?? 'discretionary',
@@ -4852,7 +4883,7 @@ function moneyDraftValue(value: number | null) {
   return value === null ? '' : String(value)
 }
 
-function documentItemUpdatePayload(draft: EditableDocumentItemDraft): DocumentImportItemInput {
+function documentItemUpdatePayload(draft: EditableDocumentItemDraft, item: DocumentImportItem): DocumentImportItemInput {
   const payload: DocumentImportItemInput = {
     target_type: draft.target_type,
     label: draft.label.trim(),
@@ -4869,7 +4900,13 @@ function documentItemUpdatePayload(draft: EditableDocumentItemDraft): DocumentIm
     return { ...payload, balance: draft.balance, account_type: draft.account_type }
   }
   if (draft.target_type === 'debt') {
-    return { ...payload, balance: draft.balance, payment: draft.payment, debt_type: draft.debt_type }
+    return {
+      ...payload,
+      balance: draft.balance,
+      payment: draft.payment,
+      debt_type: draft.debt_type,
+      ...changedInterestRateInput(item.interest_rate_percent, draft.interest_rate_percent),
+    }
   }
   if (draft.target_type === 'goal') {
     return { ...payload, amount: draft.amount }
@@ -4886,6 +4923,7 @@ function documentItemSignature(item: DocumentImportItem) {
     item.amount,
     item.balance,
     item.payment,
+    item.interest_rate_percent,
     item.cadence,
     item.source_type,
     item.stack_key,
@@ -5018,6 +5056,16 @@ type UserSortKey = 'name_asc' | 'email_asc' | 'role_asc' | 'status_asc' | 'setup
 const cohortStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
 const userRoles: UserRole[] = ['participant', 'coach', 'admin']
 const invitationStatuses: InvitationStatus[] = ['pending', 'accepted', 'revoked']
+const emptyCohortOperationalSummary: AdminCohort['operational_summary'] = {
+  available: false,
+  period_days: 7,
+  mia_requests: null,
+  mia_failures: null,
+  average_mia_latency_ms: null,
+  uploads: null,
+  upload_failures: null,
+  participants_active: null,
+}
 
 function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
   const [cohorts, setCohorts] = useState<AdminCohort[]>([])
@@ -5456,6 +5504,21 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                 <span>{selectedCohort.staff_count} staff</span>
                 <span>{cohortDateRange(selectedCohort)}</span>
               </div>
+              <div className="admin-operations" aria-label="Privacy-safe cohort operations for the last seven days">
+                {selectedCohort.operational_summary.available ? (
+                  <>
+                    <div><small>Active participants</small><strong>{selectedCohort.operational_summary.participants_active}</strong></div>
+                    <div><small>Mia requests</small><strong>{selectedCohort.operational_summary.mia_requests}</strong></div>
+                    <div><small>Typical Mia time</small><strong>{selectedCohort.operational_summary.average_mia_latency_ms === null ? '—' : `${(selectedCohort.operational_summary.average_mia_latency_ms / 1000).toFixed(1)}s`}</strong></div>
+                    <div><small>Mia failures</small><strong>{selectedCohort.operational_summary.mia_failures}</strong></div>
+                    <div><small>Uploads</small><strong>{selectedCohort.operational_summary.uploads}</strong></div>
+                    <div><small>Upload failures</small><strong>{selectedCohort.operational_summary.upload_failures}</strong></div>
+                  </>
+                ) : (
+                  <p role="status">Activity metrics are temporarily unavailable. Refresh before using this cohort summary to judge participation.</p>
+                )}
+              </div>
+              <p className="admin-privacy-copy">Last 7 days · aggregate operational activity only. Financial values, uploaded document contents, and Mia conversations are not shown.</p>
               <label className="admin-field wide">
                 <span>Name</span>
                 <input value={editDraft.name} onChange={(event) => setEditDraft((current) => current ? { ...current, name: event.target.value } : current)} />
@@ -5794,6 +5857,7 @@ function cohortWithUserStats(cohort: AdminCohort, users: AdminUser[]): AdminCoho
 
   return {
     ...cohort,
+    operational_summary: cohort.operational_summary ?? emptyCohortOperationalSummary,
     member_count: memberships.length,
     participant_count: memberships.filter(({ membership }) => membership.role === 'participant').length,
     staff_count: memberships.filter(({ membership }) => membership.role === 'admin' || membership.role === 'coach').length,
@@ -6014,8 +6078,8 @@ function WorkspaceSetupForm({
           <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
           <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
           <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-          <MoneyInput disabled={!editing} name="credit_card_debt" label="Credit card debt" value={values.credit_card_debt} help="Current credit card balance you want Mia to include in payoff decisions." onChange={(value) => onChange('credit_card_debt', value)} />
-          <MoneyInput disabled={!editing} name="debt_payment" label="Debt minimum payment" value={values.debt_payment} help="Total monthly minimum payment required for the debt entered above." onChange={(value) => onChange('debt_payment', value)} />
+          <MoneyInput disabled={!editing} name="credit_card_debt" label="Total credit card debt" value={values.credit_card_debt} help="Quick total across your credit cards. Use the debt plan below to add each card and APR." onChange={(value) => onChange('credit_card_debt', value)} />
+          <MoneyInput disabled={!editing} name="debt_payment" label="Total debt minimums" value={values.debt_payment} help="Quick total of monthly credit-card minimums. Individual debt records below give Mia a stronger plan." onChange={(value) => onChange('debt_payment', value)} />
           <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
             <span>Target runway months</span>
             <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={!editing && values.target_runway_months === '' ? '0' : values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
@@ -6039,6 +6103,185 @@ function MoneyInput({ disabled = false, name, label, value, help, onChange }: { 
       </span>
       <small>{help}</small>
     </label>
+  )
+}
+
+type DebtDraft = {
+  label: string
+  debt_type: DebtType
+  balance: string
+  minimum_payment: string
+  interest_rate_percent: string
+}
+
+const emptyDebtDraft: DebtDraft = {
+  label: '',
+  debt_type: 'credit_card',
+  balance: '',
+  minimum_payment: '',
+  interest_rate_percent: '',
+}
+
+function debtDraftFor(debt: DebtRecord): DebtDraft {
+  return {
+    label: debt.label,
+    debt_type: debt.debt_type,
+    balance: String(debt.balance),
+    minimum_payment: String(debt.minimum_payment),
+    interest_rate_percent: debt.interest_rate_percent === null ? '' : String(debt.interest_rate_percent),
+  }
+}
+
+function DebtManager({ debts, onChanged }: { debts: DebtRecord[]; onChanged: () => Promise<void> }) {
+  const [editingId, setEditingId] = useState<number | 'new' | null>(null)
+  const [draft, setDraft] = useState<DebtDraft>(emptyDebtDraft)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<number | null>(null)
+  const totalBalance = sumMoney(debts.map((debt) => debt.balance))
+  const totalMinimum = sumMoney(debts.map((debt) => debt.minimum_payment))
+
+  function beginCreate() {
+    setDraft(emptyDebtDraft)
+    setEditingId('new')
+    setDeletingId(null)
+    setError(null)
+  }
+
+  function beginEdit(debt: DebtRecord) {
+    setDraft(debtDraftFor(debt))
+    setEditingId(debt.id)
+    setDeletingId(null)
+    setError(null)
+  }
+
+  function cancelEdit() {
+    setEditingId(null)
+    setDeletingId(null)
+    setError(null)
+  }
+
+  async function saveDebt(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (saving) return
+    const label = draft.label.trim()
+    const balance = Number(draft.balance)
+    const minimumPayment = Number(draft.minimum_payment)
+    const apr = draft.interest_rate_percent.trim() === '' ? null : Number(draft.interest_rate_percent)
+    if (!label) {
+      setError('Give this debt a short name, such as Visa or Auto loan.')
+      return
+    }
+    if (![balance, minimumPayment].every((value) => Number.isFinite(value) && value >= 0) || (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 999.99))) {
+      setError('Enter non-negative numbers for the balance, minimum, and APR.')
+      return
+    }
+
+    const values: DebtInput = {
+      label,
+      debt_type: draft.debt_type,
+      balance,
+      minimum_payment: minimumPayment,
+      interest_rate_percent: apr,
+    }
+    setSaving(true)
+    setError(null)
+    try {
+      if (editingId === 'new') await createDebt(values)
+      else if (typeof editingId === 'number') await updateDebt(editingId, values)
+      setEditingId(null)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'This debt could not be saved. Try again.')
+      setSaving(false)
+      return
+    }
+    try {
+      await onChanged()
+    } catch (caught) {
+      setError(caught instanceof Error ? `The debt was saved, but the latest workspace could not be loaded: ${caught.message}` : 'The debt was saved, but the latest workspace could not be loaded. Refresh the page.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function removeDebt(debt: DebtRecord) {
+    if (deletingId !== debt.id) {
+      setDeletingId(debt.id)
+      setError(null)
+      return
+    }
+    setSaving(true)
+    try {
+      await deleteDebt(debt.id)
+      cancelEdit()
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'This debt could not be removed. Try again.')
+      setSaving(false)
+      return
+    }
+    try {
+      await onChanged()
+    } catch (caught) {
+      setError(caught instanceof Error ? `The debt was removed, but the latest workspace could not be loaded: ${caught.message}` : 'The debt was removed, but the latest workspace could not be loaded. Refresh the page.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <article className="panel debt-manager">
+      <div className="row-between debt-manager-heading">
+        <div>
+          <p className="eyebrow">Debt plan</p>
+          <h3>Give Mia the details that change the strategy.</h3>
+          <p>Add each balance, minimum, and APR. Mia can then compare avalanche and snowball without guessing.</p>
+        </div>
+        {editingId === null && <button type="button" onClick={beginCreate}>Add a debt</button>}
+      </div>
+
+      <div className="debt-summary" aria-label="Debt totals">
+        <span><small>Total balance</small><strong>{currency.format(totalBalance)}</strong></span>
+        <span><small>Monthly minimums</small><strong>{currency.format(totalMinimum)}</strong></span>
+        <span><small>Debts entered</small><strong>{debts.length}</strong></span>
+      </div>
+
+      {debts.length === 0 && editingId === null && (
+        <div className="debt-empty"><strong>No individual debts entered yet.</strong><p>Add the first one now, or upload a budget and review Mia's draft before applying it.</p></div>
+      )}
+
+      {debts.length > 0 && (
+        <div className="debt-list">
+          {debts.map((debt) => (
+            <div className="debt-row" key={debt.id}>
+              <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)}{debt.interest_rate_percent === null ? ' · APR needed' : ` · ${debt.interest_rate_percent}% APR`}</span></div>
+              <div><strong>{currency.format(debt.balance)}</strong><span>{currency.format(debt.minimum_payment)} minimum</span></div>
+              <div className="debt-row-actions">
+                <button type="button" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button>
+                <button type="button" className={deletingId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void removeDebt(debt)}>
+                  {deletingId === debt.id ? 'Confirm remove' : 'Remove'}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {editingId !== null && (
+        <form className="debt-form" onSubmit={saveDebt}>
+          <div className="debt-form-grid">
+            <label className="setup-field text-wide"><span>Debt name</span><input autoFocus value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
+            <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps Mia explain the tradeoffs clearly.</small></label>
+            <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="0.00" /></span><small>Use the latest statement balance.</small></label>
+            <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="0.00" /></span><small>The amount required to stay current.</small></label>
+            <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Optional" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
+          </div>
+          {error && <p className="setup-error" role="alert">{error}</p>}
+          <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
+        </form>
+      )}
+      {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
+      <p className="debt-privacy-note">Household CFO uses these approved records for education and planning. It does not move money, contact lenders, or make payments.</p>
+    </article>
   )
 }
 

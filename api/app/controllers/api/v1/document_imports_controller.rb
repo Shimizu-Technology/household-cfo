@@ -1,12 +1,14 @@
 require "digest"
+require "base64"
 require "marcel"
+require "tempfile"
 require "zip"
 
 module Api
   module V1
     class DocumentImportsController < BaseController
       before_action :authenticate_user!
-      before_action :require_writable_household!, only: %i[create destroy reprocess apply destroy_source]
+      before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
 
       MAX_UPLOAD_BYTES = 20.megabytes
@@ -74,6 +76,86 @@ module Api
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       rescue ActiveRecord::RecordNotDestroyed
         render json: { errors: [ "Could not clean up failed document import" ] }, status: :internal_server_error
+      end
+
+      def presign
+        return render_s3_not_configured unless S3Service.configured?
+
+        metadata = direct_upload_metadata
+        validation_error = direct_upload_validation_error(metadata)
+        return render json: { errors: [ validation_error ] }, status: :unprocessable_entity if validation_error
+
+        s3_key = S3Service.namespaced_key(
+          "households",
+          current_household.id,
+          "documents",
+          SecureRandom.uuid,
+          metadata.fetch(:filename)
+        )
+        upload = S3Service.presigned_upload(
+          s3_key,
+          content_type: metadata.fetch(:content_type),
+          checksum_sha256: metadata.fetch(:checksum_sha256)
+        )
+        return render json: { errors: [ "Could not prepare private document upload" ] }, status: :service_unavailable unless upload
+
+        token = direct_upload_verifier.generate(
+          metadata.merge(s3_key: s3_key, household_id: current_household.id, user_id: current_user.id),
+          expires_in: 15.minutes
+        )
+        render json: {
+          upload_url: upload.fetch(:url),
+          upload_headers: upload.fetch(:headers),
+          upload_token: token,
+          expires_in: upload.fetch(:expires_in)
+        }
+      rescue S3Service::MissingConfigurationError
+        render_s3_not_configured
+      end
+
+      def complete
+        return render_s3_not_configured unless S3Service.configured?
+
+        metadata = direct_upload_verifier.verify(params.require(:upload_token)).deep_symbolize_keys
+        unless metadata[:household_id].to_i == current_household.id && metadata[:user_id].to_i == current_user.id
+          return render json: { errors: [ "This upload does not belong to this workspace" ] }, status: :forbidden
+        end
+
+        existing_import = completed_direct_upload(metadata)
+        return render_completed_direct_upload(existing_import) if existing_import
+
+        object = S3Service.object_metadata(metadata.fetch(:s3_key))
+        object_valid = valid_direct_upload_object?(object, metadata)
+        outcome = register_completed_direct_upload(metadata, object, object_valid: object_valid)
+        case outcome.fetch(:status)
+        when :existing
+          render_completed_direct_upload(outcome.fetch(:document_import))
+        when :invalid_object
+          render json: { errors: [ "The private upload was incomplete. Choose the file and try again." ] }, status: :unprocessable_entity
+        when :duplicate_file
+          render json: { errors: [ "This exact file is already uploaded and still waiting for review. Remove the duplicate attachment or finish the existing import before uploading it again." ] }, status: :unprocessable_entity
+        when :created
+          document_import = outcome.fetch(:document_import)
+          FinancialDocumentExtractionJob.perform_later(document_import.id)
+          render json: { document_import: serialize_document_import(document_import.reload) }, status: :created
+        end
+      rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
+        render json: { errors: [ "The private upload expired. Choose the file and try again." ] }, status: :unprocessable_entity
+      rescue Aws::S3::Errors::ServiceError => e
+        Rails.logger.warn("[DocumentImportsController] direct upload verification unavailable: #{e.class}")
+        render json: { errors: [ "Private storage could not verify the upload yet. Wait a moment and try again." ] }, status: :service_unavailable
+      rescue ActiveRecord::RecordNotUnique
+        existing_import = with_direct_upload_key_lock(metadata.fetch(:s3_key)) { completed_direct_upload(metadata) }
+        if existing_import
+          render_completed_direct_upload(existing_import)
+        else
+          render json: { errors: [ "Could not safely register the private upload. Choose the file and try again." ] }, status: :conflict
+        end
+      rescue S3Service::MissingConfigurationError
+        render_s3_not_configured
+      rescue ActiveRecord::RecordInvalid => e
+        delete_unregistered_direct_upload!(metadata[:s3_key]) if defined?(metadata) && metadata&.dig(:s3_key)
+        render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       end
 
       def destroy
@@ -240,6 +322,150 @@ module Api
 
       def valid_upload_param?(file)
         file.respond_to?(:tempfile) && file.respond_to?(:original_filename)
+      end
+
+      def direct_upload_metadata
+        filename = S3Service.safe_filename(File.basename(params[:filename].to_s), fallback: "upload")
+        document_kind = params[:document_kind].to_s.presence_in(FinancialDocumentImport::DOCUMENT_KINDS) || inferred_document_kind(filename)
+        {
+          filename: filename,
+          content_type: params[:content_type].to_s,
+          byte_size: params[:byte_size].to_i,
+          checksum_sha256: params[:checksum_sha256].to_s.match?(/\A[0-9a-f]{64}\z/i) ? params[:checksum_sha256].to_s.downcase : nil,
+          document_kind: document_kind,
+          metadata: {
+            "original_filename" => params[:filename].to_s,
+            "upload_request_id" => params[:upload_request_id].to_s.presence,
+            "upload_origin" => params[:upload_origin].to_s.presence_in(%w[profile mia]),
+            "upload_context" => sanitized_upload_context,
+            "declared_document_kind" => document_kind,
+            "document_kind_explicit" => ActiveModel::Type::Boolean.new.cast(params[:document_kind_explicit])
+          }.compact
+        }
+      end
+
+      def direct_upload_validation_error(metadata)
+        extension = File.extname(metadata.fetch(:filename)).downcase
+        return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
+        return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
+        return "Uploaded file is empty" unless metadata.fetch(:byte_size).positive?
+        return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if metadata.fetch(:byte_size) > MAX_UPLOAD_BYTES
+        return "Could not verify the file before upload. Refresh the page and try again." if metadata[:checksum_sha256].blank?
+
+        allowed = ALLOWED_CONTENT_TYPES_BY_EXTENSION.fetch(extension)
+        "File contents do not match the #{extension.delete_prefix('.').upcase} upload type" unless metadata.fetch(:content_type).in?(allowed)
+      end
+
+      def valid_direct_upload_object?(object, metadata)
+        return false unless object
+        return false unless object.fetch(:byte_size).to_i == metadata.fetch(:byte_size).to_i
+        return false unless object[:content_type].to_s == metadata.fetch(:content_type)
+        return false unless object[:server_side_encryption].to_s == "AES256"
+
+        expected_checksum = Base64.strict_encode64([ metadata.fetch(:checksum_sha256) ].pack("H*"))
+        return false unless ActiveSupport::SecurityUtils.secure_compare(object[:checksum_sha256].to_s, expected_checksum)
+
+        direct_upload_file_format_valid?(metadata)
+      end
+
+      def direct_upload_file_format_valid?(metadata)
+        extension = File.extname(metadata.fetch(:filename)).downcase
+        Tempfile.create([ "direct-document-upload", extension ]) do |file|
+          S3Service.download_to_io!(metadata.fetch(:s3_key), file)
+          file.rewind
+          detected_type = Marcel::MimeType.for(Pathname(file.path), name: metadata.fetch(:filename))
+          return false unless detected_type.in?(ALLOWED_CONTENT_TYPES_BY_EXTENSION.fetch(extension))
+          return valid_ooxml_package?(file.path, extension) if extension.in?(%w[.docx .xlsx])
+
+          true
+        end
+      end
+
+      def completed_direct_upload(metadata)
+        current_household.financial_document_imports.find_by(
+          s3_key: metadata.fetch(:s3_key),
+          uploaded_by_user_id: current_user.id,
+          checksum_sha256: metadata.fetch(:checksum_sha256)
+        )
+      end
+
+      def register_completed_direct_upload(metadata, object, object_valid:)
+        s3_key = metadata.fetch(:s3_key)
+        with_direct_upload_key_lock(s3_key) do
+          existing_import = completed_direct_upload(metadata)
+          next({ status: :existing, document_import: existing_import }) if existing_import
+
+          unless object_valid
+            delete_direct_upload_object_unless_registered(s3_key) if object
+            next({ status: :invalid_object })
+          end
+
+          document_import = FinancialDocumentImport.new(
+            household: current_household,
+            uploaded_by_user: current_user,
+            document_kind: metadata.fetch(:document_kind),
+            status: "uploaded",
+            filename: metadata.fetch(:filename),
+            content_type: metadata.fetch(:content_type),
+            byte_size: metadata.fetch(:byte_size),
+            checksum_sha256: metadata[:checksum_sha256],
+            s3_key: s3_key,
+            metadata: metadata.fetch(:metadata, {}).merge("direct_to_s3" => true, "s3_etag" => object[:etag]).compact
+          )
+          if duplicate_active_import?(document_import)
+            delete_direct_upload_object_unless_registered(s3_key)
+            next({ status: :duplicate_file })
+          end
+
+          document_import.save!
+          { status: :created, document_import: document_import }
+        end
+      end
+
+      def render_completed_direct_upload(document_import)
+        FinancialDocumentExtractionJob.perform_later(document_import.id) if document_import.status == "uploaded"
+        render json: { document_import: serialize_document_import(document_import) }, status: :ok
+      end
+
+      def with_direct_upload_key_lock(s3_key)
+        ApplicationRecord.transaction(requires_new: true) do
+          first_key, second_key = Digest::SHA256.digest(s3_key).unpack("l>2")
+          integer_type = ActiveRecord::Type::Integer.new
+          binds = [
+            ActiveRecord::Relation::QueryAttribute.new("first_key", first_key, integer_type),
+            ActiveRecord::Relation::QueryAttribute.new("second_key", second_key, integer_type)
+          ]
+          ApplicationRecord.connection.exec_query(
+            "SELECT pg_advisory_xact_lock($1, $2)",
+            "Direct upload key lock",
+            binds
+          )
+          yield
+        end
+      end
+
+      def delete_unregistered_direct_upload!(s3_key)
+        with_direct_upload_key_lock(s3_key) { delete_direct_upload_object_unless_registered(s3_key) }
+      end
+
+      def delete_direct_upload_object_unless_registered(s3_key)
+        return false if FinancialDocumentImport.where(s3_key: s3_key).exists?
+
+        S3Service.delete(s3_key)
+      end
+
+      def inferred_document_kind(filename)
+        extension = File.extname(filename).downcase
+        return "spreadsheet" if extension.in?(%w[.csv .xls .xlsx])
+        return "statement" if extension == ".pdf"
+        return "other" if extension == ".docx"
+        return "receipt" if extension.in?(%w[.jpg .jpeg .png .webp .heic .heif])
+
+        "other"
+      end
+
+      def direct_upload_verifier
+        Rails.application.message_verifier(:financial_document_direct_upload)
       end
 
       def upload_validation_error(file)
@@ -454,6 +680,7 @@ module Api
           balance_cents: item.balance_cents,
           payment: dollars_or_nil(item.payment_cents),
           payment_cents: item.payment_cents,
+          interest_rate_percent: item.interest_rate_percent&.to_f,
           cadence: item.cadence,
           source_type: item.source_type,
           stack_key: item.stack_key,

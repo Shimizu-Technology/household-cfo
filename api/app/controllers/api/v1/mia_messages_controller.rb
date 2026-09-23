@@ -12,6 +12,7 @@ module Api
       end
 
       def create
+        @mia_request_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         content = params[:message].to_s.strip
         attached_imports = attached_document_imports
         content = "Please review this upload." if content.blank? && attached_imports.any?
@@ -25,6 +26,7 @@ module Api
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
         history = transcript.map { |message| message.slice(:role, :content) }
+        @mia_conversation_messages = history
         return render_attached_document_response(session, content, attached_imports, message_request: message_request) if attached_imports.any?
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
@@ -117,9 +119,11 @@ module Api
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: attached_imports, transaction_draft: transaction_draft, mia_action_draft: mia_action_draft)
         render json: response_payload, status: :created
       rescue StandardError => error
         fail_active_message_request(error)
+        record_mia_operation("mia.request.failed", error_code: error.class.name)
         raise
       end
 
@@ -164,7 +168,10 @@ module Api
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(role: "assistant", content: assistant_content)
+            session.chat_messages.create!(
+              role: "assistant",
+              content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…")
+            )
           ]
         end
         compact_conversation(session, user_message, assistant_message)
@@ -178,6 +185,7 @@ module Api
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: processed_imports)
         render json: response_payload, status: :created
       end
 
@@ -277,7 +285,10 @@ module Api
         ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(role: "assistant", content: assistant_content)
+            session.chat_messages.create!(
+              role: "assistant",
+              content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…")
+            )
           ]
         end
       end
@@ -568,7 +579,8 @@ module Api
               current_household,
               resolved_content,
               annual_budget_manager: budget_manager,
-              reference_month: budget_month_param
+              reference_month: budget_month_param,
+              conversation_messages: @mia_conversation_messages
             )
             coach_answer = coach_answerer.call
             annual_plan = coach_answerer.prepared_annual_plan || annual_plan
@@ -629,7 +641,8 @@ module Api
               current_household,
               resolved_content,
               annual_budget_manager: annual_budget_manager,
-              reference_month: budget_month_param
+              reference_month: budget_month_param,
+              conversation_messages: @mia_conversation_messages
             )
             coach_answer = coach_answerer.call
             annual_plan = coach_answerer.prepared_annual_plan || annual_plan
@@ -695,7 +708,8 @@ module Api
           current_household,
           routed_content,
           annual_budget_manager: annual_budget_manager,
-          reference_month: budget_month_param
+          reference_month: budget_month_param,
+          conversation_messages: @mia_conversation_messages
         )
         coach_answer = (pending_draft_answer || transaction_lookup_answer || action_result) ? nil : followup.direct_answer || coach_answerer.call
         transaction_lookup_answer ||= (coach_answer || pending_draft_answer || action_result) ? nil : HouseholdFinance::TransactionLookupAnswerer.new(current_household, routed_content).call
@@ -1098,6 +1112,27 @@ module Api
           unique_by: :index_chat_sessions_on_household_id_and_user_id
         )
         current_household.chat_sessions.find_by!(user: current_user)
+      end
+
+      def record_mia_operation(event_type, assistant_message: nil, attached_imports: [], transaction_draft: nil, mia_action_draft: nil, error_code: nil)
+        started_at = @mia_request_started_at || Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        duration_ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round
+        current_household.household_audit_events.create!(
+          user: current_user,
+          actor_type: "system",
+          event_type: event_type,
+          occurred_at: Time.current,
+          metadata: {
+            duration_ms: duration_ms,
+            assistant_characters: assistant_message&.content.to_s.length,
+            attachment_count: Array(attached_imports).length,
+            created_transaction_draft: transaction_draft.present?,
+            created_action_draft: mia_action_draft.present?,
+            error_code: error_code
+          }.compact
+        )
+      rescue StandardError => telemetry_error
+        Rails.logger.warn("Mia operation telemetry could not be saved: #{telemetry_error.class}")
       end
     end
   end

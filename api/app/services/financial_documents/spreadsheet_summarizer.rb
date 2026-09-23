@@ -55,7 +55,17 @@ module FinancialDocuments
         values = (1..last_column).map { |column_number| clean_cell(spreadsheet.cell(row_number, column_number)) }
         next if values.all?(&:blank?)
 
-        rows << { row: row_number, values: values }
+        cell_types = if spreadsheet.respond_to?(:celltype)
+          (1..last_column).map { |column_number| spreadsheet.celltype(row_number, column_number) }
+        else
+          []
+        end
+        cell_formats = if spreadsheet.respond_to?(:excelx_format)
+          (1..last_column).map { |column_number| spreadsheet.excelx_format(row_number, column_number) }
+        else
+          []
+        end
+        rows << { row: row_number, values: values, cell_types: cell_types, cell_formats: cell_formats }
       end
 
       return nil if rows.empty?

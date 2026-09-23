@@ -1,4 +1,5 @@
 require "test_helper"
+require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
   test "extracts Household CFO Excel template rows without AI" do
@@ -18,6 +19,18 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal "credit_card", debt.fetch(:debt_type)
     assert_equal 3400_00, debt.fetch(:balance_cents)
     assert_equal 175_00, debt.fetch(:payment_cents)
+  end
+
+  test "extracts an XLSX percentage-formatted APR as the displayed percentage" do
+    file = percentage_apr_xlsx
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "percentage-apr.xlsx").call
+
+    assert result.success?, result.error
+    debt = result.data.fetch(:items).find { |item| item[:label] == "Visa card" }
+    assert_equal BigDecimal("24.99"), debt.fetch(:interest_rate_percent)
+  ensure
+    file&.close!
   end
 
   test "skips non-finite spreadsheet amounts without failing whole extraction" do
@@ -265,9 +278,9 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
   test "keeps balance headers available for approved Household CFO setup rows" do
     file = Tempfile.new([ "household-balances", ".csv" ])
     file.write(<<~CSV)
-      type,label,balance,cadence,category,payment
+      type,label,balance,cadence,category,payment,apr
       account,Emergency fund,5000,monthly,emergency_fund,
-      debt,Visa card,3400,monthly,credit_card,175
+      debt,Visa card,3400,monthly,credit_card,175,24.99%
     CSV
     file.rewind
 
@@ -278,6 +291,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal 500_000, items.fetch("Emergency fund").fetch(:balance_cents)
     assert_equal 340_000, items.fetch("Visa card").fetch(:balance_cents)
     assert_equal 17_500, items.fetch("Visa card").fetch(:payment_cents)
+    assert_equal BigDecimal("24.99"), items.fetch("Visa card").fetch(:interest_rate_percent)
     assert_empty result.data.fetch(:transaction_drafts)
   ensure
     file&.close!
@@ -390,6 +404,92 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
   end
 
   private
+
+  def percentage_apr_xlsx
+    file = Tempfile.new([ "percentage-apr", ".xlsx" ])
+    file.close
+    Zip::File.open(file.path, create: true) do |zip|
+      zip.get_output_stream("[Content_Types].xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+            <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+            <Default Extension="xml" ContentType="application/xml"/>
+            <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+            <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+            <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+          </Types>
+        XML
+      end
+      zip.get_output_stream("_rels/.rels") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+          </Relationships>
+        XML
+      end
+      zip.get_output_stream("xl/workbook.xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+            <sheets><sheet name="Budget" sheetId="1" r:id="rId1"/></sheets>
+          </workbook>
+        XML
+      end
+      zip.get_output_stream("xl/_rels/workbook.xml.rels") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+            <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+            <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+          </Relationships>
+        XML
+      end
+      zip.get_output_stream("xl/styles.xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+            <fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts>
+            <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+            <borders count="1"><border/></borders>
+            <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+            <cellXfs count="2">
+              <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
+              <xf numFmtId="10" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>
+            </cellXfs>
+          </styleSheet>
+        XML
+      end
+      zip.get_output_stream("xl/worksheets/sheet1.xml") do |stream|
+        stream.write <<~XML
+          <?xml version="1.0" encoding="UTF-8"?>
+          <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+            <sheetData>
+              <row r="1">
+                <c r="A1" t="inlineStr"><is><t>type</t></is></c>
+                <c r="B1" t="inlineStr"><is><t>label</t></is></c>
+                <c r="C1" t="inlineStr"><is><t>balance</t></is></c>
+                <c r="D1" t="inlineStr"><is><t>payment</t></is></c>
+                <c r="E1" t="inlineStr"><is><t>apr</t></is></c>
+                <c r="F1" t="inlineStr"><is><t>category</t></is></c>
+              </row>
+              <row r="2">
+                <c r="A2" t="inlineStr"><is><t>debt</t></is></c>
+                <c r="B2" t="inlineStr"><is><t>Visa card</t></is></c>
+                <c r="C2"><v>3400</v></c>
+                <c r="D2"><v>175</v></c>
+                <c r="E2" s="1"><v>0.2499</v></c>
+                <c r="F2" t="inlineStr"><is><t>credit_card</t></is></c>
+              </row>
+            </sheetData>
+          </worksheet>
+        XML
+      end
+    end
+    file.open
+    file
+  end
 
   def with_s3_download(contents)
     singleton = class << S3Service; self; end

@@ -30,6 +30,10 @@ module FinancialDocuments
       "minimum payment" => "payment",
       "debt_payment" => "payment",
       "debt payment" => "payment",
+      "interest rate" => "apr",
+      "interest_rate" => "apr",
+      "interest_rate_percent" => "apr",
+      "apr %" => "apr",
       "type/category" => "category",
       "category_name" => "category"
     }.freeze
@@ -108,7 +112,7 @@ module FinancialDocuments
         header_map = header_map_for(header_row[:values])
         skip_transaction_like_rows = transaction_header?(header_row[:values])
         rows.drop_while { |row| row[:row] <= header_row[:row] }.filter_map do |row|
-          item_from_row(row[:values], header_map, skip_transaction_like: skip_transaction_like_rows)
+          item_from_row(row[:values], header_map, cell_types: row[:cell_types], cell_formats: row[:cell_formats], skip_transaction_like: skip_transaction_like_rows)
         end
       end.first(Extractor::MAX_ITEMS)
     end
@@ -244,7 +248,7 @@ module FinancialDocuments
         direction.end_with?("_credit")
     end
 
-    def item_from_row(values, header_map, skip_transaction_like: false)
+    def item_from_row(values, header_map, cell_types: nil, cell_formats: nil, skip_transaction_like: false)
       return if skip_transaction_like && transaction_like_row?(values, header_map)
 
       type = target_type(cell(values, header_map, "type"))
@@ -259,11 +263,19 @@ module FinancialDocuments
       cadence = normalized_cadence(cell(values, header_map, "cadence"))
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
       payment_cents = payment_cents_for(cell(values, header_map, "payment"), notes)
+      apr_index = header_map["apr"]
+      interest_rate_percent = interest_rate_percent_for(
+        cell(values, header_map, "apr"),
+        notes,
+        percentage_formatted: apr_index.present? && (
+          Array(cell_types)[apr_index] == :percentage || Array(cell_formats)[apr_index].to_s.include?("%")
+        )
+      )
 
-      build_item(type, label, amount_cents, category, cadence, notes, payment_cents)
+      build_item(type, label, amount_cents, category, cadence, notes, payment_cents, interest_rate_percent)
     end
 
-    def build_item(type, label, amount_cents, category, cadence, notes, payment_cents)
+    def build_item(type, label, amount_cents, category, cadence, notes, payment_cents, interest_rate_percent)
       case type
       when "income_source"
         return if amount_cents.blank?
@@ -280,7 +292,7 @@ module FinancialDocuments
       when "debt"
         return if amount_cents.blank? && payment_cents.blank?
 
-        base_item(type, label, nil, cadence, notes).merge(balance_cents: amount_cents, payment_cents: payment_cents, debt_type: debt_type(category, label))
+        base_item(type, label, nil, cadence, notes).merge(balance_cents: amount_cents, payment_cents: payment_cents, interest_rate_percent: interest_rate_percent, debt_type: debt_type(category, label))
       when "goal"
         return if amount_cents.blank?
 
@@ -297,6 +309,7 @@ module FinancialDocuments
         amount_cents: amount_cents,
         balance_cents: nil,
         payment_cents: nil,
+        interest_rate_percent: nil,
         cadence: cadence,
         source_type: nil,
         stack_key: nil,
@@ -427,6 +440,17 @@ module FinancialDocuments
 
       match = notes.to_s.match(/(?:minimum\s+payment|min\s+payment|payment)\D{0,20}(\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?)/i)
       money_cents(match[1], negative_as_magnitude: true) if match
+    end
+
+    def interest_rate_percent_for(value, notes, percentage_formatted: false)
+      raw = value.presence || notes.to_s[/\b(?:APR|interest rate)\D{0,12}(\d+(?:\.\d{1,2})?)\s*%?/i, 1]
+      return if raw.blank?
+
+      number = BigDecimal(raw.to_s.delete_suffix("%").strip)
+      number *= 100 if value.present? && percentage_formatted
+      number if number.finite? && number.between?(0, BigDecimal("999.99"))
+    rescue ArgumentError
+      nil
     end
 
     def parsed_date(value)
