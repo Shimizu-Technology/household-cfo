@@ -125,7 +125,7 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
   test "does not treat paying down debt as a temporary income reduction" do
     answer = HouseholdFinance::DebtStrategyPlanner.new(
       @household,
-      "I can pay down $300 on my debt this month. Give me a concrete debt plan."
+      "I am paying down $300 on my debt this month. Give me a concrete debt plan."
     ).call
 
     refute_includes answer, "temporary monthly income drop"
@@ -138,6 +138,31 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     ).call
 
     assert_includes answer, "$300 temporary monthly income drop for two months"
+  end
+
+  test "recognizes a direct plan request after recent debt context" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "What should I do?",
+      conversation_messages: [
+        { role: "user", content: "Help me compare my credit card debt using avalanche and snowball." }
+      ]
+    ).call
+
+    assert_includes answer, "Avalanche:"
+    assert_includes answer, "Snowball:"
+  end
+
+  test "does not treat a direct question about an unrelated topic as a debt followup" do
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "What should I do about car registration next month?",
+      conversation_messages: [
+        { role: "user", content: "Help me compare my credit card debt using avalanche and snowball." }
+      ]
+    ).call
+
+    assert_nil answer
   end
 
   test "does not double count a repeated scenario debt when the participant changes the qualifier" do

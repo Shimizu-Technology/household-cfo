@@ -111,6 +111,28 @@ class HouseholdFinanceMiaProviderAdmissionTest < ActiveSupport::TestCase
     assert_equal 0, attempts
   end
 
+  test "releases a slot acquired after the admission deadline without calling the provider" do
+    fake_pool = Class.new do
+      def with_connection
+        yield Object.new
+      end
+    end.new
+    admission = HouseholdFinance::MiaProviderAdmission.new(
+      provider: "late-slot-#{SecureRandom.hex(6)}",
+      limit: 1,
+      wait_ms: 40,
+      connection_pool: fake_pool
+    )
+    times = [ 0.0, 0.01, 0.05, 0.05, 0.05 ]
+    released_slots = []
+    admission.define_singleton_method(:monotonic_time) { times.shift || 0.05 }
+    admission.define_singleton_method(:acquire) { |_connection| 1 }
+    admission.define_singleton_method(:release) { |_connection, slot| released_slots << slot }
+
+    assert_nil admission.call { flunk("late admission must not run the provider block") }
+    assert_equal [ 1 ], released_slots
+  end
+
   test "falls back after the bounded wait without invoking the provider" do
     admission = HouseholdFinance::MiaProviderAdmission.new(provider: "deadline-#{SecureRandom.hex(6)}", limit: 1, wait_ms: 120)
     admission.define_singleton_method(:acquire) { |_connection| nil }

@@ -31,13 +31,15 @@ module HouseholdFinance
           next if wait_ms.positive? && monotonic_time >= deadline
 
           slot = acquire(connection)
-          if slot
+          if slot && (wait_ms.zero? || monotonic_time < deadline)
             instrument(admitted: true, waited_ms: elapsed_ms(started_at))
             begin
               return yield
             ensure
               release(connection, slot)
             end
+          elsif slot
+            release(connection, slot)
           end
         end
 
