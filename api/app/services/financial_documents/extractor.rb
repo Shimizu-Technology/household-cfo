@@ -282,7 +282,7 @@ module FinancialDocuments
         Return one JSON object with keys: document_kind, document_date, period_start_on, period_end_on, summary, confidence, warnings, items, transaction_drafts.
         Use items for durable household setup facts like income, debts, accounts, monthly budget values, and profile notes.
         Use transaction_drafts for receipt/photo/statement/screenshot transaction rows that should become actuals only after the participant confirms them.
-        Each item must include: target_type, label, amount, balance, payment, cadence, source_type, stack_key, account_type, debt_type, confidence, evidence, metadata.
+        Each item must include: target_type, label, amount, balance, payment, interest_rate_percent, cadence, source_type, stack_key, account_type, debt_type, confidence, evidence, metadata. For debts, interest_rate_percent is the APR as a number such as 28.9, not 0.289.
         Each transaction_draft must include occurred_on, merchant, total_amount, and splits. It may include source_type, category_name, stack_key, confidence, evidence, raw_description, external_id, and warnings when known; omit unknown optional fields to keep large statements compact.
         Each transaction split must include amount. It may include category_name, stack_key, notes, and confidence when known. Use an active budget category name exactly only when the line-item evidence supports it. Otherwise preserve a concise extracted label or null category_name and use low confidence; the participant will choose the category during review.
         For receipts/photos, create one transaction_draft and split it when line items clearly belong in different categories, for example groceries plus cigarettes. Categorize each split from its own line items; never apply the merchant's usual category to every split merely because the merchant is a grocery store or market.
@@ -423,6 +423,7 @@ module FinancialDocuments
         amount_cents: cents_or_nil(item["amount"]),
         balance_cents: cents_or_nil(item["balance"]),
         payment_cents: cents_or_nil(item["payment"]),
+        interest_rate_percent: percentage_or_nil(item["interest_rate_percent"]),
         cadence: normalized_value(item["cadence"], IncomeSource::CADENCES, fallback: "monthly"),
         source_type: normalized_value(item["source_type"], IncomeSource::SOURCE_TYPES, fallback: "other"),
         stack_key: normalized_value(item["stack_key"], ExpenseItem::STACK_KEYS, fallback: "discretionary"),
@@ -438,6 +439,15 @@ module FinancialDocuments
       return nil unless valid_item_value?(target_type, normalized)
 
       normalized
+    end
+
+    def percentage_or_nil(value)
+      return if value.blank?
+
+      number = BigDecimal(value.to_s.delete_suffix("%").strip)
+      number if number.finite? && number.between?(0, BigDecimal("999.99"))
+    rescue ArgumentError
+      nil
     end
 
     def normalize_transaction_draft(raw_draft, document_import)

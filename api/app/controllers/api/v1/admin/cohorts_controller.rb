@@ -59,6 +59,7 @@ module Api
         def serialize_cohort(cohort, include_members: false, setup_complete_count: nil)
           memberships = memberships_with_users(cohort)
           member_users = memberships.map(&:user)
+          participant_users = memberships.select { |membership| membership.role == "participant" }.map(&:user)
           progress_by_user_id = include_members ? HouseholdFinance::PilotProgressBatchBuilder.new(member_users).call : {}
           setup_complete_count ||= progress_by_user_id.values.count { |progress| progress.fetch(:setup_complete) }
           participant_count = memberships.count { |membership| membership.role == "participant" }
@@ -75,6 +76,7 @@ module Api
             participant_count: participant_count,
             staff_count: staff_count,
             setup_complete_count: setup_complete_count,
+            operational_summary: operational_summary(cohort, participant_users),
             created_at: cohort.created_at,
             updated_at: cohort.updated_at,
             created_by: {
@@ -119,6 +121,29 @@ module Api
 
         def memberships_with_users(cohort)
           cohort.cohort_memberships.to_a.select { |membership| membership.user.present? }
+        end
+
+        def operational_summary(cohort, users)
+          household_ids = HouseholdMembership.where(user_id: users.map(&:id)).distinct.pluck(:household_id)
+          since = 7.days.ago
+          events = HouseholdAuditEvent.where(household_id: household_ids, occurred_at: since..)
+          completed = events.where(event_type: "mia.request.completed")
+          durations = completed.pluck(:metadata).filter_map do |metadata|
+            Integer(metadata.to_h["duration_ms"], exception: false)
+          end
+          imports = FinancialDocumentImport.where(household_id: household_ids, created_at: since..)
+          {
+            period_days: 7,
+            mia_requests: completed.count,
+            mia_failures: events.where(event_type: "mia.request.failed").count,
+            average_mia_latency_ms: durations.any? ? (durations.sum.to_f / durations.length).round : nil,
+            uploads: imports.count,
+            upload_failures: imports.where(status: "failed").count,
+            participants_active: events.where(user_id: users.map(&:id)).distinct.count(:user_id)
+          }
+        rescue ActiveRecord::StatementInvalid => e
+          Rails.logger.warn("Cohort operational summary unavailable cohort_id=#{cohort.id}: #{e.class}")
+          { period_days: 7, mia_requests: 0, mia_failures: 0, average_mia_latency_ms: nil, uploads: 0, upload_failures: 0, participants_active: 0 }
         end
 
         def render_not_found(error)

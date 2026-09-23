@@ -45,6 +45,7 @@ module Api
           :amount,
           :balance,
           :payment,
+          :interest_rate_percent,
           :cadence,
           :source_type,
           :stack_key,
@@ -75,6 +76,7 @@ module Api
         attributes[:amount_cents] = parsed_money(raw_attributes[:amount], "Amount") if raw_attributes.key?(:amount)
         attributes[:balance_cents] = parsed_money(raw_attributes[:balance], "Balance") if raw_attributes.key?(:balance)
         attributes[:payment_cents] = parsed_money(raw_attributes[:payment], "Payment") if raw_attributes.key?(:payment)
+        attributes[:interest_rate_percent] = parsed_percentage(raw_attributes[:interest_rate_percent]) if raw_attributes.key?(:interest_rate_percent)
         attributes[:label] = bounded_text(attributes[:label], 120) if attributes.key?(:label)
         attributes[:evidence] = bounded_text(attributes[:evidence], 1000) if attributes.key?(:evidence)
         normalize_selection_flags!(attributes)
@@ -83,6 +85,17 @@ module Api
 
       def parsed_money(value, label)
         HouseholdFinance::Money.cents!(value, message: "#{label} must be a number with no more than two decimal places")
+      end
+
+      def parsed_percentage(value)
+        return nil if value.blank?
+
+        number = BigDecimal(value.to_s)
+        raise ArgumentError, "APR must be between 0 and 999.99" unless number.finite? && number.between?(0, BigDecimal("999.99"))
+
+        number
+      rescue ArgumentError
+        raise ArgumentError, "APR must be between 0 and 999.99"
       end
 
       def normalize_selection_flags!(attributes)
@@ -115,6 +128,7 @@ module Api
           balance_cents: item.balance_cents,
           payment: dollars_or_nil(item.payment_cents),
           payment_cents: item.payment_cents,
+          interest_rate_percent: item.interest_rate_percent&.to_f,
           cadence: item.cadence,
           source_type: item.source_type,
           stack_key: item.stack_key,

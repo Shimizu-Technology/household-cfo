@@ -1,4 +1,5 @@
 require "test_helper"
+require "base64"
 require "marcel"
 require "zip"
 
@@ -62,6 +63,162 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body).fetch("document_import")
     assert_equal true, body.fetch("source_available")
     assert_not body.key?("s3_key")
+  end
+
+  test "direct upload presigns storage and registers only the authorized completed object" do
+    presigned_key = nil
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: lambda { |key, content_type:, **|
+        presigned_key = key
+        { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 }
+      },
+      object_metadata: ->(key) {
+        key == presigned_key ? {
+          byte_size: 32,
+          content_type: "text/csv",
+          checksum_sha256: Base64.strict_encode64([ "a" * 64 ].pack("H*")),
+          etag: "etag-1",
+          server_side_encryption: "AES256"
+        } : nil
+      }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: {
+          filename: "budget.csv",
+          content_type: "text/csv",
+          byte_size: 32,
+          checksum_sha256: "a" * 64,
+          document_kind: "spreadsheet",
+          upload_origin: "profile"
+        },
+        headers: auth_headers(@user),
+        as: :json
+
+      assert_response :success
+      presign_body = JSON.parse(response.body)
+      assert_equal "https://storage.example/upload", presign_body.fetch("upload_url")
+      assert_match %r{households/#{@household.id}/documents/.+/budget\.csv\z}, presigned_key
+
+      assert_difference("FinancialDocumentImport.count", 1) do
+        assert_enqueued_with(job: FinancialDocumentExtractionJob) do
+          post "/api/v1/document_imports/complete",
+            params: { upload_token: presign_body.fetch("upload_token") },
+            headers: auth_headers(@user),
+            as: :json
+        end
+      end
+    end
+
+    assert_response :created
+    document_import = FinancialDocumentImport.last
+    assert_equal presigned_key, document_import.s3_key
+    assert_equal 32, document_import.byte_size
+    assert_equal true, document_import.metadata.fetch("direct_to_s3")
+    assert_not_includes response.body, presigned_key
+  end
+
+  test "direct upload completion is idempotent and never deletes an already registered source" do
+    checksum = "b" * 64
+    checksum_base64 = Base64.strict_encode64([ checksum ].pack("H*"))
+    deleted_keys = []
+    presigned_key = nil
+    token = nil
+
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: lambda { |key, content_type:, checksum_sha256:, **|
+        presigned_key = key
+        assert_equal checksum, checksum_sha256
+        { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 }
+      },
+      object_metadata: ->(_key) {
+        { byte_size: 32, content_type: "text/csv", checksum_sha256: checksum_base64, etag: "etag-2", server_side_encryption: "AES256" }
+      },
+      delete: ->(key) { deleted_keys << key; true }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32, checksum_sha256: checksum, document_kind: "spreadsheet" },
+        headers: auth_headers(@user),
+        as: :json
+      token = JSON.parse(response.body).fetch("upload_token")
+
+      assert_difference("FinancialDocumentImport.count", 1) do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+        assert_response :created
+      end
+
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+        assert_response :success
+      end
+    end
+
+    assert_equal presigned_key, FinancialDocumentImport.last.s3_key
+    assert_empty deleted_keys
+  end
+
+  test "direct upload completion rejects missing or tampered storage objects" do
+    checksum = "c" * 64
+    checksum_base64 = Base64.strict_encode64([ checksum ].pack("H*"))
+    invalid_objects = [
+      nil,
+      { byte_size: 31, content_type: "text/csv", checksum_sha256: checksum_base64, server_side_encryption: "AES256" },
+      { byte_size: 32, content_type: "application/pdf", checksum_sha256: checksum_base64, server_side_encryption: "AES256" },
+      { byte_size: 32, content_type: "text/csv", checksum_sha256: Base64.strict_encode64([ "d" * 64 ].pack("H*")), server_side_encryption: "AES256" },
+      { byte_size: 32, content_type: "text/csv", checksum_sha256: checksum_base64, server_side_encryption: nil }
+    ]
+
+    invalid_objects.each do |invalid_object|
+      deleted_keys = []
+      token = nil
+      with_s3_stubs(
+        configured?: true,
+        presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } },
+        object_metadata: ->(_key) { invalid_object },
+        delete: ->(key) { deleted_keys << key; true }
+      ) do
+        post "/api/v1/document_imports/presign",
+          params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32, checksum_sha256: checksum, document_kind: "spreadsheet" },
+          headers: auth_headers(@user),
+          as: :json
+        token = JSON.parse(response.body).fetch("upload_token")
+
+        assert_no_difference("FinancialDocumentImport.count") do
+          post "/api/v1/document_imports/complete", params: { upload_token: token }, headers: auth_headers(@user), as: :json
+        end
+      end
+
+      assert_response :unprocessable_entity
+      assert_includes JSON.parse(response.body).fetch("errors").join, "private upload was incomplete"
+      assert_equal invalid_object.nil? ? 0 : 1, deleted_keys.length
+    end
+  end
+
+  test "direct upload requires a browser-computed SHA-256 checksum" do
+    with_s3_stubs(configured?: true) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/csv", byte_size: 32, document_kind: "spreadsheet" },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").join, "verify the file"
+  end
+
+  test "direct upload rejects an expired or altered completion token" do
+    with_s3_stubs(configured?: true) do
+      assert_no_difference("FinancialDocumentImport.count") do
+        post "/api/v1/document_imports/complete",
+          params: { upload_token: "not-a-valid-signed-token" },
+          headers: auth_headers(@user),
+          as: :json
+      end
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").join, "upload expired"
   end
 
   test "create rejects an exact duplicate while the first import is still active" do
@@ -542,13 +699,15 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 425_50, expense.reload.amount_cents
 
     patch "/api/v1/document_imports/#{document_import.id}/items/#{debt.id}",
-      params: { item: { balance: "2400.25", payment: "125" } },
+      params: { item: { balance: "2400.25", payment: "125", interest_rate_percent: "28.49" } },
       headers: auth_headers(@user)
 
     assert_response :success
     debt.reload
     assert_equal 2_400_25, debt.balance_cents
     assert_equal 125_00, debt.payment_cents
+    assert_equal BigDecimal("28.49"), debt.interest_rate_percent
+    assert_equal 28.49, JSON.parse(response.body).dig("item", "interest_rate_percent")
   end
 
   test "item update rejects malformed money without replacing approved extracted values" do
@@ -632,6 +791,38 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "sinking_expected", expense.stack_key
     assert_equal true, expense.active?
     assert item.metadata.key?("last_corrected_at")
+  end
+
+  test "item update corrects APR on an applied saved debt" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Visa",
+      debt_type: "credit_card",
+      balance_cents: 4_200_00,
+      minimum_payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("24.99")
+    )
+    item = document_import.items.create!(
+      target_type: "debt",
+      label: "Visa",
+      balance_cents: 4_200_00,
+      payment_cents: 125_00,
+      interest_rate_percent: BigDecimal("24.99"),
+      debt_type: "credit_card",
+      confidence: "medium",
+      applied_at: Time.current,
+      applied_by_user: @user,
+      applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { interest_rate_percent: "19.75" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    assert_equal BigDecimal("19.75"), item.reload.interest_rate_percent
+    assert_equal BigDecimal("19.75"), debt.reload.interest_rate_percent
+    assert_equal 19.75, JSON.parse(response.body).dig("item", "interest_rate_percent")
   end
 
   test "applied item update rolls back saved value if import reconciliation fails" do
@@ -1319,7 +1510,12 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
 
   test "duplicate import transaction draft can match an actual already linked by another import" do
     first_import = create_import!(status: "needs_review", document_kind: "statement")
-    second_import = create_import!(status: "needs_review", document_kind: "statement", filename: "statement-duplicate.csv")
+    second_import = create_import!(
+      status: "needs_review",
+      document_kind: "statement",
+      filename: "statement-duplicate.csv",
+      s3_key: "household-cfo/test/statement-duplicate.csv"
+    )
     category = @household.budget_categories.create!(name: "Dining Out", stack_key: "discretionary", sort_order: 1)
     period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(Date.new(2026, 7, 5))
     transaction = @household.household_transactions.create!(

@@ -112,7 +112,7 @@ module HouseholdFinance
       record = find_label_record_or_initialize(household.debts, item.label, debt_type: debt_type)
       balance_cents = item.balance_cents || record.balance_cents || 0
       payment_cents = item.payment_cents || record.minimum_payment_cents || 0
-      record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents)
+      record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents, interest_rate_percent: item.interest_rate_percent || record.interest_rate_percent)
       record
     end
 

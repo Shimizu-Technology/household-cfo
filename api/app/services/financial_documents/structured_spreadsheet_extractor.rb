@@ -30,6 +30,10 @@ module FinancialDocuments
       "minimum payment" => "payment",
       "debt_payment" => "payment",
       "debt payment" => "payment",
+      "interest rate" => "apr",
+      "interest_rate" => "apr",
+      "interest_rate_percent" => "apr",
+      "apr %" => "apr",
       "type/category" => "category",
       "category_name" => "category"
     }.freeze
@@ -259,11 +263,12 @@ module FinancialDocuments
       cadence = normalized_cadence(cell(values, header_map, "cadence"))
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
       payment_cents = payment_cents_for(cell(values, header_map, "payment"), notes)
+      interest_rate_percent = interest_rate_percent_for(cell(values, header_map, "apr"), notes)
 
-      build_item(type, label, amount_cents, category, cadence, notes, payment_cents)
+      build_item(type, label, amount_cents, category, cadence, notes, payment_cents, interest_rate_percent)
     end
 
-    def build_item(type, label, amount_cents, category, cadence, notes, payment_cents)
+    def build_item(type, label, amount_cents, category, cadence, notes, payment_cents, interest_rate_percent)
       case type
       when "income_source"
         return if amount_cents.blank?
@@ -280,7 +285,7 @@ module FinancialDocuments
       when "debt"
         return if amount_cents.blank? && payment_cents.blank?
 
-        base_item(type, label, nil, cadence, notes).merge(balance_cents: amount_cents, payment_cents: payment_cents, debt_type: debt_type(category, label))
+        base_item(type, label, nil, cadence, notes).merge(balance_cents: amount_cents, payment_cents: payment_cents, interest_rate_percent: interest_rate_percent, debt_type: debt_type(category, label))
       when "goal"
         return if amount_cents.blank?
 
@@ -297,6 +302,7 @@ module FinancialDocuments
         amount_cents: amount_cents,
         balance_cents: nil,
         payment_cents: nil,
+        interest_rate_percent: nil,
         cadence: cadence,
         source_type: nil,
         stack_key: nil,
@@ -427,6 +433,16 @@ module FinancialDocuments
 
       match = notes.to_s.match(/(?:minimum\s+payment|min\s+payment|payment)\D{0,20}(\(?\$?\d[\d,]*(?:\.\d{1,2})?\)?)/i)
       money_cents(match[1], negative_as_magnitude: true) if match
+    end
+
+    def interest_rate_percent_for(value, notes)
+      raw = value.presence || notes.to_s[/\b(?:APR|interest rate)\D{0,12}(\d+(?:\.\d{1,2})?)\s*%?/i, 1]
+      return if raw.blank?
+
+      number = BigDecimal(raw.to_s.delete_suffix("%").strip)
+      number if number.finite? && number.between?(0, BigDecimal("999.99"))
+    rescue ArgumentError
+      nil
     end
 
     def parsed_date(value)

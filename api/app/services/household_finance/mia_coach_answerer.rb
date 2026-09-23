@@ -41,17 +41,18 @@ module HouseholdFinance
     PROMPT_INJECTION_PATTERN = /\b(?:ignore all previous rules|ignore previous instructions|developer mode|jailbreak|you are now)\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
-    def initialize(household, message, annual_budget_manager: nil, reference_month: Date.current.month)
+    def initialize(household, message, annual_budget_manager: nil, reference_month: Date.current.month, conversation_messages: [])
       @household = household
       @message = message.to_s.squish
       @annual_budget_manager = annual_budget_manager || AnnualBudgetManager.new(household, year: Date.current.year)
       @reference_month = reference_month.to_i.clamp(1, 12)
+      @conversation_messages = Array(conversation_messages)
     end
 
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || external_fact_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
+      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || external_fact_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -60,7 +61,14 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message, :annual_budget_manager, :reference_month
+    attr_reader :household, :message, :annual_budget_manager, :reference_month, :conversation_messages
+
+    def debt_strategy_answer
+      return nil if normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
+      return nil if normalized_message.match?(/balance transfer/i)
+
+      DebtStrategyPlanner.new(household, message, conversation_messages: conversation_messages).call
+    end
 
     def memory_recall_answer
       return nil unless normalized_message.match?(MEMORY_RECALL_PATTERN)
@@ -202,14 +210,20 @@ module HouseholdFinance
 
       saved_debts = household.debts.order(balance_cents: :desc, id: :asc).limit(12)
       details = saved_debts.map do |debt|
-        "#{debt.label}: #{money(debt.balance_cents)} balance and #{money(debt.minimum_payment_cents)} monthly minimum"
+        apr = debt.interest_rate_percent.present? ? " at #{debt.interest_rate_percent.to_d.to_s('F').sub(/\.0+\z/, '')}% APR" : "; APR not entered"
+        "#{debt.label}: #{money(debt.balance_cents)} balance and #{money(debt.minimum_payment_cents)} monthly minimum#{apr}"
       end
       approved_details = details.any? ? " Approved debt details: #{details.join('; ')}." : " No individual debt balances or minimum payments have been saved yet."
       if normalized_message.match?(/smallest balance/i) && (smallest = household.debts.order(balance_cents: :asc, id: :asc).first)
         approved_details += " The smallest saved balance is #{smallest.label} at #{money(smallest.balance_cents)}."
       end
 
-      "Your approved household numbers show #{money(snapshot.fetch(:total_debt_cents))} debt entered, readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months.#{approved_details} APRs, fees, due dates, and exact payoff amounts are not stored, so I cannot invent them or rank debts by interest rate. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: verify each APR, fee, and due date against the lender statement; then compare those facts with the saved balances and minimums without stealing from protected runway."
+      detail_limits = if saved_debts.all? { |debt| debt.interest_rate_percent.blank? }
+        "APRs, fees, due dates, and exact payoff amounts are not stored"
+      else
+        "Some APRs, plus fees, due dates, and exact payoff amounts, are not stored"
+      end
+      "Your approved household numbers show #{money(snapshot.fetch(:total_debt_cents))} debt entered, readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months.#{approved_details} #{detail_limits}, so I will not invent them. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: verify missing details against each lender statement, then compare them without stealing from protected runway."
     end
 
     def car_repair_answer

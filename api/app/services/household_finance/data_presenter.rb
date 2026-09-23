@@ -27,7 +27,9 @@ module HouseholdFinance
         mode: "real",
         household_id: household.id,
         setup_complete: snapshot.fetch(:profile_completeness) >= 70,
-        setup_values: setup_values
+        setup_values: setup_values,
+        debts: debt_records,
+        cohort: cohort_context
       }
     end
 
@@ -177,6 +179,34 @@ module HouseholdFinance
         credit_card_debt: dollars(debt_by_type("credit_card")),
         debt_payment: dollars(debt_payments_by_type("credit_card")),
         target_runway_months: target_runway_months
+      }
+    end
+
+    def debt_records
+      debts.map do |debt|
+        {
+          id: debt.id,
+          label: debt.label,
+          debt_type: debt.debt_type,
+          balance: dollars(debt.balance_cents),
+          minimum_payment: dollars(debt.minimum_payment_cents),
+          interest_rate_percent: debt.interest_rate_percent&.to_f
+        }
+      end
+    end
+
+    def cohort_context
+      return unless user
+
+      membership = user.cohort_memberships.includes(:cohort).joins(:cohort).where(cohorts: { status: %w[enrolling active] }).order("cohorts.starts_on DESC NULLS LAST", "cohorts.id DESC").first
+      membership ||= user.cohort_memberships.includes(:cohort).order(created_at: :desc).first
+      return unless membership
+
+      {
+        id: membership.cohort.id,
+        name: membership.cohort.name,
+        role: membership.role,
+        status: membership.cohort.status
       }
     end
 

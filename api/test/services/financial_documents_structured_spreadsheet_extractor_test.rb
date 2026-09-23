@@ -265,9 +265,9 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
   test "keeps balance headers available for approved Household CFO setup rows" do
     file = Tempfile.new([ "household-balances", ".csv" ])
     file.write(<<~CSV)
-      type,label,balance,cadence,category,payment
+      type,label,balance,cadence,category,payment,apr
       account,Emergency fund,5000,monthly,emergency_fund,
-      debt,Visa card,3400,monthly,credit_card,175
+      debt,Visa card,3400,monthly,credit_card,175,24.99%
     CSV
     file.rewind
 
@@ -278,6 +278,7 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     assert_equal 500_000, items.fetch("Emergency fund").fetch(:balance_cents)
     assert_equal 340_000, items.fetch("Visa card").fetch(:balance_cents)
     assert_equal 17_500, items.fetch("Visa card").fetch(:payment_cents)
+    assert_equal BigDecimal("24.99"), items.fetch("Visa card").fetch(:interest_rate_percent)
     assert_empty result.data.fetch(:transaction_drafts)
   ensure
     file&.close!

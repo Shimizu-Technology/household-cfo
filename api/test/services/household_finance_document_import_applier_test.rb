@@ -52,6 +52,7 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
       label: "Visa",
       balance_cents: 4_820_00,
       payment_cents: 150_00,
+      interest_rate_percent: BigDecimal("24.99"),
       debt_type: "credit_card",
       confidence: "medium"
     )
@@ -69,7 +70,9 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     groceries_row = budget_plan.fetch(:rows).find { |row| row.fetch(:name) == "Groceries" }
     assert_equal 825.0, groceries_row.dig(:months, 0, :planned)
     assert_equal 2_250_00, @household.accounts.find_by!(label: "Checking").balance_cents
-    assert_equal 4_820_00, @household.debts.find_by!(label: "Visa").balance_cents
+    saved_debt = @household.debts.find_by!(label: "Visa")
+    assert_equal 4_820_00, saved_debt.balance_cents
+    assert_equal BigDecimal("24.99"), saved_debt.interest_rate_percent
 
     [ income, expense, account, debt ].each do |item|
       item.reload

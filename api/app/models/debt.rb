@@ -7,4 +7,5 @@ class Debt < ApplicationRecord
   validates :debt_type, inclusion: { in: DEBT_TYPES }
   validates :balance_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :minimum_payment_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :interest_rate_percent, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 999.99 }, allow_nil: true
 end

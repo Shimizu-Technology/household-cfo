@@ -41,6 +41,84 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "enrolling", row.fetch("status")
     assert_equal 1, row.fetch("member_count")
     assert_equal 1, row.fetch("participant_count")
+    assert_equal({
+      "period_days" => 7,
+      "mia_requests" => 0,
+      "mia_failures" => 0,
+      "average_mia_latency_ms" => nil,
+      "uploads" => 0,
+      "upload_failures" => 0,
+      "participants_active" => 0
+    }, row.fetch("operational_summary"))
+  end
+
+  test "cohort operations summarize recent safe usage without exposing participant content" do
+    admin = create_user(email: "operations-admin@example.com", role: "admin")
+    participant = create_user(email: "operations-member@example.com", role: "participant")
+    coach = create_user(email: "operations-coach@example.com", role: "coach")
+    cohort = Cohort.create!(name: "BOG Operations Pilot", status: "active", created_by_user: admin)
+    cohort.cohort_memberships.create!(user: participant, role: "participant")
+    cohort.cohort_memberships.create!(user: coach, role: "coach")
+    household = Household.create!(name: "Private Operations Household", created_by_user: participant)
+    household.household_memberships.create!(user: participant, role: "owner")
+    household.household_audit_events.create!(
+      user: participant,
+      actor_type: "system",
+      event_type: "mia.request.completed",
+      occurred_at: 2.hours.ago,
+      metadata: { "duration_ms" => 240, "assistant_characters" => 1_200, "attachment_count" => 1 }
+    )
+    household.household_audit_events.create!(
+      user: participant,
+      actor_type: "system",
+      event_type: "mia.request.completed",
+      occurred_at: 1.hour.ago,
+      metadata: { "duration_ms" => 360, "assistant_characters" => 900 }
+    )
+    household.household_audit_events.create!(
+      user: participant,
+      actor_type: "system",
+      event_type: "mia.request.failed",
+      occurred_at: 30.minutes.ago,
+      metadata: { "duration_ms" => 50, "error_code" => "Timeout::Error" }
+    )
+    FinancialDocumentImport.create!(
+      household: household,
+      uploaded_by_user: participant,
+      document_kind: "spreadsheet",
+      status: "failed",
+      filename: "private-budget.csv",
+      content_type: "text/csv",
+      byte_size: 32,
+      checksum_sha256: "e" * 64,
+      s3_key: "household-cfo/test/operations-private-budget.csv"
+    )
+    coach_household = Household.create!(name: "Coach Household", created_by_user: coach)
+    coach_household.household_memberships.create!(user: coach, role: "owner")
+    coach_household.household_audit_events.create!(
+      user: coach,
+      actor_type: "system",
+      event_type: "mia.request.completed",
+      occurred_at: 15.minutes.ago,
+      metadata: { "duration_ms" => 9_999 }
+    )
+
+    get "/api/v1/admin/cohorts/#{cohort.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    body = JSON.parse(response.body)
+    summary = body.dig("cohort", "operational_summary")
+    assert_equal 7, summary.fetch("period_days")
+    assert_equal 2, summary.fetch("mia_requests")
+    assert_equal 1, summary.fetch("mia_failures")
+    assert_equal 300, summary.fetch("average_mia_latency_ms")
+    assert_equal 1, summary.fetch("uploads")
+    assert_equal 1, summary.fetch("upload_failures")
+    assert_equal 1, summary.fetch("participants_active")
+    assert_not_includes response.body, "Private Operations Household"
+    assert_not_includes response.body, "private-budget.csv"
+    assert_not_includes response.body, "assistant_characters"
+    assert_not_includes response.body, "Timeout::Error"
   end
 
   test "cohort index and detail use the same setup complete progress result" do

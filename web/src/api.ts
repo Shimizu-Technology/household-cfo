@@ -19,7 +19,27 @@ export type WorkspaceData = {
   household_id: number | null
   setup_complete: boolean
   setup_values: WorkspaceSetupValues
+  debts: DebtRecord[]
+  cohort: null | {
+    id: number
+    name: string
+    role: 'participant' | 'coach' | 'admin'
+    status: AdminCohortStatus
+  }
 }
+
+export type DebtType = 'credit_card' | 'student_loan' | 'auto_loan' | 'mortgage' | 'personal_loan' | 'medical' | 'other'
+
+export type DebtRecord = {
+  id: number
+  label: string
+  debt_type: DebtType
+  balance: number
+  minimum_payment: number
+  interest_rate_percent: number | null
+}
+
+export type DebtInput = Omit<DebtRecord, 'id'>
 
 export type ProfileSection = {
   label: string
@@ -56,6 +76,7 @@ export type DocumentImportItem = {
   balance_cents: number | null
   payment: number | null
   payment_cents: number | null
+  interest_rate_percent: number | null
   cadence: string | null
   source_type: string | null
   stack_key: string | null
@@ -201,6 +222,7 @@ export type DocumentImportItemInput = Partial<Pick<
   amount?: string | number
   balance?: string | number
   payment?: string | number
+  interest_rate_percent?: string | number | null
 }
 
 export type DocumentImportApplyResponse = {
@@ -672,6 +694,15 @@ export type AdminCohort = {
   participant_count: number
   staff_count: number
   setup_complete_count: number
+  operational_summary: {
+    period_days: number
+    mia_requests: number
+    mia_failures: number
+    average_mia_latency_ms: number | null
+    uploads: number
+    upload_failures: number
+    participants_active: number
+  }
   created_at: string
   updated_at: string
   created_by: {
@@ -1184,6 +1215,8 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       household_id: null,
       setup_complete: true,
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
+      debts: [],
+      cohort: null,
     },
     profile,
     dashboard,
@@ -1201,6 +1234,24 @@ export async function saveWorkspaceSetup(values: WorkspaceSetupValues): Promise<
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspace: values }),
   })
+}
+
+export async function createDebt(values: DebtInput): Promise<DebtRecord> {
+  const payload = await postJson<{ debt: DebtRecord }>('/api/v1/debts', { debt: values })
+  return payload.debt
+}
+
+export async function updateDebt(id: number, values: DebtInput): Promise<DebtRecord> {
+  const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ debt: values }),
+  })
+  return payload.debt
+}
+
+export async function deleteDebt(id: number): Promise<void> {
+  return fetchJson<void>(`/api/v1/debts/${id}`, { method: 'DELETE' })
 }
 
 export async function fetchBudget(year?: number): Promise<BudgetData> {
@@ -1413,31 +1464,66 @@ export async function fetchDocumentImport(id: number): Promise<FinancialDocument
 }
 
 export async function uploadDocumentImport(file: File, documentKind: DocumentImportKind, origin: 'profile' | 'mia' = 'profile', uploadContext = '', documentKindExplicit = origin === 'profile'): Promise<FinancialDocumentImport> {
-  const formData = new FormData()
-  formData.append('file', file)
-  formData.append('document_kind', documentKind)
-  formData.append('upload_origin', origin)
-  formData.append('document_kind_explicit', String(documentKindExplicit))
-  if (uploadContext.trim()) formData.append('upload_context', uploadContext.trim())
-  formData.append('upload_request_id', clientRequestId())
+  const uploadRequestId = clientRequestId()
+  const contentType = uploadContentType(file)
+  const checksumSha256 = await fileSha256(file)
+  const presign = await postJson<{
+    upload_url: string
+    upload_headers: Record<string, string>
+    upload_token: string
+  }>('/api/v1/document_imports/presign', {
+    filename: file.name,
+    content_type: contentType,
+    byte_size: file.size,
+    checksum_sha256: checksumSha256,
+    document_kind: documentKind,
+    upload_origin: origin,
+    upload_context: uploadContext.trim() || undefined,
+    document_kind_explicit: documentKindExplicit,
+    upload_request_id: uploadRequestId,
+  })
 
-  let response: Response
+  let uploadResponse: Response
   try {
-    response = await fetch(`${API_BASE}/api/v1/document_imports`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: formData,
+    uploadResponse = await fetch(presign.upload_url, {
+      method: 'PUT',
+      headers: presign.upload_headers,
+      body: file,
     })
   } catch (error) {
-    throw new Error(apiNetworkErrorMessage('Document upload could not reach the API'), { cause: error })
+    throw new Error('The private file upload could not reach storage. Check your connection and try again.', { cause: error })
+  }
+  if (!uploadResponse.ok) {
+    throw new Error(`The private file upload failed (${uploadResponse.status}). Try again or report the problem.`)
   }
 
-  if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, 'Document upload failed'))
-  }
-
-  const payload = (await response.json()) as { document_import: FinancialDocumentImport }
+  const payload = await postJson<{ document_import: FinancialDocumentImport }>('/api/v1/document_imports/complete', { upload_token: presign.upload_token })
   return payload.document_import
+}
+
+function uploadContentType(file: File) {
+  if (file.type) return file.type
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const types: Record<string, string> = {
+    csv: 'text/csv',
+    pdf: 'application/pdf',
+    xls: 'application/vnd.ms-excel',
+    xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    png: 'image/png',
+    webp: 'image/webp',
+    heic: 'image/heic',
+    heif: 'image/heif',
+  }
+  return types[extension ?? ''] ?? 'application/octet-stream'
+}
+
+async function fileSha256(file: File) {
+  if (!globalThis.crypto?.subtle) return undefined
+  const digest = await globalThis.crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 export async function updateDocumentImportItem(documentImportId: number, itemId: number, values: DocumentImportItemInput): Promise<DocumentImportItem> {

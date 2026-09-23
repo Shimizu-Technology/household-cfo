@@ -182,6 +182,8 @@ function realWorkspaceData(setupComplete = false) {
   return {
     workspace: {
       mode: 'real', household_id: 77, setup_complete: setupComplete,
+      debts: [],
+      cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
       setup_values: {
         household_name: 'Test Participant Household', primary_goal: 'Build a calm monthly plan.',
         primary_income: setupComplete ? 5_000 : 0, business_income: 0, fixed_expenses: setupComplete ? 2_500 : 0,
@@ -202,6 +204,7 @@ function realWorkspaceData(setupComplete = false) {
 const pilotCohort = {
   id: 41, name: 'Household CFO pilot', status: 'active', starts_on: '2026-07-01', ends_on: '2026-08-31', notes: '',
   member_count: 1, participant_count: 1, staff_count: 0, setup_complete_count: 0,
+  operational_summary: { period_days: 7, mia_requests: 18, mia_failures: 1, average_mia_latency_ms: 840, uploads: 7, upload_failures: 1, participants_active: 1 },
   created_at: '2026-07-01T00:00:00Z', updated_at: '2026-07-01T00:00:00Z',
   created_by: { id: 900, email: 'admin@pilot.test', full_name: 'Pilot Admin' },
 }
@@ -1966,9 +1969,68 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   await expect(page.getByText('Signed in', { exact: true })).toBeVisible()
   await expect(page.getByText('Review waiting', { exact: true })).toBeVisible()
   await expect(page.getByText(/Last safe activity:/)).toBeVisible()
+  const operations = page.locator('.admin-operations')
+  await expect(operations).toContainText('Active participants1')
+  await expect(operations).toContainText('Mia requests18')
+  await expect(operations).toContainText('Typical Mia time0.8s')
+  await expect(page.getByText('aggregate operational activity only', { exact: false })).toBeVisible()
   const participantRow = page.locator('.admin-user-row').filter({ hasText: 'participant@pilot.test' })
   await expect(participantRow.getByText(/profile completeness/i)).toHaveCount(0)
   await expect(participantRow.getByText(/readiness/i)).toHaveCount(0)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('participant can add edit and explicitly remove individual debt records', async ({ page }) => {
+  let debts: Array<{ id: number; label: string; debt_type: string; balance: number; minimum_payment: number; interest_rate_percent: number | null }> = []
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({
+    status: 200,
+    json: { ...realWorkspaceData(true), workspace: { ...realWorkspaceData(true).workspace, debts } },
+  }))
+  await page.route('http://api.test/api/v1/debts**', async (route) => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname
+    if (request.method() === 'POST') {
+      const input = request.postDataJSON().debt
+      const debt = { id: 88, ...input }
+      debts = [debt]
+      return route.fulfill({ status: 201, json: { debt } })
+    }
+    if (request.method() === 'PATCH' && path.endsWith('/88')) {
+      const input = request.postDataJSON().debt
+      const debt = { id: 88, ...input }
+      debts = [debt]
+      return route.fulfill({ status: 200, json: { debt } })
+    }
+    if (request.method() === 'DELETE' && path.endsWith('/88')) {
+      debts = []
+      return route.fulfill({ status: 204, body: '' })
+    }
+    return route.fulfill({ status: 404, json: { error: 'Unexpected debt request' } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await expect(page.getByText('BOG cohort', { exact: true })).toBeVisible()
+  await openSection(page, 'My Profile')
+  const debtPanel = page.locator('.debt-manager')
+  await debtPanel.getByRole('button', { name: 'Add a debt' }).click()
+  await debtPanel.getByLabel('Debt name').fill('Visa Gold')
+  await debtPanel.getByLabel('Current balance').fill('4200.50')
+  await debtPanel.getByLabel('Monthly minimum').fill('125')
+  await debtPanel.getByLabel('APR').fill('24.99')
+  await debtPanel.getByRole('button', { name: 'Add debt' }).click()
+  await expect(debtPanel).toContainText('Visa Gold')
+  await expect(debtPanel).toContainText('24.99% APR')
+  await expect(debtPanel).toContainText('$4,200.50')
+
+  await debtPanel.getByRole('button', { name: 'Edit' }).click()
+  await debtPanel.getByLabel('APR').fill('19.75')
+  await debtPanel.getByRole('button', { name: 'Save debt' }).click()
+  await expect(debtPanel).toContainText('19.75% APR')
+
+  await debtPanel.getByRole('button', { name: 'Remove' }).click()
+  await expect(debtPanel.getByRole('button', { name: 'Confirm remove' })).toBeVisible()
+  await debtPanel.getByRole('button', { name: 'Confirm remove' }).click()
+  await expect(debtPanel).toContainText('No individual debts entered yet.')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
@@ -2376,10 +2438,15 @@ test('a same-month Mia response cannot undo a newer transaction refresh', async 
 })
 
 test('failed receipt upload leaves the participant on a retryable private-upload state', async ({ page }) => {
-  await page.route('http://api.test/api/v1/document_imports', async (route) => {
-    if (route.request().method() === 'POST') return route.fulfill({ status: 422, json: { errors: ['Could not store document in private S3'] } })
-    return route.fallback()
-  })
+  await page.route('http://api.test/api/v1/document_imports/presign', (route) => route.fulfill({
+    status: 200,
+    json: {
+      upload_url: 'https://private-storage.example/failed-upload',
+      upload_headers: { 'Content-Type': 'image/png', 'x-amz-server-side-encryption': 'AES256' },
+      upload_token: 'signed-upload-token',
+    },
+  }))
+  await page.route('https://private-storage.example/failed-upload', (route) => route.fulfill({ status: 503, body: '' }))
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('button', { name: 'Test a private upload' }).click()
   await expect(page.getByRole('heading', { name: 'Test one private file without changing your numbers.' })).toBeVisible()
@@ -2388,7 +2455,7 @@ test('failed receipt upload leaves the participant on a retryable private-upload
   await receiptCard.locator('input[type="file"]').setInputFiles({
     name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from('not-a-real-financial-document'),
   })
-  await expect(page.getByRole('alert')).toContainText('Could not store document in private S3')
+  await expect(page.getByRole('alert')).toContainText('private file upload failed (503)')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
   await expect(receiptCard.locator('input[type="file"]')).toBeEnabled()
 })

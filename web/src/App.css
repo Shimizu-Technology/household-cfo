@@ -2034,7 +2034,8 @@ h3 {
 }
 
 .setup-field input,
-.setup-field textarea {
+.setup-field textarea,
+.setup-field select {
   width: 100%;
   min-height: 44px;
   border: 1px solid rgba(226, 217, 203, 0.95);
@@ -2042,6 +2043,203 @@ h3 {
   padding: 10px 12px;
   background: #fffdf8;
   color: var(--ink);
+}
+
+.debt-manager {
+  display: grid;
+  gap: 16px;
+}
+
+.cohort-brand-chip {
+  display: inline-flex;
+  width: fit-content;
+  margin-top: 5px;
+  padding: 4px 9px;
+  border: 1px solid rgba(95, 125, 97, 0.24);
+  border-radius: 999px;
+  background: rgba(95, 125, 97, 0.08);
+  color: var(--emerald);
+  font-size: 0.68rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+}
+
+.debt-manager-heading {
+  align-items: flex-start;
+  gap: 18px;
+}
+
+.debt-manager-heading h3,
+.debt-manager-heading p {
+  margin-bottom: 0;
+}
+
+.debt-manager-heading > button,
+.debt-form-actions button,
+.debt-row-actions button {
+  min-height: 44px;
+  padding: 10px 15px;
+  border-radius: 999px;
+  font-weight: 900;
+}
+
+.debt-manager-heading > button,
+.debt-form-actions button[type='submit'] {
+  background: var(--emerald);
+  color: white;
+}
+
+.debt-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.debt-summary > span {
+  display: grid;
+  gap: 4px;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.78);
+}
+
+.debt-summary small,
+.debt-row span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.debt-summary strong {
+  color: var(--emerald);
+  font-size: 1.1rem;
+}
+
+.debt-list {
+  display: grid;
+  gap: 9px;
+}
+
+.debt-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding: 13px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 253, 248, 0.76);
+}
+
+.debt-row > div:not(.debt-row-actions) {
+  display: grid;
+  gap: 3px;
+}
+
+.debt-row-actions,
+.debt-form-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.debt-row-actions .secondary-button,
+.debt-form-actions .secondary-button {
+  border: 1px solid var(--line);
+  background: white;
+  color: var(--emerald);
+}
+
+.debt-row-actions .quiet-button {
+  color: var(--muted);
+}
+
+.debt-row-actions .danger-button {
+  background: var(--status-red);
+  color: white;
+}
+
+.debt-form {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid rgba(123, 74, 88, 0.2);
+  border-radius: 18px;
+  background: rgba(249, 242, 233, 0.7);
+}
+
+.debt-form-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.percent-input-shell {
+  position: relative;
+  display: block;
+}
+
+.percent-input-shell input {
+  padding-right: 30px;
+}
+
+.setup-field .percent-input-shell > span {
+  position: absolute;
+  top: 50%;
+  right: 13px;
+  transform: translateY(-50%);
+  color: var(--muted);
+  font-size: 0.9rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.debt-empty {
+  padding: 15px;
+  border: 1px dashed rgba(95, 125, 97, 0.36);
+  border-radius: 16px;
+  background: rgba(95, 125, 97, 0.06);
+}
+
+.debt-empty p,
+.debt-privacy-note {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.admin-operations {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin: 14px 0 8px;
+}
+
+.admin-operations > div {
+  display: grid;
+  gap: 4px;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: rgba(255, 253, 248, 0.76);
+}
+
+.admin-operations small,
+.admin-privacy-copy {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.admin-operations strong {
+  color: var(--emerald);
+  font-size: 1.05rem;
+}
+
+.admin-privacy-copy {
+  margin: 0 0 16px;
+  line-height: 1.45;
 }
 
 .money-input-shell {
@@ -3498,6 +3696,30 @@ h3 {
   .admin-refresh,
   .admin-user-controls button {
     width: 100%;
+  }
+
+  .debt-manager-heading,
+  .debt-row {
+    display: grid;
+    grid-template-columns: 1fr;
+  }
+
+  .debt-manager-heading > button,
+  .debt-row-actions button,
+  .debt-form-actions button {
+    width: 100%;
+  }
+
+  .debt-summary,
+  .debt-form-grid,
+  .admin-operations {
+    grid-template-columns: 1fr;
+  }
+
+  .debt-row-actions,
+  .debt-form-actions {
+    display: grid;
+    grid-template-columns: 1fr;
   }
 
   .role-matrix summary {

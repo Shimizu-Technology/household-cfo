@@ -85,8 +85,15 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
   )
 
   useEffect(() => {
-    setAuthTokenGetter(null)
-  }, [])
+    if (currentUser && pilotE2ERole) {
+      const token = `test_token:${currentUser.clerk_id}:${currentUser.email}:${currentUser.first_name ?? ''}:${currentUser.last_name ?? ''}`
+      setAuthTokenGetter(async () => token)
+    } else {
+      setAuthTokenGetter(null)
+    }
+
+    return () => setAuthTokenGetter(null)
+  }, [currentUser, pilotE2ERole])
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: false,

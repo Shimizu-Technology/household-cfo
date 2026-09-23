@@ -24,6 +24,7 @@ Rails.application.routes.draw do
         post :restore, on: :member
       end
       resources :budget_allocations, only: :update
+      resources :debts, only: %i[create update destroy]
       resources :income_schedule_entries, only: %i[create update destroy]
       resources :mia_action_drafts, only: [] do
         member do
@@ -44,6 +45,10 @@ Rails.application.routes.draw do
         end
       end
       resources :document_imports, only: %i[index show create destroy] do
+        collection do
+          post :presign
+          post :complete
+        end
         member do
           post :reprocess
           post :apply

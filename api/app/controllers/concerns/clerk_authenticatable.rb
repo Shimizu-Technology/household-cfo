@@ -25,7 +25,10 @@ module ClerkAuthenticatable
 
     @authorization_failure_message = nil
     @current_user = find_or_create_user_from_clerk(decoded)
-    return if @current_user
+    if @current_user
+      Sentry.set_user(id: @current_user.id, role: @current_user.role) if defined?(Sentry)
+      return
+    end
 
     render_forbidden(@authorization_failure_message || "This account is not authorized for Household CFO")
   end

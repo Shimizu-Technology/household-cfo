@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "base64"
+
 class S3Service
   MUTEX = Mutex.new
 
@@ -94,6 +96,51 @@ class S3Service
       presigner.presigned_url(:get_object, **options)
     rescue Aws::S3::Errors::ServiceError => e
       Rails.logger.error("[S3Service] Presigned URL failed for #{key}: #{e.message}")
+      nil
+    end
+
+    def presigned_upload(key, content_type:, checksum_sha256:, expires_in: 900)
+      raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
+
+      presigner = Aws::S3::Presigner.new(client: s3_client)
+      checksum_base64 = Base64.strict_encode64([ checksum_sha256 ].pack("H*"))
+      {
+        url: presigner.presigned_url(
+          :put_object,
+          bucket: bucket_name,
+          key: key,
+          content_type: content_type,
+          checksum_sha256: checksum_base64,
+          server_side_encryption: "AES256",
+          expires_in: expires_in
+        ),
+        headers: {
+          "Content-Type" => content_type,
+          "x-amz-checksum-sha256" => checksum_base64,
+          "x-amz-server-side-encryption" => "AES256"
+        },
+        expires_in: expires_in
+      }
+    rescue Aws::S3::Errors::ServiceError => e
+      Rails.logger.error("[S3Service] Presigned upload failed for #{key}: #{e.message}")
+      nil
+    end
+
+    def object_metadata(key)
+      raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
+
+      response = s3_client.head_object(bucket: bucket_name, key: key, checksum_mode: "ENABLED")
+      {
+        byte_size: response.content_length,
+        content_type: response.content_type,
+        checksum_sha256: response.checksum_sha256,
+        etag: response.etag.to_s.delete('"'),
+        server_side_encryption: response.server_side_encryption
+      }
+    rescue Aws::S3::Errors::NotFound, Aws::S3::Errors::NoSuchKey
+      nil
+    rescue Aws::S3::Errors::ServiceError => e
+      Rails.logger.error("[S3Service] Object metadata failed for #{key}: #{e.message}")
       nil
     end
 

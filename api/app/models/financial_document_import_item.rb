@@ -11,6 +11,7 @@ class FinancialDocumentImportItem < ApplicationRecord
   validates :amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
   validates :balance_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
   validates :payment_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
+  validates :interest_rate_percent, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 999.99 }, allow_nil: true
   validates :cadence, inclusion: { in: IncomeSource::CADENCES }, allow_blank: true
   validates :source_type, inclusion: { in: IncomeSource::SOURCE_TYPES }, allow_blank: true
   validates :stack_key, inclusion: { in: ExpenseItem::STACK_KEYS }, allow_blank: true
