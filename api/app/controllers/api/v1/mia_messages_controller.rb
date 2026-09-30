@@ -55,6 +55,7 @@ module Api
           routed = route_model_intent(
             intent_result,
             content: content,
+            conversation_context: conversation_context,
             annual_budget_manager: annual_budget_manager,
             annual_plan: intent_plan
           )
@@ -568,8 +569,12 @@ module Api
         document_import.document_kind.to_s.humanize.downcase
       end
 
-      def route_model_intent(intent_result, content:, annual_budget_manager:, annual_plan:)
+      def route_model_intent(intent_result, content:, conversation_context:, annual_budget_manager:, annual_plan:)
         resolved_content = intent_result.resolved_message.presence || content
+        followup = HouseholdFinance::ConversationFollowupResolver.new(
+          content,
+          conversation_context: conversation_context
+        ).call
         read_only_result = if intent_result.read_only_plan?
           HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
             current_household,
@@ -607,6 +612,10 @@ module Api
           # against Rails-owned transaction truth instead of replaying a stale answer.
           if transaction_lookup_answer.nil? && intent_result.intent == "recall"
             transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
+          end
+
+          if transaction_lookup_answer.nil? && intent_result.intent == "recall" && followup.follow_up?
+            direct_answer = followup.direct_answer
           end
 
           case transaction_lookup_answer ? nil : intent_result.intent
@@ -702,7 +711,7 @@ module Api
 
         {
           routed_content: resolved_content,
-          followup: nil,
+          followup: followup,
           direct_answer: direct_answer,
           presentation: read_only_result&.presentation,
           pending_draft_answer: pending_draft_answer,
