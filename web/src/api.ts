@@ -1213,8 +1213,8 @@ async function fetchWithDeadline(
   )
 }
 
-async function apiFetch(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}) {
-  const request = async (signal?: AbortSignal) => {
+async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortSignal) {
+  try {
     const headers = {
       ...(await authHeaders()),
       ...(options.headers as Record<string, string> | undefined),
@@ -1224,7 +1224,18 @@ async function apiFetch(path: string, options: RequestInit = {}, settings: ApiFe
       headers,
       ...(signal ? { signal } : {}),
     })
+  } catch (error) {
+    throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
+}
+
+async function apiOperation<T>(
+  path: string,
+  options: RequestInit,
+  settings: ApiFetchSettings,
+  consume: (response: Response) => Promise<T>,
+) {
+  const request = async (signal?: AbortSignal) => consume(await apiFetch(path, options, signal))
 
   const method = (options.method ?? 'GET').toUpperCase()
   const safeReadTimeoutMs = method === 'GET' || method === 'HEAD'
@@ -1232,34 +1243,30 @@ async function apiFetch(path: string, options: RequestInit = {}, settings: ApiFe
     : undefined
   const timeoutMs = settings.timeoutMs ?? safeReadTimeoutMs
 
-  let response: Response
-  try {
-    response = timeoutMs === undefined
-      ? await request()
-      : await withDeadline(
-          request,
-          timeoutMs,
-          settings.timeoutMessage ?? 'This request took too long.',
-          options.signal,
-        )
-  } catch (error) {
-    if (error instanceof ApiDeadlineError) throw error
-    throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
-  }
+  return timeoutMs === undefined
+    ? request()
+    : withDeadline(
+        request,
+        timeoutMs,
+        settings.timeoutMessage ?? 'This request took too long.',
+        options.signal,
+      )
+}
 
-  return response
+async function fetchJsonResponse<T>(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}) {
+  return apiOperation(path, options, settings, async (response) => {
+    if (!response.ok) {
+      throw await apiRequestError(response, 'API request failed')
+    }
+
+    if (response.status === 204) return { status: response.status, payload: undefined as T }
+
+    return { status: response.status, payload: await response.json() as T }
+  })
 }
 
 async function fetchJson<T>(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}): Promise<T> {
-  const response = await apiFetch(path, options, settings)
-
-  if (!response.ok) {
-    throw await apiRequestError(response, 'API request failed')
-  }
-
-  if (response.status === 204) return undefined as T
-
-  return response.json() as Promise<T>
+  return (await fetchJsonResponse<T>(path, options, settings)).payload
 }
 
 async function postJson<T>(path: string, body: unknown, settings: ApiFetchSettings = {}): Promise<T> {
@@ -1273,7 +1280,7 @@ async function postJson<T>(path: string, body: unknown, settings: ApiFetchSettin
 async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T> {
   const maximumPolls = 60
   for (let poll = 0; poll < maximumPolls; poll += 1) {
-    const response = await apiFetch(path, {
+    const response = await fetchJsonResponse<T | { code?: string; retry_after_ms?: number }>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -1283,7 +1290,7 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
     })
 
     if (response.status === 202) {
-      const payload = (await response.json()) as { code?: string; retry_after_ms?: number }
+      const payload = response.payload as { code?: string; retry_after_ms?: number }
       if (payload.code !== 'mia_request_processing') {
         throw new Error('Mia returned an unexpected processing response. Please try again.')
       }
@@ -1293,11 +1300,7 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
       continue
     }
 
-    if (!response.ok) {
-      throw await apiRequestError(response, 'API request failed')
-    }
-
-    return response.json() as Promise<T>
+    return response.payload as T
   }
 
   throw new Error('Mia is still working on that exact request. Wait a moment, then try again; your retry will not create a duplicate.')
@@ -1812,7 +1815,10 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
   }
   return realWorkspace
     ? postJsonUntilComplete<MiaMessageResponse>(path, body)
-    : postJson<MiaMessageResponse>(path, body)
+    : postJson<MiaMessageResponse>(path, body, {
+        timeoutMs: MIA_REQUEST_TIMEOUT_MS,
+        timeoutMessage: 'Mia took too long to finish this request.',
+      })
 }
 
 function clientRequestId() {

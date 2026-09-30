@@ -736,7 +736,10 @@ function App() {
         if (cancelled) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
-        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current)
+        setSetupDraft((current) => {
+          if (isFirstSessionSetup && current) return current
+          return payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current
+        })
         replaceMiaHistory(payload.mia)
       })
       .catch(() => {
@@ -746,7 +749,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading, replaceMiaHistory])
+  }, [chatStorageKey, importDraftSignature, isFirstSessionSetup, isRealWorkspace, miaLoading, replaceMiaHistory])
 
   useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return

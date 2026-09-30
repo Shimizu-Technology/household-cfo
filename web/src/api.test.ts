@@ -178,6 +178,45 @@ describe('safe read deadlines', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect(requestSignal?.aborted).toBe(true)
   })
+
+  it('keeps the deadline active while a successful response body is still loading', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return Promise.resolve(new Response(new ReadableStream({
+        start() {
+          // Leave the JSON body open to reproduce a server that sent headers and then stalled.
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const workspaceRequest = fetchAppData(true)
+    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it('keeps the deadline active while an HTTP error body is still loading', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(new ReadableStream({
+      start() {
+        // Leave the error payload open so apiRequestError cannot finish parsing it.
+      },
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const workspaceRequest = fetchAppData(true)
+    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('Mia request idempotency polling', () => {
@@ -267,6 +306,24 @@ describe('Mia request idempotency polling', () => {
     await result
 
     expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('applies the same Mia deadline to the demo conversation', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = sendMiaMessage('Can I afford this?', [], false)
+    const result = expect(request).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await result
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/demo/mia/messages')
+    expect(requestSignal?.aborted).toBe(true)
   })
 })
 
