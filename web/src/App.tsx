@@ -24,6 +24,7 @@ import {
 } from './lib/budgetPosition'
 import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import { changedInterestRateInput } from './lib/documentItemUpdate'
+import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import {
   applyDocumentImport,
@@ -261,6 +262,7 @@ const documentUploadCards: Array<{
   eyebrow: string
   accepts: string
   helper: string
+  sizeGuidance: string
 }> = [
   {
     kind: 'spreadsheet',
@@ -268,6 +270,7 @@ const documentUploadCards: Array<{
     eyebrow: 'Expense stack',
     accepts: '.xlsx,.xls,.csv,.pdf,.docx',
     helper: 'Upload an Excel workbook, CSV, PDF, or Word budget. Mia drafts income, expenses, assets, and debts for review.',
+    sizeGuidance: 'PDF up to 12 MB · CSV, Excel, and Word up to 20 MB',
   },
   {
     kind: 'statement',
@@ -275,6 +278,7 @@ const documentUploadCards: Array<{
     eyebrow: 'Fresh balances',
     accepts: '.pdf,.xlsx,.xls,.csv,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     helper: 'Upload a PDF, CSV, spreadsheet, or statement screenshot to stage transaction rows, propose matches, and reconcile actuals by month.',
+    sizeGuidance: 'Images and PDFs up to 12 MB · CSV and Excel up to 20 MB',
   },
   {
     kind: 'pay_stub',
@@ -282,6 +286,7 @@ const documentUploadCards: Array<{
     eyebrow: 'Income proof',
     accepts: '.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     helper: 'Upload a pay stub photo or PDF to draft take-home income. You approve before it becomes official.',
+    sizeGuidance: 'Images and PDFs up to 12 MB · Word up to 20 MB',
   },
   {
     kind: 'receipt',
@@ -289,6 +294,7 @@ const documentUploadCards: Array<{
     eyebrow: 'Quick evidence',
     accepts: '.pdf,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*',
     helper: 'Upload a receipt, PDF, or photo so Mia can draft a reviewable transaction, including split receipts like groceries plus cigarettes.',
+    sizeGuidance: 'Images and PDFs up to 12 MB',
   },
 ]
 
@@ -1830,6 +1836,14 @@ function App() {
     }
 
     const uploadFile = normalizedEvidenceFile(file, 0)
+    const validation = validateFinancialUpload(uploadFile)
+    if (!validation.valid) {
+      setDocumentsNotice(null)
+      setDocumentsError(validation.message)
+      if (origin === 'mia') setMiaError(validation.message)
+      return
+    }
+
     setUploadingKind(kind)
     setDocumentsError(null)
     setDocumentsNotice(null)
@@ -1868,11 +1882,12 @@ function App() {
     }
 
     const normalizedFiles = files.map(normalizedEvidenceFile)
-    const acceptedFiles = normalizedFiles.filter(isSupportedEvidenceFile)
-    const rejectedCount = normalizedFiles.length - acceptedFiles.length
+    const validatedFiles = normalizedFiles.map((file) => ({ file, validation: validateFinancialUpload(file) }))
+    const acceptedFiles = validatedFiles.filter(({ validation }) => validation.valid).map(({ file }) => file)
+    const firstRejection = validatedFiles.find(({ validation }) => !validation.valid)
     const room = Math.max(MAX_CHAT_ATTACHMENTS - pendingMiaAttachments.length, 0)
     const accepted = acceptedFiles.slice(0, room).map(pendingMiaAttachment)
-    if (rejectedCount > 0) setMiaError('That file type is not supported yet. Use PDF, CSV, Excel, Word, JPG, PNG, WEBP, HEIC, or HEIF.')
+    if (firstRejection && !firstRejection.validation.valid) setMiaError(firstRejection.validation.message)
     else if (acceptedFiles.length > room) setMiaError(`Attach up to ${MAX_CHAT_ATTACHMENTS} files at a time.`)
     else setMiaError(null)
 
@@ -1898,6 +1913,11 @@ function App() {
 
     for (const [index, attachment] of attachments.entries()) {
       if (attachment.document_import_id) continue
+
+      const validation = validateFinancialUpload(attachment.file)
+      if (!validation.valid) {
+        throw new MiaAttachmentUploadError(validation.message, preparedAttachments)
+      }
 
       setUploadingKind(attachment.document_kind)
       trackDocumentUpload(attachment.document_kind, 'started', attachment.file)
@@ -2510,6 +2530,7 @@ function App() {
                 {pendingMiaAttachments.length > 0 && (
                   <div className="composer-attachment-workflow">
                     <p>Tell Mia what each file is, or describe it in your message. Mia will verify the type and route only draft results for your review.</p>
+                    <p className="attachment-size-guidance">{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</p>
                     <PendingAttachmentTray
                       attachments={pendingMiaAttachments}
                       onPreview={setPreviewAttachment}
@@ -2990,7 +3011,7 @@ function PendingAttachmentTray({
       {attachments.map((attachment) => (
         <div className="composer-attachment-card" key={attachment.id}>
           <button type="button" className="attachment-preview-button" onClick={() => onPreview(attachment)}>
-            {pendingAttachmentHasImagePreview(attachment) ? <img src={attachment.previewUrl} alt={attachmentDisplayName(attachment)} /> : <AttachmentIcon />}
+            {pendingAttachmentHasImagePreview(attachment) ? <img src={attachment.previewUrl} alt="" /> : <AttachmentIcon />}
             <span>{attachmentDisplayName(attachment)}</span>
           </button>
           <label className="attachment-kind-picker">
@@ -3631,6 +3652,7 @@ function DocumentImportWorkspace({
         <div>
           <strong>Not sure what to upload?</strong>
           <p>Start with our Excel budget template, or bring your own Excel, CSV, PDF, Word document, statement, pay stub, or receipt. Mia drafts values only after upload.</p>
+          <small>{FINANCIAL_UPLOAD_SIZE_GUIDANCE}</small>
         </div>
         <a href="/household-cfo-budget-template.xlsx" download>Download Excel template</a>
       </div>
@@ -3719,6 +3741,7 @@ function DocumentUploadCard({
         <h4>{card.label}</h4>
         <p>{card.helper}</p>
         <small>{card.accepts.replaceAll(',', ' · ')}</small>
+        <small>{card.sizeGuidance}</small>
         <strong>{uploading ? 'Uploading privately' : 'Choose file'}</strong>
       </label>
     </article>
@@ -4776,15 +4799,6 @@ function normalizedEvidenceFile(file: File, index: number) {
   })
 }
 
-function isSupportedEvidenceFile(file: File) {
-  const extension = extensionForFile(file)
-  const contentType = normalizedContentType(file)
-  if (extension && SUPPORTED_EVIDENCE_EXTENSIONS.has(extension)) return true
-  if (SUPPORTED_EVIDENCE_CONTENT_TYPES.has(contentType)) return true
-
-  return false
-}
-
 function normalizedContentType(file: File) {
   return file.type.toLowerCase() || contentTypeForExtension(extensionForFile(file) ?? '') || 'application/octet-stream'
 }
@@ -4861,21 +4875,6 @@ function contentTypeForExtension(extension: string) {
 
   return map[normalized] ?? null
 }
-
-const SUPPORTED_EVIDENCE_EXTENSIONS = new Set(['pdf', 'csv', 'xls', 'xlsx', 'docx', 'jpg', 'jpeg', 'png', 'webp', 'heic', 'heif'])
-const SUPPORTED_EVIDENCE_CONTENT_TYPES = new Set([
-  'application/pdf',
-  'text/csv',
-  'application/csv',
-  'application/vnd.ms-excel',
-  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  'image/jpeg',
-  'image/png',
-  'image/webp',
-  'image/heic',
-  'image/heif',
-])
 
 function inferDocumentKind(file: File): DocumentImportKind {
   const name = file.name.toLowerCase()
