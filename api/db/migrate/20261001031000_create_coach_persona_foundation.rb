@@ -82,17 +82,17 @@ class CreateCoachPersonaFoundation < ActiveRecord::Migration[8.1]
 
       t.timestamps
     end
-    add_reference :chat_messages, :coach_persona_version, foreign_key: true
+    add_reference :chat_messages, :coach_persona_version
+    add_foreign_key :chat_messages, :coach_persona_versions, validate: false
     add_column :chat_messages, :assistant_author, :string
-    reversible do |direction|
-      direction.up { execute "UPDATE chat_messages SET assistant_author = 'Mia' WHERE role = 'assistant'" }
-    end
     add_check_constraint :chat_messages,
       "(assistant_author IS NULL OR role = 'assistant') AND " \
         "(coach_persona_version_id IS NULL OR (role = 'assistant' AND assistant_author IS NOT NULL))",
-      name: "chat_messages_persona_attribution_complete"
+      name: "chat_messages_persona_attribution_complete",
+      validate: false
     add_check_constraint :chat_messages,
       "assistant_author IS NULL OR char_length(assistant_author) BETWEEN 1 AND 80",
-      name: "chat_messages_assistant_author_length"
+      name: "chat_messages_assistant_author_length",
+      validate: false
   end
 end
