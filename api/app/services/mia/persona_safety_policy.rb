@@ -2,14 +2,18 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 2
+    VERSION = 3
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i
     CONCEALED_IDENTITY_PATTERNS = [
       /\b(?:never|do not|don['’]t|must not|avoid)\b.{0,50}\b(?:say|tell|mention|disclose|reveal|admit|identify)\b.{0,50}\b(?:ai|artificial intelligence|digital|virtual|automated)\b/i,
+      /\b(?:hide|conceal|withhold|omit|deny|disguise)\b.{0,80}\b(?:ai|artificial intelligence|digital|virtual|automated|bot)\b/i,
+      /\b(?:claim|say|tell|insist|imply|pretend)\b.{0,80}\b(?:not\s+(?:an?\s+)?(?:ai|artificial intelligence|digital|virtual|automated|bot)|(?:a\s+)?(?:real\s+)?human)\b/i,
       /\b(?:i am|i['’]m|this is)\s+(?:the\s+)?(?:human\s+)?coach\b/i,
       /\b(?:pretend|pose|pass)\s+(?:to be|as)\s+(?:the\s+)?(?:human\s+)?coach\b/i,
-      /\b(?:speak|write|respond)\s+as\s+(?:the\s+)?(?:human\s+)?coach\b/i
+      /\b(?:impersonat\w*|masquerad\w*(?:\s+as)?)\s+(?:the\s+)?(?:human\s+)?coach\b/i,
+      /\b(?:speak|write|respond)\s+as\s+(?:the\s+)?(?:human\s+)?coach\b/i,
+      /\b(?:make|let|have)\b.{0,50}\b(?:participants?|users?|clients?|people|them)\b.{0,50}\b(?:believe|think|assume)\b.{0,50}\b(?:human|coach)\b/i
     ].freeze
     FORBIDDEN_GUIDANCE_PATTERNS = [
       /\b(?:ignore|disregard|override)\b.{0,80}\b(?:previous|system|developer|instruction|safety|guardrail|policy)\b/i,
@@ -68,7 +72,7 @@ module Mia
       def violations(configuration)
         errors = []
         validate_identity_disclosure(configuration, errors)
-        walk(configuration, "$", errors)
+        walk(configuration, "$", errors, human_coach_name(configuration))
         errors.uniq.first(20)
       end
 
@@ -86,42 +90,49 @@ module Mia
         validate_identity_field(
           identity["assistant_relationship"] || identity[:assistant_relationship],
           "$.identity.assistant_relationship",
-          human_coach_name,
           errors
         )
-        validate_identity_field(identity["disclosure"] || identity[:disclosure], "$.identity.disclosure", human_coach_name, errors)
+        validate_identity_field(identity["disclosure"] || identity[:disclosure], "$.identity.disclosure", errors)
       end
 
-      def validate_identity_field(value, path, human_coach_name, errors)
+      def validate_identity_field(value, path, errors)
         return unless value.is_a?(String)
 
         unless value.match?(ASSISTANT_IDENTITY_PATTERN)
           errors << "#{path} must clearly identify the persona as a digital or AI assistant"
         end
-        if CONCEALED_IDENTITY_PATTERNS.any? { |pattern| value.match?(pattern) } || claims_human_coach_identity?(value, human_coach_name)
-          errors << "#{path} cannot impersonate the human coach or conceal the assistant's AI identity"
-        end
+      end
+
+      def human_coach_name(configuration)
+        identity = configuration.is_a?(Hash) ? configuration["identity"] || configuration[:identity] : nil
+        return unless identity.is_a?(Hash)
+
+        identity["human_coach_name"] || identity[:human_coach_name]
       end
 
       def claims_human_coach_identity?(value, human_coach_name)
         return false unless human_coach_name.is_a?(String) && human_coach_name.strip.present?
 
-        value.match?(
-          /\b(?:i am|i['’]m|this is|you are|you['’]re|identify yourself as|present yourself as|claim to be|pretend to be|speak as|write as|respond as)\s+(?:the\s+)?#{Regexp.escape(human_coach_name.strip)}\b/i
+        unnegated_match?(
+          value,
+          /\b(?:(?:i am|i['’]m|this is|you are|you['’]re|identify yourself as|present yourself as|claim to be|pretend to be|speak as|write as|respond as|masquerade as)\s+(?:the\s+)?|impersonate\s+)#{Regexp.escape(human_coach_name.strip)}\b/i
         )
       end
 
-      def walk(value, path, errors)
+      def walk(value, path, errors, human_coach_name)
         case value
         when Hash
           value.each do |key, child|
             key_name = key.to_s
             errors << "#{path}.#{key_name} is a reserved configuration key" if key_name.match?(FORBIDDEN_KEY_PATTERN)
-            walk(child, "#{path}.#{key_name}", errors)
+            walk(child, "#{path}.#{key_name}", errors, human_coach_name)
           end
         when Array
-          value.each_with_index { |child, index| walk(child, "#{path}[#{index}]", errors) }
+          value.each_with_index { |child, index| walk(child, "#{path}[#{index}]", errors, human_coach_name) }
         when String
+          if identity_misrepresentation?(value, human_coach_name)
+            errors << "#{path} cannot impersonate the human coach or conceal the assistant's AI identity"
+          end
           errors << "#{path} contains safety or prompt-control guidance" if FORBIDDEN_GUIDANCE_PATTERNS.any? { |pattern| value.match?(pattern) }
           FORBIDDEN_FINANCIAL_GUIDANCE.each do |rule|
             errors << "#{path} #{rule.fetch(:message)}" if unnegated_match?(value, rule.fetch(:pattern))
@@ -129,11 +140,20 @@ module Mia
         end
       end
 
+      def identity_misrepresentation?(value, human_coach_name)
+        CONCEALED_IDENTITY_PATTERNS.any? { |pattern| unnegated_match?(value, pattern) } ||
+          claims_human_coach_identity?(value, human_coach_name)
+      end
+
       def unnegated_match?(value, pattern)
         value.to_enum(:scan, pattern).any? do
           match = Regexp.last_match
-          prefix = value[0...match.begin(0)].to_s.last(32)
-          !prefix.match?(/(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid)\s*\z/i)
+          prefix = value[0...match.begin(0)].to_s.last(120)
+          immediate_negation = prefix.match?(/(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)\s*\z/i)
+          coordinated_negation = prefix.match?(
+            /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)\b.{0,80}\b(?:and|or)\s*\z/i
+          )
+          !immediate_negation && !coordinated_negation
         end
       end
     end

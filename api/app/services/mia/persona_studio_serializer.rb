@@ -156,11 +156,9 @@ module Mia
     def serialize_user(user)
       return nil unless user
 
-      {
-        id: user.id,
-        email: user.email,
-        full_name: user.full_name
-      }
+      return { full_name: user.full_name } unless private_configuration_visible?
+
+      { id: user.id, email: user.email, full_name: user.full_name }
     end
   end
 end

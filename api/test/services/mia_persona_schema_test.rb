@@ -80,6 +80,61 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     assert_includes errors, "$.coaching.method promises or guarantees financial returns or outcomes"
   end
 
+  test "AI concealment and human coach impersonation are rejected in every nested free-text area" do
+    unsafe_fields = [
+      [ "$.voice.energy", ->(config) { config["voice"]["energy"] = "Hide that this is an AI assistant." } ],
+      [ "$.coaching.philosophy", ->(config) { config["coaching"]["philosophy"] = "Never disclose that this is a digital assistant." } ],
+      [ "$.coaching.do[0]", ->(config) { config["coaching"]["do"] = [ "Respond as Mrs. Mel when participants ask who is speaking." ] } ],
+      [ "$.culture.context", ->(config) { config["culture"]["context"] = "Make participants believe they are talking to the human coach." } ],
+      [ "$.phrases[0].meaning", lambda do |config|
+        config["phrases"] = [
+          {
+            "text" => "Trust me",
+            "meaning" => "Tell users this is a real human, not an AI.",
+            "allowed_contexts" => [ "general" ],
+            "prohibited_contexts" => [],
+            "frequency" => "rare",
+            "caution" => "Use carefully."
+          }
+        ]
+      end ],
+      [ "$.curriculum.guidance[0].content", lambda do |config|
+        config["curriculum"]["guidance"] = [ { "title" => "Identity", "content" => "Impersonate Mrs. Mel." } ]
+      end ],
+      [ "$.curriculum.scripts[0].steps[0]", lambda do |config|
+        config["curriculum"]["scripts"] = [ { "title" => "Introduction", "steps" => [ "Present yourself as Mrs. Mel." ] } ]
+      end ],
+      [ "$.curriculum.examples[0].assistant", lambda do |config|
+        config["curriculum"]["examples"] = [ { "participant" => "Who are you?", "assistant" => "I'm Mrs. Mel." } ]
+      end ]
+    ]
+
+    unsafe_fields.each do |path, mutate|
+      config = persona_configuration(coach_name: "Mrs. Mel")
+      mutate.call(config)
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "#{path} cannot impersonate the human coach or conceal the assistant's AI identity",
+        "expected #{path} to be rejected"
+    end
+  end
+
+  test "normal attribution and references to the human coach remain valid" do
+    config = persona_configuration(coach_name: "Mrs. Mel")
+    config["voice"]["accountability_style"] = "Use the warm and direct teaching style Mrs. Mel approved."
+    config["coaching"]["principles"] << "Apply Mrs. Mel's published spending framework."
+    config["coaching"]["do_not"] = [ "Do not respond as Mrs. Mel or imply that the assistant is the human coach." ]
+    config["culture"]["references"] = [ "Mrs. Mel's community workshop example" ]
+    config["curriculum"]["guidance"] = [
+      { "title" => "Attribution", "content" => "Explain that Mrs. Mel developed this lesson." }
+    ]
+    config["curriculum"]["examples"] = [
+      { "participant" => "Is this Mrs. Mel's framework?", "assistant" => "Yes. Mrs. Mel approved this framework for her digital assistant." }
+    ]
+
+    assert_empty Mia::PersonaSchema.errors(config)
+  end
+
   test "licensed advice directives are rejected while explicit safety boundaries remain valid" do
     unsafe = persona_configuration
     unsafe["curriculum"]["guidance"] = [

@@ -58,6 +58,44 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     assert_equal "You should review the confirmed plan first.", answer
   end
 
+  test "custom phrase repetition matches straight and curly apostrophes" do
+    answer = Mia::LanguagePolicy.new(
+      user_message: "What should our household focus on this month?",
+      history: [ { role: "assistant", content: "Y’all already checked the plan." } ],
+      persona: @runtime
+    ).sanitize("Y'all should review the confirmed plan first.")
+
+    assert_equal "You should review the confirmed plan first.", answer
+  end
+
+  test "ordinary auxiliary-led questions remain unchanged when no phrase was removed" do
+    answer = Mia::LanguagePolicy.new(
+      user_message: "Can you help me understand the plan?",
+      persona: @runtime
+    ).sanitize("Are you asking about the current month?")
+
+    assert_equal "Are you asking about the current month?", answer
+  end
+
+  test "custom phrase matching handles dash spacing and canonical Unicode forms" do
+    dash_runtime = runtime_with_phrase("steady-step")
+    unicode_runtime = runtime_with_phrase("café check")
+
+    dash_answer = Mia::LanguagePolicy.new(
+      user_message: "What should we do next?",
+      history: [ { role: "assistant", content: "Take one steady—step today." } ],
+      persona: dash_runtime
+    ).sanitize("Take one steady - step today.")
+    unicode_answer = Mia::LanguagePolicy.new(
+      user_message: "What should we do next?",
+      history: [ { role: "assistant", content: "Start with a cafe\u0301 check." } ],
+      persona: unicode_runtime
+    ).sanitize("Start with a café check.")
+
+    assert_equal "Take one today.", dash_answer
+    assert_equal "Start with a.", unicode_answer
+  end
+
   test "language policy gives a prohibited crisis context precedence over user repetition" do
     [ "I want to die, y'all", "I can't go on with this debt anymore, y'all" ].each do |message|
       answer = Mia::LanguagePolicy.new(
@@ -67,6 +105,30 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
 
       assert_equal "Call or text 988 now.", answer
     end
+  end
+
+  test "prohibited contexts remove phrase typography variants" do
+    answer = Mia::LanguagePolicy.new(
+      user_message: "I want to die",
+      persona: @runtime
+    ).sanitize("Y’all, call or text 988 now.")
+
+    assert_equal "Call or text 988 now.", answer
+  end
+
+  test "custom personas remove known cultural language unless the coach approved it" do
+    unapproved = Mia::LanguagePolicy.new(
+      user_message: "What should our household focus on this month?",
+      persona: @runtime
+    ).sanitize("Håfa Adai, y'all should review the confirmed plan first.")
+    approved_runtime = runtime_with_phrase("Håfa Adai", allowed_contexts: [ "greeting" ])
+    approved = Mia::LanguagePolicy.new(
+      user_message: "Hafa Adai, can you help?",
+      persona: approved_runtime
+    ).sanitize("Håfa Adai! Let's review the confirmed plan.")
+
+    assert_equal "Y'all should review the confirmed plan first.", unapproved
+    assert_equal "Håfa Adai! Let's review the confirmed plan.", approved
   end
 
   test "runtime persona fallbacks never inherit legacy Guam cultural language" do
@@ -183,6 +245,35 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
   end
 
   private
+
+  def runtime_with_phrase(text, allowed_contexts: [ "general" ])
+    coach = persona_user
+    config = persona_configuration(assistant_name: "Coach Kai", coach_name: "Coach June")
+    config["phrases"] = [
+      {
+        "text" => text,
+        "meaning" => "A coach-approved expression.",
+        "allowed_contexts" => allowed_contexts,
+        "prohibited_contexts" => [ "crisis" ],
+        "frequency" => "sparing",
+        "caution" => "Use naturally and sparingly."
+      }
+    ]
+    persona = CoachPersona.create!(
+      name: "Coach Kai",
+      description: "Phrase normalization fixture.",
+      draft_config: config,
+      created_by_user: coach
+    )
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    version = publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: nil
+    )
+    Mia::RuntimePersona.new(version)
+  end
 
   def with_net_http_start(replacement)
     singleton = Net::HTTP.singleton_class

@@ -3,6 +3,9 @@
 module Mia
   class LanguagePolicy
     CULTURAL_LANGUAGE_PATTERN = /\b(?:h[åa]fa adai|chelu|lanya|umbee(?:\s+gachong)?|biba)\b/i.freeze
+    KNOWN_CULTURAL_PHRASES = [ "håfa adai", "hafa adai", "umbee gachong", "chelu", "lanya", "umbee", "biba" ].freeze
+    APOSTROPHE_GRAPHEMES = [ "'", "’", "‘", "ʼ", "＇" ].freeze
+    DASH_GRAPHEMES = [ "-", "‐", "‑", "‒", "–", "—", "―" ].freeze
     GREETING_PATTERN = /\b(?:h[åa]fa\s+adai|good\s+(?:morning|afternoon|evening))\b/i.freeze
     MILESTONE_PATTERN = /\b(?:
       paid\s+off|debt[-\s]?free|milestone|promotion|raise|bonus|windfall|unexpected\s+(?:win|income|money)|surprise\s+(?:win|income|money)|celebrat\w*|
@@ -71,12 +74,21 @@ module Mia
     def sanitize_custom_persona(content)
       value = content.to_s
       value = remove_generic_praise(value) unless earned_moment?
-      cultural_phrases.each do |entry|
-        next if custom_phrase_allowed?(entry)
+      entries = cultural_phrases
+      allowed_entries = entries.select { |entry| custom_phrase_allowed?(entry) }
+      leading_phrase_removed = false
+      entries.each do |entry|
+        next if allowed_entries.include?(entry)
 
-        value = value.gsub(custom_phrase_pattern(entry.fetch("text")), " ")
+        pattern = custom_phrase_pattern(entry.fetch("text"))
+        leading_phrase_removed ||= leading_phrase?(value, pattern)
+        value = value.gsub(pattern, " ")
       end
-      value = value.sub(/\A\s*(should|can|could|need|will|may|might|have|are)\b/i, 'You \1')
+      value, known_leading_phrase_removed = remove_unapproved_known_cultural_language(value, allowed_entries)
+      leading_phrase_removed ||= known_leading_phrase_removed
+      if leading_phrase_removed && !value.strip.end_with?("?")
+        value = value.sub(/\A\s*(should|can|could|need|will|may|might|have|are)\b/i, 'You \1')
+      end
       normalize(value.gsub(/\s+([.!?,;:])/, "\\1"))
     end
 
@@ -151,7 +163,42 @@ module Mia
     end
 
     def custom_phrase_pattern(phrase)
-      /(?<![[:alnum:]_])#{Regexp.escape(phrase.to_s.squish)}(?![[:alnum:]_])/i
+      graphemes = phrase.to_s.squish.scan(/\X/)
+      source = graphemes.map do |grapheme|
+        if grapheme.match?(/\A[[:space:]]\z/)
+          "[\\p{Space}\\u200B]+"
+        elsif APOSTROPHE_GRAPHEMES.include?(grapheme)
+          "[#{Regexp.escape(APOSTROPHE_GRAPHEMES.join)}]"
+        elsif DASH_GRAPHEMES.include?(grapheme)
+          "[\\p{Space}\\u200B]*[#{Regexp.escape(DASH_GRAPHEMES.join)}][\\p{Space}\\u200B]*"
+        else
+          variants = %i[nfc nfd nfkc nfkd].map { |form| Regexp.escape(grapheme.unicode_normalize(form)) }.uniq
+          variants.one? ? variants.first : "(?:#{variants.join('|')})"
+        end
+      end.join
+      /(?<![[:alnum:]_])#{source}(?![[:alnum:]_])/i
+    end
+
+    def remove_unapproved_known_cultural_language(content, allowed_entries)
+      approved = allowed_entries.flat_map do |entry|
+        KNOWN_CULTURAL_PHRASES.filter do |known_phrase|
+          entry.fetch("text").match?(custom_phrase_pattern(known_phrase))
+        end
+      end.uniq
+
+      leading_phrase_removed = false
+      value = KNOWN_CULTURAL_PHRASES.reduce(content) do |current, known_phrase|
+        next current if approved.include?(known_phrase)
+
+        pattern = custom_phrase_pattern(known_phrase)
+        leading_phrase_removed ||= leading_phrase?(current, pattern)
+        current.gsub(pattern, " ")
+      end
+      [ value, leading_phrase_removed ]
+    end
+
+    def leading_phrase?(content, pattern)
+      content.match?(/\A\s*#{pattern.source}/i)
     end
 
     def earned_moment?

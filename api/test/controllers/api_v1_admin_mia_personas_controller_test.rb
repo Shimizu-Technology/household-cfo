@@ -20,8 +20,10 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "admin sees every persona while coach visibility is owned or assigned and assignment details stay scoped" do
-    admin = persona_user(role: "admin")
-    coach = persona_user(role: "coach")
+    admin = persona_user(role: "admin", email: "private-admin@example.com")
+    admin.update!(first_name: "Ari", last_name: "Administrator")
+    coach = persona_user(role: "coach", email: "coach-viewer@example.com")
+    coach.update!(first_name: "Casey", last_name: "Coach")
     coach_cohort = cohort_for(admin, name: "Coach-visible cohort")
     outside_cohort = cohort_for(admin, name: "Outside cohort")
     coach.cohort_memberships.create!(cohort: coach_cohort, role: "coach")
@@ -45,6 +47,10 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     coach_ids = response.parsed_body.fetch("personas").pluck("id")
     assert_equal [ owned.id, assigned.id ].sort, coach_ids.sort
     refute_includes coach_ids, hidden.id
+    assigned_summary = response.parsed_body.fetch("personas").find { |item| item.fetch("id") == assigned.id }
+    assert_equal({ "full_name" => "Ari Administrator" }, assigned_summary.fetch("owner"))
+    assert_equal({ "full_name" => "Ari Administrator" }, assigned_summary.dig("published_version", "published_by"))
+    refute_includes response.body, admin.email
 
     get "/api/v1/admin/personas/#{assigned.id}", headers: auth_headers(coach)
 
@@ -56,19 +62,29 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     refute detail.key?("preview")
     refute detail.key?("draft_revision")
     assert_equal [ coach_cohort.id ], detail.fetch("assignments").map { |item| item.dig("cohort", "id") }
+    assert_equal({ "full_name" => "Ari Administrator" }, detail.fetch("owner"))
+    assert detail.fetch("versions").all? { |version| version.fetch("published_by") == { "full_name" => "Ari Administrator" } }
+    assert detail.fetch("assignments").all? { |assignment| assignment.fetch("assigned_by") == { "full_name" => "Ari Administrator" } }
     refute_includes response.body, outside_cohort.name
+    refute_includes response.body, admin.email
     refute_includes response.body, "Private future assistant"
     refute_includes response.body, "Private unpublished coaching method."
 
     get "/api/v1/admin/personas/#{assigned.id}/versions/#{published_assignment_version.id}", headers: auth_headers(coach)
 
     assert_response :success
-    refute response.parsed_body.fetch("version").key?("config")
+    public_version = response.parsed_body.fetch("version")
+    refute public_version.key?("config")
+    assert_equal({ "full_name" => "Ari Administrator" }, public_version.fetch("published_by"))
+    assert_equal({ "full_name" => "Ari Administrator" }, response.parsed_body.dig("persona", "owner"))
+    refute_includes response.body, admin.email
 
     get "/api/v1/admin/personas/#{assigned.id}/versions/#{published_assignment_version.id}", headers: auth_headers(admin)
 
     assert_response :success
     assert_equal published_assignment_version.config, response.parsed_body.dig("version", "config")
+    assert_equal admin.id, response.parsed_body.dig("version", "published_by", "id")
+    assert_equal admin.email, response.parsed_body.dig("version", "published_by", "email")
 
     get "/api/v1/admin/personas/#{hidden.id}", headers: auth_headers(coach)
 
