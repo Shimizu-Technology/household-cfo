@@ -71,6 +71,9 @@ module FinancialDocuments
       if summary[:sheet_limit_exceeded]
         return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_SHEETS} worksheets and could not be inspected completely. Remove empty sheets or split it into smaller workbooks so every value can be reviewed.")
       end
+      if summary[:column_limit_exceeded]
+        return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_COLUMNS} columns on a worksheet and could not be inspected completely. Remove empty columns or split it into smaller files so every value can be reviewed.")
+      end
       if summary[:scan_incomplete]
         return failure("This workbook could not be inspected completely within the safe #{SpreadsheetSummarizer::MAX_SCANNED_CELLS}-cell limit. Remove empty rows or columns, or split it into smaller workbooks.")
       end

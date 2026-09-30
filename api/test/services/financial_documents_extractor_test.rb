@@ -407,6 +407,7 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     errors = [
       "This spreadsheet has more than 60 budget/profile rows. Split it into smaller files.",
       "This workbook has more than 50 worksheets and could not be inspected completely.",
+      "This workbook has more than 200 columns and could not be inspected completely.",
       "This workbook could not be inspected completely within the safe cell limit."
     ]
 

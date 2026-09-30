@@ -365,6 +365,41 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "extracts setup values from a twenty-first column" do
+    file = Tempfile.new([ "wide-setup", ".csv" ])
+    headers = [ "type", "label", "balance" ] + 17.times.map { |index| "unused_#{index + 1}" } + [ "payment" ]
+    values = [ "debt", "Visa card", "3400" ] + Array.new(17) + [ "175" ]
+    file.write(CSV.generate_line(headers))
+    file.write(CSV.generate_line(values))
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "wide-setup.csv").call
+
+    assert result.success?, result.error
+    debt = result.data.fetch(:items).sole
+    assert_equal 340_000, debt.fetch(:balance_cents)
+    assert_equal 17_500, debt.fetch(:payment_cents)
+  ensure
+    file&.close!
+  end
+
+  test "rejects worksheets wider than the explicit safe column bound" do
+    file = Tempfile.new([ "too-wide", ".csv" ])
+    headers = [ "type", "label", "balance" ] + 197.times.map { |index| "unused_#{index + 1}" } + [ "payment" ]
+    values = [ "debt", "Visa card", "3400" ] + Array.new(197) + [ "175" ]
+    file.write(CSV.generate_line(headers))
+    file.write(CSV.generate_line(values))
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "too-wide.csv").call
+
+    refute result.success?
+    assert_includes result.error, "more than #{FinancialDocuments::SpreadsheetSummarizer::MAX_COLUMNS} columns"
+    assert_includes result.error, "could not be inspected completely"
+  ensure
+    file&.close!
+  end
+
   test "inspects a nonempty worksheet after the first five sheets" do
     file = Tempfile.new([ "many-sheets", ".xls" ])
     file.close

@@ -228,7 +228,7 @@ module FinancialDocuments
     end
 
     def terminal_structured_spreadsheet_error?(result)
-      result && !result.success? && result.error.to_s.match?(/more than \d+ (?:transaction |budget\/profile )?(?:rows|worksheets)|could not be inspected completely/i)
+      result && !result.success? && result.error.to_s.match?(/more than \d+ (?:transaction |budget\/profile )?(?:rows|worksheets|columns)|could not be inspected completely/i)
     end
 
     def inline_payload_size_error(document_import, file_path)

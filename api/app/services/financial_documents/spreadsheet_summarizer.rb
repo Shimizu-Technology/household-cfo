@@ -8,7 +8,7 @@ module FinancialDocuments
   class SpreadsheetSummarizer
     MAX_SHEETS = 50
     MAX_ROWS_PER_SHEET = HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS + 1
-    MAX_COLUMNS = 20
+    MAX_COLUMNS = 200
     MAX_SCANNED_CELLS = 250_000
     MAX_CELL_LENGTH = 120
     MAX_SHEET_NAME_LENGTH = 80
@@ -23,6 +23,7 @@ module FinancialDocuments
       sheet_names = spreadsheet.sheets
       @scanned_cells = 0
       @scan_incomplete = false
+      @column_limit_exceeded = false
       sheet_limit_exceeded = sheet_names.length > MAX_SHEETS
       {
         filename: filename,
@@ -32,6 +33,7 @@ module FinancialDocuments
           spreadsheet.default_sheet = sheet_name
           summarize_sheet(spreadsheet, sheet_name)
         end.compact,
+        column_limit_exceeded: @column_limit_exceeded,
         scan_incomplete: @scan_incomplete || sheet_limit_exceeded
       }
     end
@@ -55,8 +57,21 @@ module FinancialDocuments
 
     def summarize_sheet(spreadsheet, sheet_name)
       last_row = spreadsheet.last_row.to_i
-      last_column = [ spreadsheet.last_column.to_i, MAX_COLUMNS ].min
-      return nil if last_row.zero? || last_column.zero?
+      actual_last_column = spreadsheet.last_column.to_i
+      return nil if last_row.zero? || actual_last_column.zero?
+      if actual_last_column > MAX_COLUMNS
+        @column_limit_exceeded = true
+        return {
+          name: clean_sheet_name(sheet_name),
+          row_count: last_row,
+          sampled_row_count: 0,
+          rows_truncated: false,
+          column_count: actual_last_column,
+          columns_seen: 0,
+          rows: []
+        }
+      end
+      last_column = actual_last_column
 
       rows = []
       rows_truncated = false
@@ -94,6 +109,7 @@ module FinancialDocuments
         row_count: last_row,
         sampled_row_count: rows.length,
         rows_truncated: rows_truncated,
+        column_count: actual_last_column,
         columns_seen: last_column,
         rows: rows
       }

@@ -108,6 +108,7 @@ module HouseholdFinance
       if invalid_date_scope?
         return [ "I could not apply that date or date range because it is not a valid calendar date. Use a valid date and try again." ]
       end
+      return [ unsupported_question_answer ] if unsupported_risk_or_advice_question?
 
       parts = []
       if transaction_question? && explicit_transaction_scope?(rows) && scoped_transaction_rows(rows).empty?
@@ -242,6 +243,11 @@ module HouseholdFinance
 
     def duplicate_question?
       message.match?(/\b(?:duplicates?|duplicated|double[ -]?charged?|charged twice|same charge|repeated (?:charges?|transactions?))\b/i)
+    end
+
+    def unsupported_risk_or_advice_question?
+      message.match?(/\b(?:fraud|fraudulent|dispute|chargeback|unauthori[sz]ed|scam|suspicious|stolen|legitimate|legit|trustworthy|trust)\b/i) ||
+        message.match?(/\b(?:what|which).{0,60}\bshould\b/i)
     end
 
     def plan_fit_question?

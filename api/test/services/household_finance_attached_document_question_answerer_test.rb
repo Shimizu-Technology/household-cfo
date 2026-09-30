@@ -110,14 +110,20 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
   test "states a capability boundary for unsupported attachment questions" do
     create_draft!(merchant: "Unknown seller", amount_cents: 50_00, occurred_on: Date.new(2026, 8, 2))
 
-    risk_answer = answer_for("Is this charge fraudulent?")
-    advice_answer = answer_for("What should I do about this charge?")
+    answers = [
+      answer_for("Is this charge fraudulent?"),
+      answer_for("What should I do about this charge?"),
+      answer_for("Which charges are fraudulent?"),
+      answer_for("Which charges should I dispute?"),
+      answer_for("Which charges are unauthorized, suspicious, or a scam?")
+    ]
 
-    [ risk_answer, advice_answer ].each do |answer|
+    answers.each do |answer|
       assert_includes answer, "cannot answer that question reliably"
       assert_includes answer, "I will not guess from the file name or extracted prose"
       assert_not_includes answer, "1 transaction row totaling"
       assert_not_includes answer, "$50.00"
+      assert_not_includes answer, "Attached transactions"
     end
   end
 
