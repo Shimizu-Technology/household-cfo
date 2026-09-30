@@ -34,7 +34,10 @@ module Api
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
-        conversation_context = HouseholdFinance::ConversationContextBuilder.new(session).call
+        conversation_context = HouseholdFinance::ConversationContextBuilder.new(
+          session,
+          persona_context_id: current_persona.continuity_id
+        ).call
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
           annual_plan: intent_plan,
@@ -116,10 +119,17 @@ module Api
             user_message: user_message,
             assistant_message: assistant_message,
             mia_action_draft: mia_action_draft,
-            transaction_draft: transaction_draft
+            transaction_draft: transaction_draft,
+            persona_context_id: current_persona.continuity_id
           )
         else
-          compact_conversation(session, user_message, assistant_message, follow_up: followup.follow_up?)
+          compact_conversation(
+            session,
+            user_message,
+            assistant_message,
+            follow_up: followup.follow_up?,
+            persona_context_id: current_persona.continuity_id
+          )
         end
 
         response_payload = {
@@ -183,7 +193,12 @@ module Api
             assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
-        compact_conversation(session, user_message, assistant_message)
+        compact_conversation(
+          session,
+          user_message,
+          assistant_message,
+          persona_context_id: current_persona.continuity_id
+        )
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -1117,26 +1132,29 @@ module Api
         }
       end
 
-      def update_conversation_state(session, intent_result:, user_message:, assistant_message:, mia_action_draft:, transaction_draft:)
+      def update_conversation_state(session, intent_result:, user_message:, assistant_message:, mia_action_draft:, transaction_draft:,
+        persona_context_id:)
         HouseholdFinance::MiaConversationStateUpdater.new(
           session,
           intent_result: intent_result,
           user_message: user_message,
           assistant_message: assistant_message,
           mia_action_draft: mia_action_draft,
-          transaction_draft: transaction_draft
+          transaction_draft: transaction_draft,
+          persona_context_id: persona_context_id
         ).call
       rescue StandardError => e
         Rails.logger.warn("Mia conversation state could not be saved chat_session_id=#{session&.id}: #{e.class}: #{e.message}")
         false
       end
 
-      def compact_conversation(session, user_message, assistant_message, follow_up: false)
+      def compact_conversation(session, user_message, assistant_message, follow_up: false, persona_context_id:)
         HouseholdFinance::ConversationCompactor.new(
           session,
           user_message: user_message,
           assistant_message: assistant_message,
-          follow_up: follow_up
+          follow_up: follow_up,
+          persona_context_id: persona_context_id
         ).call
       rescue StandardError => e
         Rails.logger.warn("Conversation compaction could not be scheduled chat_session_id=#{session&.id}: #{e.class}: #{e.message}")

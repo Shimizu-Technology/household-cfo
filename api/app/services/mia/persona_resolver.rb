@@ -10,11 +10,11 @@ module Mia
     end
 
     def call
-      return Persona.default unless cohort_membership
+      return Persona.neutral unless cohort_membership
       return fallback_for_ambiguous_assignments if conflicting_persona_assignments?
 
       assignment = cohort_membership.cohort.cohort_persona_assignment
-      return Persona.default unless assignment
+      return Persona.neutral unless assignment
 
       persona = assignment.coach_persona
       version = assignment.coach_persona_version
@@ -23,7 +23,7 @@ module Mia
       RuntimePersona.new(version)
     rescue PersonaSchema::InvalidConfiguration, ActiveRecord::RecordNotFound => error
       Rails.logger.warn("[Mia::PersonaResolver] using fallback: #{error.class}: #{error.message}")
-      Persona.default
+      Persona.neutral
     end
 
     private
@@ -43,7 +43,7 @@ module Mia
 
     def fallback_for_ambiguous_assignments
       Rails.logger.error("[Mia::PersonaResolver] conflicting persona assignments user_id=#{user&.id}")
-      Persona.default
+      Persona.neutral
     end
 
     def invalid_assignment_fallback(assignment)
@@ -51,7 +51,7 @@ module Mia
         "[Mia::PersonaResolver] stale persona assignment assignment_id=#{assignment.id} " \
         "version_id=#{assignment.coach_persona_version_id}"
       )
-      Persona.default
+      Persona.neutral
     end
   end
 end

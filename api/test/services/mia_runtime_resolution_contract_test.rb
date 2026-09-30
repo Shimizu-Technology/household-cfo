@@ -63,7 +63,7 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     resolved = Mia::PersonaResolver.new(user: @participant, cohort_membership: active_membership).call
 
     assert_instance_of Mia::Persona, resolved
-    assert_equal Mia::Persona::DEFAULT_ID, resolved.id
+    assert_equal Mia::Persona::NEUTRAL_ID, resolved.id
   end
 
   test "persona resolver never serves an assignment pinned to a superseded version" do
@@ -80,7 +80,36 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     resolved = Mia::PersonaResolver.new(user: @participant, cohort_membership: membership).call
 
     assert_instance_of Mia::Persona, resolved
-    assert_equal Mia::Persona::DEFAULT_ID, resolved.id
+    assert_equal Mia::Persona::NEUTRAL_ID, resolved.id
+  end
+
+  test "an unassigned Southern cohort receives the neutral product persona" do
+    southern_cohort = Cohort.create!(
+      name: "Southern Household CFO Pilot",
+      status: "active",
+      starts_on: Date.new(2026, 8, 1),
+      created_by_user: @coach
+    )
+    membership = add_participant(southern_cohort)
+
+    resolved = Mia::PersonaResolver.new(user: @participant, cohort_membership: membership).call
+
+    assert_equal Mia::Persona::NEUTRAL_ID, resolved.id
+    refute_match(/guam|chamorro|chelu|lanya|island/i, resolved.system_prompt)
+    refute_match(/guam|chamorro|chelu|lanya|island/i, resolved.fallback_response(:spending))
+  end
+
+  test "persona resolver uses neutral fallback for an invalid current custom version" do
+    persona, version = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
+    cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
+    membership = add_participant(cohort)
+    CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: @coach)
+    version.update_columns(config: { "identity" => { "assistant_name" => "Broken" } })
+
+    resolved = Mia::PersonaResolver.new(user: @participant, cohort_membership: membership).call
+
+    assert_equal Mia::Persona::NEUTRAL_ID, resolved.id
+    refute_match(/guam|chamorro|chelu|lanya|island/i, resolved.system_prompt)
   end
 
   private

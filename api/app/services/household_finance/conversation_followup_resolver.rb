@@ -42,7 +42,15 @@ module HouseholdFinance
     def recall_result
       topics = open_topics.presence || [ active_topic ].compact
       topic_lines = topics.first(4).map do |topic|
-        parts = [ topic["title"], topic["amount_label"], topic["latest_mia_summary"], topic["next_move"] ].compact_blank
+        subject = topic["subject"] unless topic["subject"].to_s.casecmp?(topic["title"].to_s)
+        parts = [
+          topic["title"],
+          subject,
+          topic["amount_label"],
+          topic["latest_user_context"],
+          topic["latest_mia_summary"],
+          topic["next_move"]
+        ].compact_blank
         parts.join(" — ")
       end
       summary = topic_lines.to_sentence.presence || rolling_summary

@@ -3,12 +3,17 @@ require "yaml"
 module Mia
   class Persona
     DEFAULT_ID = "mia_household_cfo_guam".freeze
+    NEUTRAL_ID = "mia_household_cfo_neutral".freeze
     CONFIG_PATH = Rails.root.join("config", "mia_personas.yml")
 
     class << self
       def default
         configured_default = config.fetch("default", DEFAULT_ID)
         find(ENV.fetch("MIA_PERSONA_ID", configured_default))
+      end
+
+      def neutral
+        new(NEUTRAL_ID, config.fetch("personas").fetch(NEUTRAL_ID))
       end
 
       def find(id)
@@ -37,6 +42,10 @@ module Mia
 
     def version_id
       nil
+    end
+
+    def continuity_id
+      "built_in_persona:#{id}"
     end
 
     def initialize(id, data)

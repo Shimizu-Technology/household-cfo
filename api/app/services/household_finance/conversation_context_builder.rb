@@ -5,25 +5,29 @@ module HouseholdFinance
     MAX_TOPICS = 8
     MAX_READ_ONLY_PLAN_ITEMS = 6
 
-    def initialize(chat_session)
+    def initialize(chat_session, persona_context_id: PersonaVersionedContinuity::UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
+      @persona_context_id = persona_context_id
     end
 
     def call
       return empty_context unless chat_session
 
+      active_topic = topic_payload(chat_session.active_topic)
+      open_topics = self.open_topics.map { |topic| topic_payload(topic) }.compact
+
       {
         context_type: "conversation_continuity",
         memory_rule: "Conversation continuity is context only, not financial truth. Use approved database facts for balances, actuals, plans, transactions, and due dates.",
-        rolling_summary: sanitized_text(chat_session.rolling_summary, max_length: MAX_SUMMARY_LENGTH),
-        active_topic: topic_payload(chat_session.active_topic),
-        open_topics: open_topics.map { |topic| topic_payload(topic) }.compact
+        rolling_summary: rolling_summary(active_topic, open_topics),
+        active_topic: active_topic,
+        open_topics: open_topics
       }
     end
 
     private
 
-    attr_reader :chat_session
+    attr_reader :chat_session, :persona_context_id
 
     def empty_context
       {
@@ -40,7 +44,7 @@ module HouseholdFinance
     end
 
     def topic_payload(topic)
-      topic = topic.to_h.deep_stringify_keys
+      topic = PersonaVersionedContinuity.filter_topic(topic, persona_context_id: persona_context_id)
       return nil if topic.blank? || topic["title"].blank?
 
       read_only_plan = read_only_plan_payload(topic["read_only_plan"]) if topic["schema_version"].to_i >= 3
@@ -71,6 +75,27 @@ module HouseholdFinance
         transaction_draft_id: topic["transaction_draft_id"].presence,
         updated_at: sanitized_text(topic["updated_at"], max_length: 40)
       }.compact
+    end
+
+    def rolling_summary(active_topic, open_topics)
+      unless PersonaVersionedContinuity.filtering?(persona_context_id)
+        return sanitized_text(chat_session.rolling_summary, max_length: MAX_SUMMARY_LENGTH)
+      end
+
+      topics = [ active_topic, *open_topics ].compact.uniq { |topic| topic[:id].presence || topic.slice(:type, :subject) }
+      lines = topics.first(6).filter_map do |topic|
+        [
+          topic[:title],
+          topic[:subject],
+          topic[:amount_label],
+          topic[:status],
+          topic[:latest_mia_summary],
+          topic[:next_move]
+        ].compact_blank.join(" — ").presence
+      end
+      return if lines.empty?
+
+      sanitized_text("Open conversation topics: #{lines.join(' | ')}", max_length: MAX_SUMMARY_LENGTH)
     end
 
     def read_only_plan_payload(value)

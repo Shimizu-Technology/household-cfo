@@ -43,6 +43,10 @@ module Mia
       version&.id
     end
 
+    def continuity_id
+      "coach_persona_version:#{version_id}"
+    end
+
     def name
       identity.fetch("assistant_name")
     end
