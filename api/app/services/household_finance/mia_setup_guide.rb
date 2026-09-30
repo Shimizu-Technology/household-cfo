@@ -24,7 +24,7 @@ module HouseholdFinance
 
       def server_question_asked?(field, active_thread:, recent_messages:)
         thread = active_thread.to_h.deep_symbolize_keys
-        return false unless thread[:type] == "household_setup" && thread[:status] == "applied"
+        return false unless thread[:type] == "household_setup" && thread[:status].in?(%w[needs_clarification applied])
 
         latest = Array(recent_messages).last.to_h.deep_symbolize_keys
         latest[:role] == "assistant" && latest[:content].to_s.end_with?(question_message(field).to_s)

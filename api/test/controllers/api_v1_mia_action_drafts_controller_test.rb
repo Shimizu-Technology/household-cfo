@@ -87,6 +87,36 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert HouseholdFinance::SetupStatus.new(household.reload).complete?
   end
 
+  test "bare zero after the exact setup CTA drafts the current server-owned missing field" do
+    user = create_user(email: "mia-setup-cta-zero@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build stability"
+    ).call
+
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "primary monthly take-home income"
+
+    post "/api/v1/mia/messages",
+      params: { message: "0" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft_payload = response.parsed_body.fetch("mia_action_draft")
+    item = draft_payload.fetch("items").sole
+    assert_equal "primary_income", item.dig("payload", "key")
+    assert_equal 0, item.dig("payload", "value")
+    refute_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, "primary_income"
+  end
+
   test "applying a partial setup review asks exactly one concrete next question behind the review boundary" do
     user = create_user(email: "mia-setup-next-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
