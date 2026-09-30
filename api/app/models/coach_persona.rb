@@ -22,7 +22,7 @@ class CoachPersona < ApplicationRecord
   validates :description, length: { maximum: 2_000 }, allow_blank: true
   validates :preview_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
-  validate :creator_is_staff
+  validate :creator_is_staff, on: :create
   validate :draft_config_matches_schema
   validate :preview_fields_are_complete
   validate :current_version_belongs_to_persona

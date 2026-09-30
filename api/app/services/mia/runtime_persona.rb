@@ -15,21 +15,32 @@ module Mia
 
     attr_reader :version
 
-    def initialize(version)
+    def self.for_preview(config:, persona_id:, draft_revision:)
+      new(
+        nil,
+        config: config,
+        identifier: "coach_persona_#{persona_id}_draft_#{draft_revision}",
+        persona_id: persona_id
+      )
+    end
+
+    def initialize(version, config: nil, identifier: nil, persona_id: nil)
       @version = version
-      @config = PersonaSchema.validate!(version.config)
+      @config = PersonaSchema.validate!(config || version.config)
+      @identifier = identifier
+      @persona_id = persona_id
     end
 
     def id
-      "coach_persona_#{persona_id}_version_#{version.version_number}"
+      @identifier || "coach_persona_#{persona_id}_version_#{version.version_number}"
     end
 
     def persona_id
-      version.coach_persona_id
+      @persona_id || version.coach_persona_id
     end
 
     def version_id
-      version.id
+      version&.id
     end
 
     def name

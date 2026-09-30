@@ -64,6 +64,8 @@ module Demo
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
 
+    attr_reader :response_source
+
     def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default)
       @api_key = api_key
       @model = model
@@ -71,12 +73,19 @@ module Demo
     end
 
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
+      @response_source = "deterministic_fallback"
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
       return fallback_response("What are we trying to decide?", context: prompt_context) if clean_message.empty?
-      return crisis_response if crisis_message?(clean_message)
+      if crisis_message?(clean_message)
+        @response_source = "deterministic_safety"
+        return crisis_response
+      end
       grounded_response = grounded_answer(clean_message, context: context)
-      return grounded_response if grounded_response
+      if grounded_response
+        @response_source = "verified_deterministic"
+        return grounded_response
+      end
       if @api_key.to_s.strip.present?
         response = HouseholdFinance::MiaProviderAdmission.with_slot do
           openrouter_response(clean_message, history, context: prompt_context, draft_capable: draft_capable, conversation_resolution: conversation_resolution)
@@ -148,7 +157,10 @@ module Demo
         Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=persona_response_shape")
         return fallback_response(message, context: context)
       end
-      sanitized.presence || fallback_response(message, context: context)
+      return fallback_response(message, context: context) if sanitized.blank?
+
+      @response_source = "live_model"
+      sanitized
     end
 
     def verified_conversation_resolution_messages(resolution)

@@ -4,6 +4,8 @@ module Api
   module V1
     module Admin
       class MiaPersonasController < BaseController
+        LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
+
         before_action :authenticate_user!
         before_action :require_staff!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
@@ -41,10 +43,14 @@ module Api
               status: :unprocessable_entity
             )
           end
-          return render_revision_conflict unless expected_draft_revision == persona.draft_revision
+          persona.with_lock do
+            return render_revision_conflict unless expected_draft_revision == persona.draft_revision
 
-          persona.update!(update_persona_params)
+            persona.update!(update_persona_params)
+          end
           render json: { persona: serializer(persona.reload).detail }
+        rescue ActiveRecord::StaleObjectError
+          render_revision_conflict
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_invalid")
         end
@@ -52,7 +58,7 @@ module Api
         def destroy
           persona = editable_persona
           assigned = persona.with_lock do
-            next true if persona.cohort_persona_assignments.exists?
+            next true if persona.cohort_persona_assignments.joins(:cohort).where(cohorts: { status: LIVE_COHORT_STATUSES }).exists?
 
             persona.archive!
             false
@@ -60,7 +66,7 @@ module Api
 
           if assigned
             return render_api_error(
-              "Remove every cohort assignment before archiving this persona.",
+              "Remove this persona from every draft, enrolling, or active cohort before archiving it.",
               code: "persona_archive_assigned",
               status: :unprocessable_entity
             )
@@ -73,8 +79,13 @@ module Api
 
         def restore
           persona = editable_persona
-          persona.restore!
+          persona.with_lock { persona.restore! }
           render json: { persona: serializer(persona.reload).detail }
+        rescue ActiveRecord::StaleObjectError
+          render_studio_conflict(
+            "This persona changed in another session. Reload before restoring it.",
+            code: "persona_restore_conflict"
+          )
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_restore_invalid")
         end
@@ -84,14 +95,17 @@ module Api
           result = Mia::PersonaPublisher.new(persona: persona, actor: current_user).preview!(
             expected_draft_revision: preview_params[:draft_revision]
           )
+          behavioral_preview = Mia::PersonaPreviewer.new(
+            persona: persona,
+            sample_prompt: preview_params[:sample_prompt]
+          ).call
           render json: {
             preview: {
               persona_id: persona.id,
               draft_revision: persona.draft_revision,
               digest: result.fetch(:digest),
               rendered_instructions: result.fetch(:prompt),
-              sample_prompt: preview_params[:sample_prompt].to_s.squish.presence,
-              sample_reply: sample_reply(persona),
+              **behavioral_preview,
               warnings: [],
               guardrails_applied: true,
               generated_at: persona.reload.previewed_at
@@ -166,17 +180,13 @@ module Api
           name = requested_name.to_s.squish.presence || "Coach assistant"
           Mia::PersonaSchema.default_configuration(
             assistant_name: name,
-            human_coach_name: current_user.full_name.presence || current_user.email,
+            human_coach_name: public_coach_name,
             human_coach_title: "Financial coach"
           )
         end
 
-        def sample_reply(persona)
-          example = persona.draft_config.dig("curriculum", "examples")&.first
-          return example.fetch("assistant") if example&.fetch("assistant", nil).present?
-
-          assistant_name = persona.draft_config.dig("identity", "assistant_name")
-          "I’m #{assistant_name}, your coach’s digital assistant. I’ll answer from verified household facts, explain the choice plainly, and give you one practical next move. Nothing changes until you review and approve it."
+        def public_coach_name
+          [ current_user.first_name, current_user.last_name ].compact_blank.join(" ").presence || "your coach"
         end
 
         def serialize_assignable_cohort(cohort)

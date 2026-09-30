@@ -116,6 +116,10 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert response.parsed_body.dig("preview", "guardrails_applied")
+    assert_equal "unavailable", response.parsed_body.dig("preview", "status")
+    assert_equal "deterministic_fallback", response.parsed_body.dig("preview", "source")
+    assert_nil response.parsed_body.dig("preview", "sample_reply")
+    assert_includes response.parsed_body.dig("preview", "notice"), "No canned reply"
     assert_match(/\A[0-9a-f]{64}\z/, persona.reload.preview_digest)
 
     changed_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and grounded." })
@@ -147,6 +151,22 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     assert_equal "persona_name_is_draft_identity", response.parsed_body.fetch("code")
     assert_equal "Auntie Ava", persona.reload.name
+  end
+
+  test "default draft never exposes a coach email when no public name is configured" do
+    coach = persona_user(email: "private-coach-address@example.com")
+
+    post "/api/v1/admin/personas",
+      params: { persona: { name: "Private coach assistant" } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :created
+    detail = response.parsed_body.fetch("persona")
+    identity = detail.dig("draft", "identity")
+    assert_equal "your coach", identity.fetch("human_coach_name")
+    refute_includes JSON.generate(identity), coach.email
+    refute_includes JSON.generate(identity), "private-coach-address"
   end
 
   test "preview publish version detail and rollback form an immutable audited lifecycle" do
@@ -257,7 +277,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, persona.versions.count
   end
 
-  test "archive is blocked while assigned and preserves published history after unassignment" do
+  test "archive is blocked by live assignments but preserves inactive cohort history" do
     admin = persona_user(role: "admin")
     persona = persona_for(admin, assistant_name: "Archived assistant")
     published = publish_persona(persona, actor: admin)
@@ -267,16 +287,17 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     delete "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(admin)
 
     assert_response :unprocessable_entity
-    assert_includes response.parsed_body.fetch("errors"), "Remove every cohort assignment before archiving this persona."
+    assert_includes response.parsed_body.fetch("errors"), "Remove this persona from every draft, enrolling, or active cohort before archiving it."
     assert_equal "persona_archive_assigned", response.parsed_body.fetch("code")
     assert_nil persona.reload.archived_at
 
-    assignment.destroy!
+    cohort.update!(status: "completed")
     delete "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(admin)
 
     assert_response :success
     assert_equal "archived", response.parsed_body.dig("persona", "status")
     assert persona.reload.archived?
+    assert_equal assignment, persona.cohort_persona_assignments.sole
     assert_equal published, persona.current_published_version
     assert_equal 1, persona.versions.count
     assert_equal true, response.parsed_body.dig("persona", "permissions", "restore")

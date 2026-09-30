@@ -28,6 +28,27 @@ class CoachPersonaTest < ActiveSupport::TestCase
     assert_includes persona.errors[:created_by_user], "must be a coach or admin"
   end
 
+  test "historical creator demotion does not brick an existing persona lifecycle" do
+    creator = persona_user
+    admin = persona_user(role: "admin")
+    persona = create_persona(creator: creator)
+    creator.update!(role: "participant")
+
+    persona.update!(description: "Maintained by an authorized admin after creator demotion.")
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: admin)
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    version = publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: nil
+    )
+    persona.archive!
+    persona.restore!
+
+    assert_equal version, persona.reload.current_published_version
+    refute persona.archived?
+  end
+
   test "editing a draft increments revision and invalidates only its preview" do
     persona = create_persona
     preview = Mia::PersonaPublisher.new(persona: persona, actor: persona.created_by_user).preview!(expected_draft_revision: 1)
