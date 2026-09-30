@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_23_040000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_30_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -351,6 +351,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_23_040000) do
   end
 
   create_table "households", force: :cascade do |t|
+    t.jsonb "confirmed_setup_fields", default: [], null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
     t.string "location"
@@ -359,6 +360,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_23_040000) do
     t.string "stage"
     t.datetime "updated_at", null: false
     t.index ["created_by_user_id"], name: "index_households_on_created_by_user_id"
+    t.check_constraint "jsonb_typeof(confirmed_setup_fields) = 'array'::text", name: "households_confirmed_setup_fields_array"
   end
 
   create_table "income_schedule_entries", force: :cascade do |t|

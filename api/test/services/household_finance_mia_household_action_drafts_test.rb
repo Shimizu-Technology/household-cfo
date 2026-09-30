@@ -55,6 +55,97 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_equal "applied", draft.reload.status
   end
 
+  test "drafts and atomically applies the complete first-session picture" do
+    result = build_command(
+      type: "update_household_setup",
+      setup_updates: {
+        household_name: "QA Test Family",
+        primary_goal: "Build a six-month emergency fund",
+        primary_income: "6200",
+        fixed_expenses: "3000",
+        flexible_spend: "800",
+        expected_sinking_fund: "250",
+        unexpected_sinking_fund: "125"
+      }
+    )
+
+    assert_equal 7, result.proposal.items.length
+    assert_equal 3_400.0, result.proposal.metadata.dig(:impact, :before_monthly_outflow)
+    assert_equal 4_325.0, result.proposal.metadata.dig(:impact, :after_monthly_outflow)
+    before = HouseholdFinance::DataPresenter.new(@household.reload, user: @user).setup_values
+    assert_equal 2_500.0, before.fetch(:fixed_expenses)
+    assert_equal 750.0, before.fetch(:flexible_spend)
+
+    draft = persist(result.proposal)
+    coverage = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:setup_coverage_after_apply)
+    assert coverage.fetch(:complete)
+    apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+
+    assert apply.success?, apply.errors.to_sentence
+    setup = HouseholdFinance::DataPresenter.new(@household.reload, user: @user).setup_values
+    assert_equal "QA Test Family", setup.fetch(:household_name)
+    assert_equal 6_200.0, setup.fetch(:primary_income)
+    assert_equal 3_000.0, setup.fetch(:fixed_expenses)
+    assert_equal 800.0, setup.fetch(:flexible_spend)
+    assert_equal 250.0, setup.fetch(:expected_sinking_fund)
+    assert_equal 125.0, setup.fetch(:unexpected_sinking_fund)
+    assert HouseholdFinance::SetupStatus.new(@household).complete?
+  end
+
+  test "shows which first-session fields will still be missing after a partial review" do
+    @household.update!(confirmed_setup_fields: [ "household_name" ], primary_goal: nil)
+    @household.expense_items.delete_all
+    result = build_command(type: "update_household_setup", setup_updates: { primary_income: "6200" })
+    draft = persist(result.proposal)
+
+    coverage = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:setup_coverage_after_apply)
+
+    refute coverage.fetch(:complete)
+    assert_equal [ "Primary goal", "Fixed essentials", "Flexible spending" ], coverage.fetch(:missing_fields).pluck(:label)
+  end
+
+  test "counts a newly proposed primary goal in first-session review coverage" do
+    @household.update!(primary_goal: nil, confirmed_setup_fields: [])
+    result = build_command(
+      type: "update_household_setup",
+      setup_updates: {
+        household_name: @household.name,
+        primary_goal: "Build a six-month emergency fund",
+        primary_income: "5000",
+        fixed_expenses: "2500",
+        flexible_spend: "750"
+      }
+    )
+    draft = persist(result.proposal)
+
+    coverage = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:setup_coverage_after_apply)
+
+    assert coverage.fetch(:complete)
+    assert_empty coverage.fetch(:missing_fields)
+  end
+
+  test "reviews and confirms unchanged required defaults including explicit zero" do
+    @household.expense_items.where(stack_key: "discretionary").update_all(amount_cents: 0, active: false)
+    @household.update!(confirmed_setup_fields: %w[primary_goal primary_income fixed_expenses])
+
+    result = build_command(
+      type: "update_household_setup",
+      setup_updates: { household_name: @household.name, flexible_spend: "0" }
+    )
+
+    assert_equal 2, result.proposal.items.length
+    assert result.proposal.items.all? { |item| item.description.start_with?("Confirm ") }
+
+    draft = persist(result.proposal)
+    apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+
+    assert apply.success?, apply.errors.to_sentence
+    status = HouseholdFinance::SetupStatus.new(@household.reload)
+    assert status.complete?
+    assert_includes status.confirmed_field_keys, "household_name"
+    assert_includes status.confirmed_field_keys, "flexible_spend"
+  end
+
   test "rejects a stale household value instead of overwriting a newer manual edit" do
     result = build_command(type: "update_household_setup", setup_updates: { primary_income: "6200" })
     draft = persist(result.proposal)

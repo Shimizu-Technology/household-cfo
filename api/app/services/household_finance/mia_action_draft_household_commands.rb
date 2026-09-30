@@ -1,7 +1,8 @@
 module HouseholdFinance
   module MiaActionDraftHouseholdCommands
     SETUP_MONEY_KEYS = %i[
-      primary_income business_income emergency_fund other_assets credit_card_debt debt_payment
+      primary_income business_income fixed_expenses flexible_spend expected_sinking_fund
+      unexpected_sinking_fund emergency_fund other_assets credit_card_debt debt_payment
     ].freeze
     SETUP_TEXT_KEYS = %i[household_name primary_goal].freeze
     SETUP_KEYS = (SETUP_TEXT_KEYS + SETUP_MONEY_KEYS + [ :target_runway_months ]).freeze
@@ -10,6 +11,10 @@ module HouseholdFinance
       primary_goal: "Primary goal",
       primary_income: "Primary monthly income",
       business_income: "Monthly business income",
+      fixed_expenses: "Fixed essentials",
+      flexible_spend: "Flexible spending",
+      expected_sinking_fund: "Expected sinking fund",
+      unexpected_sinking_fund: "Unexpected sinking fund",
       emergency_fund: "Emergency fund",
       other_assets: "Other assets",
       credit_card_debt: "Credit card debt",
@@ -42,11 +47,13 @@ module HouseholdFinance
       return normalized if normalized.is_a?(MiaActionDraftBuilder::Result)
 
       before_values = current_setup_values
+      confirmed_fields = SetupStatus.new(household).confirmed_field_keys
       items = normalized.filter_map do |key, value|
         before = normalized_setup_value(key, before_values.fetch(key))
-        next if before == value
+        requires_confirmation = key.in?(SetupStatus::REQUIRED_FIELDS) && !confirmed_fields.include?(key.to_s)
+        next if before == value && !requires_confirmation
 
-        setup_value_item(key, before, value)
+        setup_value_item(key, before, value, confirmation_only: before == value)
       end
       return validation_result("Those household values already match your approved profile, so I did not create a draft.") if items.empty?
 
@@ -163,17 +170,23 @@ module HouseholdFinance
       value.to_s.squish
     end
 
-    def setup_value_item(key, before, after)
+    def setup_value_item(key, before, after, confirmation_only: false)
       MiaActionDraftBuilder::Item.new(
         action_type: "update_setup_value",
         label: SETUP_LABELS.fetch(key),
-        description: "#{display_setup_value(key, before)} → #{display_setup_value(key, after)}",
+        description: setup_value_description(key, before, after, confirmation_only: confirmation_only),
         target_record_type: "Household",
         target_record_id: household.id,
         payload: { key: key.to_s, value: after },
         before_snapshot: { key: key.to_s, value: before, display: display_setup_value(key, before) },
         after_snapshot: { key: key.to_s, value: after, display: display_setup_value(key, after) }
       )
+    end
+
+    def setup_value_description(key, before, after, confirmation_only:)
+      return "Confirm #{display_setup_value(key, after)} as your #{SETUP_LABELS.fetch(key).downcase}." if confirmation_only
+
+      "#{display_setup_value(key, before)} → #{display_setup_value(key, after)}"
     end
 
     def display_setup_value(key, value)

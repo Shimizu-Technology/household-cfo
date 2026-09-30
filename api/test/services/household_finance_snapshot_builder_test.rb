@@ -133,6 +133,10 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 100_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: (runway_months * 100_000).round)
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: target_months, priority: 1)
+    household.update!(
+      primary_goal: "Build runway",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
     household
   end
 end

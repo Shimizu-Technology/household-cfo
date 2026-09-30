@@ -23,10 +23,12 @@ module HouseholdFinance
     end
 
     def workspace
+      status = setup_status
       {
         mode: "real",
         household_id: household.id,
-        setup_complete: snapshot.fetch(:profile_completeness) >= 70,
+        setup_complete: status.complete?,
+        setup_status: status.as_json,
         setup_values: setup_values,
         debts: debt_records,
         cohort: cohort_context
@@ -63,9 +65,10 @@ module HouseholdFinance
           debt_payments: dollars(snapshot.fetch(:debt_payments_cents)),
           monthly_surplus_rate_percent: monthly_surplus_rate_percent,
           runway_months: snapshot.fetch(:runway_months),
-          next_safe_to_spend_amount: dollars(snapshot.fetch(:safe_to_spend_cents)),
-          readiness_tone: snapshot.fetch(:readiness_tone),
-          readiness_label: snapshot.fetch(:readiness_label)
+          next_safe_to_spend_amount: setup_status.complete? ? dollars(snapshot.fetch(:safe_to_spend_cents)) : 0,
+          readiness_available: setup_status.complete?,
+          readiness_tone: setup_status.complete? ? snapshot.fetch(:readiness_tone) : "red",
+          readiness_label: setup_status.complete? ? snapshot.fetch(:readiness_label) : "Setup incomplete — finish your starting picture"
         },
         action_center: action_center,
         coach_read: coach_read,
@@ -212,6 +215,10 @@ module HouseholdFinance
 
     private
 
+    def setup_status
+      @setup_status ||= SetupStatus.new(household)
+    end
+
     attr_reader :household, :user, :snapshot_builder, :persona
 
     def annual_plan
@@ -325,9 +332,9 @@ module HouseholdFinance
     end
 
     def alerts
-      if snapshot.fetch(:monthly_income_cents).zero? && snapshot.fetch(:total_outflow_cents).zero?
+      unless setup_status.complete?
         return [
-          { tone: "yellow", title: "Start with the basics", body: "Add monthly income, fixed bills, emergency fund, and debt so Mia can read your real household picture." }
+          { tone: "yellow", title: "Finish your starting picture", body: setup_guidance }
         ]
       end
 
@@ -357,6 +364,14 @@ module HouseholdFinance
     end
 
     def next_steps
+      unless setup_status.complete?
+        return [
+          setup_guidance,
+          "Tell Mia the missing details for review, or enter them in Manual setup. Use 0 when an amount does not apply.",
+          "Review and confirm the setup before relying on readiness or safe-to-spend."
+        ]
+      end
+
       steps = []
       steps << "Add income and Expense Stack numbers." if snapshot.fetch(:monthly_income_cents).zero? || snapshot.fetch(:total_expenses_cents).zero?
       steps << "Protect fixed bills and minimum debt payments first."
@@ -395,6 +410,13 @@ module HouseholdFinance
     end
 
     def coach_read
+      unless setup_status.complete?
+        return {
+          title: "Finish your starting picture.",
+          body: "#{setup_guidance} Mia will calculate readiness and safe-to-spend after you review and confirm those details."
+        }
+      end
+
       case snapshot.fetch(:readiness_tone)
       when "green"
         {
@@ -456,6 +478,15 @@ module HouseholdFinance
     end
 
     def quick_prompts
+      unless setup_status.complete?
+        return [
+          "Help me finish my household setup",
+          "What setup details are still missing?",
+          "I want to enter my starting household numbers",
+          "How do I confirm my starting picture?"
+        ]
+      end
+
       status = snapshot.fetch(:readiness_tone).capitalize
 
       [
@@ -622,6 +653,17 @@ module HouseholdFinance
     end
 
     def decisions
+      unless setup_status.complete?
+        return [ "Non-essential purchase", "Extra debt payment", "Runway transfer" ].map do |item|
+          {
+            item: item,
+            amount: 0,
+            recommendation: "Wait",
+            reason: "Finish and confirm the household starting picture before Mia recommends a money decision."
+          }
+        end
+      end
+
       safe = [ dollars(snapshot.fetch(:safe_to_spend_cents)), 0 ].max
       debt_entered = snapshot.fetch(:total_debt_cents).positive?
       baseline_positive = snapshot.fetch(:baseline_surplus_cents).positive?
@@ -647,6 +689,11 @@ module HouseholdFinance
           reason: runway_transfer_reason(runway_met, baseline_positive)
         }
       ]
+    end
+
+    def setup_guidance
+      missing = setup_status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
+      "Complete these setup details first: #{missing}."
     end
 
     def financial_inputs_present?

@@ -114,6 +114,7 @@ import type {
   TransactionDraftUpdateInput,
   UserRole,
   WealthData,
+  WorkspaceSetupStatus,
   WorkspaceSetupValues,
 } from './api'
 import { SeoManager } from './components/SeoManager'
@@ -305,10 +306,11 @@ const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
   'target_runway_months',
 ]
 
-function workspaceSetupDraftFromValues(values: WorkspaceSetupValues): WorkspaceSetupDraft {
+function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: WorkspaceSetupStatus): WorkspaceSetupDraft {
   const draft = { ...values } as unknown as WorkspaceSetupDraft
+  const confirmedFields = new Set(status?.confirmed_fields ?? [])
   workspaceSetupMoneyKeys.forEach((key) => {
-    draft[key] = values[key] === 0 ? '' : String(values[key])
+    draft[key] = values[key] === 0 && !confirmedFields.has(key) ? '' : String(values[key])
   })
   return draft
 }
@@ -625,7 +627,7 @@ function App() {
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(chatStorageKey)
         setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+        setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
@@ -725,7 +727,7 @@ function App() {
         if (cancelled) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
-        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : current)
+        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current)
         replaceMiaHistory(payload.mia)
       })
       .catch(() => {
@@ -1151,6 +1153,14 @@ function App() {
     }, 80)
   }
 
+  function startChatFirstSession() {
+    switchSection('Ask Mia')
+    setQuestion('Help me set up my household. Our household is called ___. We bring home about $___ each month, fixed essentials are about $___, flexible spending is about $___, and our main goal is ___.')
+    setMiaError(null)
+    setVoiceNotice(null)
+    window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
+  }
+
   function startUploadFirstSession() {
     switchSection('My Profile')
     setFirstSessionUploadOpen(true)
@@ -1560,6 +1570,9 @@ function App() {
     try {
       const workspace = await applyMiaActionDraft(draft.id)
       setData(workspace)
+      if (draft.draft_type === 'household_setup') {
+        setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
+      }
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       replaceMiaHistory(workspace.mia)
@@ -1942,7 +1955,7 @@ function App() {
         try {
           const refreshed = await fetchAppData(isRealWorkspace)
           setData(refreshed)
-          setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values) : setupDraft)
+          setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values, refreshed.workspace.setup_status) : setupDraft)
           replaceMiaHistory(refreshed.mia)
           setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
         } catch {
@@ -1974,7 +1987,7 @@ function App() {
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData(response.workspace)
-      setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values) : setupDraft)
+      setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values, response.workspace.workspace.setup_status) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
@@ -2078,7 +2091,7 @@ function App() {
     try {
       const payload = await saveWorkspaceSetup(workspaceSetupValuesFromDraft(setupDraft))
       setData(payload)
-      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : setupDraft)
+      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
         const responseYear = payload.budget.annual_plan?.year
         if (!responseYear) return current
@@ -2107,7 +2120,7 @@ function App() {
   async function refreshWorkspaceAfterDebtChange() {
     const payload = await fetchAppData(true)
     setData(payload)
-    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
     replaceMiaHistory(payload.mia)
   }
 
@@ -2123,7 +2136,7 @@ function App() {
 
   function cancelProfileEditing() {
     setSetupError(null)
-    setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values) : setupDraft)
+    setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status) : setupDraft)
     setIsProfileEditing(false)
   }
 
@@ -2236,19 +2249,23 @@ function App() {
         <>
           <HomeWelcomePanel
             needsSetup={Boolean(isRealWorkspace && !data.workspace?.setup_complete)}
+            setupStatus={data.workspace.setup_status}
             readinessLabel={data.dashboard.summary.readiness_label}
-            onPrimaryAction={isRealWorkspace && !data.workspace?.setup_complete ? startManualFirstSession : () => switchSection('Ask Mia')}
+            onPrimaryAction={isRealWorkspace && !data.workspace?.setup_complete ? startChatFirstSession : () => switchSection('Ask Mia')}
+            onManualSetup={startManualFirstSession}
           />
           {isRealWorkspace && !data.workspace?.setup_complete && (
-            <FirstSessionCard onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
+            <FirstSessionCard onChat={startChatFirstSession} onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
           )}
-          <HomeScreen
-            dashboard={data.dashboard}
-            budget={data.budget}
-            onAskMia={() => switchSection('Ask Mia')}
-            onReviewTransactions={() => switchSection('Review')}
-            onReviewMiaActions={() => switchSection('Ask Mia')}
-          />
+          {data.workspace.setup_complete && (
+            <HomeScreen
+              dashboard={data.dashboard}
+              budget={data.budget}
+              onAskMia={() => switchSection('Ask Mia')}
+              onReviewTransactions={() => switchSection('Review')}
+              onReviewMiaActions={() => switchSection('Ask Mia')}
+            />
+          )}
         </>
       )}
 
@@ -2266,11 +2283,11 @@ function App() {
                 <span className="spark" aria-hidden="true"><MiaMark /></span>
                 <div>
                   <span>Assistant context</span>
-                  <h3>{isFirstSessionSetup ? 'Add your starting numbers' : 'Approved data loaded'}</h3>
+                  <h3>{isFirstSessionSetup ? 'Build your starting picture with Mia' : 'Approved data loaded'}</h3>
                 </div>
               </div>
               <p>{isFirstSessionSetup
-                ? 'Mia can explain the process now. Add and approve your starting household numbers before asking her to make a financial call.'
+                ? 'Tell Mia what you know in ordinary language. She will prepare one review card, and your financial picture stays unchanged until you approve it.'
                 : 'Profile, Expense Stack, annual runway, debt pressure, Optionality scenario, and approved document freshness are ready for Mia to use.'}
               </p>
               {isRealWorkspace ? (
@@ -2347,6 +2364,14 @@ function App() {
                   </button>
                 </div>
               </div>
+
+              {isFirstSessionSetup && (
+                <FirstSessionSetupProgress
+                  status={data.workspace.setup_status}
+                  onStartChat={startChatFirstSession}
+                  onManual={startManualFirstSession}
+                />
+              )}
 
               <div id="mia-suggestions-panel" className={`mia-suggestions-panel${showMiaSuggestions ? ' is-open' : ''}`} aria-label="Mia prompts">
                 <div className="mia-update-guide" aria-labelledby="mia-update-guide-title">
@@ -2568,7 +2593,7 @@ function App() {
                 onDraftsCreated={async () => {
                   const payload = await fetchAppData(true)
                   setData(payload)
-                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
                   replaceMiaHistory(payload.mia)
                 }}
               />
@@ -2647,7 +2672,7 @@ function App() {
               onDraftsCreated={async () => {
                 const payload = await fetchAppData(true)
                 setData(payload)
-                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
                 replaceMiaHistory(payload.mia)
               }}
             />
@@ -3084,18 +3109,28 @@ function ScreenHeading({ eyebrow, title, copy }: { eyebrow: string; title: strin
 
 function HomeWelcomePanel({
   needsSetup,
+  setupStatus,
   onPrimaryAction,
+  onManualSetup,
   readinessLabel,
 }: {
   needsSetup: boolean
+  setupStatus: WorkspaceSetupStatus
   onPrimaryAction: () => void
+  onManualSetup: () => void
   readinessLabel: string
 }) {
   return (
     <section className="home-welcome-panel" aria-labelledby="home-welcome-title">
       <div className="home-welcome-copy">
         <p className="eyebrow">Your household command center</p>
-        <h2 id="home-welcome-title">{needsSetup ? 'Give Mia a useful starting point.' : 'Your CFO workspace is ready.'}</h2>
+        <h2
+          id="home-welcome-title"
+          data-page-heading={needsSetup ? true : undefined}
+          tabIndex={needsSetup ? -1 : undefined}
+        >
+          {needsSetup ? 'Give Mia a useful starting point.' : 'Your CFO workspace is ready.'}
+        </h2>
         <p>{needsSetup
           ? 'Run your home like the C-Suite. Start with money in, money out, and one goal; you can refine the rest as real decisions come up.'
           : 'Run your home like the C-Suite: review what needs your call, see this month inside the annual plan, and make one clear next move.'}</p>
@@ -3105,18 +3140,19 @@ function HomeWelcomePanel({
           <span aria-hidden="true"><MiaMark /></span>
           <div>
             <small>{needsSetup ? 'First step' : 'Current readiness'}</small>
-            <strong>{needsSetup ? 'Add the five essentials' : readinessLabel}</strong>
+            <strong>{needsSetup ? `${setupStatus.completed_count} of ${setupStatus.required_count} essentials confirmed` : readinessLabel}</strong>
           </div>
         </div>
         <Button onClick={onPrimaryAction}>
-          {needsSetup ? 'Give Mia my starting numbers' : 'Tell Mia what changed'}
+          {needsSetup ? 'Set up with Mia' : 'Tell Mia what changed'}
         </Button>
+        {needsSetup && <Button variant="ghost" onClick={onManualSetup}>Enter the five fields manually</Button>}
       </div>
     </section>
   )
 }
 
-function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => void; onUpload: () => void; onGuide: () => void }) {
+function FirstSessionCard({ onChat, onManual, onUpload, onGuide }: { onChat: () => void; onManual: () => void; onUpload: () => void; onGuide: () => void }) {
   return (
     <section className="first-session-card" aria-labelledby="first-session-title">
       <div className="first-session-heading">
@@ -3130,9 +3166,15 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
       <div className="first-session-paths">
         <article>
           <span>Recommended</span>
-          <h3>Give Mia your starting numbers</h3>
-          <p>Add monthly income, essential bills, flexible spending, and one goal. After you save, we will take you directly to Mia.</p>
-          <button type="button" onClick={onManual}>Give Mia my starting numbers</button>
+          <h3>Tell Mia what you know</h3>
+          <p>Write one sentence with your income, essential bills, flexible spending, household name, and goal. Mia will organize it for your approval.</p>
+          <button type="button" onClick={onChat}>Start with Mia</button>
+        </article>
+        <article className="first-session-path-secondary">
+          <span>Manual option</span>
+          <h3>Enter the five fields yourself</h3>
+          <p>Use the short form when you prefer exact fields. You can switch between chat and manual controls at any time.</p>
+          <Button variant="secondary" onClick={onManual}>Open the short form</Button>
         </article>
         <article className="first-session-path-secondary">
           <span>Optional pilot check</span>
@@ -3140,6 +3182,35 @@ function FirstSessionCard({ onManual, onUpload, onGuide }: { onManual: () => voi
           <p>Try a demo-safe budget, statement, pay stub, or receipt. Report any failure; no extracted draft changes your numbers until you approve it.</p>
           <Button variant="secondary" onClick={onUpload}>Test a private upload</Button>
         </article>
+      </div>
+    </section>
+  )
+}
+
+function FirstSessionSetupProgress({ status, onStartChat, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onManual: () => void }) {
+  return (
+    <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
+      <div className="first-session-progress-heading">
+        <div>
+          <span className="eyebrow">Starting picture</span>
+          <strong id="first-session-progress-title">{status.completed_count} of {status.required_count} essentials confirmed</strong>
+        </div>
+        <span>{Math.round((status.completed_count / Math.max(status.required_count, 1)) * 100)}%</span>
+      </div>
+      <div className="first-session-progress-bar" aria-hidden="true"><span style={{ width: `${(status.completed_count / Math.max(status.required_count, 1)) * 100}%` }} /></div>
+      <ul>
+        {status.required_fields.map((field) => (
+          <li key={field.key} className={field.confirmed ? 'is-confirmed' : ''}>
+            <span aria-hidden="true">{field.confirmed ? '✓' : '○'}</span>
+            {field.label}
+            <span className="sr-only"> — {field.confirmed ? 'Confirmed' : 'Still needed'}</span>
+          </li>
+        ))}
+      </ul>
+      <p>Share all five in one message or add them over a few turns. Mia will ask only for what is missing and show a review before saving.</p>
+      <div className="first-session-progress-actions">
+        <button type="button" onClick={onStartChat}>Use a guided message</button>
+        <button type="button" className="secondary-button" onClick={onManual}>Enter manually</button>
       </div>
     </section>
   )
@@ -3261,7 +3332,7 @@ function PilotGuideDialog({ onClose }: { onClose: () => void }) {
           <button type="button" className="secondary-button" onClick={onClose}>Close</button>
         </header>
         <ol className="pilot-guide-steps">
-          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Blank money fields count as $0; you can refine everything later.</p></div></li>
+          <li><span>1</span><div><strong>Give Mia the essentials.</strong><p>Enter money in, fixed essentials, flexible spending, and your main household goal. Enter 0 when an amount does not apply; you can refine everything later.</p></div></li>
           <li><span>2</span><div><strong>Tell Mia what changed.</strong><p>Use your own words—for example, “My take-home pay is now $6,200” or “My card balance is $3,100.” Mia can also coach from the context you approved.</p></div></li>
           <li><span>3</span><div><strong>Review before applying.</strong><p>Mia can draft household-number, future-income, and budget-plan changes. Check every before-and-after value; pending drafts change nothing until you explicitly apply them.</p></div></li>
         </ol>
@@ -6033,7 +6104,7 @@ function WorkspaceSetupForm({
         <div>
           <p className="eyebrow">{firstSession ? 'Five quick fields' : 'Household profile'}</p>
           <h3>{firstSession ? 'Start with what you know today.' : editing ? 'Editing household numbers' : 'Saved household numbers'}</h3>
-          <p>{firstSession ? 'Use your best monthly estimates. Blank money fields count as $0, and you can refine everything later.' : editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
+          <p>{firstSession ? 'Use your best monthly estimates. Enter 0 when an amount does not apply, and you can refine everything later.' : editing ? 'Save when the changes are intentional. Mia will use the updated context after you confirm.' : 'Review first. Click Edit profile before changing the numbers Mia uses as context.'}</p>
         </div>
         <div className="setup-form-actions">
           {firstSession ? (
@@ -6055,17 +6126,17 @@ function WorkspaceSetupForm({
         <div className="setup-field-grid">
           <label className="setup-field text-wide" title="The household name Mia should use in this workspace.">
             <span>Household name</span>
-            <input name="household_name" value={values.household_name} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
+            <input name="household_name" value={values.household_name} required={firstSession} disabled={!editing} onChange={(event) => onChange('household_name', event.target.value)} />
             <small>The name Mia should use for this household.</small>
           </label>
           <label className="setup-field text-wide" title="The money goal or life decision Mia should keep in mind when coaching you.">
             <span>Primary goal</span>
-            <textarea name="primary_goal" rows={3} value={values.primary_goal} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
+            <textarea name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
             <small>Write the goal, worry, or decision Mia should coach around.</small>
           </label>
-          <MoneyInput disabled={!editing} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
-          <MoneyInput disabled={!editing} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
-          <MoneyInput disabled={!editing} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
+          <MoneyInput disabled={!editing} required={firstSession} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+          <MoneyInput disabled={!editing} required={firstSession} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
+          <MoneyInput disabled={!editing} required={firstSession} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
         </div>
       </fieldset>
 
@@ -6093,13 +6164,13 @@ function WorkspaceSetupForm({
   )
 }
 
-function MoneyInput({ disabled = false, name, label, value, help, onChange }: { disabled?: boolean; name: keyof WorkspaceSetupValues; label: string; value: string; help: string; onChange: (value: string) => void }) {
+function MoneyInput({ disabled = false, required = false, name, label, value, help, onChange }: { disabled?: boolean; required?: boolean; name: keyof WorkspaceSetupValues; label: string; value: string; help: string; onChange: (value: string) => void }) {
   return (
     <label className="setup-field" title={help}>
       <span>{label}</span>
       <span className="money-input-shell">
         <span aria-hidden="true">$</span>
-        <input name={name} type="number" inputMode="decimal" min="0" step="1" placeholder="0" value={disabled && value === '' ? '0' : value} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
+        <input name={name} type="number" inputMode="decimal" min="0" step="1" placeholder="0" value={disabled && value === '' ? '0' : value} required={required} disabled={disabled} onChange={(event) => onChange(event.target.value)} />
       </span>
       <small>{help}</small>
     </label>
@@ -6399,9 +6470,19 @@ function MiaActionDraftReviewCard({
 }) {
   const isPending = draft.status === 'pending'
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const proposedSetupKeys = new Set(draft.items
+    .filter((item) => item.action_type === 'update_setup_value')
+    .map((item) => String(item.payload.key ?? '')))
+  const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
+  const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
+  const applyLabel = setupCoverage?.complete
+    ? 'Apply starting picture'
+    : setupCoverage
+      ? `Apply these ${draft.items.length} value${draft.items.length === 1 ? '' : 's'}`
+      : 'Apply reviewed change'
 
   return (
-    <div className="mia-action-draft-card">
+    <article className="mia-action-draft-card">
       <div className="mia-action-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.title}</strong>
@@ -6421,13 +6502,24 @@ function MiaActionDraftReviewCard({
             </div>
           ))}
         </div>
+        {setupCoverage && (
+          <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
+            <div>
+              <strong>{setupCoverage.complete ? 'Starting picture complete after approval' : `${setupCoverage.completed_count} of ${setupCoverage.required_count} essentials after approval`}</strong>
+              <span>This review includes {draft.items.length} confirmed value{draft.items.length === 1 ? '' : 's'}.</span>
+            </div>
+            {setupCoverage.missing_fields.length > 0 && (
+              <p><strong>Still needed:</strong> {setupCoverage.missing_fields.map((field) => field.label).join(', ')}.</p>
+            )}
+          </section>
+        )}
         {draft.impact && <MiaActionImpact impact={draft.impact} />}
         <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft against your latest saved data when you apply it, keep an audit record, and leave actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">
           <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
-            {action === `apply-mia-action:${draft.id}` ? 'Applying' : 'Apply reviewed change'}
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : applyLabel}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
             {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
@@ -6443,7 +6535,7 @@ function MiaActionDraftReviewCard({
           <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : 'Canceled. No household numbers changed.'}</span>
         </div>
       )}
-    </div>
+    </article>
   )
 }
 
