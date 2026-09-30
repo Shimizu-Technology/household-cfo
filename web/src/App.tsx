@@ -306,10 +306,11 @@ const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
   'target_runway_months',
 ]
 
-function workspaceSetupDraftFromValues(values: WorkspaceSetupValues): WorkspaceSetupDraft {
+function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: WorkspaceSetupStatus): WorkspaceSetupDraft {
   const draft = { ...values } as unknown as WorkspaceSetupDraft
+  const confirmedFields = new Set(status?.confirmed_fields ?? [])
   workspaceSetupMoneyKeys.forEach((key) => {
-    draft[key] = values[key] === 0 ? '' : String(values[key])
+    draft[key] = values[key] === 0 && !confirmedFields.has(key) ? '' : String(values[key])
   })
   return draft
 }
@@ -626,7 +627,7 @@ function App() {
         const restoredMessages = realWorkspace ? payload.mia.messages : loadStoredMiaMessages(chatStorageKey)
         setMessagesStorageKey(chatStorageKey)
         setData(payload)
-        setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+        setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
         setMessages(restoredMessages)
         setVisibleMessageCount(CHAT_HISTORY_PAGE_SIZE)
         setOldestServerMessageId(realWorkspace ? payload.mia.oldest_message_id : null)
@@ -726,7 +727,7 @@ function App() {
         if (cancelled) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
-        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : current)
+        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current)
         replaceMiaHistory(payload.mia)
       })
       .catch(() => {
@@ -1569,7 +1570,9 @@ function App() {
     try {
       const workspace = await applyMiaActionDraft(draft.id)
       setData(workspace)
-      setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values) : null)
+      if (draft.draft_type === 'household_setup') {
+        setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
+      }
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
       replaceMiaHistory(workspace.mia)
@@ -1952,7 +1955,7 @@ function App() {
         try {
           const refreshed = await fetchAppData(isRealWorkspace)
           setData(refreshed)
-          setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values) : setupDraft)
+          setSetupDraft(refreshed.workspace?.setup_values ? workspaceSetupDraftFromValues(refreshed.workspace.setup_values, refreshed.workspace.setup_status) : setupDraft)
           replaceMiaHistory(refreshed.mia)
           setDocumentsNotice('Applied value updated. Dashboard and Mia context are refreshed.')
         } catch {
@@ -1984,7 +1987,7 @@ function App() {
       const response = await applyDocumentImport(documentImport.id, itemIds)
       setDocumentImports((current) => replaceImport(current, response.document_import))
       setData(response.workspace)
-      setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values) : setupDraft)
+      setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values, response.workspace.workspace.setup_status) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
       setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
@@ -2088,7 +2091,7 @@ function App() {
     try {
       const payload = await saveWorkspaceSetup(workspaceSetupValuesFromDraft(setupDraft))
       setData(payload)
-      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : setupDraft)
+      setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
         const responseYear = payload.budget.annual_plan?.year
         if (!responseYear) return current
@@ -2117,7 +2120,7 @@ function App() {
   async function refreshWorkspaceAfterDebtChange() {
     const payload = await fetchAppData(true)
     setData(payload)
-    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+    if (!isProfileEditing) setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
     replaceMiaHistory(payload.mia)
   }
 
@@ -2133,7 +2136,7 @@ function App() {
 
   function cancelProfileEditing() {
     setSetupError(null)
-    setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values) : setupDraft)
+    setSetupDraft(data?.workspace?.setup_values ? workspaceSetupDraftFromValues(data.workspace.setup_values, data.workspace.setup_status) : setupDraft)
     setIsProfileEditing(false)
   }
 
@@ -2590,7 +2593,7 @@ function App() {
                 onDraftsCreated={async () => {
                   const payload = await fetchAppData(true)
                   setData(payload)
-                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+                  setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
                   replaceMiaHistory(payload.mia)
                 }}
               />
@@ -2669,7 +2672,7 @@ function App() {
               onDraftsCreated={async () => {
                 const payload = await fetchAppData(true)
                 setData(payload)
-                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values) : null)
+                setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : null)
                 replaceMiaHistory(payload.mia)
               }}
             />
@@ -3200,6 +3203,7 @@ function FirstSessionSetupProgress({ status, onStartChat, onManual }: { status: 
           <li key={field.key} className={field.confirmed ? 'is-confirmed' : ''}>
             <span aria-hidden="true">{field.confirmed ? '✓' : '○'}</span>
             {field.label}
+            <span className="sr-only"> — {field.confirmed ? 'Confirmed' : 'Still needed'}</span>
           </li>
         ))}
       </ul>

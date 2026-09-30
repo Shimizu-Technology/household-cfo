@@ -840,6 +840,36 @@ test('chat-first Mia reviews household, income, and budget writes without bypass
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 })
 
+test('applying an unrelated Mia draft preserves unsaved profile edits', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const appliedWorkspace = {
+    ...workspace,
+    budget: {
+      ...workspace.budget,
+      annual_plan: { ...workspace.budget.annual_plan, pending_mia_action_drafts: [] },
+    },
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/71/apply', (route) => route.fulfill({
+    status: 200,
+    json: { workspace: appliedWorkspace },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await page.getByRole('button', { name: 'Edit profile' }).click()
+  const householdName = page.getByLabel('Household name')
+  await householdName.fill('Unsaved family name')
+
+  await openSection(page, 'Ask Mia')
+  const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await budgetCard.getByRole('button', { name: 'Apply reviewed change' }).click()
+  await expect(budgetCard).toBeHidden()
+
+  await openSection(page, 'My Profile')
+  await expect(page.getByRole('heading', { name: 'Editing household numbers' })).toBeVisible()
+  await expect(page.getByLabel('Household name')).toHaveValue('Unsaved family name')
+})
+
 test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
   const partialSetupDraft = {
     ...miaHouseholdDraft,
@@ -887,6 +917,89 @@ test('first-session review states what it completes and what Mia still needs', a
   await expect(card).toContainText('1 of 5 essentials after approval')
   await expect(card).toContainText('Still needed: Household name, Primary goal, Fixed essentials, Flexible spending.')
   await expect(card.getByRole('button', { name: 'Apply these 1 value' })).toBeEnabled()
+})
+
+test('a confirmed zero remains available when the rest of setup is completed manually', async ({ page }) => {
+  const setupStatus = {
+    complete: false, completed_count: 1, required_count: 5,
+    required_fields: [
+      { key: 'household_name', label: 'Household name', confirmed: false },
+      { key: 'primary_goal', label: 'Primary goal', confirmed: false },
+      { key: 'primary_income', label: 'Primary monthly income', confirmed: false },
+      { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: false },
+      { key: 'flexible_spend', label: 'Flexible spending', confirmed: true },
+    ],
+    confirmed_fields: ['flexible_spend'],
+    missing_fields: [
+      { key: 'household_name', label: 'Household name', confirmed: false },
+      { key: 'primary_goal', label: 'Primary goal', confirmed: false },
+      { key: 'primary_income', label: 'Primary monthly income', confirmed: false },
+      { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: false },
+    ],
+  }
+  const zeroDraft = {
+    ...miaHouseholdDraft,
+    id: 75,
+    title: 'Confirm zero flexible spending',
+    summary: 'Mia prepared one starting value for review.',
+    setup_coverage_after_apply: setupStatus,
+    items: [{
+      ...miaHouseholdDraft.items[0],
+      id: 751,
+      label: 'Flexible spending',
+      description: 'Confirm $0.00 per month.',
+      payload: { key: 'flexible_spend', value: 0 },
+    }],
+  }
+  const initialWorkspace = realWorkspaceData(false)
+  initialWorkspace.budget.annual_plan.pending_mia_action_drafts = [zeroDraft]
+  const partialWorkspace = {
+    ...initialWorkspace,
+    workspace: {
+      ...initialWorkspace.workspace,
+      setup_status: setupStatus,
+      setup_values: { ...initialWorkspace.workspace.setup_values, flexible_spend: 0 },
+    },
+    budget: {
+      ...initialWorkspace.budget,
+      annual_plan: { ...initialWorkspace.budget.annual_plan, pending_mia_action_drafts: [] },
+    },
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: initialWorkspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/75/apply', (route) => route.fulfill({
+    status: 200,
+    json: { workspace: partialWorkspace },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Confirm zero flexible spending' })
+  const applyButton = card.getByRole('button', { name: 'Apply these 1 value' })
+  await applyButton.focus()
+  await applyButton.press('Enter')
+
+  const progress = page.locator('.first-session-setup-progress')
+  await expect(progress.getByRole('listitem').filter({ hasText: 'Flexible spending' }).locator('.sr-only')).toHaveText('— Confirmed')
+  await expect(progress.getByRole('listitem').filter({ hasText: 'Primary monthly income' }).locator('.sr-only')).toHaveText('— Still needed')
+  await progress.getByRole('button', { name: 'Enter manually' }).click()
+
+  await expect(page.getByLabel('Flexible spending')).toHaveValue('0')
+  await expect(page.getByLabel('Primary monthly income')).toHaveValue('')
+  await expect(page.getByLabel('Fixed essentials')).toHaveValue('')
+  await page.getByLabel('Household name').fill('Zero Spend Household')
+  await page.getByLabel('Primary goal').fill('Keep a calm plan.')
+  await page.getByLabel('Primary monthly income').fill('6200')
+  await page.getByLabel('Fixed essentials').fill('2800')
+
+  const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
+  const setupRequest = await setupRequestPromise
+  expect(setupRequest.postDataJSON().workspace).toMatchObject({
+    household_name: 'Zero Spend Household',
+    primary_goal: 'Keep a calm plan.',
+    primary_income: 6200,
+    fixed_expenses: 2800,
+    flexible_spend: 0,
+  })
 })
 
 test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its controls', async ({ page }) => {

@@ -21,6 +21,24 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal false, payload.dig(:dashboard, :readiness_path, :green, :reached)
   end
 
+  test "incomplete setup replaces readiness and decision guidance with setup guidance" do
+    household, user = create_household
+    household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 700_000, cadence: "monthly")
+    household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
+    household.update!(confirmed_setup_fields: %w[household_name primary_goal primary_income])
+
+    payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+
+    assert_equal "Finish your starting picture.", payload.dig(:dashboard, :coach_read, :title)
+    assert_includes payload.dig(:dashboard, :coach_read, :body), "Fixed essentials and Flexible spending"
+    assert_equal [ "Finish your starting picture" ], payload.dig(:dashboard, :alerts).pluck(:title)
+    assert payload.dig(:dashboard, :next_steps).all? { |step| step.match?(/setup|missing|confirm/i) }
+    assert_equal [ 0, 0, 0 ], decision_map(payload).values.map { |decision| decision.fetch(:amount) }
+    assert_equal [ "Wait", "Wait", "Wait" ], decision_map(payload).values.map { |decision| decision.fetch(:recommendation) }
+    assert_equal "Help me finish my household setup", payload.dig(:mia, :quick_prompts).first
+    refute payload.dig(:mia, :quick_prompts).any? { |prompt| prompt.match?(/readiness|buy|debt first|leave my job/i) }
+  end
+
   test "debt free household with real inputs keeps debt milestone green" do
     household, user = create_household
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
@@ -342,6 +360,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 1_800_000)
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 6, priority: 1)
+    household.update!(confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
 
     decisions = decision_map(HouseholdFinance::DataPresenter.new(household, user: user).app_data)
 
@@ -354,6 +373,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     household.expense_items.create!(label: "Fixed essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway target", goal_type: "runway", target_months: 6, priority: 1)
+    household.update!(confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
 
     payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
 

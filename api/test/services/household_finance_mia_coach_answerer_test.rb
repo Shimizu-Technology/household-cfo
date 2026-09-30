@@ -55,6 +55,20 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute_includes answer, "$900"
   end
 
+  test "clarification guard returns only capability or incomplete setup boundaries" do
+    incomplete_user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "guardrail-incomplete@example.com", role: "participant", invitation_status: "accepted")
+    incomplete_household = Household.create!(created_by_user: incomplete_user, name: "Incomplete guardrail household")
+    complete_household = create_yellow_household
+
+    incomplete_answer = HouseholdFinance::MiaCoachAnswerer.new(incomplete_household, "Can I buy a $900 handbag?").guardrail_answer
+    complete_answer = HouseholdFinance::MiaCoachAnswerer.new(complete_household, "Can I buy a $900 handbag?").guardrail_answer
+    capability_answer = HouseholdFinance::MiaCoachAnswerer.new(complete_household, "Make Mia sound like someone from the South").guardrail_answer
+
+    assert_includes incomplete_answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    assert_nil complete_answer
+    assert_includes capability_answer, "global pilot Household CFO persona"
+  end
+
   test "does not expose raw readiness through incomplete recall help or refund prompts" do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "incomplete-guardrails@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Incomplete guardrail household")

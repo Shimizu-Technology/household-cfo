@@ -537,7 +537,7 @@ module Api
       def route_model_intent(intent_result, content:, annual_budget_manager:, annual_plan:)
         resolved_content = intent_result.resolved_message.presence || content
         direct_answer = if intent_result.clarification?
-          deterministic_coaching_answer(
+          coaching_guardrail_answer(
             resolved_content,
             annual_budget_manager: annual_budget_manager
           ).presence || clarification_answer(intent_result)
@@ -670,14 +670,14 @@ module Api
         }
       end
 
-      def deterministic_coaching_answer(content, annual_budget_manager:)
+      def coaching_guardrail_answer(content, annual_budget_manager:)
         HouseholdFinance::MiaCoachAnswerer.new(
           current_household,
           content,
           annual_budget_manager: annual_budget_manager,
           reference_month: budget_month_param,
           conversation_messages: @mia_conversation_messages
-        ).call
+        ).guardrail_answer
       end
 
       def route_legacy_message(content, conversation_context:, annual_budget_manager:)

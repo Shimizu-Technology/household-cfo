@@ -195,6 +195,37 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     refute_includes content, "Which category"
   end
 
+  test "complete setup preserves the model clarification instead of answering the financial question" do
+    user = create_user(email: "mia-model-complete-clarification@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.update!(
+      primary_goal: "Protect the household plan",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "coaching",
+      confidence: 0.96,
+      continuation: false,
+      resolved_message: "Can I buy a $900 handbag?",
+      needs_clarification: true,
+      clarification: "Which category would this purchase fall under?",
+      topic: { type: "purchase_decision", title: "Handbag decision", subject: "Handbag" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages",
+        params: { message: "Can I buy a $900 handbag?" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_equal "Which category would this purchase fall under?", content
+  end
+
   test "model resolved recall composes from verified resolution instead of rejected assistant history" do
     user = create_user(email: "mia-model-intent-recall@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
