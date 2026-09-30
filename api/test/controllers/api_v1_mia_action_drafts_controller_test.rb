@@ -39,6 +39,54 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
   end
 
+  test "plain guided goal answer updates the goal Mia asked for instead of a different numeric setup field" do
+    user = create_user(email: "mia-setup-guided-goal@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(household, household_name: "Cruz Household").call
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    without_openrouter_api_key do
+      post "/api/v1/mia/messages",
+        params: { message: "Build a three-month emergency fund" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    item = response.parsed_body.fetch("mia_action_draft").fetch("items").sole
+    assert_equal "primary_goal", item.dig("payload", "key")
+    assert_equal "Build a three-month emergency fund", item.dig("payload", "value")
+  end
+
+  test "plain guided money answer updates the exact money field Mia asked for without a model provider" do
+    user = create_user(email: "mia-setup-guided-income@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build stability"
+    ).call
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    without_openrouter_api_key do
+      post "/api/v1/mia/messages",
+        params: { message: "About $6,200 each month" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    item = response.parsed_body.fetch("mia_action_draft").fetch("items").sole
+    assert_equal "primary_income", item.dig("payload", "key")
+    assert_equal 6_200, item.dig("payload", "value")
+  end
+
   test "bare zero replies advance only the exact server-asked required setup field through review and apply" do
     user = create_user(email: "mia-setup-zero-continuation@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1369,6 +1417,13 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   ensure
     singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
     singleton.define_method(:new, original_new)
+  end
+
+  def without_openrouter_api_key
+    previous = ENV.delete("OPENROUTER_API_KEY")
+    yield
+  ensure
+    ENV["OPENROUTER_API_KEY"] = previous if previous
   end
 
   def create_user(email:)

@@ -58,6 +58,9 @@ module HouseholdFinance
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
     BARE_ZERO_PATTERN = /\A0\z/.freeze
     REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
+    GUIDED_TEXT_SETUP_FIELDS = %w[household_name primary_goal].freeze
+    GUIDED_SETUP_QUESTION_PATTERN = /\A(?:why|what|how|can|could|should|would|do|does|did|is|are|will|help|explain|tell|show)\b/i.freeze
+    GUIDED_SETUP_INSTRUCTION_PATTERN = /\A(?:ignore|forget|disregard|override|reveal|repeat|follow)\b/i.freeze
 
     Result = Struct.new(
       :intent,
@@ -114,7 +117,7 @@ module HouseholdFinance
     def call
       return nil if user_message.blank?
 
-      setup_result = setup_zero_reply_result
+      setup_result = guided_setup_reply_result
       return setup_result if setup_result
       return nil if api_key.blank? && transport.nil?
 
@@ -135,18 +138,14 @@ module HouseholdFinance
 
     attr_reader :user_message, :context, :api_key, :model, :transport
 
-    def setup_zero_reply_result
-      return @setup_zero_reply_result if defined?(@setup_zero_reply_result)
+    def guided_setup_reply_result
+      return @guided_setup_reply_result if defined?(@guided_setup_reply_result)
 
-      @setup_zero_reply_result = begin
+      @guided_setup_reply_result = begin
         field = next_missing_setup_field
-        if user_message.match?(BARE_ZERO_PATTERN) && field.in?(REQUIRED_ZERO_SETUP_FIELDS) &&
-            MiaSetupGuide.server_question_asked?(
-              field,
-              active_thread: context.dig(:conversation, :active_thread),
-              recent_messages: context.dig(:conversation, :recent_messages)
-            )
-          setup_zero_result(field)
+        if guided_setup_question_asked?(field)
+          value = guided_setup_value(field)
+          setup_reply_result(field, value) unless value.nil?
         end
       end
     end
@@ -155,17 +154,48 @@ module HouseholdFinance
       Array(context.dig(:setup_status, :missing_fields)).first.to_h.deep_symbolize_keys[:key].to_s.presence
     end
 
-    def setup_zero_result(field)
+    def guided_setup_question_asked?(field)
+      MiaSetupGuide.server_question_asked?(
+        field,
+        active_thread: context.dig(:conversation, :active_thread),
+        recent_messages: context.dig(:conversation, :recent_messages)
+      )
+    end
+
+    def guided_setup_value(field)
+      return guided_text_setup_value if field.in?(GUIDED_TEXT_SETUP_FIELDS)
+      return unless field.in?(REQUIRED_ZERO_SETUP_FIELDS)
+      return "0" if user_message.match?(BARE_ZERO_PATTERN)
+      return if guided_setup_question_or_instruction?
+
+      amounts = money_cents_from_participant_text(user_message)
+      return unless amounts.one?
+
+      (BigDecimal(amounts.first.to_s) / 100).to_s("F").sub(/\.0+\z/, "")
+    end
+
+    def guided_text_setup_value
+      return if user_message.length > 240 || guided_setup_question_or_instruction?
+
+      user_message
+    end
+
+    def guided_setup_question_or_instruction?
+      user_message.end_with?("?") || user_message.match?(GUIDED_SETUP_QUESTION_PATTERN) ||
+        user_message.match?(GUIDED_SETUP_INSTRUCTION_PATTERN)
+    end
+
+    def setup_reply_result(field, value)
       label = SetupStatus::FIELD_LABELS.fetch(field.to_sym)
       Result.new(
         intent: "household_action",
         confidence: 1.0,
         continuation: true,
-        resolved_message: "Set #{label.downcase} to 0",
+        resolved_message: "Set #{label.downcase} to #{value}",
         needs_clarification: false,
         clarification: "",
         topic: { type: "household_setup", title: "Starting household picture", subject: label },
-        action: { type: "update_household_setup", setup_updates: { field.to_sym => "0" } },
+        action: { type: "update_household_setup", setup_updates: { field.to_sym => value } },
         read_only_plan: {},
         source: "deterministic"
       )
