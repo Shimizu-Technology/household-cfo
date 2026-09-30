@@ -317,6 +317,36 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
+  test "a deterministic safety response is reviewable but cannot authorize publishing" do
+    coach = persona_user
+    persona = persona_for(coach, assistant_name: "Safety-first assistant")
+
+    with_safety_only_preview do
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: 1, sample_prompt: "I want to die" } },
+        headers: auth_headers(coach),
+        as: :json
+    end
+
+    assert_response :success
+    preview = response.parsed_body.fetch("preview")
+    assert_equal "safety_only", preview.fetch("status")
+    assert_equal "deterministic_safety", preview.fetch("source")
+    assert_equal "Call or text 988 now.", preview.fetch("sample_reply")
+    assert_nil persona.reload.preview_digest
+    assert_nil persona.previewed_at
+    assert_nil persona.previewed_draft_revision
+
+    post "/api/v1/admin/personas/#{persona.id}/publish",
+      params: { publish: { draft_revision: 1, preview_digest: preview.fetch("digest"), expected_published_version_id: nil } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_preview_required", response.parsed_body.fetch("code")
+    assert_empty persona.versions
+  end
+
   test "draft changes during behavioral preview cannot authorize the new revision" do
     coach = persona_user
     persona = persona_for(coach, assistant_name: "Draft assistant")
@@ -464,6 +494,16 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     Mia::PersonaPreviewer.define_method(:call) do
       before_reply&.call
       { status: "ready", source: "live_model", sample_reply: "Review your confirmed plan first.", notice: "Test model response." }
+    end
+    yield
+  ensure
+    Mia::PersonaPreviewer.define_method(:call, original)
+  end
+
+  def with_safety_only_preview
+    original = Mia::PersonaPreviewer.instance_method(:call)
+    Mia::PersonaPreviewer.define_method(:call) do
+      { status: "safety_only", source: "deterministic_safety", sample_reply: "Call or text 988 now.", notice: "Safety boundary checked." }
     end
     yield
   ensure

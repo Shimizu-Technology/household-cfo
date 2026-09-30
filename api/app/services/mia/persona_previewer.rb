@@ -25,8 +25,10 @@ module Mia
       reply = active_responder.call(sample_prompt, context: JSON.generate(PREVIEW_CONTEXT), draft_capable: false)
       source = active_responder.response_source.to_s
 
-      if source.in?(%w[live_model deterministic_safety])
+      if source == "live_model"
         result(status: "ready", source: source, reply: reply, notice: preview_notice(source))
+      elsif source == "deterministic_safety"
+        result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
       else
         result(
           status: "unavailable",
@@ -58,7 +60,7 @@ module Mia
     end
 
     def preview_notice(source)
-      return "Safety rules took precedence over the coach persona for this test message." if source == "deterministic_safety"
+      return "Safety rules took precedence over the coach persona for this test message. This checks the crisis boundary, but it does not exercise the coach persona and cannot authorize publication." if source == "deterministic_safety"
 
       "Generated from this exact draft in a no-write preview."
     end

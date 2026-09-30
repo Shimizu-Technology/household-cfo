@@ -55,7 +55,7 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     assert_includes result.fetch(:notice), "No canned reply"
   end
 
-  test "shows the deterministic crisis boundary because it is the actual preview behavior" do
+  test "shows the deterministic crisis boundary without authorizing publication" do
     responder = fake_responder(
       source: "deterministic_safety",
       reply: "Call or text 988 now."
@@ -67,10 +67,11 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
       responder: responder
     ).call
 
-    assert_equal "ready", result.fetch(:status)
+    assert_equal "safety_only", result.fetch(:status)
     assert_equal "deterministic_safety", result.fetch(:source)
     assert_equal "Call or text 988 now.", result.fetch(:sample_reply)
     assert_includes result.fetch(:notice), "Safety rules"
+    assert_includes result.fetch(:notice), "cannot authorize publication"
   end
 
   test "blank test messages compile without inventing a preview reply" do

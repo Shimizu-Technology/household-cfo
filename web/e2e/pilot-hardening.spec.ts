@@ -2475,6 +2475,9 @@ test('Coach Studio preserves coach-authored community context through preview, p
   await expect(page.getByLabel('Locale label')).toHaveValue("Guam families in Mrs. Mel's first cohort")
   await page.getByRole('button', { name: /Guided setup/ }).click()
   await expect(page.getByLabel('Locale label')).toHaveValue("Guam families in Mrs. Mel's first cohort")
+  await page.getByRole('tab', { name: /Teaching & response/ }).click()
+  await expect(page.getByLabel('Require one next move')).toHaveCount(0)
+  await expect(page.getByText('Fact validation and one concrete next move are always on.')).toBeVisible()
 
   await page.getByRole('button', { name: 'Save draft' }).click()
   await expect(page.getByRole('status')).toContainText('Draft saved')
@@ -2592,6 +2595,60 @@ test('Coach Studio keeps publishing locked when the behavioral preview is unavai
   await expect(page.getByRole('region', { name: 'Exact draft preview' })).toContainText('Behavioral sample unavailable')
   await expect(page.getByRole('button', { name: 'Publish first version' })).toBeDisabled()
   await expect(page.getByText('A successful behavioral preview is required before publishing.')).toBeVisible()
+})
+
+test('Coach Studio shows a crisis boundary without treating it as a publishable persona preview', async ({ page }) => {
+  await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
+    const detail = personaDetailFixture()
+    const body = route.request().postDataJSON().preview
+    return route.fulfill({
+      status: 200,
+      json: {
+        persona: detail,
+        preview: {
+          persona_id: 81,
+          draft_revision: 1,
+          digest: 'safety-only-digest',
+          rendered_instructions: 'Compiled safely.',
+          status: 'safety_only',
+          source: 'deterministic_safety',
+          sample_prompt: body.sample_prompt,
+          sample_reply: 'Call or text 988 now.',
+          notice: 'Safety rules took precedence. This cannot authorize publication.',
+          warnings: [],
+          guardrails_applied: true,
+          generated_at: '2026-10-01T01:00:00Z',
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByLabel('Behavioral preview question').fill('I want to die')
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+
+  const preview = page.getByRole('region', { name: 'Exact draft preview' })
+  await expect(preview).toContainText('Safety response checked')
+  await expect(preview).toContainText('Call or text 988 now.')
+  await expect(preview).toContainText('cannot authorize publication')
+  await expect(page.getByRole('button', { name: 'Publish first version' })).toBeDisabled()
+  await expect(page.getByText('The crisis boundary worked, but it did not exercise this persona.')).toBeVisible()
+})
+
+test('Coach Studio explains why a saved server preview must be reviewed again after reload', async ({ page }) => {
+  const savedPreview = {
+    ...personaDetailFixture(),
+    preview_required: false,
+    preview: { digest: 'saved-preview-digest', draft_revision: 1, generated_at: '2026-10-01T01:00:00Z' },
+  }
+  await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [savedPreview] } }))
+  await page.route('http://api.test/api/v1/admin/personas/81', (route) => route.fulfill({ status: 200, json: { persona: savedPreview } }))
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+
+  await expect(page.getByText('Saved Preview', { exact: true })).toBeVisible()
+  await expect(page.getByText('This exact revision passed preview in another session.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Publish first version' })).toBeDisabled()
 })
 
 test('Coach Studio confirms immediate assigned-cohort impact before publishing a new version', async ({ page }) => {

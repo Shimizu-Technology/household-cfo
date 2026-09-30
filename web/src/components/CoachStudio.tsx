@@ -800,9 +800,8 @@ function renderEditorSection(
       </div>
       <div className="coach-check-grid">
         <CheckField label="Plain text answers" checked={draft.response_shape.plain_text_only} onChange={(checked) => onChange({ ...draft, response_shape: { ...draft.response_shape, plain_text_only: checked } })} />
-        <CheckField label="Require one next move" checked={draft.response_shape.next_move_required} onChange={(checked) => onChange({ ...draft, response_shape: { ...draft.response_shape, next_move_required: checked } })} />
       </div>
-      <div className="coach-culture-boundary" role="note"><strong>Fact validation is always on.</strong> Every persona must verify missing financial facts before coaching. This safety rule cannot be changed here.</div>
+      <div className="coach-culture-boundary" role="note"><strong>Fact validation and one concrete next move are always on.</strong> Every persona must verify missing financial facts before coaching and end factual financial answers with one practical next step. These rules cannot be changed here.</div>
     </EditorFieldset>
   )
 }
@@ -821,11 +820,20 @@ function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pen
   onArchive: () => void
   onRestore: () => void
 }) {
+  const savedPreviewNeedsReview = !dirty && !preview && persona.preview_required === false && Boolean(persona.preview)
+  const previewStatus = persona.preview_required
+    ? 'preview required'
+    : canPublish
+      ? 'ready to publish'
+      : savedPreviewNeedsReview
+        ? 'saved preview'
+        : 'preview required'
+
   return (
     <article className="panel coach-lifecycle">
       <header>
         <div><p className="eyebrow">Preview and publish</p><h3>Check the exact saved revision.</h3></div>
-        <StatusBadge status={persona.preview_required ? 'preview required' : 'previewed'} />
+        <StatusBadge status={previewStatus} />
       </header>
       <label className="coach-sample-prompt">
         <span>Behavioral preview question</span>
@@ -838,6 +846,8 @@ function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pen
       </div>
       {dirty && <p className="coach-inline-note">Save this draft before previewing. The preview digest is tied to one exact saved revision.</p>}
       {!dirty && preview?.status === 'unavailable' && <p className="coach-inline-note">A successful behavioral preview is required before publishing. Try again when the configured model is available.</p>}
+      {!dirty && preview?.status === 'safety_only' && <p className="coach-inline-note">The crisis boundary worked, but it did not exercise this persona. Run a non-crisis question with the configured model before publishing.</p>}
+      {savedPreviewNeedsReview && <p className="coach-inline-note">This exact revision passed preview in another session. Run it again here to review the behavior before publishing.</p>}
       {persona.assignments.length > 0 && <p className="coach-inline-note">Publishing or restoring a version updates future participant messages in all assigned cohorts immediately. You will confirm this impact before it changes.</p>}
       {preview && <PreviewResult preview={preview} current={canPublish} />}
 
@@ -872,13 +882,22 @@ function LifecyclePanel({ persona, preview, samplePrompt, dirty, canPublish, pen
 }
 
 function PreviewResult({ preview, current }: { preview: AdminPersonaPreview; current: boolean }) {
+  const heading = preview.status === 'ready'
+    ? 'Behavioral sample ready'
+    : preview.status === 'safety_only'
+      ? 'Safety response checked'
+      : preview.status === 'unavailable'
+        ? 'Behavioral sample unavailable'
+        : 'Exact draft checked'
+
   return (
     <section className={`coach-preview-result is-${preview.status}`} aria-label="Exact draft preview">
-      <header><div><strong>{preview.status === 'ready' ? 'Behavioral sample ready' : preview.status === 'unavailable' ? 'Behavioral sample unavailable' : 'Exact draft checked'}</strong><small>Draft revision {preview.draft_revision} · {titleize(preview.source)}</small></div><StatusBadge status={current ? 'current preview' : 'outdated preview'} /></header>
+      <header><div><strong>{heading}</strong><small>Draft revision {preview.draft_revision} · {titleize(preview.source)}</small></div><StatusBadge status={current ? 'current preview' : 'not publishable'} /></header>
       <p>{preview.notice}</p>
       {preview.sample_prompt && <div><small>Sample question</small><p>{preview.sample_prompt}</p></div>}
       {preview.sample_reply && <blockquote>{preview.sample_reply}</blockquote>}
       {!preview.sample_reply && preview.status === 'unavailable' && <p className="coach-inline-note">No generated answer is shown because the model preview was unavailable. Publishing stays locked until a successful behavioral preview checks this exact draft.</p>}
+      {preview.status === 'safety_only' && <p className="coach-inline-note">This safety response is shown for review, but it cannot authorize publication because the coach persona was not exercised.</p>}
       <details><summary>Compiled instructions for this revision</summary><pre>{preview.rendered_instructions}</pre></details>
       <small>Guardrails applied: {preview.guardrails_applied ? 'Yes' : 'No'} · Generated {new Date(preview.generated_at).toLocaleString()}</small>
     </section>

@@ -778,7 +778,7 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
   preview?: AdminPersonaPreviewRecord | null
 }
 
-export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'unavailable'
+export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'safety_only' | 'unavailable'
 export type AdminPersonaBehavioralPreviewSource =
   | 'not_requested'
   | 'live_model'

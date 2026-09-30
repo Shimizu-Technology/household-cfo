@@ -112,7 +112,7 @@ module Mia
         "at most #{shape.fetch("max_characters")} characters",
         (shape.fetch("plain_text_only") ? "plain text only" : "formatted text allowed"),
         "validate before coaching",
-        (shape.fetch("next_move_required") ? "end with one next move" : "a next move is optional")
+        "end with one next move"
       ]
       "Response shape: #{rules.join("; ")}."
     end

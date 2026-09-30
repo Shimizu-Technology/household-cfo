@@ -230,6 +230,18 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     end
   end
 
+  test "one next move is a locked true invariant" do
+    config = persona_configuration
+    assert_includes Mia::PersonaPromptBuilder.call(config), "end with one next move"
+    refute_includes Mia::PersonaPromptBuilder.call(config), "a next move is optional"
+
+    [ false, nil, "true" ].each do |invalid|
+      config["response_shape"]["next_move_required"] = invalid
+      assert_includes Mia::PersonaSchema.errors(config), "$.response_shape.next_move_required must be true"
+      assert_raises(Mia::PersonaSchema::InvalidConfiguration) { Mia::PersonaPromptBuilder.call(config) }
+    end
+  end
+
   test "preview digest is bound to compiled prompt draft revision and safety version" do
     config = persona_configuration
     digest = Mia::PersonaPromptBuilder.digest(config, draft_revision: 3)

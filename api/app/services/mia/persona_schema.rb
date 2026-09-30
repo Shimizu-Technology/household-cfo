@@ -282,9 +282,8 @@ module Mia
         end
         bounded_integer(value["max_characters"], "#{path}.max_characters", errors, 200..4_000)
         errors << "#{path}.validate_before_coaching must be true" unless value["validate_before_coaching"] == true
-        %w[plain_text_only next_move_required].each do |key|
-          errors << "#{path}.#{key} must be true or false" unless value[key].in?([ true, false ])
-        end
+        errors << "#{path}.next_move_required must be true" unless value["next_move_required"] == true
+        errors << "#{path}.plain_text_only must be true or false" unless value["plain_text_only"].in?([ true, false ])
       end
 
       def exact_keys(value, expected, path, errors)
