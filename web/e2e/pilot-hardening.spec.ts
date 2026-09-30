@@ -2534,6 +2534,7 @@ test('Coach Studio protects unsaved work across mobile back and section navigati
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   await expect(page.locator('.coach-library')).toBeHidden()
+  await expect(page.locator('.coach-save-bar')).toHaveCSS('position', 'static')
 
   await page.getByLabel('Assistant name').fill('Coach Lani with unsaved work')
   await page.getByRole('button', { name: 'All assistants' }).click()

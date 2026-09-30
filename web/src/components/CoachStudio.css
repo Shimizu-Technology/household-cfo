@@ -781,6 +781,12 @@
   .coach-mobile-back {
     display: inline-flex;
   }
+
+  .coach-save-bar {
+    position: static;
+    box-shadow: none;
+    backdrop-filter: none;
+  }
 }
 
 @media (max-width: 620px) {
@@ -859,9 +865,6 @@
     flex: 1 1 9rem;
   }
 
-  .coach-save-bar {
-    bottom: 0.25rem;
-  }
 }
 
 @media (max-width: 360px) {
