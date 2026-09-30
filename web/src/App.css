@@ -2411,7 +2411,7 @@ h3 {
 
 .pilot-support-bar button {
   gap: 6px;
-  min-height: 38px;
+  min-height: 44px;
   padding: 7px 10px;
 }
 
@@ -2713,7 +2713,7 @@ h3 {
 
   .pilot-support-bar button {
     width: auto;
-    min-height: 40px;
+    min-height: 44px;
     padding: 7px 8px;
   }
 

@@ -78,32 +78,38 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 function NoAuthBridge({ children }: { children: ReactNode }) {
   const pilotE2ERole = e2eAuthRole()
   const currentUser = useMemo(
-    () => pilotE2ERole === 'admin' || pilotE2ERole === 'participant'
+    () => pilotE2ERole === 'admin' || pilotE2ERole === 'coach' || pilotE2ERole === 'participant'
       ? e2eCurrentUser(pilotE2ERole)
       : null,
     [pilotE2ERole],
   )
 
+  const pilotE2EToken = currentUser && pilotE2ERole
+    ? `test_token:${currentUser.clerk_id}:${currentUser.email}:${currentUser.first_name ?? ''}:${currentUser.last_name ?? ''}`
+    : null
+  const [isTokenReady, setIsTokenReady] = useState(!pilotE2EToken)
+
   useEffect(() => {
-    if (currentUser && pilotE2ERole) {
-      const token = `test_token:${currentUser.clerk_id}:${currentUser.email}:${currentUser.first_name ?? ''}:${currentUser.last_name ?? ''}`
-      setAuthTokenGetter(async () => token)
-    } else {
+    let cancelled = false
+    setAuthTokenGetter(pilotE2EToken ? async () => pilotE2EToken : null)
+    queueMicrotask(() => {
+      if (!cancelled) setIsTokenReady(true)
+    })
+    return () => {
+      cancelled = true
       setAuthTokenGetter(null)
     }
-
-    return () => setAuthTokenGetter(null)
-  }, [currentUser, pilotE2ERole])
+  }, [pilotE2EToken])
 
   const value = useMemo<AuthContextValue>(() => ({
     isClerkEnabled: false,
     isSignedIn: Boolean(currentUser),
     isLoading: false,
-    isVerifyingApi: false,
+    isVerifyingApi: Boolean(pilotE2EToken && !isTokenReady),
     currentUser,
     authError: null,
     refreshCurrentUser: async () => undefined,
-  }), [currentUser])
+  }), [currentUser, isTokenReady, pilotE2EToken])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -136,24 +142,28 @@ function e2eAuthRole() {
     : null
 }
 
-function e2eCurrentUser(role: 'admin' | 'participant'): CurrentUser {
+function e2eCurrentUser(role: 'admin' | 'coach' | 'participant'): CurrentUser {
+  const isAdmin = role === 'admin'
+  const isCoach = role === 'coach'
+  const firstName = isAdmin ? 'Pilot' : isCoach ? 'Coach' : 'Test'
+  const lastName = isAdmin ? 'Admin' : isCoach ? 'Mendiola' : 'Participant'
   return {
-    id: role === 'admin' ? 900 : 901,
+    id: isAdmin ? 900 : isCoach ? 902 : 901,
     clerk_id: `e2e_${role}`,
     email: `${role}@pilot.test`,
-    first_name: role === 'admin' ? 'Pilot' : 'Test',
-    last_name: role === 'admin' ? 'Admin' : 'Participant',
-    full_name: role === 'admin' ? 'Pilot Admin' : 'Test Participant',
+    first_name: firstName,
+    last_name: lastName,
+    full_name: `${firstName} ${lastName}`,
     role,
     invitation_status: 'accepted',
     invited_at: '2026-07-01T00:00:00Z',
     accepted_at: '2026-07-02T00:00:00Z',
     last_sign_in_at: '2026-07-17T00:00:00Z',
     created_at: '2026-07-01T00:00:00Z',
-    is_admin: role === 'admin',
-    is_coach: false,
+    is_admin: isAdmin,
+    is_coach: isCoach,
     is_participant: role === 'participant',
-    is_staff: role === 'admin',
+    is_staff: isAdmin || isCoach,
   }
 }
 
