@@ -21,11 +21,14 @@ module Api
           return render_read_only_cohort(cohort) unless cohort.status.in?(MUTABLE_COHORT_STATUSES)
 
           persona = policy.editable_personas.find(assignment_params[:persona_id])
-          return render json: { errors: [ "Publish this persona before assigning it." ] }, status: :unprocessable_entity unless policy.can_assign?(persona)
-
           assignment = nil
           CohortPersonaAssignment.transaction do
+            persona.lock!
             cohort.lock!
+            raise PersonaUnavailable unless persona.published? && !persona.archived?
+
+            participant_ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort: cohort)
+            Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: participant_ids)
             current = cohort.cohort_persona_assignment
             validate_expected_assignment!(current)
             Mia::PersonaAssignmentCompatibility.ensure_cohort_can_use!(cohort: cohort, persona: persona)
@@ -41,6 +44,8 @@ module Api
           render json: { error: error.message, code: "persona_assignment_conflict", conflicts: error.conflicts }, status: :conflict
         rescue AssignmentConflict => error
           render json: { error: error.message, code: "persona_assignment_stale" }, status: :conflict
+        rescue PersonaUnavailable
+          render json: { errors: [ "Publish this persona before assigning it." ], code: "persona_assignment_unavailable" }, status: :unprocessable_entity
         rescue ActiveRecord::RecordInvalid => error
           render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
         end
@@ -63,6 +68,7 @@ module Api
         private
 
         class AssignmentConflict < StandardError; end
+        class PersonaUnavailable < StandardError; end
 
         def policy
           @policy ||= Mia::PersonaStudioPolicy.new(current_user)

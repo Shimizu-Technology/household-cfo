@@ -35,6 +35,27 @@ class ApiV1AdminUserPersonaCompatibilityTest < ActionDispatch::IntegrationTest
     assert_empty participant.reload.cohort_memberships
   end
 
+  test "changing an existing multi-cohort coach to participant rechecks persona compatibility" do
+    admin = create_user(role: "admin")
+    coach = create_user(role: "coach")
+    first = Cohort.create!(name: "Role change first cohort", status: "active", created_by_user: admin)
+    second = Cohort.create!(name: "Role change second cohort", status: "active", created_by_user: admin)
+    first.cohort_persona_assignment = assignment_for(first, published_persona(admin, "Role change Ari"), admin)
+    second.cohort_persona_assignment = assignment_for(second, published_persona(admin, "Role change Bea"), admin)
+    coach.cohort_memberships.create!(cohort: first, role: "coach")
+    coach.cohort_memberships.create!(cohort: second, role: "coach")
+
+    patch "/api/v1/admin/users/#{coach.id}",
+      params: { user: { role: "participant" } },
+      headers: auth_headers(admin),
+      as: :json
+
+    assert_response :conflict
+    assert_equal "persona_assignment_conflict", response.parsed_body.fetch("code")
+    assert_equal "coach", coach.reload.role
+    assert_equal %w[coach coach], coach.cohort_memberships.order(:id).pluck(:role)
+  end
+
   private
 
   def create_user(role:)

@@ -35,6 +35,53 @@ class MiaPersonaAssignmentCompatibilityTest < ActiveSupport::TestCase
     assert_equal "This participant would receive different personas from their cohorts.", error.message
   end
 
+  test "stale persona associations cannot pin a cohort to a superseded version" do
+    admin = persona_user(role: "admin")
+    persona = published_persona(admin, assistant_name: "Version one assistant")
+    stale_persona = CoachPersona.find(persona.id)
+    stale_version = stale_persona.current_published_version
+
+    current_persona = CoachPersona.find(persona.id)
+    revised = current_persona.draft_config.deep_merge("identity" => { "assistant_name" => "Version two assistant" })
+    current_persona.update!(draft_config: revised)
+    publisher = Mia::PersonaPublisher.new(persona: current_persona, actor: admin)
+    preview = publisher.preview!(expected_draft_revision: current_persona.draft_revision)
+    publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: current_persona.draft_revision,
+      expected_current_version_id: stale_version.id
+    )
+
+    cohort = cohort_for(admin, name: "Stale version cohort")
+    assignment = CohortPersonaAssignment.new(
+      cohort: cohort,
+      coach_persona: stale_persona,
+      coach_persona_version: stale_version,
+      assigned_by_user: admin
+    )
+
+    refute assignment.save
+    assert_includes assignment.errors[:coach_persona_version], "must be the persona's current published version"
+  end
+
+  test "stale persona associations cannot assign an archived persona" do
+    admin = persona_user(role: "admin")
+    persona = published_persona(admin, assistant_name: "Archived stale assistant")
+    stale_persona = CoachPersona.find(persona.id)
+    stale_version = stale_persona.current_published_version
+    CoachPersona.find(persona.id).update!(archived_at: Time.current)
+
+    assignment = CohortPersonaAssignment.new(
+      cohort: cohort_for(admin, name: "Archived stale cohort"),
+      coach_persona: stale_persona,
+      coach_persona_version: stale_version,
+      assigned_by_user: admin
+    )
+
+    refute assignment.save
+    assert_includes assignment.errors[:coach_persona], "must be active and published before assignment"
+  end
+
   private
 
   def cohort_for(creator, name:)

@@ -226,6 +226,28 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     assert_equal Date.new(2026, 6, 24), cohort.starts_on
   end
 
+  test "reactivating a cohort rechecks participant persona compatibility" do
+    admin = create_user(email: "persona-reactivation-admin@example.com", role: "admin")
+    participant = create_user(email: "persona-reactivation-participant@example.com", role: "participant")
+    active = Cohort.create!(name: "Already active persona cohort", status: "active", created_by_user: admin)
+    completed = Cohort.create!(name: "Completed conflicting persona cohort", status: "completed", created_by_user: admin)
+    participant.cohort_memberships.create!(cohort: active, role: "participant")
+    participant.cohort_memberships.create!(cohort: completed, role: "participant")
+    active_persona = published_persona_for_cohort_test(admin, "Active assistant")
+    completed_persona = published_persona_for_cohort_test(admin, "Completed assistant")
+    CohortPersonaAssignment.create!(cohort: active, coach_persona: active_persona, assigned_by_user: admin)
+    CohortPersonaAssignment.create!(cohort: completed, coach_persona: completed_persona, assigned_by_user: admin)
+
+    patch "/api/v1/admin/cohorts/#{completed.id}",
+      params: { cohort: { status: "active" } },
+      headers: auth_headers(admin),
+      as: :json
+
+    assert_response :conflict
+    assert_equal "persona_assignment_conflict", response.parsed_body.fetch("code")
+    assert_equal "completed", completed.reload.status
+  end
+
   test "cohort create rejects duplicate names" do
     admin = create_user(email: "owner-duplicate@example.com", role: "admin")
     Cohort.create!(name: "Duplicate Pilot", status: "draft", created_by_user: admin)
@@ -307,6 +329,25 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
       role: role,
       invitation_status: "accepted"
     )
+  end
+
+  def published_persona_for_cohort_test(user, name)
+    persona = CoachPersona.create!(
+      name: name,
+      draft_config: Mia::PersonaSchema.default_configuration(
+        assistant_name: name,
+        human_coach_name: user.full_name.presence || user.email
+      ),
+      created_by_user: user
+    )
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: user)
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: nil
+    )
+    persona.reload
   end
 
   def auth_headers(user)

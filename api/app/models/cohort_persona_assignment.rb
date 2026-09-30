@@ -24,12 +24,16 @@ class CohortPersonaAssignment < ApplicationRecord
   end
 
   def persona_has_published_version
-    errors.add(:coach_persona, "must be active and published before assignment") unless coach_persona&.published? && !coach_persona.archived?
+    published_version_id, archived_at = CoachPersona.where(id: coach_persona_id).pick(:current_published_version_id, :archived_at)
+    return if published_version_id.present? && archived_at.nil?
+
+    errors.add(:coach_persona, "must be active and published before assignment")
   end
 
   def version_is_current_for_persona
     return if coach_persona.nil? || coach_persona_version.nil?
-    return if coach_persona.current_published_version == coach_persona_version
+    current_version_id = CoachPersona.where(id: coach_persona_id).pick(:current_published_version_id)
+    return if current_version_id == coach_persona_version_id
 
     errors.add(:coach_persona_version, "must be the persona's current published version")
   end

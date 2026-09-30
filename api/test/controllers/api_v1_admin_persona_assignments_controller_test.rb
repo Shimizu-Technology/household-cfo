@@ -127,9 +127,10 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     body = response.parsed_body
     assert_equal "persona_assignment_conflict", body.fetch("code")
     conflict = body.fetch("conflicts").sole
-    assert_equal other.id, conflict.fetch("cohort_id")
-    assert_equal other.name, conflict.fetch("cohort_name")
     assert_equal 1, conflict.fetch("participant_count")
+    refute conflict.key?("cohort_id")
+    refute conflict.key?("cohort_name")
+    assert_not_includes response.body, other.name
     assert_not_includes response.body, participant.email
     assert_not_includes response.body, household.name
     assert_nil target.reload.cohort_persona_assignment

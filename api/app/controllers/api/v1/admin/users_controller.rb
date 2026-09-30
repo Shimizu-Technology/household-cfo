@@ -82,6 +82,9 @@ module Api
             if membership_params_present
               sync_cohort_memberships(user, cohort_ids, role: cohort_role_for(user.role))
             else
+              if cohort_role_for(user.role) == "participant"
+                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+              end
               user.cohort_memberships.update_all(role: cohort_role_for(user.role), updated_at: Time.current)
             end
           end
@@ -287,7 +290,10 @@ module Api
         end
 
         def sync_cohort_memberships(user, cohort_ids, role:)
-          Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids) if role == "participant"
+          if role == "participant"
+            Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: [ user.id ])
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+          end
           user.cohort_memberships.where.not(cohort_id: cohort_ids).destroy_all
           cohort_ids.each do |cohort_id|
             membership = user.cohort_memberships.find_or_initialize_by(cohort_id: cohort_id)
