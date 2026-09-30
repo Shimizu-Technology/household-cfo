@@ -45,10 +45,11 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
-        intent_result = HouseholdFinance::MiaIntentResolver.new(
+        model_intent_result = HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
           context: intent_context
         ).call
+        intent_result = setup_guide_intent_result(content) || model_intent_result
 
         if intent_result
           intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan?
@@ -177,6 +178,31 @@ module Api
       end
 
       private
+
+      def setup_guide_intent_result(content)
+        guide = HouseholdFinance::MiaSetupGuide.new(current_household)
+        message = guide.setup_request_message(content)
+        return unless message
+
+        next_field = guide.next_missing_field
+        label = HouseholdFinance::SetupStatus::FIELD_LABELS[next_field&.to_sym]
+        HouseholdFinance::MiaIntentResolver::Result.new(
+          intent: "clarification",
+          confidence: 1.0,
+          continuation: false,
+          resolved_message: content,
+          needs_clarification: true,
+          clarification: message,
+          topic: {
+            type: "household_setup",
+            title: "Starting household picture",
+            subject: label || "Setup complete"
+          },
+          action: { type: "none" },
+          read_only_plan: {},
+          source: "deterministic"
+        )
+      end
 
       def budget_year_param
         return Date.current.year if params[:year].blank?

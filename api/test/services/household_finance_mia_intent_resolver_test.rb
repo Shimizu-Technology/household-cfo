@@ -223,6 +223,31 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal({ flexible_spend: "0" }, result.action.fetch(:setup_updates))
   end
 
+  test "binds a bare zero to primary income only after the server asked that exact setup question" do
+    assert_server_bound_setup_zero("primary_income")
+  end
+
+  test "binds a bare zero to fixed expenses only after the server asked that exact setup question" do
+    assert_server_bound_setup_zero("fixed_expenses")
+  end
+
+  test "binds a bare zero to flexible spending only after the server asked that exact setup question" do
+    assert_server_bound_setup_zero("flexible_spend")
+  end
+
+  test "does not bind a bare zero when the server-owned missing field and prior question disagree" do
+    context = setup_zero_context("primary_income")
+    context[:conversation][:recent_messages].last[:content] = HouseholdFinance::MiaSetupGuide.question_message("fixed_expenses")
+
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "0",
+      context: context,
+      api_key: nil
+    ).call
+
+    assert_nil result
+  end
+
   test "uses the open budget year when a supported budget action omits its year" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Create School Supplies with $75 every month",
@@ -1564,6 +1589,39 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
   end
 
   private
+
+  def assert_server_bound_setup_zero(field)
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "0",
+      context: setup_zero_context(field),
+      api_key: nil
+    ).call
+
+    assert result.actionable?
+    assert_equal "deterministic", result.source
+    assert_equal "update_household_setup", result.action.fetch(:type)
+    assert_equal({ field.to_sym => "0" }, result.action.fetch(:setup_updates))
+  end
+
+  def setup_zero_context(field)
+    intent_context.deep_merge(
+      setup_status: {
+        complete: false,
+        missing_fields: [ { key: field, label: HouseholdFinance::SetupStatus::FIELD_LABELS.fetch(field.to_sym) } ]
+      },
+      conversation: {
+        active_thread: {
+          schema_version: 2,
+          type: "household_setup",
+          title: "Starting household picture",
+          status: "applied"
+        },
+        recent_messages: [
+          { role: "assistant", content: "Applied the reviewed household update. #{HouseholdFinance::MiaSetupGuide.question_message(field)}" }
+        ]
+      }
+    )
+  end
 
   def intent_context
     {

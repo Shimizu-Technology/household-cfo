@@ -1,6 +1,102 @@
 require "test_helper"
 
 class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
+  test "exact setup CTA asks the first missing question without a model provider" do
+    user = create_user(email: "mia-setup-cta-no-provider@example.com")
+
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = response.parsed_body
+    assert_nil body.fetch("mia_action_draft")
+    message = body.dig("assistant_message", "content")
+    assert_includes message, "What would you like to call this household?"
+    assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
+  end
+
+  test "exact setup CTA overrides a model classification with the same server-owned question" do
+    user = create_user(email: "mia-setup-cta-model@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(household, household_name: "Cruz Household").call
+    model_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "general",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Let us discuss your finances generally.",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "general", title: "General finances", subject: "Finances" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(model_result)) do
+      post "/api/v1/mia/messages",
+        params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = response.parsed_body
+    assert_nil body.fetch("mia_action_draft")
+    message = body.dig("assistant_message", "content")
+    assert_includes message, "What is the main money goal you want this household to work toward?"
+    assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
+    refute_includes message, "discuss your finances generally"
+  end
+
+  test "bare zero replies advance only the exact server-asked required setup field through review and apply" do
+    user = create_user(email: "mia-setup-zero-continuation@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build stability"
+    ).call
+    session = household.chat_sessions.create!(
+      user: user,
+      title: "Ask Mia",
+      active_topic: {
+        schema_version: 2,
+        type: "household_setup",
+        title: "Starting household picture",
+        subject: "Primary monthly income",
+        status: "applied"
+      }
+    )
+    session.chat_messages.create!(
+      role: "assistant",
+      content: "Applied the reviewed household update. #{HouseholdFinance::MiaSetupGuide.new(household).after_apply_message}"
+    )
+
+    %w[primary_income fixed_expenses flexible_spend].each do |field|
+      post "/api/v1/mia/messages",
+        params: { message: "0" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      draft_payload = response.parsed_body.fetch("mia_action_draft")
+      item = draft_payload.fetch("items").sole
+      assert_equal field, item.dig("payload", "key")
+      assert_equal 0, item.dig("payload", "value")
+      refute_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, field
+
+      post "/api/v1/mia_action_drafts/#{draft_payload.fetch('id')}/apply",
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :success
+      assert_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, field
+    end
+
+    assert HouseholdFinance::SetupStatus.new(household.reload).complete?
+  end
+
   test "applying a partial setup review asks exactly one concrete next question behind the review boundary" do
     user = create_user(email: "mia-setup-next-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

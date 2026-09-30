@@ -56,6 +56,8 @@ module HouseholdFinance
       debt_payment: /\b(?:debt payment|debt minimum|minimum payment)\b/i
     }.freeze
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
+    BARE_ZERO_PATTERN = /\A0\z/.freeze
+    REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
 
     Result = Struct.new(
       :intent,
@@ -110,8 +112,11 @@ module HouseholdFinance
     end
 
     def call
-      return nil if api_key.blank? && transport.nil?
       return nil if user_message.blank?
+
+      setup_result = setup_zero_reply_result
+      return setup_result if setup_result
+      return nil if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
       result = build_result(parsed)
@@ -129,6 +134,42 @@ module HouseholdFinance
     private
 
     attr_reader :user_message, :context, :api_key, :model, :transport
+
+    def setup_zero_reply_result
+      return @setup_zero_reply_result if defined?(@setup_zero_reply_result)
+
+      @setup_zero_reply_result = begin
+        field = next_missing_setup_field
+        if user_message.match?(BARE_ZERO_PATTERN) && field.in?(REQUIRED_ZERO_SETUP_FIELDS) &&
+            MiaSetupGuide.server_question_asked?(
+              field,
+              active_thread: context.dig(:conversation, :active_thread),
+              recent_messages: context.dig(:conversation, :recent_messages)
+            )
+          setup_zero_result(field)
+        end
+      end
+    end
+
+    def next_missing_setup_field
+      Array(context.dig(:setup_status, :missing_fields)).first.to_h.deep_symbolize_keys[:key].to_s.presence
+    end
+
+    def setup_zero_result(field)
+      label = SetupStatus::FIELD_LABELS.fetch(field.to_sym)
+      Result.new(
+        intent: "household_action",
+        confidence: 1.0,
+        continuation: true,
+        resolved_message: "Set #{label.downcase} to 0",
+        needs_clarification: false,
+        clarification: "",
+        topic: { type: "household_setup", title: "Starting household picture", subject: label },
+        action: { type: "update_household_setup", setup_updates: { field.to_sym => "0" } },
+        read_only_plan: {},
+        source: "deterministic"
+      )
+    end
 
     def response_content
       return transport.call(payload) if transport
