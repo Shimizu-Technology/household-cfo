@@ -228,12 +228,54 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
           continuation: true,
           resolved_message: "Set Rent for August 2026",
           topic: { type: "budget_edit", title: "Rent edit", subject: "Rent" },
+          action: default_action.merge(type: "set_allocation", months: [ 8 ], year: 2026)
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal 0, result.action.fetch(:category_id)
+    assert_empty result.action.fetch(:amount)
+    assert result.clarification?
+  end
+
+  test "does not carry an income change into a different source omitted by the provider" do
+    context = intent_context.deep_dup
+    context[:income_sources] << { id: 92, label: "Business income", source_type: "business", current_monthly_amount: 2_500 }
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "income_schedule",
+        title: "Primary income change",
+        subject: "Primary income",
+        status: "needs_clarification",
+        action: {
+          type: "schedule_income_change",
+          income_source_id: 91,
+          income_source_name: "Primary income",
+          amount: "2500",
+          entry_type: "recurring_change",
+          effective_on: ""
+        }
+      },
+      recent_messages: []
+    }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant Business income in October.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: true,
+          resolved_message: "Change Business income in October",
+          topic: { type: "income_schedule", title: "Business income change", subject: "Business income" },
           action: default_action.merge(
-            type: "set_allocation",
-            category_id: 43,
-            category_name: "Rent",
-            months: [ 8 ],
-            year: 2026
+            type: "schedule_income_change",
+            entry_type: "recurring_change",
+            effective_on: "2026-10-01"
           )
         )
       end
@@ -242,9 +284,130 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     result = resolver.call
 
     refute result.actionable?
-    assert_equal 43, result.action.fetch(:category_id)
+    assert_equal "none", result.action.fetch(:type)
+    assert_equal 0, result.action.fetch(:income_source_id)
+  end
+
+  test "does not carry a draft id into a different named review omitted by the provider" do
+    context = intent_context.deep_dup
+    context[:pending_transaction_reviews] = [
+      { id: 101, merchant: "Pay-Less Markets", occurred_on: "2026-09-10", amount: 80 },
+      { id: 102, merchant: "Costco", occurred_on: "2026-09-12", amount: 140 }
+    ]
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "transaction_review",
+        title: "Pay-Less Markets correction",
+        subject: "Pay-Less Markets",
+        status: "needs_clarification",
+        action: { type: "update_transaction_draft", draft_id: 101, merchant: "" }
+      },
+      recent_messages: []
+    }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant the Costco review.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_draft_action",
+          continuation: true,
+          resolved_message: "Update the Costco review",
+          topic: { type: "transaction_review", title: "Costco correction", subject: "Costco" },
+          action: default_action.merge(type: "update_transaction_draft", merchant: "Costco")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_equal 0, result.action.fetch(:draft_id)
+  end
+
+  test "does not carry a freeform category name across an explicit rename correction" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "budget_edit",
+        title: "Create School Supplies",
+        subject: "School Supplies",
+        status: "needs_clarification",
+        action: {
+          type: "create_category",
+          new_name: "School Supplies",
+          amount: "75",
+          months: [],
+          year: 2026
+        }
+      },
+      recent_messages: []
+    }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant Car Repairs for August.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Create Car Repairs for August",
+          topic: { type: "budget_edit", title: "Create Car Repairs", subject: "Car Repairs" },
+          action: default_action.merge(type: "create_category", months: [ 8 ], year: 2026)
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert_empty result.action.fetch(:new_name)
     assert_empty result.action.fetch(:amount)
-    assert result.clarification?
+  end
+
+  test "keeps a freeform category target when the correction changes only its month" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "budget_edit",
+        title: "Create School Supplies",
+        subject: "School Supplies",
+        status: "needs_clarification",
+        action: {
+          type: "create_category",
+          new_name: "School Supplies",
+          amount: "75",
+          months: [],
+          year: 2026
+        }
+      },
+      recent_messages: []
+    }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant August only.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Create School Supplies with $75 for August 2026",
+          topic: { type: "budget_edit", title: "Create School Supplies", subject: "School Supplies" },
+          action: default_action.merge(type: "create_category", months: [ 8 ], year: 2026)
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "School Supplies", result.action.fetch(:new_name)
+    assert_equal "75", result.action.fetch(:amount)
+    assert_equal [ 8 ], result.action.fetch(:months)
   end
 
   test "encodes delimiter-like prompt injection text inside one untrusted request envelope" do

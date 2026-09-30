@@ -781,6 +781,8 @@ module HouseholdFinance
       return unless raw_action[:type].to_s == action[:type]
 
       prior_action = normalize_action(default_action_payload.merge(raw_action))
+      return if participant_retargets_prior_action?(prior_action, action)
+
       prior_action if continuation_actions_compatible?(prior_action, action)
     rescue KeyError, TypeError, ArgumentError
       nil
@@ -837,6 +839,99 @@ module HouseholdFinance
       return false if prior_action[:new_name].present? && action[:new_name].present? && !prior_action[:new_name].casecmp?(action[:new_name])
 
       true
+    end
+
+    def participant_retargets_prior_action?(prior_action, action)
+      if action[:type].in?(BUDGET_YEAR_ACTION_TYPES + %w[create_transaction_draft update_transaction_draft])
+        category_labels = Array(context[:budget_categories]) + Array(context[:archived_categories])
+        return true if uncovered_participant_labels?(
+          category_labels,
+          represented_labels(prior_action, action, category_labels, id_fields: %i[category_id target_category_id], name_fields: %i[category_name target_category_name]),
+          label_key: :name
+        )
+      end
+
+      if action[:type] == "schedule_income_change"
+        income_sources = Array(context[:income_sources])
+        return true if uncovered_participant_labels?(
+          income_sources,
+          represented_labels(prior_action, action, income_sources, id_fields: %i[income_source_id], name_fields: %i[income_source_name]),
+          label_key: :label
+        )
+      end
+
+      if action[:type].in?(%w[review_pending_action update_transaction_draft ignore_transaction_drafts])
+        pending_reviews = Array(context[:pending_transaction_reviews]) + Array(context[:pending_budget_reviews])
+        return true if uncovered_participant_labels?(
+          pending_reviews,
+          represented_labels(prior_action, action, pending_reviews, id_fields: %i[draft_id], name_fields: []),
+          label_key: ->(record) { record[:merchant].presence || record[:title] }
+        )
+      end
+
+      corrected_name_retargets?(prior_action, action)
+    end
+
+    def represented_labels(prior_action, action, records, id_fields:, name_fields:)
+      names = name_fields.flat_map { |field| [ prior_action[field], action[field] ] }.compact_blank
+      ids = id_fields.flat_map { |field| [ prior_action[field].to_i, action[field].to_i ] }.select(&:positive?)
+      names.concat(records.filter_map do |record|
+        next unless ids.include?(record[:id].to_i)
+
+        record[:name].presence || record[:label].presence || record[:merchant].presence || record[:title].presence
+      end)
+      names.map { |name| normalized_identity(name) }.compact_blank.uniq
+    end
+
+    def uncovered_participant_labels?(records, represented, label_key:)
+      mentioned = records.filter_map do |record|
+        label = label_key.respond_to?(:call) ? label_key.call(record) : record[label_key]
+        normalized_identity(label) if participant_mentions_label?(label)
+      end.uniq
+      mentioned.any? { |label| !represented.include?(label) }
+    end
+
+    def participant_mentions_label?(label)
+      value = label.to_s.squish
+      value.present? && user_message.match?(/(?<![[:alnum:]])#{Regexp.escape(value)}(?![[:alnum:]])/i)
+    end
+
+    def corrected_name_retargets?(prior_action, action)
+      candidate = corrected_identity_candidate
+      return false unless candidate
+
+      prior_names, current_names = case action[:type]
+      when "create_category"
+        [ [ prior_action[:new_name], prior_action[:category_name] ], [ action[:new_name], action[:category_name] ] ]
+      when "rename_category"
+        [ [ prior_action[:new_name] ], [ action[:new_name] ] ]
+      when "create_transaction_draft", "update_transaction_draft"
+        [ [ prior_action[:merchant] ], [ action[:merchant] ] ]
+      else
+        return false
+      end
+
+      normalized_current = current_names.map { |name| normalized_identity(name) }.compact_blank
+      return false if normalized_current.include?(candidate)
+
+      normalized_prior = prior_names.map { |name| normalized_identity(name) }.compact_blank
+      normalized_prior.present? && !normalized_prior.include?(candidate)
+    end
+
+    def corrected_identity_candidate
+      match = user_message.match(
+        /\b(?:i meant|call it|name it|rename (?:it|that|the category)?\s*to)\s+["']?(.+?)["']?(?=\s+(?:for|in|on|with|during|today|yesterday|tomorrow|this|next|last)\b|[.!?,]|\z)/i
+      )
+      candidate = normalized_identity(match&.[](1))
+      candidate = candidate&.sub(/\s+only\z/, "")
+      return if candidate.blank? || candidate.match?(/\A(?:#{month_names_pattern}|today|yesterday|tomorrow|this month|next month|last month)\z/i)
+      return if candidate.match?(/\A\$?\s*\d/)
+
+      candidate
+    end
+
+    def normalized_identity(value)
+      value.to_s.unicode_normalize(:nfkc).squish.downcase.presence
     end
 
     def compatible_reference?(prior_action, action, id:, name:)
