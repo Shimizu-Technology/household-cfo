@@ -1090,6 +1090,7 @@ export type AppData = {
 type AuthTokenGetter = () => Promise<string | null>
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+const SAFE_READ_REQUEST_TIMEOUT_MS = 30_000
 const MIA_REQUEST_TIMEOUT_MS = 90_000
 const FILE_UPLOAD_TIMEOUT_MS = 180_000
 const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
@@ -1225,13 +1226,19 @@ async function apiFetch(path: string, options: RequestInit = {}, settings: ApiFe
     })
   }
 
+  const method = (options.method ?? 'GET').toUpperCase()
+  const safeReadTimeoutMs = method === 'GET' || method === 'HEAD'
+    ? SAFE_READ_REQUEST_TIMEOUT_MS
+    : undefined
+  const timeoutMs = settings.timeoutMs ?? safeReadTimeoutMs
+
   let response: Response
   try {
-    response = settings.timeoutMs === undefined
+    response = timeoutMs === undefined
       ? await request()
       : await withDeadline(
           request,
-          settings.timeoutMs,
+          timeoutMs,
           settings.timeoutMessage ?? 'This request took too long.',
           options.signal,
         )

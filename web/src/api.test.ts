@@ -4,6 +4,7 @@ import {
   archiveAdminPersona,
   createAdminPersona,
   deleteAdminCohortPersonaAssignment,
+  fetchAppData,
   fetchAdminCohortPersonaAssignment,
   fetchAdminPersona,
   fetchAdminPersonaAssignableCohorts,
@@ -156,6 +157,26 @@ describe('Persona Studio API contract', () => {
       errors: ['Reload the current assignment.'],
       conflicts: [{ participant_count: 3 }],
     })
+  })
+})
+
+describe('safe read deadlines', () => {
+  it('ends a stalled workspace read so the loading screen can offer a retry', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const workspaceRequest = fetchAppData(true)
+    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestSignal?.aborted).toBe(true)
   })
 })
 
