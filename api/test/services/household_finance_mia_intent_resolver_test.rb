@@ -329,6 +329,88 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert result.clarification?
   end
 
+  test "does not carry structured values into an unknown corrected category omitted by the provider" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "budget_edit",
+        title: "Fixed essentials edit",
+        subject: "Fixed essentials",
+        status: "needs_clarification",
+        action: {
+          type: "set_allocation",
+          category_id: 42,
+          category_name: "Fixed essentials",
+          amount: "3000",
+          months: [],
+          year: 2026
+        }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant Daycare for August.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Set Daycare for August 2026",
+          topic: { type: "budget_edit", title: "Daycare edit", subject: "Daycare" },
+          action: default_action.merge(type: "set_allocation", months: [ 8 ], year: 2026)
+        )
+      end
+    ).call
+
+    refute result.actionable?
+    assert_equal 0, result.action.fetch(:category_id)
+    assert_empty result.action.fetch(:amount)
+    assert result.clarification?
+  end
+
+  test "keeps a prior category when correction text names that same validated category" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "budget_edit",
+        title: "Fixed essentials edit",
+        subject: "Fixed essentials",
+        status: "needs_clarification",
+        action: {
+          type: "set_allocation",
+          category_id: 42,
+          category_name: "Fixed essentials",
+          amount: "3000",
+          months: [],
+          year: 2026
+        }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant Fixed essentials for August.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "budget_action",
+          continuation: true,
+          resolved_message: "Set Fixed essentials for August 2026",
+          topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+          action: default_action.merge(type: "set_allocation", months: [ 8 ], year: 2026)
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal 42, result.action.fetch(:category_id)
+    assert_equal "3000", result.action.fetch(:amount)
+    assert_equal [ 8 ], result.action.fetch(:months)
+  end
+
   test "does not carry an income change into a different source omitted by the provider" do
     context = intent_context.deep_dup
     context[:income_sources] << { id: 92, label: "Business income", source_type: "business", current_monthly_amount: 2_500 }
@@ -374,6 +456,95 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     refute result.actionable?
     assert_equal "none", result.action.fetch(:type)
     assert_equal 0, result.action.fetch(:income_source_id)
+  end
+
+  test "does not carry an income change into an unknown corrected source omitted by the provider" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "income_schedule",
+        title: "Primary income change",
+        subject: "Primary income",
+        status: "needs_clarification",
+        action: {
+          type: "schedule_income_change",
+          income_source_id: 91,
+          income_source_name: "Primary income",
+          amount: "2500",
+          entry_type: "recurring_change",
+          effective_on: ""
+        }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant Consulting in October.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: true,
+          resolved_message: "Change Consulting income in October",
+          topic: { type: "income_schedule", title: "Consulting income change", subject: "Consulting" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            entry_type: "recurring_change",
+            effective_on: "2026-10-01"
+          )
+        )
+      end
+    ).call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_equal 0, result.action.fetch(:income_source_id)
+  end
+
+  test "keeps a prior income source when correction text names that same validated source" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "income_schedule",
+        title: "Primary income change",
+        subject: "Primary income",
+        status: "needs_clarification",
+        action: {
+          type: "schedule_income_change",
+          income_source_id: 91,
+          income_source_name: "Primary income",
+          amount: "2500",
+          entry_type: "recurring_change",
+          effective_on: ""
+        }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I meant Primary income in October.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: true,
+          resolved_message: "Change Primary income in October",
+          topic: { type: "income_schedule", title: "Primary income change", subject: "Primary income" },
+          action: default_action.merge(
+            type: "schedule_income_change",
+            entry_type: "recurring_change",
+            effective_on: "2026-10-01"
+          )
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal 91, result.action.fetch(:income_source_id)
+    assert_equal "2500", result.action.fetch(:amount)
+    assert_equal "2026-10-01", result.action.fetch(:effective_on)
   end
 
   test "does not carry a draft id into a different named review omitted by the provider" do

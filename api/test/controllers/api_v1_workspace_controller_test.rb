@@ -1023,7 +1023,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :created
-    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "$42"
+    body = JSON.parse(response.body)
+    assert_includes body.dig("assistant_message", "content"), "$42"
+    assert_nil body.fetch("budget")
     assert_equal topic.deep_stringify_keys, session.reload.active_topic
     assert_equal "Set Fixed essentials to $3,000.", session.active_topic.fetch("latest_user_context")
   end
@@ -1089,6 +1091,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_includes body.dig("assistant_message", "content"), "Costco"
     assert body.fetch("mia_action_draft")
+    assert body.fetch("budget")
     assert_equal "pending_review", session.reload.active_topic.fetch("status")
     assert_equal [ 8 ], session.active_topic.dig("action", "months")
     assert_equal "August only.", session.active_topic.fetch("latest_user_context")
@@ -1147,6 +1150,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes assistant_content, "$87.45"
     assert_includes assistant_content, "Pay-Less"
     assert body.fetch("mia_action_draft")
+    assert body.fetch("budget")
     draft = household.mia_action_drafts.pending.last
     change = draft.mia_action_items.first.payload.fetch("changes").sole
     assert_equal 8, change.fetch("month")
@@ -1206,6 +1210,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes body.dig("assistant_message", "content"), "$64.20"
     assert_includes body.dig("assistant_message", "content"), "could not safely prepare"
     assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("budget")
     assert_equal "pending", transaction_draft.reload.status
     assert_equal 64_20, transaction_draft.total_amount_cents
   end
@@ -1552,12 +1557,14 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :created
-    assistant_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    body = JSON.parse(response.body)
+    assistant_content = body.fetch("assistant_message").fetch("content")
     assert_not_includes assistant_content, "I used your note as context"
     assert_includes assistant_content, "budget/profile setup values"
     assert_includes assistant_content, "Main income and Groceries"
     assert_includes assistant_content, "open Review imports to approve or adjust"
     assert_not_includes assistant_content, "could not safely prepare"
+    assert_nil body.fetch("budget")
   end
 
   test "mia chat compacts conversation continuity for follow-up questions" do

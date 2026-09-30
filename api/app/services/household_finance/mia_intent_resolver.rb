@@ -920,6 +920,29 @@ module HouseholdFinance
       candidate = corrected_identity_candidate
       return false unless candidate
 
+      if action[:type].in?(BUDGET_YEAR_ACTION_TYPES - %w[create_category rename_category])
+        categories = Array(context[:budget_categories]) + Array(context[:archived_categories])
+        return corrected_reference_retargets?(
+          candidate,
+          prior_action,
+          action,
+          categories,
+          id_fields: %i[category_id target_category_id],
+          name_fields: %i[category_name target_category_name]
+        )
+      end
+
+      if action[:type] == "schedule_income_change"
+        return corrected_reference_retargets?(
+          candidate,
+          prior_action,
+          action,
+          Array(context[:income_sources]),
+          id_fields: %i[income_source_id],
+          name_fields: %i[income_source_name]
+        )
+      end
+
       prior_names, current_names = case action[:type]
       when "create_category"
         [ [ prior_action[:new_name], prior_action[:category_name] ], [ action[:new_name], action[:category_name] ] ]
@@ -936,6 +959,14 @@ module HouseholdFinance
 
       normalized_prior = prior_names.map { |name| normalized_identity(name) }.compact_blank
       normalized_prior.present? && !normalized_prior.include?(candidate)
+    end
+
+    def corrected_reference_retargets?(candidate, prior_action, action, records, id_fields:, name_fields:)
+      current_labels = represented_labels({}, action, records, id_fields: id_fields, name_fields: name_fields)
+      return false if current_labels.include?(candidate)
+
+      prior_labels = represented_labels(prior_action, {}, records, id_fields: id_fields, name_fields: name_fields)
+      prior_labels.present? && !prior_labels.include?(candidate)
     end
 
     def corrected_identity_candidate

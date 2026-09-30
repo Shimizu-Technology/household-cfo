@@ -268,7 +268,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
           mia_action_draft: nil,
-          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan, ensure_plan: false).budget,
+          budget: nil,
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)
@@ -314,10 +314,9 @@ module Api
           assistant_message.update!(content: [ evidence_content, action_draft_persistence_failure_message ].compact_blank.join(" "))
           assistant_message.reload
         end
-        if mia_action_draft
+        response_budget = if mia_action_draft
           annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data
-        else
-          annual_plan = routed[:annual_plan] || annual_plan
+          current_data_presenter(household: current_household.reload, annual_plan: annual_plan, ensure_plan: false).budget
         end
         update_conversation_state(
           session,
@@ -334,7 +333,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
-          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan, ensure_plan: false).budget,
+          budget: response_budget,
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)
