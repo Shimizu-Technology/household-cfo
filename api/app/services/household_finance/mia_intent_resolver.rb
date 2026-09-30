@@ -58,9 +58,10 @@ module HouseholdFinance
     SETUP_FIELD_PATTERNS = SETUP_ZERO_FIELD_PATTERNS.merge(
       household_name: /\b(?:household name|family name|call (?:us|our household))\b/i,
       primary_goal: /\b(?:primary goal|financial goal|household goal|goal is|priority is|focus is)\b/i,
-      primary_income: /\b(?:primary(?: monthly)? income|take[ -]?home pay|bring home|job income|salary|paycheck)\b/i,
+      primary_income: /\b(?:primary(?: monthly)? income|take[ -]?home pay|bring home|job income|salary|paycheck)\b|(?<!business )\bmonthly income\b/i,
       target_runway_months: /\b(?:target runway|runway target|months? of runway)\b/i
     ).freeze
+    SETUP_RETARGET_PATTERN = /\b(?:i meant|what i meant|correction|actually|instead|rather|change that|make that|use that instead)\b/i.freeze
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
     REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
     GUIDED_TEXT_SETUP_FIELDS = %w[household_name primary_goal].freeze
@@ -834,7 +835,7 @@ module HouseholdFinance
       current_updates = action[:setup_updates].to_h.symbolize_keys.reject { |_key, value| value.to_s.strip.blank? }
       prior_updates = prior_action[:setup_updates].to_h.symbolize_keys.reject { |_key, value| value.to_s.strip.blank? }
       mentioned_setup_fields = participant_setup_fields
-      if action[:type] == "update_household_setup" && mentioned_setup_fields.any?
+      if action[:type] == "update_household_setup" && mentioned_setup_fields.any? && participant_retargets_setup?
         current_updates.select! { |key, _value| mentioned_setup_fields.include?(key) }
         prior_updates.select! { |key, _value| mentioned_setup_fields.include?(key) }
       end
@@ -844,6 +845,10 @@ module HouseholdFinance
 
     def participant_setup_fields
       SETUP_FIELD_PATTERNS.filter_map { |field, pattern| field if user_message.match?(pattern) }
+    end
+
+    def participant_retargets_setup?
+      user_message.match?(SETUP_RETARGET_PATTERN)
     end
 
     def continuation_actions_compatible?(prior_action, action)

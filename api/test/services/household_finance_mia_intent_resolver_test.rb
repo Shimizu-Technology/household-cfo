@@ -107,7 +107,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal 2026, result.action.fetch(:year)
   end
 
-  test "keeps only the setup field explicitly supplied on a retargeted clarification" do
+  test "keeps prior setup fields when a clarification adds another field" do
     context = intent_context.deep_dup
     context[:conversation] = {
       active_thread: {
@@ -144,14 +144,17 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     result = resolver.call
 
     assert result.actionable?
-    assert_equal({ flexible_spend: "800" }, result.action.fetch(:setup_updates))
+    assert_equal(
+      { primary_income: "6200", fixed_expenses: "3000", flexible_spend: "800" },
+      result.action.fetch(:setup_updates)
+    )
   end
 
-  test "recognizes every supported setup field when a clarification is retargeted" do
+  test "recognizes every supported setup field when an explicit correction retargets a clarification" do
     setup_cases = {
       household_name: [ "Household name is Cruz Family.", "Cruz Family" ],
       primary_goal: [ "Our primary goal is debt freedom.", "Debt freedom" ],
-      primary_income: [ "Primary income is $7,101.", "7101" ],
+      primary_income: [ "Monthly income is $7,101.", "7101" ],
       business_income: [ "Business income is $7,102.", "7102" ],
       fixed_expenses: [ "Fixed expenses are $7,103.", "7103" ],
       flexible_spend: [ "Flexible spending is $7,104.", "7104" ],
@@ -178,15 +181,16 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
         },
         recent_messages: []
       }
+      correction = "I meant #{message}"
       result = HouseholdFinance::MiaIntentResolver.new(
-        user_message: message,
+        user_message: correction,
         context: context,
         api_key: "test-key",
         transport: lambda do |_payload|
           resolution_json(
             intent: "household_action",
             continuation: true,
-            resolved_message: message,
+            resolved_message: correction,
             topic: { type: "household_setup", title: "Starting household picture", subject: "Household setup" },
             action: default_action.merge(
               type: "update_household_setup",
