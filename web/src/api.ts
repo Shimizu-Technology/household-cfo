@@ -599,6 +599,24 @@ export type MiaMessageAttachment = {
   preview_url?: string
 }
 
+export type MiaAnswerPresentation = {
+  version: 1
+  kind: 'read_only_answer'
+  basis: 'saved_household' | 'saved_household_plus_scenario' | 'scenario_only'
+  lead: string
+  sections: Array<{
+    id: string
+    title: string
+    body: string
+  }>
+  scenario?: {
+    values: Array<{
+      label: string
+      display_value: string
+    }>
+  }
+}
+
 export type MiaMessage = {
   id?: number
   client_id?: string
@@ -606,6 +624,7 @@ export type MiaMessage = {
   author: string
   content: string
   attachments?: MiaMessageAttachment[]
+  presentation?: MiaAnswerPresentation
   created_at?: string
 }
 

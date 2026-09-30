@@ -30,10 +30,11 @@ module HouseholdFinance
 
     DEFAULT_RUNWAY_TARGET_MONTHS = 6.0
 
-    def initialize(household, annual_budget_manager: nil, reference_date: Date.current)
+    def initialize(household, annual_budget_manager: nil, reference_date: Date.current, ensure_plan: true)
       @household = household
       @reference_date = reference_date.to_date
       @annual_budget_manager = annual_budget_manager
+      @ensure_plan = ensure_plan
     end
 
     def call
@@ -72,17 +73,28 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :reference_date
+    attr_reader :household, :reference_date, :ensure_plan
 
     def annual_budget_manager
       @annual_budget_manager ||= AnnualBudgetManager.new(household, year: reference_date.year)
     end
 
     def current_period
-      @current_period ||= annual_budget_manager.current_period_for(reference_date)
+      return @current_period if defined?(@current_period)
+
+      @current_period = if ensure_plan
+        annual_budget_manager.current_period_for(reference_date)
+      else
+        BudgetPeriod.joins(:budget_year).find_by(
+          budget_years: { household_id: household.id, year: reference_date.year },
+          starts_on: reference_date.beginning_of_month
+        )
+      end
     end
 
     def current_allocations
+      return [] unless current_period
+
       @current_allocations ||= BudgetAllocation
         .includes(:budget_category)
         .joins(:budget_category)
@@ -149,9 +161,24 @@ module HouseholdFinance
 
     def stack_totals_cents
       @stack_totals_cents ||= ExpenseItem::STACK_KEYS.index_with do |stack_key|
-        current_allocations
-          .select { |allocation| allocation.budget_category.stack_key == stack_key }
-          .sum(&:planned_amount_cents)
+        allocations = current_allocations.select { |allocation| allocation.budget_category.stack_key == stack_key }
+        if allocations.any?
+          allocations.sum(&:planned_amount_cents)
+        elsif !ensure_plan
+          active_expense_items.select { |expense| expense.stack_key == stack_key }.sum do |expense|
+            Money.period_cents(expense.amount_cents, expense.cadence, month: reference_date.month)
+          end
+        else
+          0
+        end
+      end
+    end
+
+    def active_expense_items
+      @active_expense_items ||= if association_loaded?(:expense_items)
+        household.expense_items.select(&:active?)
+      else
+        household.expense_items.where(active: true).to_a
       end
     end
 

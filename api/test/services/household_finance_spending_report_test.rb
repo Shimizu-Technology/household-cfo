@@ -79,6 +79,27 @@ class HouseholdFinanceSpendingReportTest < ActiveSupport::TestCase
     assert_equal 2, payload.fetch(:pending_drafts).length
   end
 
+  test "a read-only historical report labels a missing plan as unavailable instead of zero planned" do
+    household = create_household
+    household.expense_items.create!(label: "Dining", stack_key: "discretionary", amount_cents: 20_000, cadence: "monthly")
+    payload = HouseholdFinance::SpendingReport.new(
+      household,
+      start_on: Date.new(2025, 7, 1),
+      end_on: Date.new(2025, 7, 31),
+      ensure_plans: false
+    ).as_json
+
+    general = HouseholdFinance::SpendingReportNarrator.new(payload, prompt: "How was spending?").call
+    status = HouseholdFinance::SpendingReportNarrator.new(payload, prompt: "Were we on track with our budget?").call
+
+    refute payload.fetch(:plan_available)
+    assert_equal 0, household.budget_years.count
+    assert_includes general, "No approved historical plan is available"
+    refute_includes general, "against $0 planned"
+    assert_includes status, "cannot say whether the household was within budget"
+    refute_includes status, "within budget: $0 confirmed against $0 planned"
+  end
+
   private
 
   def create_household

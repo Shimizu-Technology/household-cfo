@@ -55,6 +55,18 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute_includes answer, "$900"
   end
 
+  test "recognizes normalized contractions before setup is complete" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "contraction-guard-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Incomplete contraction household")
+
+    [ "What's my safe-to-spend?", "What's my readiness?" ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+      assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict", prompt
+      refute_match(/approved readiness|monthly safe-to-spend guardrail/i, answer, prompt)
+    end
+  end
+
   test "clarification guard returns only capability or incomplete setup boundaries" do
     incomplete_user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "guardrail-incomplete@example.com", role: "participant", invitation_status: "accepted")
     incomplete_household = Household.create!(created_by_user: incomplete_user, name: "Incomplete guardrail household")
@@ -87,6 +99,27 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       refute_match(/\breadiness is\b/i, answer, prompt)
       refute_match(/\bsafe-to-spend is\b/i, answer, prompt)
     end
+  end
+
+  test "blocks debt strategy recommendations until setup is confirmed" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "incomplete-debt-strategy@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Incomplete debt household")
+    household.debts.create!(label: "Card A", debt_type: "credit_card", balance_cents: 300_000, minimum_payment_cents: 15_000, interest_rate_percent: 29.0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which card should I pay off first using avalanche?").call
+
+    assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    refute_includes answer, "Avalanche:"
+  end
+
+  test "allows debt strategy recommendations after setup is confirmed" do
+    household = create_yellow_household
+    household.debts.first.update!(interest_rate_percent: 24.0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which card should I pay off first using avalanche?").call
+
+    assert_includes answer, "Avalanche: Debt first"
+    refute_includes answer, "starting picture is confirmed"
   end
 
   test "routes a baseline color question through approved readiness facts" do
@@ -209,6 +242,43 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "40%"
     assert_includes answer, "$262"
     assert_includes answer, "not a purchase amount"
+  end
+
+  test "answers a direct safe-to-spend amount question" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How much is safe to spend?"
+    ).call
+
+    assert_includes answer, "$262 monthly safe-to-spend guardrail"
+    assert_includes answer, "$655 positive baseline surplus"
+    assert_includes answer, "not a purchase amount"
+  end
+
+  test "answers contracted safe-to-spend and readiness questions after setup" do
+    household = create_yellow_household
+
+    safe_to_spend = HouseholdFinance::MiaCoachAnswerer.new(household, "What's my safe-to-spend?").call
+    readiness = HouseholdFinance::MiaCoachAnswerer.new(household, "What's my readiness?").call
+
+    assert_includes safe_to_spend, "$262 monthly safe-to-spend guardrail"
+    assert_includes readiness, "approved readiness is Yellow"
+  end
+
+  test "explains readiness without requiring the participant to name a color" do
+    household = create_yellow_household
+    household.accounts.find_by!(account_type: "emergency_fund").update!(balance_cents: 0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Could you explain my readiness?"
+    ).call
+
+    assert_includes answer, "approved readiness is Red"
+    assert_includes answer, "runway"
+    assert_includes answer, "Next CFO move"
   end
 
   test "uses the selected budget month and year for every financial guardrail" do
@@ -381,6 +451,34 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "proposed purchase is $900"
     assert_includes answer, "extra debt payment is $750"
     assert_includes answer, "together they total $1,650"
+  end
+
+  test "does not present preview rows as approved plan amounts" do
+    household = create_yellow_household
+    future_manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year + 2)
+    preview = future_manager.read_only_plan_data
+
+    refute preview.fetch(:plan_available)
+
+    [
+      "What should I do about a fridge repair?",
+      "Can I cut dining to help my cousin with $300?",
+      "Give me a concrete plan to get to yellow.",
+      "Can I buy a $900 laptop?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(
+        household,
+        prompt,
+        annual_budget_manager: future_manager,
+        annual_plan: preview,
+        reference_month: 1,
+        ensure_plan: false
+      ).call
+
+      assert_includes answer, "plan has not been created yet", prompt
+      assert_includes answer, "Preview estimates are not approved plan amounts", prompt
+      refute_match(/\$0 planned|remaining in the active discretionary plan/i, answer, prompt)
+    end
   end
 
   private

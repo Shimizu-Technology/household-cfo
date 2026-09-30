@@ -33,6 +33,25 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     assert_includes answer, "Keep both minimums current"
   end
 
+  test "read-only coaching answers accurately without materializing a cold budget plan" do
+    assert_equal 0, @household.budget_years.count
+    assert_equal 0, BudgetPeriod.joins(:budget_year).where(budget_years: { household_id: @household.id }).count
+    assert_equal 0, BudgetAllocation.joins(budget_category: :household).where(households: { id: @household.id }).count
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      @household,
+      "Compare debt avalanche and snowball and tell me which card to pay first.",
+      ensure_plan: false
+    ).call
+
+    assert_includes answer, "Avalanche: Card A first"
+    assert_includes answer, "Snowball: Card B first"
+    assert_includes answer, "up to $1,740 from the current monthly surplus"
+    assert_equal 0, @household.budget_years.count
+    assert_equal 0, BudgetPeriod.joins(:budget_year).where(budget_years: { household_id: @household.id }).count
+    assert_equal 0, BudgetAllocation.joins(budget_category: :household).where(households: { id: @household.id }).count
+  end
+
   test "keeps a tax refund debt question in debt planning" do
     answer = HouseholdFinance::MiaCoachAnswerer.new(
       @household,

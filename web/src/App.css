@@ -5581,6 +5581,180 @@ h3 {
   text-transform: none;
 }
 
+.message-row.assistant.has-structured-answer .message {
+  width: min(78ch, calc(100% - 43px));
+  max-width: min(78ch, calc(100% - 43px));
+}
+
+.mia-read-only-answer {
+  display: grid;
+  gap: 13px;
+  min-width: 0;
+}
+
+.message-row .message .mia-read-only-answer p + p {
+  margin-top: 0;
+}
+
+.mia-answer-basis {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 8px;
+  align-items: baseline;
+  color: var(--emerald);
+  font-size: 0.72rem;
+  font-weight: 850;
+  line-height: 1.35;
+}
+
+.mia-answer-basis span {
+  color: var(--muted);
+  font-size: 0.64rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.mia-answer-lead {
+  color: var(--ink);
+  font-size: 1rem;
+  font-weight: 760;
+  line-height: 1.55;
+}
+
+.mia-answer-sections {
+  display: grid;
+  gap: 9px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.mia-answer-sections > li {
+  min-width: 0;
+}
+
+.mia-answer-sections section {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid rgba(23, 96, 87, 0.13);
+  border-radius: 14px;
+  background: rgba(247, 251, 248, 0.78);
+}
+
+.mia-answer-section-heading {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+
+.mia-answer-section-heading > span {
+  display: inline-grid;
+  width: 23px;
+  height: 23px;
+  flex: 0 0 23px;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(23, 96, 87, 0.12);
+  color: var(--emerald);
+  font-family: var(--number-font);
+  font-size: 0.7rem;
+  font-weight: 900;
+}
+
+.mia-answer-section-heading h4,
+.mia-answer-scenario h4 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 0.86rem;
+  line-height: 1.35;
+}
+
+.mia-answer-sections section > p,
+.mia-answer-sections section > ul,
+.mia-answer-scenario p,
+.mia-answer-scenario dt,
+.mia-answer-scenario dd {
+  overflow-wrap: anywhere;
+}
+
+.mia-answer-sections section > p,
+.mia-answer-sections section > ul {
+  color: var(--muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}
+
+.message-row .message .mia-answer-sections section > ul {
+  gap: 4px;
+  margin: 0;
+  padding-left: 18px;
+}
+
+.mia-answer-scenario {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid rgba(185, 115, 82, 0.34);
+  border-radius: 14px;
+  background: #fff8ed;
+}
+
+.mia-answer-scenario > div {
+  display: grid;
+  gap: 4px;
+}
+
+.mia-answer-scenario h4 {
+  color: #7a492f;
+}
+
+.mia-answer-scenario p {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.mia-answer-scenario dl {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  margin: 0;
+}
+
+.mia-answer-scenario dl > div {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px 14px;
+  align-items: baseline;
+  min-width: 0;
+  padding-top: 6px;
+  border-top: 1px solid rgba(185, 115, 82, 0.18);
+}
+
+.mia-answer-scenario dt,
+.mia-answer-scenario dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 0.78rem;
+  line-height: 1.4;
+}
+
+.mia-answer-scenario dt {
+  color: var(--muted);
+  font-weight: 750;
+}
+
+.mia-answer-scenario dd {
+  color: var(--ink);
+  font-family: var(--number-font);
+  font-weight: 900;
+  text-align: right;
+}
+
 .empty-chat-state {
   display: grid;
   justify-items: center;
@@ -6255,6 +6429,11 @@ h3 {
     border-radius: 16px;
   }
 
+  .message-row.assistant.has-structured-answer .message {
+    width: calc(100% - 37px);
+    max-width: calc(100% - 37px);
+  }
+
   .message-row .message strong {
     margin-bottom: 4px;
     font-size: 0.66rem;
@@ -6263,6 +6442,21 @@ h3 {
   .message-row .message p {
     font-size: 0.9rem;
     line-height: 1.52;
+  }
+
+  .mia-answer-basis,
+  .mia-answer-scenario p,
+  .mia-answer-scenario dt,
+  .mia-answer-scenario dd {
+    font-size: 0.74rem;
+  }
+
+  .mia-answer-lead {
+    font-size: 0.94rem;
+  }
+
+  .mia-answer-sections section {
+    padding: 10px;
   }
 
   .mia-chat-shell.is-expanded {
@@ -6327,6 +6521,17 @@ h3 {
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+}
+
+@media (max-width: 420px) {
+  .mia-answer-scenario dl > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 2px;
+  }
+
+  .mia-answer-scenario dd {
+    text-align: left;
   }
 }
 

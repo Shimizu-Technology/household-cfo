@@ -19,10 +19,11 @@ module HouseholdFinance
       text.match?(QUESTION_PATTERN) || (text.match?(/\bdebt\b/i) && text.match?(/\b(?:concrete|detailed|three-step|step-by-step)\b.{0,40}\bplan\b|\bplan\b.{0,80}\bdebt\b/i))
     end
 
-    def initialize(household, message, conversation_messages: [])
+    def initialize(household, message, conversation_messages: [], ensure_plan: true)
       @household = household
       @message = message.to_s.squish
       @conversation_messages = Array(conversation_messages)
+      @ensure_plan = ensure_plan
     end
 
     def call
@@ -40,7 +41,7 @@ module HouseholdFinance
       snowball = debts.select { |debt| debt_value(debt, :balance_cents).to_i.positive? }
         .min_by { |debt| [ debt_value(debt, :balance_cents).to_i, -debt_value(debt, :interest_rate_percent).to_d ] }
       minimums = debts.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
-      snapshot = SnapshotBuilder.new(household).call
+      snapshot = SnapshotBuilder.new(household, ensure_plan: ensure_plan).call
       temporary_drop = temporary_income_drop_cents
       scenario_minimums = scenario_only_debts.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
       adjusted_surplus = snapshot.fetch(:baseline_surplus_cents) - temporary_drop - scenario_minimums
@@ -62,7 +63,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message, :conversation_messages
+    attr_reader :household, :message, :conversation_messages, :ensure_plan
 
     def source_line(approved_debts, scenario_debts, scenario_only_debts, debts)
       source = approved_debts.any? ? "approved debt records" : "the participant-stated scenario"
