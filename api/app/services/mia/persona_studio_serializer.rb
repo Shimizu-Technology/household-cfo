@@ -15,35 +15,43 @@ module Mia
     end
 
     def summary
-      {
+      payload = {
         id: persona.id,
-        name: persona.name,
-        description: persona.description.to_s,
-        role: persona.draft_config.dig("identity", "assistant_relationship"),
+        name: display_config.dig("identity", "assistant_name") || persona.name,
+        description: private_configuration_visible? ? persona.description.to_s : "",
+        role: display_config.dig("identity", "assistant_relationship"),
         status: status,
-        draft_revision: persona.draft_revision,
-        has_unpublished_changes: unpublished_changes?,
-        preview_required: preview_required?,
         owner: serialize_user(persona.created_by_user),
         published_version: serialize_version(persona.current_published_version),
         visible_assignment_count: visible_assignments.count,
         updated_at: persona.updated_at,
         permissions: permissions
       }
+      if private_configuration_visible?
+        payload.merge!(
+          draft_revision: persona.draft_revision,
+          has_unpublished_changes: unpublished_changes?,
+          preview_required: preview_required?
+        )
+      end
+      payload
     end
 
     def detail
-      summary.merge(
-        draft: persona.draft_config,
+      payload = summary.merge(
         guardrails: {
           editable: false,
           source: "Household CFO system",
           rules: GUARDRAILS
         },
-        preview: serialize_preview,
         versions: persona.versions.includes(:published_by_user, :source_version).order(version_number: :desc).map { |version| serialize_version(version, include_source: true) },
         assignments: visible_assignments.includes(:cohort, :assigned_by_user, :coach_persona_version).order(created_at: :desc).map { |assignment| serialize_assignment(assignment) }
       )
+      if private_configuration_visible?
+        payload[:draft] = persona.draft_config
+        payload[:preview] = serialize_preview
+      end
+      payload
     end
 
     def serialize_assignment(assignment)
@@ -56,7 +64,7 @@ module Mia
         },
         persona: {
           id: persona.id,
-          name: persona.name
+          name: assignment.coach_persona_version.config.dig("identity", "assistant_name") || persona.name
         },
         published_version: serialize_version(assignment.coach_persona_version),
         assigned_at: assignment.created_at,
@@ -125,8 +133,20 @@ module Mia
         edit: editable && !persona.archived?,
         publish: editable && !persona.archived?,
         assign: policy.can_assign?(persona),
-        archive: editable && persona.cohort_persona_assignments.none?
+        archive: editable && !persona.archived? && persona.cohort_persona_assignments.none?,
+        restore: editable && persona.archived?
       }
+    end
+
+    def private_configuration_visible?
+      @private_configuration_visible = policy.can_view_private_configuration?(persona) unless defined?(@private_configuration_visible)
+      @private_configuration_visible
+    end
+
+    def display_config
+      return persona.draft_config if private_configuration_visible?
+
+      persona.current_published_version&.config.to_h
     end
 
     def visible_assignments

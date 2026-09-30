@@ -94,7 +94,12 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
     first = publish_current
     cohort = Cohort.create!(name: "Rollback cohort", status: "active", created_by_user: @coach)
     assignment = CohortPersonaAssignment.create!(cohort: cohort, coach_persona: @persona, assigned_by_user: @coach)
-    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "energy" => "New energy." }))
+    @persona.update!(
+      draft_config: @persona.draft_config.deep_merge(
+        "identity" => { "assistant_name" => "New assistant name" },
+        "voice" => { "energy" => "New energy." }
+      )
+    )
     preview = @publisher.preview!(expected_draft_revision: 2)
     second = @publisher.publish!(
       expected_preview_digest: preview.fetch(:digest),
@@ -110,7 +115,14 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
     assert_equal 3, rolled_back.version_number
     assert_equal first.config, rolled_back.config
     assert_equal first, rolled_back.source_version
-    assert_equal rolled_back, @persona.reload.current_published_version
+    @persona.reload
+    assert_equal rolled_back, @persona.current_published_version
+    assert_equal first.config, @persona.draft_config
+    assert_equal first.config.dig("identity", "assistant_name"), @persona.name
+    assert_equal 3, @persona.draft_revision
+    assert_nil @persona.preview_digest
+    assert_nil @persona.previewed_at
+    assert_nil @persona.previewed_draft_revision
     assert_equal rolled_back, assignment.reload.coach_persona_version
     event = @persona.publication_events.order(:id).last
     assert_equal "rollback", event.event_type

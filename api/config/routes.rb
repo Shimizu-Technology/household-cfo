@@ -83,6 +83,7 @@ Rails.application.routes.draw do
           get :assignable_cohorts, on: :collection
           post :preview, on: :member
           post :publish, on: :member
+          post :restore, on: :member
           resources :versions, controller: "mia_persona_versions", only: :show do
             post :rollback, on: :member
           end

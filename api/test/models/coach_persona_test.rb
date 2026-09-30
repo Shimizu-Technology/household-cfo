@@ -60,6 +60,9 @@ class CoachPersonaTest < ActiveSupport::TestCase
     assert persona.archived?
     refute_includes CoachPersona.active, persona
     assert_includes CoachPersona.archived, persona
+    refute persona.update(description: "Archived edit")
+    assert_includes persona.errors[:base], "archived personas are read-only until restored"
+    persona.reload
 
     persona.restore!
     refute persona.archived?

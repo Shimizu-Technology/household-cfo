@@ -26,6 +26,7 @@ class CoachPersona < ApplicationRecord
   validate :draft_config_matches_schema
   validate :preview_fields_are_complete
   validate :current_version_belongs_to_persona
+  validate :archived_persona_is_read_only, on: :update
 
   before_validation :normalize_draft_config
   before_validation :synchronize_name_from_draft
@@ -45,6 +46,15 @@ class CoachPersona < ApplicationRecord
 
   def restore!
     update!(archived_at: nil)
+  end
+
+  def apply_rollback_version!(version)
+    raise ArgumentError, "rollback version must belong to this persona" unless version.coach_persona_id == id
+
+    @force_draft_revision_and_preview_reset = true
+    update!(draft_config: version.config.deep_dup, current_published_version: version)
+  ensure
+    @force_draft_revision_and_preview_reset = false
   end
 
   private
@@ -80,8 +90,15 @@ class CoachPersona < ApplicationRecord
     errors.add(:current_published_version, "must belong to this persona")
   end
 
+  def archived_persona_is_read_only
+    return if archived_at_was.blank?
+
+    protected_changes = changes_to_save.keys - %w[archived_at updated_at lock_version]
+    errors.add(:base, "archived personas are read-only until restored") if protected_changes.any?
+  end
+
   def track_draft_revision_and_preview
-    unless will_save_change_to_draft_config?
+    unless will_save_change_to_draft_config? || @force_draft_revision_and_preview_reset
       self.draft_revision = draft_revision_was
       return
     end

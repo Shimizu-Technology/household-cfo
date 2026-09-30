@@ -29,7 +29,7 @@ module Mia
           published_by_user: actor,
           source_version: target_version
         )
-        persona.update!(current_published_version: version)
+        persona.apply_rollback_version!(version)
         persona.cohort_persona_assignments.update_all(
           coach_persona_version_id: version.id,
           updated_at: Time.current

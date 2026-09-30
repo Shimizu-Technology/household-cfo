@@ -29,9 +29,15 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     owned = persona_for(coach, assistant_name: "Owned assistant")
     assigned = persona_for(admin, assistant_name: "Assigned assistant")
     hidden = persona_for(admin, assistant_name: "Hidden assistant")
-    publish_persona(assigned, actor: admin)
+    published_assignment_version = publish_persona(assigned, actor: admin)
     CohortPersonaAssignment.create!(cohort: coach_cohort, coach_persona: assigned, assigned_by_user: admin)
     CohortPersonaAssignment.create!(cohort: outside_cohort, coach_persona: assigned, assigned_by_user: admin)
+    assigned.update!(
+      draft_config: assigned.draft_config.deep_merge(
+        "identity" => { "assistant_name" => "Private future assistant" },
+        "coaching" => { "philosophy" => "Private unpublished coaching method." }
+      )
+    )
 
     get "/api/v1/admin/personas", headers: auth_headers(coach)
 
@@ -45,8 +51,24 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     detail = response.parsed_body.fetch("persona")
     assert_equal false, detail.dig("permissions", "edit")
+    assert_equal "Assigned assistant", detail.fetch("name")
+    refute detail.key?("draft")
+    refute detail.key?("preview")
+    refute detail.key?("draft_revision")
     assert_equal [ coach_cohort.id ], detail.fetch("assignments").map { |item| item.dig("cohort", "id") }
     refute_includes response.body, outside_cohort.name
+    refute_includes response.body, "Private future assistant"
+    refute_includes response.body, "Private unpublished coaching method."
+
+    get "/api/v1/admin/personas/#{assigned.id}/versions/#{published_assignment_version.id}", headers: auth_headers(coach)
+
+    assert_response :success
+    refute response.parsed_body.fetch("version").key?("config")
+
+    get "/api/v1/admin/personas/#{assigned.id}/versions/#{published_assignment_version.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    assert_equal published_assignment_version.config, response.parsed_body.dig("version", "config")
 
     get "/api/v1/admin/personas/#{hidden.id}", headers: auth_headers(coach)
 
@@ -116,6 +138,15 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal "persona_draft_conflict", response.parsed_body.fetch("code")
     assert_equal "Updated description.", persona.reload.description
+
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, name: "Silently ignored name" } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_name_is_draft_identity", response.parsed_body.fetch("code")
+    assert_equal "Auntie Ava", persona.reload.name
   end
 
   test "preview publish version detail and rollback form an immutable audited lifecycle" do
@@ -126,7 +157,10 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal 1, first_version.version_number
     assert_equal coach, first_version.published_by_user
 
-    revised_draft = persona.reload.draft_config.deep_merge("voice" => { "energy" => "Warm with firm accountability." })
+    revised_draft = persona.reload.draft_config.deep_merge(
+      "identity" => { "assistant_name" => "Second version assistant" },
+      "voice" => { "energy" => "Warm with firm accountability." }
+    )
     patch "/api/v1/admin/personas/#{persona.id}",
       params: { persona: { draft_revision: 1, draft_config: revised_draft } },
       headers: auth_headers(coach),
@@ -135,6 +169,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     second_version = preview_and_publish_through_api(persona.reload, coach, expected_version_id: first_version.id)
     assert_equal 2, second_version.version_number
+    assert_equal "Second version assistant", persona.reload.name
 
     get "/api/v1/admin/personas/#{persona.id}/versions/#{first_version.id}", headers: auth_headers(coach)
 
@@ -156,6 +191,12 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3, restored.version_number
     assert_equal first_version.config, restored.config
     assert_equal first_version, restored.source_version
+    persona.reload
+    assert_equal first_version.config, persona.draft_config
+    assert_equal "Versioned assistant", persona.name
+    assert_equal 3, persona.draft_revision
+    assert_nil persona.preview_digest
+    assert_equal false, response.parsed_body.dig("persona", "has_unpublished_changes")
     assert_equal %w[publish publish rollback], persona.publication_events.order(:id).pluck(:event_type)
 
     post "/api/v1/admin/personas/#{persona.id}/versions/#{first_version.id}/rollback",
@@ -190,6 +231,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_includes response.parsed_body.fetch("errors"), "Preview this exact draft before publishing"
+    assert_equal "persona_preview_required", response.parsed_body.fetch("code")
 
     first = preview_and_publish_through_api(persona.reload, coach)
     post "/api/v1/admin/personas/#{persona.id}/preview",
@@ -226,6 +268,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_includes response.parsed_body.fetch("errors"), "Remove every cohort assignment before archiving this persona."
+    assert_equal "persona_archive_assigned", response.parsed_body.fetch("code")
     assert_nil persona.reload.archived_at
 
     assignment.destroy!
@@ -236,6 +279,24 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert persona.reload.archived?
     assert_equal published, persona.current_published_version
     assert_equal 1, persona.versions.count
+    assert_equal true, response.parsed_body.dig("persona", "permissions", "restore")
+
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, description: "Should not save" } },
+      headers: auth_headers(admin),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_archived", response.parsed_body.fetch("code")
+    refute_equal "Should not save", persona.reload.description
+
+    post "/api/v1/admin/personas/#{persona.id}/restore", headers: auth_headers(admin)
+
+    assert_response :success
+    assert_equal "published", response.parsed_body.dig("persona", "status")
+    assert_equal false, response.parsed_body.dig("persona", "permissions", "restore")
+    assert_equal true, response.parsed_body.dig("persona", "permissions", "edit")
+    refute persona.reload.archived?
   end
 
   private

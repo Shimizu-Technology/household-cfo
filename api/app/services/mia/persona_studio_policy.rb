@@ -34,6 +34,10 @@ module Mia
       editable_personas.where(id: persona.id).exists?
     end
 
+    def can_view_private_configuration?(persona)
+      user.admin? || persona.created_by_user_id == user.id
+    end
+
     def can_assign?(persona)
       can_edit?(persona) && persona.published? && !persona.archived?
     end

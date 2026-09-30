@@ -13,7 +13,11 @@ module Api
           version = persona.versions.find(params[:id])
           render json: {
             persona: serializer(persona).summary,
-            version: serializer(persona).serialize_version(version, include_config: true, include_source: true)
+            version: serializer(persona).serialize_version(
+              version,
+              include_config: policy.can_view_private_configuration?(persona),
+              include_source: true
+            )
           }
         end
 
@@ -47,7 +51,11 @@ module Api
         end
 
         def render_not_found(error)
-          render json: { errors: [ error.message ] }, status: :not_found
+          render json: {
+            error: error.message,
+            errors: [ error.message ],
+            code: "persona_version_not_found"
+          }, status: :not_found
         end
       end
     end

@@ -18,7 +18,7 @@ module Api
         end
 
         def create
-          attributes = persona_params
+          attributes = create_persona_params
           draft = attributes[:draft_config].presence || default_draft(attributes[:name])
           persona = CoachPersona.create!(
             name: attributes[:name].presence || draft.to_h.dig("identity", "assistant_name"),
@@ -28,29 +28,49 @@ module Api
           )
           render json: { persona: serializer(persona).detail }, status: :created
         rescue ActiveRecord::RecordInvalid => error
-          render_validation_error(error.record)
+          render_validation_error(error.record, code: "persona_invalid")
         end
 
         def update
           persona = editable_persona
+          return render_api_error("Archived personas are read-only. Restore this persona before editing it.", code: "persona_archived", status: :unprocessable_entity) if persona.archived?
+          if params.require(:persona).key?(:name)
+            return render_api_error(
+              "Update identity.assistant_name in the persona draft to rename this assistant.",
+              code: "persona_name_is_draft_identity",
+              status: :unprocessable_entity
+            )
+          end
           return render_revision_conflict unless expected_draft_revision == persona.draft_revision
 
-          persona.update!(persona_params.slice(:description, :draft_config))
+          persona.update!(update_persona_params)
           render json: { persona: serializer(persona.reload).detail }
         rescue ActiveRecord::RecordInvalid => error
-          render_validation_error(error.record)
+          render_validation_error(error.record, code: "persona_invalid")
         end
 
         def destroy
           persona = editable_persona
           if persona.cohort_persona_assignments.exists?
-            return render json: { errors: [ "Remove every cohort assignment before archiving this persona." ] }, status: :unprocessable_entity
+            return render_api_error(
+              "Remove every cohort assignment before archiving this persona.",
+              code: "persona_archive_assigned",
+              status: :unprocessable_entity
+            )
           end
 
           persona.archive!
           render json: { persona: serializer(persona.reload).detail }
         rescue ActiveRecord::RecordInvalid => error
-          render_validation_error(error.record)
+          render_validation_error(error.record, code: "persona_archive_invalid")
+        end
+
+        def restore
+          persona = editable_persona
+          persona.restore!
+          render json: { persona: serializer(persona.reload).detail }
+        rescue ActiveRecord::RecordInvalid => error
+          render_validation_error(error.record, code: "persona_restore_invalid")
         end
 
         def preview
@@ -116,8 +136,12 @@ module Api
           @editable_persona ||= policy.editable_personas.find(params[:id])
         end
 
-        def persona_params
+        def create_persona_params
           params.require(:persona).permit(:name, :description, draft_config: {}).to_h.deep_symbolize_keys
+        end
+
+        def update_persona_params
+          params.require(:persona).permit(:description, draft_config: {}).to_h.deep_symbolize_keys
         end
 
         def preview_params
@@ -171,7 +195,7 @@ module Api
 
         def render_publication_error(error)
           if error.message == "Preview this exact draft before publishing"
-            render json: { errors: [ error.message ] }, status: :unprocessable_entity
+            render_api_error(error.message, code: "persona_preview_required", status: :unprocessable_entity)
           else
             render_studio_conflict(error.message, code: "persona_publish_conflict")
           end
@@ -181,12 +205,17 @@ module Api
           render json: { error: message, code: code }, status: :conflict
         end
 
-        def render_validation_error(record)
-          render json: { errors: record.errors.full_messages }, status: :unprocessable_entity
+        def render_validation_error(record, code:)
+          messages = record.errors.full_messages
+          render json: { error: messages.first, errors: messages, code: code }, status: :unprocessable_entity
+        end
+
+        def render_api_error(message, code:, status:)
+          render json: { error: message, errors: [ message ], code: code }, status: status
         end
 
         def render_not_found(error)
-          render json: { errors: [ error.message ] }, status: :not_found
+          render_api_error(error.message, code: "persona_not_found", status: :not_found)
         end
       end
     end
