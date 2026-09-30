@@ -10,6 +10,25 @@ module Mia
       (?:saved|paid)\s+\$[\d,]+(?:\.\d{1,2})?
     )\b/ix.freeze
     EMOTIONAL_SUPPORT_PATTERN = /\b(?:ashamed|shame|overwhelmed|stressed|scared|afraid|fighting|panic|drowning)\b/i.freeze
+    CRISIS_PATTERNS = [
+      /\b(kill myself|end my life|want to die|suicidal|suicide|hurt myself|self[-\s]?harm)\b/i,
+      /\b(?:can['’]?t|cannot) go on(?:\s+(?:anymore|living|with (?:my )?life))?(?:[.!?,;:]|\z)/i,
+      /\b(?:can['’]?t|cannot) go on\s+with\s+(?:this|the|my)?\s*(?:debt|bills?|money stress)\b.*\banymore\b/i
+    ].freeze
+    STABLE_CONTEXT_IDS = {
+      "greeting" => "greeting",
+      "welcome" => "greeting",
+      "milestone" => "milestone",
+      "celebration" => "milestone",
+      "emotional_support" => "emotional_support",
+      "hard_moment" => "emotional_support",
+      "repeated_pattern" => "repeated_pattern",
+      "accountability" => "repeated_pattern",
+      "known_bad_pattern" => "repeated_pattern",
+      "routine" => "routine",
+      "general" => "general",
+      "crisis" => "crisis"
+    }.freeze
     REPEATED_PATTERN = /\b(?:
       keep\s+(?:doing|spending|buying)|same\s+(?:thing|pattern)|every\s+time|
       (?:spent|spending|bought|buying|ordered|ordering|overdrew|overdrafted|missed|skipped|went\s+over|hit\s+(?:my\s+|the\s+)?(?:spending|credit|budget)\s+limit)\b.{0,40}\bagain|
@@ -71,31 +90,54 @@ module Mia
     def custom_phrase_allowed?(entry)
       phrase = entry.fetch("text")
       return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
+
+      prohibited = Array(entry["prohibited_contexts"])
+      return false if prohibited.any? { |context| context_matches?(context) }
       return true if user_message.match?(custom_phrase_pattern(phrase))
 
-      prohibited = Array(entry["prohibited_contexts"]).map { |context| context.to_s.downcase }
-      return false if prohibited.any? { |context| context_matches?(context) }
-
-      allowed = Array(entry["allowed_contexts"]).map { |context| context.to_s.downcase }
+      allowed = Array(entry["allowed_contexts"])
       allowed.any? { |context| context_matches?(context) }
     end
 
     def context_matches?(context)
-      return user_message.match?(GREETING_PATTERN) if context.match?(/greet|welcome/)
-      return earned_moment? if context.match?(/milestone|celebrat|achievement|surprise|windfall/)
-      return user_message.match?(EMOTIONAL_SUPPORT_PATTERN) if context.match?(/emotion|support|stress|hard moment/)
-      return user_message.match?(REPEATED_PATTERN) if context.match?(/repeat|accountab|known.bad|pattern/)
-      return routine_moment? if context.match?(/routine|ordinary|warm|familiar|community/)
-      return true if context.match?(/general|any.relevant|as needed|always|all contexts/)
+      case normalized_context_id(context)
+      when "greeting" then user_message.match?(GREETING_PATTERN)
+      when "milestone" then earned_moment?
+      when "emotional_support" then user_message.match?(EMOTIONAL_SUPPORT_PATTERN)
+      when "repeated_pattern" then user_message.match?(REPEATED_PATTERN)
+      when "routine" then routine_moment?
+      when "general" then true
+      when "crisis" then crisis_moment?
+      else false
+      end
+    end
 
-      false
+    def normalized_context_id(context)
+      value = context.to_s.downcase.squish
+      stable_id = value.tr(" -", "_")
+      return STABLE_CONTEXT_IDS.fetch(stable_id) if STABLE_CONTEXT_IDS.key?(stable_id)
+
+      return "greeting" if value.match?(/greet|welcome/)
+      return "milestone" if value.match?(/milestone|celebrat|achievement|surprise|windfall/)
+      return "emotional_support" if value.match?(/emotion|support|stress|hard moment/)
+      return "repeated_pattern" if value.match?(/repeat|accountab|known.bad|pattern/)
+      return "routine" if value.match?(/routine|ordinary|warm|familiar|community/)
+      return "general" if value.match?(/general|any.relevant|as needed|always|all contexts/)
+      return "crisis" if value.match?(/crisis|self.harm|suicid/)
+
+      nil
     end
 
     def routine_moment?
       !user_message.match?(GREETING_PATTERN) &&
         !earned_moment? &&
         !user_message.match?(EMOTIONAL_SUPPORT_PATTERN) &&
-        !user_message.match?(REPEATED_PATTERN)
+        !user_message.match?(REPEATED_PATTERN) &&
+        !crisis_moment?
+    end
+
+    def crisis_moment?
+      CRISIS_PATTERNS.any? { |pattern| user_message.match?(pattern) }
     end
 
     def custom_phrase_recently_used?(phrase, frequency)

@@ -144,6 +144,10 @@ module Demo
         history: history,
         conversation_resolution: conversation_resolution
       )
+      unless ::Mia::ResponseShapePolicy.valid?(sanitized, persona: @persona)
+        Rails.logger.info("[Demo::MiaResponder] generic response rejected reason=persona_response_shape")
+        return fallback_response(message, context: context)
+      end
       sanitized.presence || fallback_response(message, context: context)
     end
 

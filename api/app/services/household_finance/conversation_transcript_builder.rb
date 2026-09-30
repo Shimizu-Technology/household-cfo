@@ -1,13 +1,15 @@
 module HouseholdFinance
   class ConversationTranscriptBuilder
+    UNFILTERED_PERSONA_VERSION = Object.new.freeze
     MAX_MESSAGES = 32
     FETCH_LIMIT = 80
     MAX_TOTAL_CHARACTERS = 24_000
     MAX_MESSAGE_CHARACTERS = 4_000
     MIN_RECENT_MESSAGES = 8
 
-    def initialize(chat_session)
+    def initialize(chat_session, persona_version_id: UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
+      @persona_version_id = persona_version_id
     end
 
     def call
@@ -34,15 +36,29 @@ module HouseholdFinance
 
     private
 
-    attr_reader :chat_session
+    attr_reader :chat_session, :persona_version_id
 
     def message_payload(message)
       return unless message.role.in?(%w[user assistant])
+      return if assistant_from_other_persona_version?(message)
 
       content = message.content.to_s.squish.truncate(MAX_MESSAGE_CHARACTERS, omission: "…")
       return if content.blank?
 
-      { id: message.id, role: message.role, content: content, created_at: message.created_at&.iso8601 }
+      {
+        id: message.id,
+        role: message.role,
+        content: content,
+        coach_persona_version_id: message.coach_persona_version_id,
+        created_at: message.created_at&.iso8601
+      }
+    end
+
+    def assistant_from_other_persona_version?(message)
+      return false unless message.role == "assistant"
+      return false if persona_version_id.equal?(UNFILTERED_PERSONA_VERSION)
+
+      message.coach_persona_version_id != persona_version_id
     end
   end
 end

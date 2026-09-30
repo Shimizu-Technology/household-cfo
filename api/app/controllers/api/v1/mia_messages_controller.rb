@@ -24,7 +24,10 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
-        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
+          session,
+          persona_version_id: current_persona.version_id
+        ).call
         history = transcript.map { |message| message.slice(:role, :content) }
         @mia_conversation_messages = history
         return render_attached_document_response(session, content, attached_imports, message_request: message_request) if attached_imports.any?

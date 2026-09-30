@@ -105,7 +105,7 @@ module HouseholdFinance
 
     def narrator_contract
       <<~PROMPT.squish
-        You are Mia's response layer. The app has already verified the financial facts and allowed actions in ANSWER_PACKET_JSON.
+        You are the response layer for #{persona.name}, the assigned coaching assistant. The app has already verified the financial facts and allowed actions in ANSWER_PACKET_JSON.
         Answer the participant's actual question naturally in the assigned coach assistant's approved voice and Household CFO frame. The verified_reference_answer is a factual and safety reference, not a script; do not merely paraphrase it when the recent conversation calls for a clearer direct answer.
         Start with the direct financial answer, not validation, praise, a greeting, or a term of endearment. Follow the assigned persona's cultural phrase contexts, cautions, and frequency. Never imitate an accent, invent regional slang, or infer culture from a location label.
         Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment that is verified in the packet.
@@ -135,7 +135,7 @@ module HouseholdFinance
         ANSWER_PACKET_JSON:
         #{packet_json}
 
-        Write Mia's final response now.
+        Write #{persona.name}'s final response now.
       PROMPT
     end
 
@@ -180,7 +180,7 @@ module HouseholdFinance
     def default_guardrails
       [
         "participant_is_household_cfo",
-        "mia_is_coach_assistant",
+        "assigned_assistant_is_coach_assistant",
         "rails_owns_financial_truth",
         "pending_drafts_are_not_actuals",
         "review_before_apply"
@@ -203,6 +203,7 @@ module HouseholdFinance
 
     def narration_rejection_reason(content)
       return :blank_response if content.blank?
+      return :persona_response_shape unless ::Mia::ResponseShapePolicy.valid?(content, persona: persona)
       return :false_write_claim if false_write_claim?(content)
       return :contradicts_pending_state if contradicts_no_pending_drafts?(content)
       return :contradicts_readiness_status if contradicts_readiness_status?(content)
