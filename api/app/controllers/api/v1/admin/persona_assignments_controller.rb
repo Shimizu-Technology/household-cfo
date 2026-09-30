@@ -47,7 +47,7 @@ module Api
         rescue PersonaUnavailable
           render json: { errors: [ "Publish this persona before assigning it." ], code: "persona_assignment_unavailable" }, status: :unprocessable_entity
         rescue ActiveRecord::RecordInvalid => error
-          render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
+          render json: { errors: error.record.errors.full_messages, code: "persona_assignment_invalid" }, status: :unprocessable_entity
         end
 
         def destroy
@@ -101,11 +101,14 @@ module Api
         end
 
         def render_read_only_cohort(cohort)
-          render json: { errors: [ "#{cohort.status.titleize} cohorts are read-only." ] }, status: :unprocessable_entity
+          render json: {
+            errors: [ "#{cohort.status.titleize} cohorts are read-only." ],
+            code: "persona_assignment_read_only"
+          }, status: :unprocessable_entity
         end
 
         def render_not_found(error)
-          render json: { errors: [ error.message ] }, status: :not_found
+          render json: { errors: [ error.message ], code: "persona_assignment_not_found" }, status: :not_found
         end
       end
     end

@@ -35,7 +35,6 @@ module Api
 
         def update
           persona = editable_persona
-          return render_api_error("Archived personas are read-only. Restore this persona before editing it.", code: "persona_archived", status: :unprocessable_entity) if persona.archived?
           if params.require(:persona).key?(:name)
             return render_api_error(
               "Update identity.assistant_name in the persona draft to rename this assistant.",
@@ -44,6 +43,13 @@ module Api
             )
           end
           persona.with_lock do
+            if persona.archived?
+              return render_api_error(
+                "Archived personas are read-only. Restore this persona before editing it.",
+                code: "persona_archived",
+                status: :unprocessable_entity
+              )
+            end
             return render_revision_conflict unless expected_draft_revision == persona.draft_revision
 
             persona.update!(update_persona_params)
@@ -73,6 +79,11 @@ module Api
           end
 
           render json: { persona: serializer(persona.reload).detail }
+        rescue ActiveRecord::StaleObjectError
+          render_studio_conflict(
+            "This persona changed in another session. Reload before archiving it.",
+            code: "persona_archive_conflict"
+          )
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_archive_invalid")
         end
