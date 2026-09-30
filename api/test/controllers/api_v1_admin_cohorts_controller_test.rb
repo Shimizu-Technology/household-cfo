@@ -296,6 +296,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
     household.expense_items.create!(label: "Rent", stack_key: "non_discretionary", amount_cents: 200_000)
     household.accounts.create!(label: "Emergency", account_type: "emergency_fund", balance_cents: 1_000_000)
     household.goals.create!(label: "Runway", goal_type: "runway", target_amount_cents: 2_000_000)
+    household.update!(confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
     household
   end
 

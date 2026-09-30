@@ -96,6 +96,7 @@ module Demo
           monthly_surplus_rate_percent: facts.fetch(:monthly_surplus_rate_percent),
           runway_months: facts.fetch(:runway_months),
           next_safe_to_spend_amount: facts.fetch(:safe_to_spend),
+          readiness_available: true,
           readiness_tone: facts.fetch(:readiness_tone),
           readiness_label: facts.fetch(:readiness_label)
         },

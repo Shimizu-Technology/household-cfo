@@ -18,6 +18,7 @@ module HouseholdFinance
         applied_at: draft.applied_at&.iso8601,
         canceled_at: draft.canceled_at&.iso8601,
         impact: draft.metadata.to_h["impact"],
+        setup_coverage_after_apply: setup_coverage_after_apply,
         items: action_items
       }
     end
@@ -40,6 +41,22 @@ module HouseholdFinance
           after_snapshot: item.after_snapshot
         }
       end
+    end
+
+    def setup_coverage_after_apply
+      return unless draft.draft_type == "household_setup"
+
+      proposed_values = draft.mia_action_items.each_with_object({}) do |item, values|
+        next unless item.action_type == "update_setup_value"
+
+        payload = item.payload.to_h
+        values[payload["key"]] = payload["value"]
+      end
+      SetupStatus.new(
+        draft.household,
+        additional_confirmed_fields: proposed_values.keys,
+        proposed_values: proposed_values
+      ).as_json
     end
   end
 end

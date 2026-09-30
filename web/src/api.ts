@@ -14,10 +14,26 @@ export type WorkspaceSetupValues = {
   target_runway_months: number
 }
 
+export type WorkspaceSetupFieldStatus = {
+  key: keyof WorkspaceSetupValues
+  label: string
+  confirmed: boolean
+}
+
+export type WorkspaceSetupStatus = {
+  complete: boolean
+  completed_count: number
+  required_count: number
+  required_fields: WorkspaceSetupFieldStatus[]
+  confirmed_fields: string[]
+  missing_fields: WorkspaceSetupFieldStatus[]
+}
+
 export type WorkspaceData = {
   mode: 'demo' | 'real'
   household_id: number | null
   setup_complete: boolean
+  setup_status: WorkspaceSetupStatus
   setup_values: WorkspaceSetupValues
   debts: DebtRecord[]
   cohort: null | {
@@ -268,6 +284,7 @@ export type DashboardData = {
     monthly_surplus_rate_percent: number
     runway_months: number
     next_safe_to_spend_amount: number
+    readiness_available: boolean
     readiness_tone: 'red' | 'yellow' | 'green'
     readiness_label: string
   }
@@ -434,6 +451,7 @@ export type MiaActionDraft = {
     before_baseline_surplus?: number
     after_baseline_surplus?: number
   } | null
+  setup_coverage_after_apply?: WorkspaceSetupStatus | null
   items: MiaActionItem[]
 }
 
@@ -831,7 +849,7 @@ export type AdminPlaidHealth = {
 }
 
 export type AppData = {
-  workspace?: WorkspaceData
+  workspace: WorkspaceData
   profile: ProfileData
   dashboard: DashboardData
   budget: BudgetData
@@ -1215,6 +1233,20 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       mode: 'demo',
       household_id: null,
       setup_complete: true,
+      setup_status: {
+        complete: true,
+        completed_count: 5,
+        required_count: 5,
+        required_fields: [
+          { key: 'household_name', label: 'Household name', confirmed: true },
+          { key: 'primary_goal', label: 'Primary goal', confirmed: true },
+          { key: 'primary_income', label: 'Primary monthly income', confirmed: true },
+          { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: true },
+          { key: 'flexible_spend', label: 'Flexible spending', confirmed: true },
+        ],
+        confirmed_fields: ['household_name', 'primary_goal', 'primary_income', 'fixed_expenses', 'flexible_spend'],
+        missing_fields: [],
+      },
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
       debts: [],
       cohort: null,

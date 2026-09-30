@@ -60,6 +60,7 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     household.household_memberships.create!(user: user, role: "owner")
     household.income_sources.create!(label: "Salary", source_type: "job", amount_cents: 8_500_00, cadence: "monthly", active: true)
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 50_000_00)
+    household.update!(primary_goal: "Protect the plan", confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year + 1)
     manager.create_category!(name: "Future essentials", stack_key: "non_discretionary", monthly_amount: 0)
     plan = manager.plan_data
@@ -80,6 +81,20 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     assert_equal 41, payload.dig("metrics", "monthly_surplus_rate_percent")
     assert_equal "$1,400", payload.dig("metrics", "safe_to_spend")
     assert_equal "selected_budget_month", payload.dig("annual_budget", "reference_month", "scope")
+  end
+
+  test "withholds readiness and safe-to-spend until required setup is confirmed" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "incomplete-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Incomplete context household")
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 9_000_00, cadence: "monthly")
+
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call)
+
+    refute payload.dig("setup", "complete")
+    assert_equal false, payload.dig("metrics", "financial_guidance_available")
+    assert_nil payload.dig("metrics", "safe_to_spend")
+    assert_equal "unavailable_until_setup_complete", payload.dig("metrics", "readiness")
+    assert_includes payload.dig("setup", "missing_fields").pluck("label"), "Primary goal"
   end
 
   test "includes compacted conversation continuity as context only" do

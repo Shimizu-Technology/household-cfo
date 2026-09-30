@@ -26,6 +26,19 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_equal "Based on approved numbers, wait until bills clear.", answer
   end
 
+  test "keeps capability answers deterministic so narration cannot invent persistence or review work" do
+    fallback = Mia::Capabilities.persona_configuration_answer
+    narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Can you use a Guam-style voice and remember weekly check-ins?",
+      answer_packet: { kind: "coaching", fallback_response: fallback, write_state: "no_write" },
+      api_key: "test-key"
+    )
+    narrator.define_singleton_method(:openrouter_response) { raise "capability answer should not reach the narrator model" }
+
+    assert_equal fallback, narrator.call
+    refute_includes narrator.call, "pending draft"
+  end
+
   test "narrates answer packets through OpenRouter and strips generic openers" do
     requests = []
     start_options = []

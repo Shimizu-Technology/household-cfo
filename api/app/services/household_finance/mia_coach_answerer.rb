@@ -52,7 +52,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || external_fact_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
+      capability_answer || incomplete_setup_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -62,6 +62,57 @@ module HouseholdFinance
     private
 
     attr_reader :household, :message, :annual_budget_manager, :reference_month, :conversation_messages
+
+    def capability_answer
+      return unless ::Mia::Capabilities.persona_configuration_request?(message)
+
+      ::Mia::Capabilities.persona_configuration_answer
+    end
+
+    def incomplete_setup_answer
+      status = setup_status
+      return if status.complete?
+      return unless setup_dependent_coaching_request?
+
+      missing = status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
+      "I cannot give a readiness, safe-to-spend, or purchase verdict until your starting picture is confirmed. I still need #{missing}. No financial decision was made and no numbers changed. Next step: tell me those details here for review, or finish them in Manual setup; enter 0 when an amount does not apply."
+    end
+
+    def setup_dependent_coaching_request?
+      external_fact = normalized_message.match?(EXTERNAL_FACT_PATTERN)
+      tax_context = normalized_message.match?(/\b(?:tax|file married|filing status)\b/i)
+      return false if external_fact && !tax_context
+
+      readiness_coaching = normalized_message.match?(READINESS_PLAN_PATTERN) && !purchase_question? && !budget_report_question?
+      matched_guardrail = [
+        PURCHASE_IMPACT_PATTERN,
+        SAFE_TO_SPEND_FORMULA_PATTERN,
+        COMPOUND_PURCHASE_DEBT_PATTERN,
+        READINESS_STATUS_PATTERN,
+        MONTHLY_FOCUS_PATTERN,
+        CAR_REGISTRATION_PATTERN,
+        CAR_REPAIR_PATTERN,
+        FAMILY_SUPPORT_PATTERN,
+        DEBT_VS_SAVINGS_PATTERN,
+        JOB_TRANSITION_PATTERN,
+        OVERWHELMED_PATTERN,
+        BILL_TRIAGE_PATTERN,
+        EXTRA_MONEY_PATTERN,
+        DEBT_DECISION_PATTERN,
+        SINKING_FUND_PATTERN,
+        LENDING_PATTERN,
+        INVESTMENT_PATTERN,
+        MONEY_MOVEMENT_PATTERN,
+        ACCOUNT_COVERAGE_PATTERN,
+        PAYCHECK_PATTERN,
+        MEMORY_RECALL_PATTERN,
+        AMBIGUOUS_HELP_PATTERN,
+        PROMPT_INJECTION_PATTERN,
+        EMOTIONAL_STRESS_PATTERN
+      ].any? { |pattern| normalized_message.match?(pattern) }
+
+      purchase_question? || readiness_coaching || matched_guardrail || tax_context
+    end
 
     def debt_strategy_answer
       return nil if normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
@@ -91,6 +142,7 @@ module HouseholdFinance
 
     def external_fact_answer
       return nil unless normalized_message.match?(EXTERNAL_FACT_PATTERN)
+      return nil if normalized_message.match?(DEBT_TERM_PATTERN) && normalized_message.match?(/\b(?:tax\s+)?refund\b/i)
 
       if normalized_message.match?(/tax|file married|filing status/i)
         return "Based on what I can see, I do not have enough approved data to answer that as a fact yet. I also cannot give tax advice or tell you which filing status to choose. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so any tax bill or refund should be placed against the baseline before wants. Next CFO move: use a qualified tax professional or tax software for the tax calculation, then bring the amount and due date back here so we can place it in the annual plan."
@@ -663,6 +715,10 @@ module HouseholdFinance
         annual_budget_manager: annual_budget_manager,
         reference_date: snapshot_reference_date
       ).call
+    end
+
+    def setup_status
+      @setup_status ||= SetupStatus.new(household)
     end
 
     def snapshot_reference_date

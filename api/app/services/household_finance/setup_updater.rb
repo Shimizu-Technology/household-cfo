@@ -15,6 +15,14 @@ module HouseholdFinance
       debt_payment
       target_runway_months
     ].freeze
+    REQUIRED_MONEY_KEYS = %i[primary_income fixed_expenses flexible_spend].freeze
+    REQUIRED_LABELS = {
+      household_name: "Household name",
+      primary_goal: "Primary goal",
+      primary_income: "Primary monthly income",
+      fixed_expenses: "Fixed essentials",
+      flexible_spend: "Flexible spending"
+    }.freeze
     MISSING_VALUE = Object.new.freeze
 
     def initialize(household, attributes)
@@ -24,6 +32,7 @@ module HouseholdFinance
 
     def call
       household.with_lock do
+        validate_required_attributes!
         update_household
         upsert_income("Primary income", "job", attributes[:primary_income]) if attributes.key?(:primary_income)
         upsert_income("Business income", "business", attributes[:business_income]) if attributes.key?(:business_income)
@@ -36,6 +45,7 @@ module HouseholdFinance
         upsert_credit_card_debt if attributes.key?(:credit_card_debt) || attributes.key?(:debt_payment)
         upsert_runway_goal if attributes.key?(:target_runway_months)
         upsert_transition_goal
+        confirm_setup_fields
       end
 
       household.reload
@@ -45,6 +55,15 @@ module HouseholdFinance
 
     attr_reader :household, :attributes
 
+    def validate_required_attributes!
+      REQUIRED_MONEY_KEYS.each do |key|
+        next unless attributes.key?(key)
+        next if attributes.fetch(key).to_s.strip.present?
+
+        raise ArgumentError, "#{REQUIRED_LABELS.fetch(key)} is required; enter 0 when it does not apply"
+      end
+    end
+
     def update_household
       household.assign_attributes(
         location: household.location.presence || "Guam",
@@ -53,6 +72,19 @@ module HouseholdFinance
       household.name = bounded_text(attributes[:household_name], max_length: 120, allow_blank: false) if attributes.key?(:household_name)
       household.primary_goal = bounded_text(attributes[:primary_goal], max_length: 500, allow_blank: true) if attributes.key?(:primary_goal)
       household.save!
+    end
+
+    def confirm_setup_fields
+      confirmed = Array(household.confirmed_setup_fields).map(&:to_s)
+      submitted = attributes.keys.map(&:to_s)
+      submitted.each do |field|
+        if field == "primary_goal" && household.primary_goal.blank?
+          confirmed.delete(field)
+        else
+          confirmed << field
+        end
+      end
+      household.update!(confirmed_setup_fields: confirmed.uniq)
     end
 
     def upsert_income(label, source_type, value)

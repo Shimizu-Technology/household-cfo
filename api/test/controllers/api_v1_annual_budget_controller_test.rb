@@ -1023,6 +1023,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       },
       headers: auth_headers(user),
       as: :json
+    confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
       params: { message: "So help me create a plan to get in the yellow and then green - what do we need to do to do this?" },
@@ -1058,6 +1059,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       },
       headers: auth_headers(user),
       as: :json
+    confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
       params: { message: "Can I afford my car registration next month?" },
@@ -1091,6 +1093,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       },
       headers: auth_headers(user),
       as: :json
+    confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
       params: { message: "So can I buy basketball shoes right now?" },
@@ -1171,6 +1174,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       },
       headers: auth_headers(user),
       as: :json
+    confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
       params: { message: "What should I do this week to get out of red?" },
@@ -1966,6 +1970,13 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       email: email,
       role: "participant",
       invitation_status: "accepted"
+    )
+  end
+
+  def confirm_setup_for_test(user)
+    HouseholdFinance::WorkspaceResolver.new(user).household.update!(
+      primary_goal: "Build a stable plan",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
   end
 

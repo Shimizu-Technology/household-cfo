@@ -1,6 +1,5 @@
 module HouseholdFinance
   class PilotProgressBuilder
-    SETUP_COMPLETE_THRESHOLD = 70
     MEANINGFUL_SETUP_ASSOCIATIONS = %i[income_sources expense_items accounts debts goals].freeze
     HOUSEHOLD_NOT_PROVIDED = Object.new.freeze
 
@@ -40,11 +39,7 @@ module HouseholdFinance
     def setup_complete?
       return false unless household
 
-      profile_completeness >= SETUP_COMPLETE_THRESHOLD
-    end
-
-    def profile_completeness
-      @profile_completeness ||= ProfileCompletenessCalculator.new(household).call
+      SetupStatus.new(household).complete?
     end
 
     def explicit_setup_save?

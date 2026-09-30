@@ -116,6 +116,113 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_empty result.clarification
   end
 
+  test "keeps all first-session totals in one supervised household action" do
+    message = "Call us QA Test Family. We bring home $6,200 monthly, fixed essentials are $3,000, flexible spending is $800, and our goal is a six-month emergency fund."
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "household_setup", title: "Starting household picture", subject: "First-session setup" },
+          action: default_action.merge(
+            type: "update_household_setup",
+            setup_updates: default_setup_updates.merge(
+              household_name: "QA Test Family",
+              primary_goal: "Build a six-month emergency fund",
+              primary_income: "6200",
+              fixed_expenses: "3000",
+              flexible_spend: "800",
+              target_runway_months: "6"
+            )
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "6200", result.action.dig(:setup_updates, :primary_income)
+    assert_equal "3000", result.action.dig(:setup_updates, :fixed_expenses)
+    assert_equal "800", result.action.dig(:setup_updates, :flexible_spend)
+    assert_equal "6", result.action.dig(:setup_updates, :target_runway_months)
+  end
+
+  test "discards model zero defaults that the participant did not provide" do
+    message = "Call us QA Test Family. We bring home $6,200 monthly, fixed essentials are $3,000, flexible spending is $800, and our goal is a six-month emergency fund."
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "household_setup", title: "Starting household picture", subject: "First-session setup" },
+          action: default_action.merge(
+            type: "update_household_setup",
+            setup_updates: default_setup_updates.merge(
+              household_name: "QA Test Family",
+              primary_goal: "Build a six-month emergency fund",
+              primary_income: "6200",
+              business_income: "0.0",
+              fixed_expenses: "3000",
+              flexible_spend: "800",
+              expected_sinking_fund: "0.0",
+              unexpected_sinking_fund: "0.0",
+              emergency_fund: "0.0",
+              other_assets: "0.0",
+              credit_card_debt: "0.0",
+              debt_payment: "0.0",
+              target_runway_months: "6.0"
+            )
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal %i[fixed_expenses flexible_spend household_name primary_goal primary_income target_runway_months], result.action.fetch(:setup_updates).keys.sort
+  end
+
+  test "keeps an explicit zero only for the setup field the participant named" do
+    message = "Set flexible spending to zero."
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "household_setup", title: "Flexible spending update", subject: "Flexible spending" },
+          action: default_action.merge(
+            type: "update_household_setup",
+            setup_updates: default_setup_updates.merge(
+              primary_income: "0",
+              fixed_expenses: "0",
+              flexible_spend: "0",
+              emergency_fund: "0"
+            )
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal({ flexible_spend: "0" }, result.action.fetch(:setup_updates))
+  end
+
   test "uses the open budget year when a supported budget action omits its year" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Create School Supplies with $75 every month",
@@ -878,6 +985,10 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       primary_goal: "",
       primary_income: "",
       business_income: "",
+      fixed_expenses: "",
+      flexible_spend: "",
+      expected_sinking_fund: "",
+      unexpected_sinking_fund: "",
       emergency_fund: "",
       other_assets: "",
       credit_card_debt: "",

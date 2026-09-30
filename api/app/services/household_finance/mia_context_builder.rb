@@ -40,14 +40,16 @@ module HouseholdFinance
           name: sanitized_text(household.name, max_length: MAX_HOUSEHOLD_NAME_LENGTH),
           primary_goal: sanitized_text(household.primary_goal.presence || "not set yet", max_length: MAX_PRIMARY_GOAL_LENGTH)
         },
+        setup: setup_status.as_json,
         metrics: {
+          financial_guidance_available: setup_status.complete?,
           monthly_income: money(snapshot.fetch(:monthly_income_cents)),
           planned_monthly_outflow: money(snapshot.fetch(:total_outflow_cents)),
           baseline_surplus: money(snapshot.fetch(:baseline_surplus_cents)),
           monthly_surplus_rate_percent: monthly_surplus_rate_percent,
-          safe_to_spend: money(snapshot.fetch(:safe_to_spend_cents)),
+          safe_to_spend: setup_status.complete? ? money(snapshot.fetch(:safe_to_spend_cents)) : nil,
           runway_months: snapshot.fetch(:runway_months),
-          readiness: snapshot.fetch(:readiness_label),
+          readiness: setup_status.complete? ? snapshot.fetch(:readiness_label) : "unavailable_until_setup_complete",
           total_debt_entered: money(snapshot.fetch(:total_debt_cents)),
           liquid_assets: money(snapshot.fetch(:liquid_assets_cents))
         },
@@ -65,6 +67,10 @@ module HouseholdFinance
       return 0 unless income.positive?
 
       (snapshot.fetch(:baseline_surplus_cents) / income.to_f * 100).round
+    end
+
+    def setup_status
+      @setup_status ||= SetupStatus.new(household)
     end
 
     def expense_stack_totals

@@ -1180,6 +1180,12 @@ h3 {
   width: 100%;
 }
 
+.home-welcome-actions .button--ghost {
+  border: 1px solid rgba(123, 74, 88, 0.2);
+  background: rgba(255, 253, 248, 0.72);
+  color: var(--emerald);
+}
+
 .screen-grid {
   display: grid;
   gap: 18px;
@@ -2452,7 +2458,7 @@ h3 {
 
 .first-session-paths {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+  grid-template-columns: minmax(0, 1.15fr) repeat(2, minmax(0, 0.85fr));
   gap: 12px;
 }
 
@@ -5141,6 +5147,112 @@ h3 {
   justify-self: end;
 }
 
+.first-session-setup-progress {
+  display: grid;
+  flex: 0 0 auto;
+  gap: 9px;
+  padding: 13px 18px 14px;
+  border-bottom: 1px solid rgba(226, 217, 203, 0.72);
+  background: linear-gradient(135deg, rgba(23, 96, 87, 0.09), rgba(255, 250, 242, 0.96));
+}
+
+.first-session-progress-heading {
+  display: flex;
+  gap: 12px;
+  align-items: end;
+  justify-content: space-between;
+}
+
+.first-session-progress-heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.first-session-progress-heading .eyebrow {
+  margin: 0;
+}
+
+.first-session-progress-heading > span {
+  color: var(--emerald);
+  font-family: var(--number-font);
+  font-size: 0.82rem;
+  font-weight: 900;
+}
+
+.first-session-progress-bar {
+  height: 6px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(23, 96, 87, 0.12);
+}
+
+.first-session-progress-bar span {
+  display: block;
+  height: 100%;
+  min-width: 2px;
+  border-radius: inherit;
+  background: var(--emerald);
+  transition: width 180ms ease;
+}
+
+.first-session-setup-progress ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.first-session-setup-progress li {
+  display: inline-flex;
+  gap: 5px;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 8px;
+  border: 1px solid rgba(123, 74, 88, 0.14);
+  border-radius: 999px;
+  background: rgba(255, 253, 248, 0.86);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 850;
+}
+
+.first-session-setup-progress li.is-confirmed {
+  border-color: rgba(23, 96, 87, 0.2);
+  background: rgba(23, 96, 87, 0.08);
+  color: var(--emerald);
+}
+
+.first-session-setup-progress > p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.first-session-progress-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.first-session-progress-actions button {
+  min-height: 38px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  background: var(--emerald);
+  color: white;
+  font-size: 0.76rem;
+  font-weight: 900;
+}
+
+.first-session-progress-actions .secondary-button {
+  border: 1px solid rgba(123, 74, 88, 0.2);
+  background: white;
+  color: var(--emerald);
+}
+
 .mia-update-guide {
   display: grid;
   grid-template-columns: minmax(190px, 0.72fr) minmax(0, 1.28fr);
@@ -5970,6 +6082,25 @@ h3 {
     padding: 12px 14px;
   }
 
+  .first-session-setup-progress {
+    gap: 8px;
+    padding: 11px 13px 12px;
+  }
+
+  .first-session-setup-progress > p {
+    font-size: 0.74rem;
+  }
+
+  .first-session-progress-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .first-session-progress-actions button {
+    width: 100%;
+    min-height: 42px;
+  }
+
   .mia-update-examples {
     display: flex;
     overflow-x: auto;
@@ -6777,6 +6908,37 @@ h3 {
   display: block;
   margin-top: 4px;
   color: var(--emerald);
+}
+
+.mia-setup-coverage {
+  display: grid;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 11px 12px;
+  border: 1px solid rgba(185, 115, 82, 0.25);
+  border-radius: 14px;
+  background: #fff8ed;
+}
+
+.mia-setup-coverage.is-complete {
+  border-color: rgba(23, 96, 87, 0.2);
+  background: rgba(23, 96, 87, 0.07);
+}
+
+.mia-setup-coverage > div {
+  display: grid;
+  gap: 2px;
+}
+
+.mia-setup-coverage span,
+.mia-setup-coverage p {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.mia-setup-coverage p {
+  margin: 0;
 }
 
 .mia-action-draft-labels {

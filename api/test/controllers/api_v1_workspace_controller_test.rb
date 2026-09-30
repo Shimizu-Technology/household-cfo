@@ -600,6 +600,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
           headers: auth_headers(user),
           as: :json
+    confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
          params: { message: "Can I buy the purse?" },
@@ -753,6 +754,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
           headers: auth_headers(user),
           as: :json
+    confirm_setup_for_test(user)
     packets = []
     fake_narrator = ->(**kwargs) {
       packets << kwargs.fetch(:answer_packet)
@@ -779,6 +781,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
           headers: auth_headers(user),
           as: :json
+    confirm_setup_for_test(user)
     intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "budget_question",
       confidence: 0.99,
@@ -1111,6 +1114,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           as: :json
 
     household = HouseholdFinance::WorkspaceResolver.new(user).household
+    confirm_setup_for_test(user)
     HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
 
     post "/api/v1/mia/messages",
@@ -1144,6 +1148,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           params: { workspace: { primary_income: 8_000, fixed_expenses: 4_000, emergency_fund: 8_000 } },
           headers: auth_headers(user),
           as: :json
+    confirm_setup_for_test(user)
 
     post "/api/v1/mia/messages",
          params: { message: "Should I use emergency fund for a car repair?" },
@@ -1393,6 +1398,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def confirm_setup_for_test(user)
+    HouseholdFinance::WorkspaceResolver.new(user).household.update!(
+      primary_goal: "Build a stable plan",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
   end
 
   def with_singleton_stub(target, method_name, replacement)

@@ -28,7 +28,7 @@ const dashboard = {
   summary: {
     monthly_income: 14_200, fixed_expenses: 6_000, flexible_spend: 1_500, debt_payments: 200,
     monthly_surplus_rate_percent: 38, runway_months: 0.5, next_safe_to_spend_amount: 0,
-    readiness_tone: 'red', readiness_label: 'Red — pause and stabilize basics',
+    readiness_available: true, readiness_tone: 'red', readiness_label: 'Red — pause and stabilize basics',
   },
   action_center: {
     transaction_review_count: 2, mia_action_review_count: 1, total_review_count: 3,
@@ -152,6 +152,18 @@ const miaHouseholdDraft = {
     before_monthly_outflow: 5_500, after_monthly_outflow: 5_500,
     before_baseline_surplus: 8_700, after_baseline_surplus: 8_700,
   },
+  setup_coverage_after_apply: {
+    complete: true, completed_count: 5, required_count: 5,
+    required_fields: [
+      { key: 'household_name', label: 'Household name', confirmed: true },
+      { key: 'primary_goal', label: 'Primary goal', confirmed: true },
+      { key: 'primary_income', label: 'Primary monthly income', confirmed: true },
+      { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: true },
+      { key: 'flexible_spend', label: 'Flexible spending', confirmed: true },
+    ],
+    confirmed_fields: ['household_name', 'primary_goal', 'primary_income', 'fixed_expenses', 'flexible_spend'],
+    missing_fields: [],
+  },
   items: [{
     id: 721, action_type: 'update_setup_value', target_record_type: 'Household', target_record_id: 77,
     label: 'Emergency fund', description: '$5,000.00 → $8,500.00', payload: { key: 'emergency_fund', value: 8_500 },
@@ -182,6 +194,26 @@ function realWorkspaceData(setupComplete = false) {
   return {
     workspace: {
       mode: 'real', household_id: 77, setup_complete: setupComplete,
+      setup_status: {
+        complete: setupComplete,
+        completed_count: setupComplete ? 5 : 0,
+        required_count: 5,
+        required_fields: [
+          { key: 'household_name', label: 'Household name', confirmed: setupComplete },
+          { key: 'primary_goal', label: 'Primary goal', confirmed: setupComplete },
+          { key: 'primary_income', label: 'Primary monthly income', confirmed: setupComplete },
+          { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: setupComplete },
+          { key: 'flexible_spend', label: 'Flexible spending', confirmed: setupComplete },
+        ],
+        confirmed_fields: setupComplete ? ['household_name', 'primary_goal', 'primary_income', 'fixed_expenses', 'flexible_spend'] : [],
+        missing_fields: setupComplete ? [] : [
+          { key: 'household_name', label: 'Household name', confirmed: false },
+          { key: 'primary_goal', label: 'Primary goal', confirmed: false },
+          { key: 'primary_income', label: 'Primary monthly income', confirmed: false },
+          { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: false },
+          { key: 'flexible_spend', label: 'Flexible spending', confirmed: false },
+        ],
+      },
       debts: [],
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
       setup_values: {
@@ -808,6 +840,55 @@ test('chat-first Mia reviews household, income, and budget writes without bypass
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
 })
 
+test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
+  const partialSetupDraft = {
+    ...miaHouseholdDraft,
+    id: 74,
+    title: 'Add monthly income to your starting picture',
+    summary: 'Mia prepared one starting value for review.',
+    setup_coverage_after_apply: {
+      complete: false, completed_count: 1, required_count: 5,
+      required_fields: [
+        { key: 'household_name', label: 'Household name', confirmed: false },
+        { key: 'primary_goal', label: 'Primary goal', confirmed: false },
+        { key: 'primary_income', label: 'Primary monthly income', confirmed: true },
+        { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: false },
+        { key: 'flexible_spend', label: 'Flexible spending', confirmed: false },
+      ],
+      confirmed_fields: ['primary_income'],
+      missing_fields: [
+        { key: 'household_name', label: 'Household name', confirmed: false },
+        { key: 'primary_goal', label: 'Primary goal', confirmed: false },
+        { key: 'fixed_expenses', label: 'Fixed essentials', confirmed: false },
+        { key: 'flexible_spend', label: 'Flexible spending', confirmed: false },
+      ],
+    },
+    items: [{
+      ...miaHouseholdDraft.items[0],
+      id: 741,
+      label: 'Primary monthly income',
+      payload: { key: 'primary_income', value: 6_200 },
+    }],
+  }
+  const baseWorkspace = realWorkspaceData(false)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({
+    status: 200,
+    json: {
+      ...baseWorkspace,
+      budget: {
+        ...baseWorkspace.budget,
+        annual_plan: { ...baseWorkspace.budget.annual_plan, pending_mia_action_drafts: [partialSetupDraft] },
+      },
+    },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Add monthly income to your starting picture' })
+  await expect(card).toContainText('1 of 5 essentials after approval')
+  await expect(card).toContainText('Still needed: Household name, Primary goal, Fixed essentials, Flexible spending.')
+  await expect(card.getByRole('button', { name: 'Apply these 1 value' })).toBeEnabled()
+})
+
 test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its controls', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
@@ -1243,10 +1324,11 @@ test('a partially saved budget keeps the approved change and protects unapplied 
 
 test('participant navigation remains available after deep scrolling', async ({ page }) => {
   await page.goto('/')
-  const homeHeaderHeight = await page.locator('.shell-header').evaluate((element) => Math.round(element.getBoundingClientRect().height))
+  await page.evaluate(() => document.fonts.ready)
+  const homeHeaderHeight = await page.locator('.shell-header').evaluate((element) => element.getBoundingClientRect().height)
   await page.getByRole('link', { name: 'Budget', exact: true }).click()
-  const budgetHeaderHeight = await page.locator('.shell-header').evaluate((element) => Math.round(element.getBoundingClientRect().height))
-  expect(budgetHeaderHeight).toBe(homeHeaderHeight)
+  const budgetHeaderHeight = await page.locator('.shell-header').evaluate((element) => element.getBoundingClientRect().height)
+  expect(Math.abs(budgetHeaderHeight - homeHeaderHeight)).toBeLessThanOrEqual(1)
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight))
   await expect(page.locator('.tabs-shell')).toBeInViewport()
   const top = await page.locator('.tabs-shell').evaluate((element) => Math.round(element.getBoundingClientRect().top))
@@ -1407,7 +1489,8 @@ test('participant history canonicalizes unauthorized Admin routes to Home', asyn
 
   await page.goto('/?pilot_e2e_role=participant#Admin')
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Home$/)
-  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+  const incompleteHomeHeading = page.getByRole('heading', { name: 'Give Mia a useful starting point.' })
+  await expect(incompleteHomeHeading).toBeVisible()
 
   await page.goBack()
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Budget$/)
@@ -1415,7 +1498,7 @@ test('participant history canonicalizes unauthorized Admin routes to Home', asyn
 
   await page.goForward()
   await expect(page).toHaveURL(/\?pilot_e2e_role=participant#Home$/)
-  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeFocused()
+  await expect(incompleteHomeHeading).toBeFocused()
 })
 
 test('Clerk-enabled route recovery waits for participant authorization before canonicalizing', async ({ page }, testInfo) => {
@@ -1424,7 +1507,7 @@ test('Clerk-enabled route recovery waits for participant authorization before ca
 
   await expect(page).toHaveURL(/#Admin$/)
   await expect(page).toHaveURL(/#Home$/)
-  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
 
   await page.goto('/?pilot_e2e_role=delayed_participant#Not%20A%20Screen')
   await expect(page).toHaveURL(/#Home$/)
@@ -1706,7 +1789,14 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(feedback).toContainText('were not sent to analytics')
   await feedback.getByRole('button', { name: 'Return to Household CFO' }).click()
 
-  await page.getByRole('button', { name: 'Give Mia my starting numbers' }).first().click()
+  await page.getByRole('button', { name: 'Set up with Mia' }).click()
+  await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
+  await expect(page.getByText('0 of 5 essentials confirmed')).toBeVisible()
+  const guidedComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
+  await expect(guidedComposer).toHaveValue(/Help me set up my household/)
+  await expect(guidedComposer).toBeFocused()
+
+  await page.getByRole('button', { name: 'Enter manually' }).click()
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()
   await expect(page.getByText('Essential first-session information')).toBeVisible()
   await expect(page.locator('.setup-optional-fields')).toHaveCount(0)
@@ -1751,9 +1841,13 @@ test('Mia explains when starting numbers have not been approved yet', async ({ p
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
 
   const context = page.locator('.mia-context')
-  await expect(context.getByRole('heading', { name: 'Add your starting numbers' })).toBeVisible()
-  await expect(context).toContainText('Add and approve your starting household numbers')
+  await expect(context.getByRole('heading', { name: 'Build your starting picture with Mia' })).toBeVisible()
+  await expect(context).toContainText('ordinary language')
   await expect(context.getByText('Approved data loaded')).toHaveCount(0)
+  const progress = page.locator('.first-session-setup-progress')
+  await expect(progress).toContainText('0 of 5 essentials confirmed')
+  await expect(progress.getByText('Household name')).toBeVisible()
+  await expect(progress.getByText('Flexible spending')).toBeVisible()
 })
 
 test('ignored-only imports remain pending instead of becoming approved Mia context', async ({ page }) => {

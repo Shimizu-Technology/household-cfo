@@ -14,6 +14,10 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     @household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 300_000)
     @household.debts.create!(label: "Card A", debt_type: "credit_card", balance_cents: 310_000, minimum_payment_cents: 17_500, interest_rate_percent: 28.9)
     @household.debts.create!(label: "Card B", debt_type: "credit_card", balance_cents: 230_000, minimum_payment_cents: 8_500, interest_rate_percent: 19.5)
+    @household.update!(
+      primary_goal: "Pay down debt safely",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
   end
 
   test "compares avalanche and snowball from approved balances and APRs" do

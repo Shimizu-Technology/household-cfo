@@ -137,6 +137,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 150_000)
     household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
+    household.update!(
+      primary_goal: "Build runway",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
     intent = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "general",
       confidence: 0.99,
@@ -160,6 +164,35 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
     assert_includes content, "readiness is Red"
     refute_match(/your baseline is yellow/i, content)
+  end
+
+  test "incomplete setup guard wins when the model asks an unsafe purchase clarification" do
+    user = create_user(email: "mia-model-incomplete-purchase@example.com")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "coaching",
+      confidence: 0.96,
+      continuation: false,
+      resolved_message: "Can I buy a $900 handbag?",
+      needs_clarification: true,
+      clarification: "Which category would this purchase fall under?",
+      topic: { type: "purchase_decision", title: "Handbag decision", subject: "Handbag" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages",
+        params: { message: "Can I buy a $900 handbag?" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    assert_includes content, "Household name"
+    refute_includes content, "Which category"
   end
 
   test "model resolved recall composes from verified resolution instead of rejected assistant history" do

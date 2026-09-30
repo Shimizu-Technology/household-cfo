@@ -302,8 +302,13 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "extra debt recommendation never exceeds the safe monthly decision amount" do
     household, user = create_household
+    household.update!(
+      primary_goal: "Pay down debt without destabilizing the monthly plan",
+      confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 710_000, cadence: "monthly")
     household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 690_000, cadence: "monthly")
+    household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 0, cadence: "monthly")
     household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 10_000)
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 4_200_000)
 

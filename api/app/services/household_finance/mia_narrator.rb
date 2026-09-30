@@ -48,6 +48,7 @@ module HouseholdFinance
     def call
       return fallback_response if api_key.blank?
       return fallback_response if fallback_response.blank?
+      return fallback_response if ::Mia::Capabilities.persona_configuration_request?(user_message)
 
       narrated = MiaProviderAdmission.with_slot { openrouter_response }
       sanitized = sanitize_narration(narrated)

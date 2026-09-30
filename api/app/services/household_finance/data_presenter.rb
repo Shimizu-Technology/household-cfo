@@ -23,10 +23,12 @@ module HouseholdFinance
     end
 
     def workspace
+      status = setup_status
       {
         mode: "real",
         household_id: household.id,
-        setup_complete: snapshot.fetch(:profile_completeness) >= 70,
+        setup_complete: status.complete?,
+        setup_status: status.as_json,
         setup_values: setup_values,
         debts: debt_records,
         cohort: cohort_context
@@ -63,9 +65,10 @@ module HouseholdFinance
           debt_payments: dollars(snapshot.fetch(:debt_payments_cents)),
           monthly_surplus_rate_percent: monthly_surplus_rate_percent,
           runway_months: snapshot.fetch(:runway_months),
-          next_safe_to_spend_amount: dollars(snapshot.fetch(:safe_to_spend_cents)),
-          readiness_tone: snapshot.fetch(:readiness_tone),
-          readiness_label: snapshot.fetch(:readiness_label)
+          next_safe_to_spend_amount: setup_status.complete? ? dollars(snapshot.fetch(:safe_to_spend_cents)) : 0,
+          readiness_available: setup_status.complete?,
+          readiness_tone: setup_status.complete? ? snapshot.fetch(:readiness_tone) : "red",
+          readiness_label: setup_status.complete? ? snapshot.fetch(:readiness_label) : "Setup incomplete — finish your starting picture"
         },
         action_center: action_center,
         coach_read: coach_read,
@@ -211,6 +214,10 @@ module HouseholdFinance
     end
 
     private
+
+    def setup_status
+      @setup_status ||= SetupStatus.new(household)
+    end
 
     attr_reader :household, :user, :snapshot_builder, :persona
 
