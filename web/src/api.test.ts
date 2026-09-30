@@ -92,6 +92,7 @@ describe('Persona Studio API contract', () => {
       '/api/v1/admin/personas/17/versions/31/rollback',
     ])
     expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('PATCH')
+    expect(fetchMock.mock.calls[2][1]).not.toHaveProperty('signal')
     expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
       persona: { draft_revision: 2, description: 'Clear and kind.' },
     })
@@ -231,6 +232,20 @@ describe('Mia request idempotency polling', () => {
       'mia-request-timeout-1',
       'mia-request-timeout-1',
     ])
+  })
+
+  it('includes stalled auth token acquisition in the Mia request deadline', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
+
+    const request = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-auth-timeout-1')
+    const result = expect(request).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await result
+
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

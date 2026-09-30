@@ -2490,8 +2490,7 @@ h3 {
   font-size: 1.08rem;
 }
 
-.first-session-path-actions,
-.profile-section-actions {
+.first-session-path-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;

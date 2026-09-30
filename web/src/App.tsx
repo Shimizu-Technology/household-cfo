@@ -2178,16 +2178,6 @@ function App() {
     })
   }
 
-  function handleProfileSectionSource(sectionLabel: string) {
-    const appliedImport = profileSourceImportForSection(documentImports, sectionLabel)
-    if (!appliedImport) return
-
-    setSelectedImportId(appliedImport.id)
-    setExpandedAppliedImportId(appliedImport.id)
-    setDocumentsNotice(`Showing the approved source details for ${sectionLabel.toLowerCase()}.`)
-    requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-  }
-
   if (auth.isClerkEnabled && (auth.isLoading || auth.isVerifyingApi)) {
     return <AuthStatePanel title="Verifying your Household CFO Method access" copy="Mia is checking your secure cohort invitation before opening the workspace." />
   }
@@ -2751,12 +2741,7 @@ function App() {
               <article className="panel profile-section" key={section.label}>
                 <div className="row-between">
                   <h3>{section.label}</h3>
-                  <div className="profile-section-actions">
-                    {profileSourceImportForSection(documentImports, section.label) && (
-                      <button type="button" className="subtle" onClick={() => handleProfileSectionSource(section.label)}>View source</button>
-                    )}
-                    <button type="button" onClick={() => handleProfileSectionEdit(section.label)}>Edit</button>
-                  </div>
+                  <button type="button" onClick={() => handleProfileSectionEdit(section.label)}>Edit</button>
                 </div>
                 <p>{section.summary}</p>
                 {section.items.map((item) => (
@@ -5071,30 +5056,6 @@ function latestAppliedImport(imports: FinancialDocumentImport[]) {
     .filter((documentImport) =>
       (documentImport.status === 'applied' || documentImport.status === 'partially_applied') && importHasApprovedData(documentImport),
     )
-    .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
-}
-
-function profileSourceImportForSection(imports: FinancialDocumentImport[], sectionLabel: string) {
-  const normalized = sectionLabel.toLowerCase()
-  const targetTypes = normalized.includes('income')
-    ? new Set(['income_source'])
-    : normalized.includes('expense')
-      ? new Set(['expense_item'])
-      : normalized.includes('saving') || normalized.includes('debt')
-        ? new Set(['account', 'debt'])
-        : normalized.includes('goal')
-          ? new Set(['goal', 'profile_note'])
-          : normalized.includes('profile') || normalized.includes('household')
-            ? new Set(['profile_note'])
-            : new Set<string>()
-
-  if (targetTypes.size === 0) return null
-
-  return imports
-    .filter((documentImport) => (
-      (documentImport.status === 'applied' || documentImport.status === 'partially_applied') &&
-      documentImport.items.some((item) => Boolean(item.applied_at) && targetTypes.has(item.target_type))
-    ))
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 

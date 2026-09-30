@@ -1117,73 +1117,19 @@ test('applying an unrelated Mia draft preserves unsaved profile edits', async ({
   await expect(page.getByLabel('Household name')).toHaveValue('Unsaved family name')
 })
 
-test('profile summary edits focus the matching manual field while source provenance stays explicit', async ({ page }) => {
+test('profile summary edits focus the matching manual field', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.profile.sections = [
     { label: 'Income', summary: 'Current recurring income.', items: [{ label: 'Primary income', amount: 5_000 }] },
     { label: 'Expenses', summary: 'Current recurring expenses.', items: [{ label: 'Fixed essentials', amount: 2_500 }] },
     { label: 'Savings & Debt', summary: 'Current balances.', items: [{ label: 'Emergency fund', amount: 8_000 }] },
   ]
-  const appliedImport = {
-    id: 515,
-    household_id: 77,
-    document_kind: 'spreadsheet',
-    status: 'applied',
-    filename: 'approved-budget.csv',
-    content_type: 'text/csv',
-    byte_size: 1_200,
-    document_date: null,
-    period_start_on: null,
-    period_end_on: null,
-    extracted_summary: 'Approved expense source.',
-    extraction_error: null,
-    processed_at: `${currentYear}-08-16T01:00:00Z`,
-    applied_at: `${currentYear}-08-16T01:05:00Z`,
-    source_deleted_at: null,
-    updated_at: `${currentYear}-08-16T01:05:00Z`,
-    source_available: true,
-    details_included: true,
-    uploaded_by: null,
-    applied_by: null,
-    source_deleted_by: null,
-    metadata: {},
-    items: [{
-      id: 516,
-      target_type: 'expense_item',
-      label: 'Fixed essentials',
-      amount: 2_500,
-      amount_cents: 250_000,
-      balance: null,
-      balance_cents: null,
-      payment: null,
-      payment_cents: null,
-      interest_rate_percent: null,
-      cadence: 'monthly',
-      source_type: null,
-      stack_key: 'non_discretionary',
-      account_type: null,
-      debt_type: null,
-      confidence: 'high',
-      evidence: 'Budget row',
-      selected: true,
-      ignored: false,
-      applied_at: `${currentYear}-08-16T01:05:00Z`,
-      applied_record_type: 'ExpenseItem',
-      applied_record_id: 12,
-      metadata: {},
-    }],
-    transaction_drafts: [],
-    attempts: [],
-  }
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
-  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [appliedImport] } }))
 
   await page.goto('/?pilot_e2e_role=participant#My%20Profile')
   const incomeCard = page.locator('.profile-section').filter({ hasText: 'Income' })
   const expensesCard = page.locator('.profile-section').filter({ hasText: 'Expenses' })
   const savingsCard = page.locator('.profile-section').filter({ hasText: 'Savings & Debt' })
-  await expect(expensesCard.getByRole('button', { name: 'View source' })).toBeVisible()
-
   await incomeCard.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByLabel('Primary monthly income')).toBeFocused()
   await expensesCard.getByRole('button', { name: 'Edit', exact: true }).click()
@@ -1194,9 +1140,6 @@ test('profile summary edits focus the matching manual field while source provena
   await savingsCard.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByLabel('Total credit card debt')).toBeFocused()
   await expect(page.locator('.setup-optional-fields')).toHaveAttribute('open', '')
-
-  await expensesCard.getByRole('button', { name: 'View source' }).click()
-  await expect(page.getByText('Showing the approved source details for expenses.')).toBeVisible()
 })
 
 test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
