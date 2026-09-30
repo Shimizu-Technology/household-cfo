@@ -2708,7 +2708,7 @@ test('Coach Studio prevents assistant switches while a mutation is pending', asy
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('button', { name: 'Run exact preview' }).click()
 
-  const selectionControl = testInfo.project.name === 'desktop-chrome'
+  const selectionControl = ['desktop-chrome', 'tablet-1024-chrome'].includes(testInfo.project.name)
     ? page.locator('.coach-library-list').getByRole('button', { name: /Coach B/ })
     : page.getByRole('button', { name: 'All assistants' })
   await expect(selectionControl).toBeDisabled()
