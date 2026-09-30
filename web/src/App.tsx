@@ -135,7 +135,8 @@ const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
 const allSections = [...sections, COACH_STUDIO_SECTION, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
-const MIA_MESSAGE_MAX_LENGTH = 2_000
+const MIA_MESSAGE_MAX_LENGTH = 8_000
+const MIA_MESSAGE_LENGTH_WARNING_AT = 1_000
 const DEMO_MIA_STORAGE_MAX_MESSAGES = 100
 const SUPPORTED_DOCUMENT_ACCEPTS = '.xlsx,.xls,.csv,.pdf,.docx,.jpg,.jpeg,.png,.webp,.heic,.heif,image/*,image/jpeg,image/png,image/webp,image/heic,image/heif,application/pdf,text/csv'
 const MAX_CHAT_ATTACHMENTS = 5
@@ -411,6 +412,7 @@ function App() {
   const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
+  const miaCharactersRemaining = MIA_MESSAGE_MAX_LENGTH - question.length
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
   const visibleMessages = currentMessages.slice(hiddenMessageCount)
   const e2eRealWorkspace = import.meta.env.DEV && import.meta.env.VITE_E2E_AUTH === 'true' && Boolean(auth.currentUser)
@@ -734,7 +736,10 @@ function App() {
         if (cancelled) return
         lastWorkspaceDraftSignatureRef.current = signature
         setData(payload)
-        setSetupDraft((current) => payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current)
+        setSetupDraft((current) => {
+          if (isFirstSessionSetup && current) return current
+          return payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : current
+        })
         replaceMiaHistory(payload.mia)
       })
       .catch(() => {
@@ -744,7 +749,7 @@ function App() {
     return () => {
       cancelled = true
     }
-  }, [chatStorageKey, importDraftSignature, isRealWorkspace, miaLoading, replaceMiaHistory])
+  }, [chatStorageKey, importDraftSignature, isFirstSessionSetup, isRealWorkspace, miaLoading, replaceMiaHistory])
 
   useEffect(() => {
     if (!isRealWorkspace || !selectedBudgetMonthStartsOn || !selectedBudgetMonthEndsOn) return
@@ -1165,8 +1170,16 @@ function App() {
   }
 
   function startChatFirstSession() {
+    openFirstSessionChat('Help me set up my household. Please ask me one simple question at a time.')
+  }
+
+  function shareAllFirstSession() {
+    openFirstSessionChat('Here is everything I know so far: our household is called ___. We bring home about $___ each month, fixed essentials are about $___, flexible spending is about $___, and our main goal is ___.')
+  }
+
+  function openFirstSessionChat(prompt: string) {
     switchSection('Ask Mia')
-    setQuestion('Help me set up my household. Our household is called ___. We bring home about $___ each month, fixed essentials are about $___, flexible spending is about $___, and our main goal is ___.')
+    setQuestion(prompt)
     setMiaError(null)
     setVoiceNotice(null)
     window.setTimeout(() => composerRef.current?.focus({ preventScroll: true }), 80)
@@ -2154,22 +2167,17 @@ function App() {
   function handleProfileSectionEdit(sectionLabel: string) {
     if (!isRealWorkspace) return
 
-    const appliedImport = latestFullyAppliedImport(documentImports)
-    if (appliedImport) {
-      setSelectedImportId(appliedImport.id)
-      setExpandedAppliedImportId(appliedImport.id)
-      setDocumentsNotice(`${sectionLabel} values are source-backed. I opened the applied import so you can correct the detailed records.`)
-      requestAnimationFrame(() => documentImportsRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
-      return
-    }
-
     const fieldName = setupFocusFieldForSection(sectionLabel)
     setIsProfileEditing(true)
-    setupFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     requestAnimationFrame(() => {
-      const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
-      field?.focus({ preventScroll: true })
-      field?.select()
+      requestAnimationFrame(() => {
+        const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
+        const optionalFields = field?.closest('details')
+        if (optionalFields instanceof HTMLDetailsElement) optionalFields.open = true
+        field?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        field?.focus({ preventScroll: true })
+        field?.select()
+      })
     })
   }
 
@@ -2266,7 +2274,7 @@ function App() {
             onManualSetup={startManualFirstSession}
           />
           {isRealWorkspace && !data.workspace?.setup_complete && (
-            <FirstSessionCard onChat={startChatFirstSession} onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
+            <FirstSessionCard onChat={startChatFirstSession} onShareAll={shareAllFirstSession} onManual={startManualFirstSession} onUpload={startUploadFirstSession} onGuide={() => setPilotGuideOpen(true)} />
           )}
           {data.workspace.setup_complete && (
             <HomeScreen
@@ -2380,6 +2388,7 @@ function App() {
                 <FirstSessionSetupProgress
                   status={data.workspace.setup_status}
                   onStartChat={startChatFirstSession}
+                  onShareAll={shareAllFirstSession}
                   onManual={startManualFirstSession}
                 />
               )}
@@ -2530,22 +2539,29 @@ function App() {
                 >
                   {voiceRecording ? <StopIcon /> : <MicrophoneIcon />}
                 </button>
-                <textarea
-                  value={question}
-                  onChange={(event) => {
-                    setMiaError(null)
-                    setVoiceNotice(null)
-                    setQuestion(event.target.value)
-                  }}
-                  onKeyDown={handleAskMiaKeyDown}
-                  onPaste={handleMiaPaste}
-                  aria-label="Ask Mia"
-                  aria-describedby="mia-composer-instructions"
-                  placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Message Mia…'}
-                  rows={1}
-                  maxLength={MIA_MESSAGE_MAX_LENGTH}
-                  ref={composerRef}
-                />
+                <div className="composer-message-field">
+                  <textarea
+                    value={question}
+                    onChange={(event) => {
+                      setMiaError(null)
+                      setVoiceNotice(null)
+                      setQuestion(event.target.value)
+                    }}
+                    onKeyDown={handleAskMiaKeyDown}
+                    onPaste={handleMiaPaste}
+                    aria-label="Ask Mia"
+                    aria-describedby={`mia-composer-instructions${miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT ? ' mia-composer-count' : ''}`}
+                    placeholder={voiceTranscribing ? 'Transcribing your voice note...' : 'Message Mia…'}
+                    rows={1}
+                    maxLength={MIA_MESSAGE_MAX_LENGTH}
+                    ref={composerRef}
+                  />
+                  {miaCharactersRemaining <= MIA_MESSAGE_LENGTH_WARNING_AT && (
+                    <span id="mia-composer-count" className={`composer-character-count${question.length === MIA_MESSAGE_MAX_LENGTH ? ' is-limit' : ''}`} role="status" aria-live="polite">
+                      {miaCharactersRemaining.toLocaleString()} {miaCharactersRemaining === 1 ? 'character' : 'characters'} remaining
+                    </span>
+                  )}
+                </div>
                 <span id="mia-composer-instructions" className="sr-only">Press Enter to send. Press Shift and Enter for a new line. Mia will not change approved numbers without a review.</span>
                 <button
                   className="send-button"
@@ -3167,7 +3183,7 @@ function HomeWelcomePanel({
   )
 }
 
-function FirstSessionCard({ onChat, onManual, onUpload, onGuide }: { onChat: () => void; onManual: () => void; onUpload: () => void; onGuide: () => void }) {
+function FirstSessionCard({ onChat, onShareAll, onManual, onUpload, onGuide }: { onChat: () => void; onShareAll: () => void; onManual: () => void; onUpload: () => void; onGuide: () => void }) {
   return (
     <section className="first-session-card" aria-labelledby="first-session-title">
       <div className="first-session-heading">
@@ -3181,9 +3197,12 @@ function FirstSessionCard({ onChat, onManual, onUpload, onGuide }: { onChat: () 
       <div className="first-session-paths">
         <article>
           <span>Recommended</span>
-          <h3>Tell Mia what you know</h3>
-          <p>Write one sentence with your income, essential bills, flexible spending, household name, and goal. Mia will organize it for your approval.</p>
-          <button type="button" onClick={onChat}>Start with Mia</button>
+          <h3>Let Mia guide the setup</h3>
+          <p>Start a conversation and answer one simple question at a time. You do not need to gather every number before you begin.</p>
+          <div className="first-session-path-actions">
+            <button type="button" onClick={onChat}>Start one question at a time</button>
+            <button type="button" className="secondary-button" onClick={onShareAll}>Share everything at once</button>
+          </div>
         </article>
         <article className="first-session-path-secondary">
           <span>Manual option</span>
@@ -3202,7 +3221,7 @@ function FirstSessionCard({ onChat, onManual, onUpload, onGuide }: { onChat: () 
   )
 }
 
-function FirstSessionSetupProgress({ status, onStartChat, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onManual: () => void }) {
+function FirstSessionSetupProgress({ status, onStartChat, onShareAll, onManual }: { status: WorkspaceSetupStatus; onStartChat: () => void; onShareAll: () => void; onManual: () => void }) {
   return (
     <section className="first-session-setup-progress" aria-labelledby="first-session-progress-title" aria-live="polite">
       <div className="first-session-progress-heading">
@@ -3222,9 +3241,10 @@ function FirstSessionSetupProgress({ status, onStartChat, onManual }: { status: 
           </li>
         ))}
       </ul>
-      <p>Share all five in one message or add them over a few turns. Mia will ask only for what is missing and show a review before saving.</p>
+      <p>Answer one simple question at a time, or share everything you know in one message. Mia will ask only for what is missing and show a review before saving.</p>
       <div className="first-session-progress-actions">
-        <button type="button" onClick={onStartChat}>Use a guided message</button>
+        <button type="button" onClick={onStartChat}>Ask me one question at a time</button>
+        <button type="button" className="secondary-button" onClick={onShareAll}>Share everything at once</button>
         <button type="button" className="secondary-button" onClick={onManual}>Enter manually</button>
       </div>
     </section>
@@ -5042,12 +5062,6 @@ function latestAppliedImport(imports: FinancialDocumentImport[]) {
     .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
 }
 
-function latestFullyAppliedImport(imports: FinancialDocumentImport[]) {
-  return imports
-    .filter((documentImport) => documentImport.status === 'applied' && importHasApprovedData(documentImport))
-    .sort((left, right) => importTimestamp(right) - importTimestamp(left))[0] ?? null
-}
-
 function importTimestamp(documentImport: FinancialDocumentImport) {
   const timestamp = Date.parse(documentImport.applied_at ?? documentImport.processed_at ?? '')
   return Number.isNaN(timestamp) ? 0 : timestamp
@@ -5124,6 +5138,7 @@ function setupFocusFieldForSection(sectionLabel: string): keyof WorkspaceSetupVa
   const normalized = sectionLabel.toLowerCase()
   if (normalized.includes('income')) return 'primary_income'
   if (normalized.includes('expense')) return 'fixed_expenses'
+  if (normalized.includes('goal')) return 'primary_goal'
   if (normalized.includes('debt')) return 'credit_card_debt'
   if (normalized.includes('saving')) return 'emergency_fund'
 

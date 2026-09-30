@@ -4,6 +4,7 @@ import {
   archiveAdminPersona,
   createAdminPersona,
   deleteAdminCohortPersonaAssignment,
+  fetchAppData,
   fetchAdminCohortPersonaAssignment,
   fetchAdminPersona,
   fetchAdminPersonaAssignableCohorts,
@@ -92,6 +93,7 @@ describe('Persona Studio API contract', () => {
       '/api/v1/admin/personas/17/versions/31/rollback',
     ])
     expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('PATCH')
+    expect(fetchMock.mock.calls[2][1]).not.toHaveProperty('signal')
     expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
       persona: { draft_revision: 2, description: 'Clear and kind.' },
     })
@@ -158,6 +160,65 @@ describe('Persona Studio API contract', () => {
   })
 })
 
+describe('safe read deadlines', () => {
+  it('ends a stalled workspace read so the loading screen can offer a retry', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const workspaceRequest = fetchAppData(true)
+    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it('keeps the deadline active while a successful response body is still loading', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return Promise.resolve(new Response(new ReadableStream({
+        start() {
+          // Leave the JSON body open to reproduce a server that sent headers and then stalled.
+        },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const workspaceRequest = fetchAppData(true)
+    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(requestSignal?.aborted).toBe(true)
+  })
+
+  it('keeps the deadline active while an HTTP error body is still loading', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn(() => Promise.resolve(new Response(new ReadableStream({
+      start() {
+        // Leave the error payload open so apiRequestError cannot finish parsing it.
+      },
+    }), { status: 503, headers: { 'Content-Type': 'application/json' } })))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const workspaceRequest = fetchAppData(true)
+    const result = expect(workspaceRequest).rejects.toThrow('This request took too long. Please try again.')
+    await vi.advanceTimersByTimeAsync(30_000)
+    await result
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe('Mia request idempotency polling', () => {
   it('polls an in-flight request with the same request ID until the cached response is ready', async () => {
     vi.useFakeTimers()
@@ -207,6 +268,62 @@ describe('Mia request idempotency polling', () => {
     await expect(sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-failed-1'))
       .rejects.toThrow('approved household numbers were not changed')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('ends a stalled request and keeps the caller request ID available for a safe retry', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      }))
+      .mockResolvedValueOnce(jsonResponse(completedPayload, 201))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const firstAttempt = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1')
+    const firstResult = expect(firstAttempt).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await firstResult
+
+    await expect(sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1'))
+      .resolves.toMatchObject({ assistant_message: { content: 'Verified reply' } })
+
+    const requestBodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)))
+    expect(requestBodies.map((body) => body.request_id)).toEqual([
+      'mia-request-timeout-1',
+      'mia-request-timeout-1',
+    ])
+  })
+
+  it('includes stalled auth token acquisition in the Mia request deadline', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    setAuthTokenGetter(() => new Promise<string | null>(() => undefined))
+
+    const request = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-auth-timeout-1')
+    const result = expect(request).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await result
+
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('applies the same Mia deadline to the demo conversation', async () => {
+    vi.useFakeTimers()
+    let requestSignal: AbortSignal | null | undefined
+    const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal
+      return new Promise<Response>(() => undefined)
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    const request = sendMiaMessage('Can I afford this?', [], false)
+    const result = expect(request).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await result
+
+    expect(String(fetchMock.mock.calls[0][0])).toContain('/api/demo/mia/messages')
+    expect(requestSignal?.aborted).toBe(true)
   })
 })
 

@@ -1090,7 +1090,23 @@ export type AppData = {
 type AuthTokenGetter = () => Promise<string | null>
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+const SAFE_READ_REQUEST_TIMEOUT_MS = 30_000
+const MIA_REQUEST_TIMEOUT_MS = 90_000
+const FILE_UPLOAD_TIMEOUT_MS = 180_000
+const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
 let authTokenGetter: AuthTokenGetter | null = null
+
+type ApiFetchSettings = {
+  timeoutMs?: number
+  timeoutMessage?: string
+}
+
+class ApiDeadlineError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'ApiDeadlineError'
+  }
+}
 
 export type ApiErrorConflict = Record<string, unknown>
 
@@ -1147,56 +1163,134 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function apiFetch(path: string, options: RequestInit = {}) {
-  const headers = {
-    ...(await authHeaders()),
-    ...(options.headers as Record<string, string> | undefined),
-  }
+async function withDeadline<T>(
+  operation: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+  callerSignal?: AbortSignal | null,
+) {
+  const controller = new AbortController()
+  let deadlineReached = false
+  const abortFromCaller = () => controller.abort(callerSignal?.reason)
 
-  let response: Response
+  if (callerSignal?.aborted) abortFromCaller()
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  let deadline: ReturnType<typeof globalThis.setTimeout> | undefined
+  const deadlinePromise = new Promise<never>((_resolve, reject) => {
+    deadline = globalThis.setTimeout(() => {
+      deadlineReached = true
+      reject(new ApiDeadlineError(`${timeoutMessage} Please try again.`))
+      controller.abort()
+    }, timeoutMs)
+  })
+
   try {
-    response = await fetch(`${API_BASE}${path}`, {
+    return await Promise.race([operation(controller.signal), deadlinePromise])
+  } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
+    if (deadlineReached) {
+      throw new ApiDeadlineError(`${timeoutMessage} Please try again.`, { cause: error })
+    }
+    throw error
+  } finally {
+    if (deadline !== undefined) globalThis.clearTimeout(deadline)
+    callerSignal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
+async function fetchWithDeadline(
+  input: RequestInfo | URL,
+  options: RequestInit,
+  timeoutMs: number,
+  timeoutMessage: string,
+) {
+  return withDeadline(
+    (signal) => fetch(input, { ...options, signal }),
+    timeoutMs,
+    timeoutMessage,
+    options.signal,
+  )
+}
+
+async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortSignal) {
+  try {
+    const headers = {
+      ...(await authHeaders()),
+      ...(options.headers as Record<string, string> | undefined),
+    }
+    return fetch(`${API_BASE}${path}`, {
       ...options,
       headers,
+      ...(signal ? { signal } : {}),
     })
   } catch (error) {
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
-
-  return response
 }
 
-async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await apiFetch(path, options)
+async function apiOperation<T>(
+  path: string,
+  options: RequestInit,
+  settings: ApiFetchSettings,
+  consume: (response: Response) => Promise<T>,
+) {
+  const request = async (signal?: AbortSignal) => consume(await apiFetch(path, options, signal))
 
-  if (!response.ok) {
-    throw await apiRequestError(response, 'API request failed')
-  }
+  const method = (options.method ?? 'GET').toUpperCase()
+  const safeReadTimeoutMs = method === 'GET' || method === 'HEAD'
+    ? SAFE_READ_REQUEST_TIMEOUT_MS
+    : undefined
+  const timeoutMs = settings.timeoutMs ?? safeReadTimeoutMs
 
-  if (response.status === 204) return undefined as T
-
-  return response.json() as Promise<T>
+  return timeoutMs === undefined
+    ? request()
+    : withDeadline(
+        request,
+        timeoutMs,
+        settings.timeoutMessage ?? 'This request took too long.',
+        options.signal,
+      )
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function fetchJsonResponse<T>(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}) {
+  return apiOperation(path, options, settings, async (response) => {
+    if (!response.ok) {
+      throw await apiRequestError(response, 'API request failed')
+    }
+
+    if (response.status === 204) return { status: response.status, payload: undefined as T }
+
+    return { status: response.status, payload: await response.json() as T }
+  })
+}
+
+async function fetchJson<T>(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}): Promise<T> {
+  return (await fetchJsonResponse<T>(path, options, settings)).payload
+}
+
+async function postJson<T>(path: string, body: unknown, settings: ApiFetchSettings = {}): Promise<T> {
   return fetchJson<T>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, settings)
 }
 
 async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T> {
   const maximumPolls = 60
   for (let poll = 0; poll < maximumPolls; poll += 1) {
-    const response = await apiFetch(path, {
+    const response = await fetchJsonResponse<T | { code?: string; retry_after_ms?: number }>(path, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    }, {
+      timeoutMs: MIA_REQUEST_TIMEOUT_MS,
+      timeoutMessage: 'Mia took too long to finish this request.',
     })
 
     if (response.status === 202) {
-      const payload = (await response.json()) as { code?: string; retry_after_ms?: number }
+      const payload = response.payload as { code?: string; retry_after_ms?: number }
       if (payload.code !== 'mia_request_processing') {
         throw new Error('Mia returned an unexpected processing response. Please try again.')
       }
@@ -1206,11 +1300,7 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
       continue
     }
 
-    if (!response.ok) {
-      throw await apiRequestError(response, 'API request failed')
-    }
-
-    return response.json() as Promise<T>
+    return response.payload as T
   }
 
   throw new Error('Mia is still working on that exact request. Wait a moment, then try again; your retry will not create a duplicate.')
@@ -1725,7 +1815,10 @@ export async function sendMiaMessage(message: string, history: MiaMessage[] = []
   }
   return realWorkspace
     ? postJsonUntilComplete<MiaMessageResponse>(path, body)
-    : postJson<MiaMessageResponse>(path, body)
+    : postJson<MiaMessageResponse>(path, body, {
+        timeoutMs: MIA_REQUEST_TIMEOUT_MS,
+        timeoutMessage: 'Mia took too long to finish this request.',
+      })
 }
 
 function clientRequestId() {
@@ -1912,19 +2005,32 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
 
   let uploadResponse: Response
   try {
-    uploadResponse = await fetch(presign.upload_url, {
-      method: 'PUT',
-      headers: presign.upload_headers,
-      body: file,
-    })
+    uploadResponse = await fetchWithDeadline(
+      presign.upload_url,
+      {
+        method: 'PUT',
+        headers: presign.upload_headers,
+        body: file,
+      },
+      FILE_UPLOAD_TIMEOUT_MS,
+      'The private file upload took too long.',
+    )
   } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
     throw new Error('The private file upload could not reach storage. Check your connection and try again.', { cause: error })
   }
   if (!uploadResponse.ok) {
     throw new Error(`The private file upload failed (${uploadResponse.status}). Try again or report the problem.`)
   }
 
-  const payload = await postJson<{ document_import: FinancialDocumentImport }>('/api/v1/document_imports/complete', { upload_token: presign.upload_token })
+  const payload = await postJson<{ document_import: FinancialDocumentImport }>(
+    '/api/v1/document_imports/complete',
+    { upload_token: presign.upload_token },
+    {
+      timeoutMs: EXTRACTION_REQUEST_TIMEOUT_MS,
+      timeoutMessage: 'Document extraction took too long.',
+    },
+  )
   return payload.document_import
 }
 
@@ -1966,7 +2072,14 @@ export async function applyDocumentImport(documentImportId: number, itemIds: num
 }
 
 export async function reprocessDocumentImport(documentImportId: number): Promise<FinancialDocumentImport> {
-  const payload = await postJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${documentImportId}/reprocess`, {})
+  const payload = await postJson<{ document_import: FinancialDocumentImport }>(
+    `/api/v1/document_imports/${documentImportId}/reprocess`,
+    {},
+    {
+      timeoutMs: EXTRACTION_REQUEST_TIMEOUT_MS,
+      timeoutMessage: 'Document extraction took too long.',
+    },
+  )
   return payload.document_import
 }
 

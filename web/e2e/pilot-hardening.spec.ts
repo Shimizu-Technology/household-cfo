@@ -1117,6 +1117,31 @@ test('applying an unrelated Mia draft preserves unsaved profile edits', async ({
   await expect(page.getByLabel('Household name')).toHaveValue('Unsaved family name')
 })
 
+test('profile summary edits focus the matching manual field', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.profile.sections = [
+    { label: 'Income', summary: 'Current recurring income.', items: [{ label: 'Primary income', amount: 5_000 }] },
+    { label: 'Expenses', summary: 'Current recurring expenses.', items: [{ label: 'Fixed essentials', amount: 2_500 }] },
+    { label: 'Savings & Debt', summary: 'Current balances.', items: [{ label: 'Emergency fund', amount: 8_000 }] },
+  ]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  const incomeCard = page.locator('.profile-section').filter({ hasText: 'Income' })
+  const expensesCard = page.locator('.profile-section').filter({ hasText: 'Expenses' })
+  const savingsCard = page.locator('.profile-section').filter({ hasText: 'Savings & Debt' })
+  await incomeCard.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
+  await expensesCard.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Editing household numbers' })).toBeVisible()
+  await expect(page.getByLabel('Fixed essentials')).toBeFocused()
+  await expect(page.getByLabel('Fixed essentials')).toBeEnabled()
+
+  await savingsCard.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByLabel('Total credit card debt')).toBeFocused()
+  await expect(page.locator('.setup-optional-fields')).toHaveAttribute('open', '')
+})
+
 test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
   const partialSetupDraft = {
     ...miaHouseholdDraft,
@@ -1212,11 +1237,68 @@ test('a confirmed zero remains available when the rest of setup is completed man
       annual_plan: { ...initialWorkspace.budget.annual_plan, pending_mia_action_drafts: [] },
     },
   }
+  const processingImport = {
+    id: 910,
+    household_id: 77,
+    document_kind: 'statement',
+    status: 'processing',
+    filename: 'background-statement.pdf',
+    content_type: 'application/pdf',
+    byte_size: 1_024,
+    document_date: null,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: null,
+    extraction_error: null,
+    processed_at: null,
+    applied_at: null,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-10-01T00:00:00Z`,
+    source_available: true,
+    details_included: false,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [],
+    attempts: [],
+  }
+  const reviewedImport = {
+    ...processingImport,
+    status: 'needs_review',
+    processed_at: `${currentYear}-10-01T00:00:05Z`,
+    updated_at: `${currentYear}-10-01T00:00:05Z`,
+    extracted_summary: 'One purchase is ready for review.',
+    transaction_drafts: [{
+      id: 911,
+      occurred_on: `${currentYear}-10-01`,
+      merchant: 'Background purchase',
+      amount: 20,
+      status: 'pending',
+      category_id: null,
+      category_name: null,
+    }],
+  }
+  let documentImportRequestCount = 0
+  let releaseImportRefresh: (() => void) | undefined
+  const importRefreshGate = new Promise<void>((resolve) => {
+    releaseImportRefresh = resolve
+  })
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: initialWorkspace }))
   await page.route('http://api.test/api/v1/mia_action_drafts/75/apply', (route) => route.fulfill({
     status: 200,
     json: { workspace: partialWorkspace },
   }))
+  await page.route('http://api.test/api/v1/document_imports', async (route) => {
+    documentImportRequestCount += 1
+    if (documentImportRequestCount === 1) {
+      return route.fulfill({ status: 200, json: { document_imports: [processingImport] } })
+    }
+
+    await importRefreshGate
+    return route.fulfill({ status: 200, json: { document_imports: [reviewedImport] } })
+  })
 
   await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
   const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Confirm zero flexible spending' })
@@ -1232,10 +1314,28 @@ test('a confirmed zero remains available when the rest of setup is completed man
   await expect(page.getByLabel('Flexible spending')).toHaveValue('0')
   await expect(page.getByLabel('Primary monthly income')).toHaveValue('')
   await expect(page.getByLabel('Fixed essentials')).toHaveValue('')
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await page.getByLabel('Household name').fill('Zero Spend Household')
+  await expect(page.getByLabel('Household name')).toHaveValue('Zero Spend Household')
   await page.getByLabel('Primary goal').fill('Keep a calm plan.')
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Keep a calm plan.')
   await page.getByLabel('Primary monthly income').fill('6200')
+  await expect(page.getByLabel('Primary monthly income')).toHaveValue('6200')
   await page.getByLabel('Fixed essentials').fill('2800')
+  await expect(page.getByLabel('Fixed essentials')).toHaveValue('2800')
+  await expect(page.getByLabel('Household name')).toHaveValue('Zero Spend Household')
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Keep a calm plan.')
+  await expect(page.getByLabel('Primary monthly income')).toHaveValue('6200')
+  await expect(page.getByLabel('Fixed essentials')).toHaveValue('2800')
+
+  const backgroundWorkspaceRefresh = page.waitForResponse((response) => response.url() === 'http://api.test/api/v1/workspace' && response.request().method() === 'GET', { timeout: 10_000 })
+  releaseImportRefresh?.()
+  await backgroundWorkspaceRefresh
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
+  await expect(page.getByLabel('Household name')).toHaveValue('Zero Spend Household')
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Keep a calm plan.')
+  await expect(page.getByLabel('Primary monthly income')).toHaveValue('6200')
+  await expect(page.getByLabel('Fixed essentials')).toHaveValue('2800')
 
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
   await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
@@ -1315,6 +1415,39 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
   await expect(voiceButton).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
+  await composer.fill('x'.repeat(6_999))
+  await expect(page.locator('#mia-composer-count')).toHaveCount(0)
+  await composer.fill('x'.repeat(7_000))
+  await expect(page.locator('#mia-composer-count')).toHaveText('1,000 characters remaining')
+  const nearLimitLayout = await page.locator('.mia-chat-shell .ask-row').evaluate((row) => {
+    const rowBounds = row.getBoundingClientRect()
+    const rect = (selector: string) => {
+      const element = row.querySelector(selector)
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing composer element: ${selector}`)
+      const bounds = element.getBoundingClientRect()
+      return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom }
+    }
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      row: { left: rowBounds.left, right: rowBounds.right, top: rowBounds.top, bottom: rowBounds.bottom },
+      field: rect('.composer-message-field'),
+      textarea: rect('textarea'),
+      count: rect('#mia-composer-count'),
+      voice: rect('.composer-voice'),
+      send: rect('.send-button'),
+    }
+  })
+  expect(nearLimitLayout.count.top).toBeGreaterThanOrEqual(nearLimitLayout.textarea.bottom - 1)
+  expect(nearLimitLayout.field.left).toBeGreaterThanOrEqual(nearLimitLayout.voice.right)
+  expect(nearLimitLayout.field.right).toBeLessThanOrEqual(nearLimitLayout.send.left)
+  expect(nearLimitLayout.count.right).toBeLessThanOrEqual(nearLimitLayout.viewportWidth)
+  expect(nearLimitLayout.row.bottom).toBeGreaterThanOrEqual(nearLimitLayout.count.bottom)
+  await composer.fill('x'.repeat(7_999))
+  await expect(page.locator('#mia-composer-count')).toHaveText('1 character remaining')
+  await composer.fill('x'.repeat(8_001))
+  await expect(composer).toHaveValue('x'.repeat(8_000))
+  await expect(page.locator('#mia-composer-count')).toHaveText('0 characters remaining')
+
   await composer.fill('First line')
   await composer.press('Shift+Enter')
   await composer.type('Second line')
@@ -1358,6 +1491,8 @@ test('Ask Mia preserves one request ID through a network failure and reload so r
   await composer.fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(composer).toHaveValue('What should I focus on?')
+  await expect(composer).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
 
   await page.reload()
   const restoredComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
@@ -2114,6 +2249,26 @@ test('expanded desktop Ask Mia blocks background interaction and restores its tr
 })
 
 test('incomplete participants get a short first session, private feedback, and a recoverable power-user path', async ({ page }) => {
+  const guidedSetupPrompt = 'Help me set up my household. Please ask me one simple question at a time.'
+  const guidedSetupReply = 'What would you like to call this household?'
+  await page.route('http://api.test/api/v1/mia/messages', async (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({
+        status: 201,
+        json: {
+          user_message: { id: 801, role: 'user', author: 'You', content: guidedSetupPrompt, attachments: [], created_at: '2026-10-01T00:00:00Z' },
+          assistant_message: { id: 802, role: 'assistant', author: 'Mia', content: guidedSetupReply, attachments: [], created_at: '2026-10-01T00:00:01Z' },
+          transaction_draft: null,
+          mia_action_draft: null,
+        },
+      })
+    }
+
+    return route.fulfill({
+      status: 200,
+      json: { messages: [], oldest_message_id: null, older_message_count: 0, has_older_messages: false, quick_prompts: [], disclaimer: 'Education only.' },
+    })
+  })
   await page.goto('/?pilot_e2e_role=participant')
 
   const firstSessionHeading = page.getByRole('heading', { name: 'Start with money in, money out.' })
@@ -2153,8 +2308,19 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   await expect(page.getByText('0 of 5 essentials confirmed')).toBeVisible()
   const guidedComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(guidedComposer).toHaveValue(/Help me set up my household/)
+  await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
   await expect(guidedComposer).toBeFocused()
+
+  const guidedSetupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia/messages') && request.method() === 'POST')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  const guidedSetupRequest = await guidedSetupRequestPromise
+  expect(guidedSetupRequest.postDataJSON().message).toBe(guidedSetupPrompt)
+  await expect(page.getByText(guidedSetupReply, { exact: true })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Share everything at once' }).click()
+  await expect(guidedComposer).toHaveValue(/Here is everything I know so far: our household is called ___/)
+  await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
+  await expect(guidedComposer).toHaveValue(guidedSetupPrompt)
 
   await page.getByRole('button', { name: 'Enter manually' }).click()
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()

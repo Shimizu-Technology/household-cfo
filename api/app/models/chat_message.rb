@@ -1,6 +1,6 @@
 class ChatMessage < ApplicationRecord
   ROLES = %w[user assistant].freeze
-  MAX_USER_CONTENT_LENGTH = 2_000
+  MAX_USER_CONTENT_LENGTH = 8_000
   MAX_ASSISTANT_CONTENT_LENGTH = 8_000
   MAX_CONTENT_LENGTH = MAX_USER_CONTENT_LENGTH
 

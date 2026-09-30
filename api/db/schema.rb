@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_031200) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_031300) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -96,9 +96,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031200) do
     t.index ["coach_persona_version_id"], name: "index_chat_messages_on_coach_persona_version_id"
     t.index ["role"], name: "index_chat_messages_on_role"
     t.check_constraint "(assistant_author IS NULL OR role::text = 'assistant'::text) AND (coach_persona_version_id IS NULL OR role::text = 'assistant'::text AND assistant_author IS NOT NULL)", name: "chat_messages_persona_attribution_complete"
+    t.check_constraint "(role::text = ANY (ARRAY['user'::character varying::text, 'assistant'::character varying::text])) AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
     t.check_constraint "assistant_author IS NULL OR char_length(assistant_author::text) >= 1 AND char_length(assistant_author::text) <= 80", name: "chat_messages_assistant_author_length"
     t.check_constraint "jsonb_typeof(presentation) = 'object'::text", name: "chat_messages_presentation_object"
-    t.check_constraint "role::text = 'user'::text AND char_length(content) <= 2000 OR role::text = 'assistant'::text AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
   end
 
   create_table "chat_sessions", force: :cascade do |t|

@@ -2490,6 +2490,17 @@ h3 {
   font-size: 1.08rem;
 }
 
+.first-session-path-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.first-session-path-actions {
+  margin-top: auto;
+}
+
 .first-session-paths button,
 .first-session-heading button {
   width: fit-content;
@@ -6145,6 +6156,7 @@ h3 {
 }
 
 .mia-chat-shell .ask-row textarea {
+  width: 100%;
   height: 42px;
   min-height: 42px;
   max-height: 160px;
@@ -6157,6 +6169,24 @@ h3 {
   color: var(--ink);
   line-height: 1.45;
   overscroll-behavior: contain;
+}
+
+.composer-message-field {
+  display: grid;
+  min-width: 0;
+}
+
+.composer-character-count {
+  justify-self: end;
+  padding: 1px 4px 0;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.composer-character-count.is-limit {
+  color: var(--status-red);
 }
 
 .mia-chat-shell .ask-row .composer-attach,

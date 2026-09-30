@@ -1,6 +1,216 @@
 require "test_helper"
 
 class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
+  test "exact setup CTA asks the first missing question without a model provider" do
+    user = create_user(email: "mia-setup-cta-no-provider@example.com")
+
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    body = response.parsed_body
+    assert_nil body.fetch("mia_action_draft")
+    message = body.dig("assistant_message", "content")
+    assert_includes message, "What would you like to call this household?"
+    assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
+  end
+
+  test "exact setup CTA short-circuits an available model path with the same server-owned question" do
+    user = create_user(email: "mia-setup-cta-model@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(household, household_name: "Cruz Household").call
+    unavailable_model = Object.new
+    unavailable_model.define_singleton_method(:call) { raise "setup CTA reached the model provider" }
+
+    with_intent_resolver(unavailable_model) do
+      post "/api/v1/mia/messages",
+        params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    body = response.parsed_body
+    assert_nil body.fetch("mia_action_draft")
+    message = body.dig("assistant_message", "content")
+    assert_includes message, "What is the main money goal you want this household to work toward?"
+    assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
+  end
+
+  test "plain guided goal answer updates the goal Mia asked for instead of a different numeric setup field" do
+    user = create_user(email: "mia-setup-guided-goal@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(household, household_name: "Cruz Household").call
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    without_openrouter_api_key do
+      post "/api/v1/mia/messages",
+        params: { message: "Build a three-month emergency fund" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    item = response.parsed_body.fetch("mia_action_draft").fetch("items").sole
+    assert_equal "primary_goal", item.dig("payload", "key")
+    assert_equal "Build a three-month emergency fund", item.dig("payload", "value")
+  end
+
+  test "plain guided money answer updates the exact money field Mia asked for without a model provider" do
+    user = create_user(email: "mia-setup-guided-income@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build stability"
+    ).call
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    without_openrouter_api_key do
+      post "/api/v1/mia/messages",
+        params: { message: "About $6,200 each month" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    item = response.parsed_body.fetch("mia_action_draft").fetch("items").sole
+    assert_equal "primary_income", item.dig("payload", "key")
+    assert_equal 6_200, item.dig("payload", "value")
+  end
+
+  test "bare zero replies advance only the exact server-asked required setup field through review and apply" do
+    user = create_user(email: "mia-setup-zero-continuation@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build stability"
+    ).call
+    session = household.chat_sessions.create!(
+      user: user,
+      title: "Ask Mia",
+      active_topic: {
+        schema_version: 2,
+        type: "household_setup",
+        title: "Starting household picture",
+        subject: "Primary monthly income",
+        status: "applied"
+      }
+    )
+    session.chat_messages.create!(
+      role: "assistant",
+      content: "Applied the reviewed household update. #{HouseholdFinance::MiaSetupGuide.new(household).after_apply_message}"
+    )
+
+    %w[primary_income fixed_expenses flexible_spend].each do |field|
+      post "/api/v1/mia/messages",
+        params: { message: "0" },
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :created
+      draft_payload = response.parsed_body.fetch("mia_action_draft")
+      item = draft_payload.fetch("items").sole
+      assert_equal field, item.dig("payload", "key")
+      assert_equal 0, item.dig("payload", "value")
+      refute_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, field
+
+      post "/api/v1/mia_action_drafts/#{draft_payload.fetch('id')}/apply",
+        headers: auth_headers(user),
+        as: :json
+
+      assert_response :success
+      assert_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, field
+    end
+
+    assert HouseholdFinance::SetupStatus.new(household.reload).complete?
+  end
+
+  test "bare zero after the exact setup CTA drafts the current server-owned missing field" do
+    user = create_user(email: "mia-setup-cta-zero@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build stability"
+    ).call
+
+    post "/api/v1/mia/messages",
+      params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "primary monthly take-home income"
+
+    post "/api/v1/mia/messages",
+      params: { message: "0" },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :created
+    draft_payload = response.parsed_body.fetch("mia_action_draft")
+    item = draft_payload.fetch("items").sole
+    assert_equal "primary_income", item.dig("payload", "key")
+    assert_equal 0, item.dig("payload", "value")
+    refute_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, "primary_income"
+  end
+
+  test "applying a partial setup review asks exactly one concrete next question behind the review boundary" do
+    user = create_user(email: "mia-setup-next-question@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    draft = create_setup_draft(user, household, household_name: "Cruz Household")
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    status = HouseholdFinance::SetupStatus.new(household.reload)
+    refute status.complete?
+    assert_equal "primary_goal", status.missing_field_keys.first
+    message = response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content")
+    assert_includes message, "What is the main money goal you want this household to work toward?"
+    assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
+    refute_includes message, "primary monthly take-home income"
+    assert_equal 1, household.mia_action_drafts.count
+  end
+
+  test "applying the final setup review offers a first coaching step" do
+    user = create_user(email: "mia-setup-first-coaching-step@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    draft = create_setup_draft(
+      user,
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build a six-month runway",
+      primary_income: "6200",
+      fixed_expenses: "3100",
+      flexible_spend: "0"
+    )
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert HouseholdFinance::SetupStatus.new(household.reload).complete?
+    message = response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content")
+    assert_includes message, "Your starting picture is complete."
+    assert_includes message, "What should I focus on first this month?"
+    assert_includes message, "approved numbers"
+    refute_includes message, "nothing changes until you apply it"
+  end
+
   test "mia drafts budget allocation edits without mutating the official budget until apply" do
     user = create_user(email: "mia-action-apply@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1174,6 +1384,21 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
 
   private
 
+  def create_setup_draft(user, household, setup_updates)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      household,
+      user: user,
+      annual_budget_manager: manager,
+      raw_input: "Update my starting picture",
+      command: { type: "update_household_setup", setup_updates: setup_updates }
+    ).call
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    user_message = session.chat_messages.create!(role: "user", content: "Update my starting picture")
+    assistant_message = session.chat_messages.create!(role: "assistant", content: result.response)
+    result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+  end
+
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end
     original_new = singleton.instance_method(:new)
@@ -1192,6 +1417,13 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   ensure
     singleton.send(:remove_method, :new) if singleton.method_defined?(:new)
     singleton.define_method(:new, original_new)
+  end
+
+  def without_openrouter_api_key
+    previous = ENV.delete("OPENROUTER_API_KEY")
+    yield
+  ensure
+    ENV["OPENROUTER_API_KEY"] = previous if previous
   end
 
   def create_user(email:)

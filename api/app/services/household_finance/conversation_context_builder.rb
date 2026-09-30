@@ -4,6 +4,29 @@ module HouseholdFinance
     MAX_TOPIC_TEXT_LENGTH = 240
     MAX_TOPICS = 8
     MAX_READ_ONLY_PLAN_ITEMS = 6
+    MAX_ACTION_SPLITS = 20
+    MAX_RECORD_ID = 9_223_372_036_854_775_807
+    ACTION_TYPES = %w[
+      none set_allocation increase_allocation decrease_allocation move_allocation create_category
+      rename_category reclassify_category archive_category restore_category review_pending_action
+      create_transaction_draft update_transaction_draft ignore_transaction_drafts update_household_setup
+      schedule_income_change
+    ].freeze
+    SETUP_UPDATE_LIMITS = {
+      "household_name" => 120,
+      "primary_goal" => 500,
+      "primary_income" => 40,
+      "business_income" => 40,
+      "fixed_expenses" => 40,
+      "flexible_spend" => 40,
+      "expected_sinking_fund" => 40,
+      "unexpected_sinking_fund" => 40,
+      "emergency_fund" => 40,
+      "other_assets" => 40,
+      "credit_card_debt" => 40,
+      "debt_payment" => 40,
+      "target_runway_months" => 20
+    }.freeze
 
     def initialize(chat_session, persona_context_id: PersonaVersionedContinuity::UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
@@ -128,22 +151,81 @@ module HouseholdFinance
     end
 
     def action_payload(value)
-      action = value.to_h.deep_stringify_keys
-      return if action.blank? || action["type"].blank?
+      return unless value.is_a?(Hash)
+
+      action = value.deep_stringify_keys
+      type = sanitized_text(action["type"], max_length: 80)
+      return if action.blank? || !type.in?(ACTION_TYPES)
 
       {
-        type: sanitized_text(action["type"], max_length: 80),
-        category_id: action["category_id"].presence,
+        type: type,
+        category_id: bounded_integer(action["category_id"], 0..MAX_RECORD_ID),
         category_name: sanitized_text(action["category_name"], max_length: 80),
-        target_category_id: action["target_category_id"].presence,
+        target_category_id: bounded_integer(action["target_category_id"], 0..MAX_RECORD_ID),
         target_category_name: sanitized_text(action["target_category_name"], max_length: 80),
         new_name: sanitized_text(action["new_name"], max_length: 80),
         stack_key: sanitized_text(action["stack_key"], max_length: 80),
         amount: sanitized_text(action["amount"], max_length: 40),
-        months: Array(action["months"]).map(&:to_i).select { |month| month.between?(1, 12) }.uniq,
-        year: action["year"].presence,
-        draft_id: action["draft_id"].presence
+        months: action_months(action),
+        year: bounded_integer(action["year"], 0..2100),
+        draft_id: bounded_integer(action["draft_id"], 0..MAX_RECORD_ID),
+        occurred_on: sanitized_text(action["occurred_on"], max_length: 20),
+        merchant: sanitized_text(action["merchant"], max_length: 120),
+        all_pending: strict_boolean(action["all_pending"]),
+        splits: action_splits(action["splits"]),
+        setup_updates: setup_updates_payload(action["setup_updates"]),
+        income_source_id: bounded_integer(action["income_source_id"], 0..MAX_RECORD_ID),
+        income_source_name: sanitized_text(action["income_source_name"], max_length: 120),
+        entry_type: sanitized_text(action["entry_type"], max_length: 40),
+        effective_on: sanitized_text(action["effective_on"], max_length: 20),
+        schedule_label: sanitized_text(action["schedule_label"], max_length: 80)
       }.compact
+    end
+
+    def action_months(action)
+      return unless action.key?("months")
+
+      Array(action["months"])
+        .filter_map { |month| bounded_integer(month, 1..12) }
+        .uniq
+        .sort
+    end
+
+    def action_splits(value)
+      return unless value.is_a?(Array)
+
+      value.first(MAX_ACTION_SPLITS).filter_map do |raw_split|
+        next unless raw_split.is_a?(Hash)
+
+        split = raw_split.deep_stringify_keys
+        payload = {
+          category_id: bounded_integer(split["category_id"], 0..MAX_RECORD_ID),
+          category_name: sanitized_text(split["category_name"], max_length: 80),
+          amount: sanitized_text(split["amount"], max_length: 40)
+        }.compact
+        payload if payload.present?
+      end
+    end
+
+    def setup_updates_payload(value)
+      return unless value.is_a?(Hash)
+
+      updates = value.deep_stringify_keys
+      SETUP_UPDATE_LIMITS.each_with_object({}) do |(key, max_length), payload|
+        next unless updates.key?(key)
+
+        sanitized = sanitized_text(updates[key], max_length: max_length)
+        payload[key.to_sym] = sanitized if sanitized
+      end.presence
+    end
+
+    def bounded_integer(value, range)
+      integer = Integer(value, exception: false)
+      integer if integer&.in?(range)
+    end
+
+    def strict_boolean(value)
+      value if value == true || value == false
     end
 
     def sanitized_text(value, max_length:)

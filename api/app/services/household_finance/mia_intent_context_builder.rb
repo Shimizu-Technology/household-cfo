@@ -33,6 +33,7 @@ module HouseholdFinance
         pending_budget_reviews: pending_budget_reviews,
         pending_transaction_reviews: pending_transaction_reviews,
         approved_household_setup: approved_household_setup,
+        setup_status: SetupStatus.new(household).as_json,
         income_sources: income_sources,
         supported_budget_actions: %w[
           set_allocation increase_allocation decrease_allocation move_allocation

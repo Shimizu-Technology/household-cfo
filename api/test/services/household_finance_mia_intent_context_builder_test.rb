@@ -43,6 +43,7 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     assert_includes context.fetch(:supported_transaction_draft_actions), "update_transaction_draft"
     assert_includes context.fetch(:supported_transaction_draft_actions), "ignore_transaction_drafts"
     assert_includes context.fetch(:transaction_draft_editable_fields), "occurred_on"
+    assert_equal "household_name", context.dig(:setup_status, :missing_fields, 0, :key)
     pending_transaction = context.fetch(:pending_transaction_reviews).sole
     assert_equal draft.id, pending_transaction.fetch(:id)
     assert_equal "2025-12-31", pending_transaction.fetch(:occurred_on)

@@ -56,6 +56,14 @@ module HouseholdFinance
       debt_payment: /\b(?:debt payment|debt minimum|minimum payment)\b/i
     }.freeze
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
+    REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
+    GUIDED_TEXT_SETUP_FIELDS = %w[household_name primary_goal].freeze
+    GUIDED_MONEY_REPLY_PATTERN = /\A(?:about|around|approximately|roughly|maybe)?\s*\$?\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)\s*(?:(?:a|per|each)\s+month|monthly)?[.!]?\z/i.freeze
+    GUIDED_SETUP_DISCOURSE_PREFIX = /\A(?:actually|well|okay|ok|um|hmm)[,\s]+/i.freeze
+    GUIDED_SETUP_POLITE_PREFIX = /\Aplease[\s,]+/i.freeze
+    GUIDED_SETUP_QUESTION_PATTERN = /\A(?:(?:why|what|how|when|where|who)\b|(?:can|could|should|would|do|does|did|is|are|will|may)\s+(?:you|we|i|this|that|it|mia)\b)/i.freeze
+    GUIDED_SETUP_DEFERRAL_PATTERN = /\A(?:no(?:\z|[,.!]|\s+(?:thanks?\b|thank\s+you\b|i\b|we\b|not\b|skip\b|pass\b|rather\b|prefer\b|don['’]?t\b|do\s+not\b))|skip\b|pass\b|not\s+(?:now|yet)\b|later\b|maybe\s+(?:later|another\s+time|not\s+now)\b|i(?:['’]m|\s+am)\s+not\s+sure\b|i\s+(?:do\s+not|don['’]?t|cannot|can['’]?t)\s+(?:know|answer|say|share|decide|want)\b|i(?:['’]d|\s+would)\s+(?:rather\b|prefer\s+not\b)|prefer\s+not\b)/i.freeze
+    GUIDED_SETUP_INSTRUCTION_PATTERN = /\A(?:(?:ignore|forget|disregard|override|reveal|repeat|follow)\b|(?:system|assistant|developer|user)\s*:|help\s+me\s+(?:understand|explain|figure\s+out)\b)/i.freeze
 
     Result = Struct.new(
       :intent,
@@ -110,8 +118,11 @@ module HouseholdFinance
     end
 
     def call
-      return nil if api_key.blank? && transport.nil?
       return nil if user_message.blank?
+
+      setup_result = guided_setup_reply_result
+      return setup_result if setup_result
+      return nil if api_key.blank? && transport.nil?
 
       parsed = JSON.parse(response_content.to_s).deep_symbolize_keys
       result = build_result(parsed)
@@ -129,6 +140,72 @@ module HouseholdFinance
     private
 
     attr_reader :user_message, :context, :api_key, :model, :transport
+
+    def guided_setup_reply_result
+      return @guided_setup_reply_result if defined?(@guided_setup_reply_result)
+
+      @guided_setup_reply_result = begin
+        field = next_missing_setup_field
+        if guided_setup_question_asked?(field)
+          value = guided_setup_value(field)
+          setup_reply_result(field, value) unless value.nil?
+        end
+      end
+    end
+
+    def next_missing_setup_field
+      Array(context.dig(:setup_status, :missing_fields)).first.to_h.deep_symbolize_keys[:key].to_s.presence
+    end
+
+    def guided_setup_question_asked?(field)
+      MiaSetupGuide.server_question_asked?(
+        field,
+        active_thread: context.dig(:conversation, :active_thread),
+        recent_messages: context.dig(:conversation, :recent_messages)
+      )
+    end
+
+    def guided_setup_value(field)
+      return guided_text_setup_value if field.in?(GUIDED_TEXT_SETUP_FIELDS)
+      return unless field.in?(REQUIRED_ZERO_SETUP_FIELDS)
+      return if guided_setup_non_answer?
+
+      match = user_message.match(GUIDED_MONEY_REPLY_PATTERN)
+      return unless match
+
+      cents = cents_or_nil(match[1].delete(","))
+      return unless cents
+
+      (BigDecimal(cents.to_s) / 100).to_s("F").sub(/\.0+\z/, "")
+    end
+
+    def guided_text_setup_value
+      return if user_message.length > 240 || guided_setup_non_answer?
+
+      user_message
+    end
+
+    def guided_setup_non_answer?
+      candidate = user_message.sub(GUIDED_SETUP_DISCOURSE_PREFIX, "").sub(GUIDED_SETUP_POLITE_PREFIX, "")
+      candidate.end_with?("?") || candidate.match?(GUIDED_SETUP_QUESTION_PATTERN) ||
+        candidate.match?(GUIDED_SETUP_DEFERRAL_PATTERN) || candidate.match?(GUIDED_SETUP_INSTRUCTION_PATTERN)
+    end
+
+    def setup_reply_result(field, value)
+      label = SetupStatus::FIELD_LABELS.fetch(field.to_sym)
+      Result.new(
+        intent: "household_action",
+        confidence: 1.0,
+        continuation: true,
+        resolved_message: "Set #{label.downcase} to #{value}",
+        needs_clarification: false,
+        clarification: "",
+        topic: { type: "household_setup", title: "Starting household picture", subject: label },
+        action: { type: "update_household_setup", setup_updates: { field.to_sym => value } },
+        read_only_plan: {},
+        source: "deterministic"
+      )
+    end
 
     def response_content
       return transport.call(payload) if transport
