@@ -94,6 +94,33 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
     assert_not_includes category_answer, "$200.00"
   end
 
+  test "flags only exact merchant amount and date duplicate charges" do
+    create_draft!(merchant: "Pay-Less", amount_cents: 12_345, occurred_on: Date.new(2026, 8, 2))
+    create_draft!(merchant: "Pay Less", amount_cents: 12_345, occurred_on: Date.new(2026, 8, 2))
+    create_draft!(merchant: "Pay-Less", amount_cents: 12_345, occurred_on: Date.new(2026, 8, 3))
+
+    answer = answer_for("Are there any duplicate charges in this attachment?")
+
+    assert_includes answer, "1 potential duplicate charge group"
+    assert_includes answer, "Pay-Less — $123.45 on Aug 2, 2026 appears 2 times"
+    assert_includes answer, "exact merchant, amount, and date matches"
+    assert_not_includes answer, "3 transaction rows totaling"
+  end
+
+  test "states a capability boundary for unsupported attachment questions" do
+    create_draft!(merchant: "Unknown seller", amount_cents: 50_00, occurred_on: Date.new(2026, 8, 2))
+
+    risk_answer = answer_for("Is this charge fraudulent?")
+    advice_answer = answer_for("What should I do about this charge?")
+
+    [ risk_answer, advice_answer ].each do |answer|
+      assert_includes answer, "cannot answer that question reliably"
+      assert_includes answer, "I will not guess from the file name or extracted prose"
+      assert_not_includes answer, "1 transaction row totaling"
+      assert_not_includes answer, "$50.00"
+    end
+  end
+
   test "refuses a partial answer when persisted evidence exceeds the complete bound" do
     create_draft!(merchant: "First", amount_cents: 10_00, occurred_on: Date.new(2026, 8, 2))
     create_draft!(merchant: "Second", amount_cents: 20_00, occurred_on: Date.new(2026, 8, 3))
@@ -361,6 +388,19 @@ class HouseholdFinanceAttachedDocumentQuestionAnswererTest < ActiveSupport::Test
 
     assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $30.00"
     assert_not_includes answer, "no attached transaction row matching the named merchant"
+    assert_not_includes answer, "$60.00"
+  end
+
+  test "matches a yearless date range that wraps from December into January" do
+    create_draft!(merchant: "December", amount_cents: 10_00, occurred_on: Date.new(2025, 12, 20))
+    create_draft!(merchant: "January", amount_cents: 20_00, occurred_on: Date.new(2026, 1, 10))
+    create_draft!(merchant: "February", amount_cents: 30_00, occurred_on: Date.new(2026, 2, 1))
+
+    answer = answer_for("How much did I spend from Dec 15 through Jan 15?")
+
+    assert_includes answer, "2 transaction rows matching that merchant, category, date, or amount filter totaling $30.00"
+    assert_includes answer, "Dec 2025: $10.00"
+    assert_includes answer, "Jan 2026: $20.00"
     assert_not_includes answer, "$60.00"
   end
 

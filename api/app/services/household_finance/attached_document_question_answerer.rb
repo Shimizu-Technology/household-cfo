@@ -11,7 +11,7 @@ module HouseholdFinance
       .merge(Date::MONTHNAMES.each_with_index.filter_map { |name, index| [ name.downcase, index ] if name }.to_h).freeze
     MONTH_PATTERN = /(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)/i
     GENERIC_REVIEW_PATTERN = /\A(?:please\s+)?(?:review|read|check|process|summarize)\b/i
-    SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|over\s+\$|under\s+\$)\b/i
+    SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
     SETUP_REQUEST_PATTERN = /\A(?:(?:can|could|would)\s+you\s+)?(?:use|set up|import).{0,100}\b(?:budget|profile|household|income)\b/i
 
     def self.generic_review_request?(message)
@@ -38,7 +38,7 @@ module HouseholdFinance
       return no_evidence_answer if rows.empty? && setup.empty?
 
       parts = direct_answer_parts(rows, setup)
-      parts << overview(rows, setup) if parts.empty?
+      parts << unsupported_question_answer if parts.empty?
       parts << failed_import_notice
       parts << review_boundary(rows, setup)
       parts.compact.join(" ")
@@ -116,6 +116,7 @@ module HouseholdFinance
       end
       parts << transaction_total_answer(rows) if transaction_total_question? && rows.any?
       parts << monthly_total_answer(rows) if transaction_total_question? && multiple_months_requested?
+      parts << duplicate_charge_answer(rows) if duplicate_question? && rows.any?
       parts << plan_fit_answer(rows) if plan_fit_question? && rows.any?
       parts << largest_transaction_answer(rows) if largest_question? && rows.any?
       parts << transaction_list_answer(rows) if transaction_list_question? && rows.any?
@@ -168,6 +169,23 @@ module HouseholdFinance
       "The attached transaction dates cover #{range}."
     end
 
+    def duplicate_charge_answer(rows)
+      matching = filtered_transaction_rows(scoped_transaction_rows(rows))
+      duplicates = matching.group_by do |row|
+        [ normalized_entity(row.fetch(:merchant)), row.fetch(:amount_cents), row.fetch(:occurred_on) ]
+      end.values.select { |group| group.many? }
+      if duplicates.empty?
+        return "I found no exact duplicate charges in the attached evidence. I compared merchant, amount, and date; similar charges with different details still need manual review."
+      end
+
+      listed = duplicates.first(MAX_LISTED_ROWS).map do |group|
+        row = group.first
+        "#{row.fetch(:merchant)} — #{money(row.fetch(:amount_cents))} on #{formatted_date(row.fetch(:occurred_on))} appears #{group.length} times"
+      end
+      suffix = duplicates.length > listed.length ? "; plus #{duplicates.length - listed.length} more exact-match group#{'s' unless duplicates.length - listed.length == 1}" : ""
+      "I found #{duplicates.length} potential duplicate charge group#{'s' unless duplicates.one?} in the attached evidence: #{listed.join('; ')}#{suffix}. These are exact merchant, amount, and date matches for you to review; nothing was changed."
+    end
+
     def setup_answer(setup)
       relevant = setup.select { |row| setup_type_matches_question?(row.fetch(:target_type)) }
       relevant = setup if relevant.empty?
@@ -176,15 +194,8 @@ module HouseholdFinance
       "The attached setup evidence shows #{listed.join('; ')}#{suffix}."
     end
 
-    def overview(rows, setup)
-      parts = []
-      if rows.any?
-        dates = rows.filter_map { |row| row.fetch(:occurred_on) }
-        date_text = dates.any? ? " from #{formatted_date(dates.min)} through #{formatted_date(dates.max)}" : ""
-        parts << "#{rows.length} transaction row#{'s' unless rows.one?} totaling #{money(rows.sum { |row| row.fetch(:amount_cents) })}#{date_text}"
-      end
-      parts << "#{setup.length} budget/profile value#{'s' unless setup.one?}" if setup.any?
-      "From the explicitly attached import#{'s' if document_imports.many?}, I can verify #{parts.to_sentence}."
+    def unsupported_question_answer
+      "I cannot answer that question reliably from the structured values in these attachments. I can check totals, merchants, categories, dates, exact duplicate charges, setup values, and whether pending spending fits an approved plan. Review the import for anything else; I will not guess from the file name or extracted prose."
     end
 
     def review_boundary(rows, setup)
@@ -222,11 +233,15 @@ module HouseholdFinance
     end
 
     def transaction_total_question?
-      message.match?(/\b(?:total|sum|how much|amount|spend|spent|paid|charges?)\b/i) || message.match?(/\b(?:over|above|more than|greater than|under|below|less than)\s+\$/i)
+      message.match?(/\b(?:total|sum|how much|amount|spend|spent|paid)\b/i) || message.match?(/\b(?:over|above|more than|greater than|under|below|less than)\s+\$/i)
     end
 
     def transaction_question?
-      transaction_total_question? || plan_fit_question? || largest_question? || transaction_list_question? || category_question? || date_question?
+      transaction_total_question? || duplicate_question? || plan_fit_question? || largest_question? || transaction_list_question? || category_question? || date_question?
+    end
+
+    def duplicate_question?
+      message.match?(/\b(?:duplicates?|duplicated|double[ -]?charged?|charged twice|same charge|repeated (?:charges?|transactions?))\b/i)
     end
 
     def plan_fit_question?
@@ -238,7 +253,11 @@ module HouseholdFinance
     end
 
     def transaction_list_question?
-      message.match?(/\b(?:which|what|list|show|merchant|where|transactions?|purchases?|charges?)\b/i) && !setup_question?
+      return false if duplicate_question? && !message.match?(/\b(?:which|what|list|show)\b/i)
+
+      message.match?(
+        /\b(?:list|show)\b.{0,40}\b(?:transactions?|purchases?|charges?|merchants?)\b|\b(?:which|what)\s+(?:transactions?|purchases?|charges?|merchants?)\b|\bwhich\s+merchant\b|\bwhere\s+(?:did|was|were|are)\b/i
+      ) && !setup_question?
     end
 
     def category_question?
@@ -485,7 +504,14 @@ module HouseholdFinance
           date >= scope.fetch(:start) && date <= scope.fetch(:finish)
         when :month_day_range
           value = [ date.month, date.day ]
-          (value <=> scope.fetch(:start)) >= 0 && (value <=> scope.fetch(:finish)) <= 0 && (!scope[:year] || date.year == scope.fetch(:year))
+          start_value = scope.fetch(:start)
+          finish_value = scope.fetch(:finish)
+          within_range = if (start_value <=> finish_value) <= 0
+            (value <=> start_value) >= 0 && (value <=> finish_value) <= 0
+          else
+            (value <=> start_value) >= 0 || (value <=> finish_value) <= 0
+          end
+          within_range && (!scope[:year] || date.year == scope.fetch(:year))
         when :months
           scope.fetch(:months).include?(date.month) && (!scope[:year] || date.year == scope.fetch(:year))
         when :year

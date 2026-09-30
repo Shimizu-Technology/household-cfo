@@ -404,13 +404,16 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
 
   test "treats oversized structured setup rows as terminal instead of falling back to the model" do
     extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
-    result = FinancialDocuments::StructuredSpreadsheetExtractor::Result.new(
-      success: false,
-      data: nil,
-      error: "This spreadsheet has more than 60 budget/profile rows. Split it into smaller files."
-    )
+    errors = [
+      "This spreadsheet has more than 60 budget/profile rows. Split it into smaller files.",
+      "This workbook has more than 50 worksheets and could not be inspected completely.",
+      "This workbook could not be inspected completely within the safe cell limit."
+    ]
 
-    assert extractor.send(:terminal_structured_spreadsheet_error?, result)
+    errors.each do |error|
+      result = FinancialDocuments::StructuredSpreadsheetExtractor::Result.new(success: false, data: nil, error: error)
+      assert extractor.send(:terminal_structured_spreadsheet_error?, result), error
+    end
   end
 
   private
