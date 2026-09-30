@@ -969,6 +969,334 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal document_import.id, user_message.fetch("attachments").first.fetch("document_import_id")
   end
 
+  test "an unrelated attachment question leaves a validated clarification topic unchanged" do
+    user = create_user(email: "mia-attachment-preserves-clarification@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    topic = {
+      schema_version: 2,
+      id: SecureRandom.uuid,
+      type: "budget_edit",
+      title: "Fixed essentials edit",
+      subject: "Fixed essentials",
+      status: "needs_clarification",
+      latest_user_context: "Set Fixed essentials to $3,000.",
+      action: { type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "3000", months: [], year: Date.current.year }
+    }
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: topic, open_topics: [ topic ])
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "unrelated-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/unrelated-receipt.png"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Pay-Less",
+      total_amount_cents: 42_00,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "receipt row"
+    )
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "general",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "What is the total in this receipt?",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "", title: "", subject: "" },
+      action: { type: "none" },
+      read_only_plan: {},
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+
+    with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+      post "/api/v1/mia/messages",
+           params: { message: "What is the total in this receipt?", document_import_ids: [ document_import.id ] },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_includes body.dig("assistant_message", "content"), "$42"
+    assert_nil body.fetch("budget")
+    assert_equal topic.deep_stringify_keys, session.reload.active_topic
+    assert_equal "Set Fixed essentials to $3,000.", session.active_topic.fetch("latest_user_context")
+  end
+
+  test "an attachment turn can complete a validated structured clarification" do
+    user = create_user(email: "mia-attachment-completes-clarification@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 4_000)
+    topic = {
+      schema_version: 2,
+      id: SecureRandom.uuid,
+      type: "budget_edit",
+      title: "Fixed essentials edit",
+      subject: "Fixed essentials",
+      status: "needs_clarification",
+      latest_user_context: "Set Fixed essentials to $3,000.",
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "3000", months: [], year: Date.current.year }
+    }
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: topic, open_topics: [ topic ])
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "clarification-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/clarification-receipt.png"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Costco",
+      total_amount_cents: 55_00,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "receipt row"
+    )
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.99,
+      continuation: true,
+      resolved_message: "Set Fixed essentials to $3,000 for August #{Date.current.year}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_edit", title: "Fixed essentials edit", subject: "Fixed essentials" },
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "3000", months: [ 8 ], year: Date.current.year },
+      read_only_plan: {},
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+
+    assert_difference("MiaActionDraft.count", 1) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+        post "/api/v1/mia/messages",
+             params: { message: "August only.", document_import_ids: [ document_import.id ] },
+             headers: auth_headers(user),
+             as: :json
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_includes body.dig("assistant_message", "content"), "Costco"
+    assert body.fetch("mia_action_draft")
+    assert body.fetch("budget")
+    assert_equal "pending_review", session.reload.active_topic.fetch("status")
+    assert_equal [ 8 ], session.active_topic.dig("action", "months")
+    assert_equal "August only.", session.active_topic.fetch("latest_user_context")
+  end
+
+  test "a combined attachment question and supported action returns both evidence and a review draft" do
+    user = create_user(email: "mia-attachment-combined-action@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 700)
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "combined-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/combined-receipt.png"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Pay-Less",
+      total_amount_cents: 87_45,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "receipt row"
+    )
+    message = "Which merchant is on this receipt and what is the total? Also set Groceries to $900 for August."
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Set Groceries to $900 for August #{Date.current.year}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_edit", title: "August Groceries edit", subject: "Groceries" },
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "900", months: [ 8 ], year: Date.current.year },
+      read_only_plan: {},
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+
+    assert_difference("MiaActionDraft.count", 1) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+        post "/api/v1/mia/messages",
+             params: { message: message, document_import_ids: [ document_import.id ] },
+             headers: auth_headers(user),
+             as: :json
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assistant_content = body.dig("assistant_message", "content")
+    assert_includes assistant_content, "$87.45"
+    assert_includes assistant_content, "Pay-Less"
+    assert body.fetch("mia_action_draft")
+    assert body.fetch("budget")
+    draft = household.mia_action_drafts.pending.last
+    change = draft.mia_action_items.first.payload.fetch("changes").sole
+    assert_equal 8, change.fetch("month")
+    assert_equal 90_000, change.fetch("after_cents")
+    assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
+  end
+
+  test "a failed attached action draft rolls back newly prepared plan records" do
+    user = create_user(email: "mia-attachment-action-persistence-failure@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "failed-action-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/failed-action-receipt.png"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Pay-Less",
+      total_amount_cents: 87_45,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "receipt row"
+    )
+    message = "What is the receipt total? Also set Groceries to $900 for August."
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Set Groceries to $900 for August #{Date.current.year}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_edit", title: "August Groceries edit", subject: "Groceries" },
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "900", months: [ 8 ], year: Date.current.year },
+      read_only_plan: {},
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+    original_create_draft = HouseholdFinance::MiaActionDraftBuilder::Proposal.instance_method(:create_draft!)
+
+    begin
+      HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!) do |**|
+        raise RuntimeError, "simulated attached draft persistence failure"
+      end
+
+      assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "MiaActionDraft.count" ]) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+        end
+      end
+      assert_equal 0, household.budget_years.count
+      assert_equal 0, BudgetPeriod.where(budget_year_id: household.budget_years.select(:id)).count
+      assert_equal 0, BudgetAllocation.where(budget_period_id: BudgetPeriod.where(budget_year_id: household.budget_years.select(:id))).count
+
+      HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year).ensure_plan!
+      budget_year_ids = household.budget_years.order(:id).pluck(:id)
+      budget_period_ids = BudgetPeriod.where(budget_year_id: budget_year_ids).order(:id).pluck(:id)
+      budget_allocation_ids = BudgetAllocation.where(budget_period_id: budget_period_ids).order(:id).pluck(:id)
+      assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "MiaActionDraft.count" ]) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+        end
+      end
+      assert_equal budget_year_ids, household.budget_years.order(:id).pluck(:id)
+      assert_equal budget_period_ids, BudgetPeriod.where(budget_year_id: budget_year_ids).order(:id).pluck(:id)
+      assert_equal budget_allocation_ids, BudgetAllocation.where(budget_period_id: budget_period_ids).order(:id).pluck(:id)
+    ensure
+      HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!, original_create_draft)
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("budget")
+    assert_includes body.dig("assistant_message", "content"), "$87.45"
+    assert_includes body.dig("assistant_message", "content"), "could not prepare the review card"
+  end
+
+  test "a combined attachment question and unsupported action returns evidence and an explicit boundary" do
+    user = create_user(email: "mia-attachment-combined-boundary@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "combined-boundary-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/combined-boundary-receipt.png"
+    )
+    transaction_draft = document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Costco",
+      total_amount_cents: 64_20,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "receipt row"
+    )
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "transaction_draft_action",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Change the pending Costco transaction to $60",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "transaction_draft", title: "Costco draft", subject: "Costco" },
+      action: { type: "update_transaction_draft", transaction_draft_id: transaction_draft.id, amount: "60" },
+      read_only_plan: {},
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+
+    assert_no_difference([ "MiaActionDraft.count", "HouseholdTransaction.count" ]) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+        post "/api/v1/mia/messages",
+             params: {
+               message: "What is the receipt total? Also change the pending transaction to $60.",
+               document_import_ids: [ document_import.id ]
+             },
+             headers: auth_headers(user),
+             as: :json
+      end
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_includes body.dig("assistant_message", "content"), "$64.20"
+    assert_includes body.dig("assistant_message", "content"), "could not safely prepare"
+    assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("budget")
+    assert_equal "pending", transaction_draft.reload.status
+    assert_equal 64_20, transaction_draft.total_amount_cents
+  end
+
   test "mia chat answers an attachment question from pending structured evidence" do
     user = create_user(email: "mia-attachment-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1006,6 +1334,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "Pay-Less — $87.45"
     assert_includes content, "pending review"
     assert_includes content, "not actuals"
+    assert_not_includes content, "could not safely prepare"
 
     assert_no_difference("ChatMessage.count") do
       post "/api/v1/mia/messages",
@@ -1301,17 +1630,23 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     document_import.items.create!(target_type: "income_source", label: "Main income", amount_cents: 6_000_00, cadence: "monthly", confidence: "high", selected: true)
     document_import.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 900_00, cadence: "monthly", stack_key: "discretionary", confidence: "high", selected: true)
 
-    post "/api/v1/mia/messages",
-         params: { message: "Can you set up my budget from this?", document_import_ids: [ document_import.id ] },
-         headers: auth_headers(user),
-         as: :json
+    nil_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { nil } } }
+    with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, nil_resolver) do
+      post "/api/v1/mia/messages",
+           params: { message: "Can you set up my budget from this?", document_import_ids: [ document_import.id ] },
+           headers: auth_headers(user),
+           as: :json
+    end
 
     assert_response :created
-    assistant_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
+    body = JSON.parse(response.body)
+    assistant_content = body.fetch("assistant_message").fetch("content")
     assert_not_includes assistant_content, "I used your note as context"
     assert_includes assistant_content, "budget/profile setup values"
     assert_includes assistant_content, "Main income and Groceries"
     assert_includes assistant_content, "open Review imports to approve or adjust"
+    assert_not_includes assistant_content, "could not safely prepare"
+    assert_nil body.fetch("budget")
   end
 
   test "mia chat compacts conversation continuity for follow-up questions" do

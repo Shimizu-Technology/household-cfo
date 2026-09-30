@@ -39,13 +39,13 @@ module Api
 
           next unless role.in?([ "assistant", "user" ]) && content.present?
 
-          { role: role, content: content.truncate(2_000, omission: "…") }
+          { role: role, content: content.truncate(ChatMessage::MAX_CONTENT_LENGTH, omission: "…") }
         end
 
         selected = []
         used_characters = 0
         messages.reverse_each do |message|
-          break if selected.length >= 8 && used_characters + message.fetch(:content).length > 24_000
+          break if used_characters + message.fetch(:content).length > 24_000
 
           selected << message
           used_characters += message.fetch(:content).length
