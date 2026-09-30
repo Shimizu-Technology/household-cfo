@@ -151,7 +151,9 @@ module HouseholdFinance
     end
 
     def action_payload(value)
-      action = value.to_h.deep_stringify_keys
+      return unless value.is_a?(Hash)
+
+      action = value.deep_stringify_keys
       type = sanitized_text(action["type"], max_length: 80)
       return if action.blank? || !type.in?(ACTION_TYPES)
 

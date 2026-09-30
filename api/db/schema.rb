@@ -130,7 +130,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031300) do
     t.index ["coach_persona_id"], name: "index_coach_persona_publication_events_on_coach_persona_id"
     t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_4ab8b00110"
     t.index ["source_version_id"], name: "index_coach_persona_publication_events_on_source_version_id"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "coach_persona_publication_events_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "coach_persona_publication_events_type_valid"
   end
 
   create_table "coach_persona_versions", force: :cascade do |t|

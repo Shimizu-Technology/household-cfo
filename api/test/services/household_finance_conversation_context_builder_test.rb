@@ -148,6 +148,25 @@ class HouseholdFinanceConversationContextBuilderTest < ActiveSupport::TestCase
     refute transaction_action.key?(:untrusted_extra)
   end
 
+  test "drops malformed action state instead of exposing or raising on it" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "malformed-continuity@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Malformed Continuity Household")
+    session = household.chat_sessions.create!(
+      user: user,
+      title: "Ask Mia",
+      active_topic: {
+        schema_version: 2,
+        type: "household_setup",
+        title: "Starting household picture",
+        action: [ "update_household_setup", { setup_updates: { primary_income: "999999" } } ]
+      }
+    )
+
+    active_topic = HouseholdFinance::ConversationContextBuilder.new(session).call.fetch(:active_topic)
+
+    refute active_topic.key?(:action)
+  end
+
   test "a persona switch keeps participant facts but removes the retired assistant voice" do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "persona-continuity@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Persona Continuity Household")
