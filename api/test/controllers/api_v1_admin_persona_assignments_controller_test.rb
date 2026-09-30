@@ -85,6 +85,34 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     assert_response :success
   end
 
+  test "not found responses do not expose internal lookup details" do
+    admin = persona_user(role: "admin")
+    missing_cohort_id = Cohort.maximum(:id).to_i + 10_000
+
+    get "/api/v1/admin/cohorts/#{missing_cohort_id}/persona_assignment", headers: auth_headers(admin)
+
+    assert_response :not_found
+    assert_equal(
+      {
+        "errors" => [ "Persona assignment resource not found." ],
+        "code" => "persona_assignment_not_found"
+      },
+      response.parsed_body
+    )
+    assert_not_includes response.body, missing_cohort_id.to_s
+    assert_not_includes response.body, "Couldn't find"
+
+    cohort = cohort_for(admin, name: "Missing persona lookup")
+    missing_persona_id = CoachPersona.maximum(:id).to_i + 20_000
+    patch_assignment(cohort, admin, persona_id: missing_persona_id, expected_persona_id: nil)
+
+    assert_response :not_found
+    assert_equal "Persona assignment resource not found.", response.parsed_body.fetch("errors").sole
+    assert_equal "persona_assignment_not_found", response.parsed_body.fetch("code")
+    assert_not_includes response.body, missing_persona_id.to_s
+    assert_not_includes response.body, "Couldn't find"
+  end
+
   test "completed cohorts expose their assignment but reject update and removal" do
     admin = persona_user(role: "admin")
     persona = published_persona(admin, assistant_name: "Completed assistant")

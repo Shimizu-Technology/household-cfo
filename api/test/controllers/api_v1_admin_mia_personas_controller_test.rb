@@ -89,6 +89,11 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     get "/api/v1/admin/personas/#{hidden.id}", headers: auth_headers(coach)
 
     assert_response :not_found
+    assert_equal "Persona not found.", response.parsed_body.fetch("error")
+    assert_equal [ "Persona not found." ], response.parsed_body.fetch("errors")
+    assert_equal "persona_not_found", response.parsed_body.fetch("code")
+    assert_not_includes response.body, hidden.id.to_s
+    assert_not_includes response.body, "Couldn't find"
 
     get "/api/v1/admin/personas", headers: auth_headers(admin)
 
@@ -97,6 +102,27 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_includes admin_ids, owned.id
     assert_includes admin_ids, assigned.id
     assert_includes admin_ids, hidden.id
+  end
+
+  test "version not found responses do not expose internal lookup details" do
+    admin = persona_user(role: "admin")
+    persona = persona_for(admin, assistant_name: "Version lookup assistant")
+    version = publish_persona(persona, actor: admin)
+    missing_version_id = version.id + 10_000
+
+    get "/api/v1/admin/personas/#{persona.id}/versions/#{missing_version_id}", headers: auth_headers(admin)
+
+    assert_response :not_found
+    assert_equal(
+      {
+        "error" => "Persona version not found.",
+        "errors" => [ "Persona version not found." ],
+        "code" => "persona_version_not_found"
+      },
+      response.parsed_body
+    )
+    assert_not_includes response.body, missing_version_id.to_s
+    assert_not_includes response.body, "Couldn't find"
   end
 
   test "create binds ownership to current staff and update invalidates preview with optimistic revision checking" do

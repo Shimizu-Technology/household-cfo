@@ -1053,7 +1053,10 @@ module Api
         bounded_presentation = presentation.deep_dup
         if bounded_presentation.present?
           lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
-          bounded_presentation[lead_key] = [ bounded_presentation[lead_key], boundary ].compact_blank.join(" ").truncate(500, omission: "…")
+          existing_lead = bounded_presentation[lead_key].to_s
+          available_lead_length = [ 500 - boundary.length - 1, 0 ].max
+          bounded_lead = existing_lead.truncate(available_lead_length, omission: "…")
+          bounded_presentation[lead_key] = [ bounded_lead, boundary ].compact_blank.join(" ")
         end
         [ direct_answer, bounded_presentation ]
       end

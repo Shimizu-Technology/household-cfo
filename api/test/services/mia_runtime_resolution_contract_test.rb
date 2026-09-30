@@ -45,9 +45,24 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     assert_instance_of Mia::RuntimePersona, resolved
     assert_equal version.id, resolved.version_id
     assert_equal persona.id, resolved.persona_id
+    assert_equal "coach_persona_version:#{version.id}", resolved.continuity_id
     assert_equal "Coach Lila", resolved.name
     assert_includes resolved.disclaimer, "Coach June's approved guidance"
     assert_includes resolved.system_prompt, "Identity: The assistant is Coach Lila"
+  end
+
+  test "draft previews use identifier-derived continuity separate from published versions" do
+    config = persona_configuration(assistant_name: "Coach Preview", coach_name: "Coach June")
+    first_preview = Mia::RuntimePersona.for_preview(config: config, persona_id: 41, draft_revision: 3)
+    next_preview = Mia::RuntimePersona.for_preview(config: config, persona_id: 41, draft_revision: 4)
+    other_preview = Mia::RuntimePersona.for_preview(config: config, persona_id: 42, draft_revision: 3)
+
+    assert_equal "runtime_persona:coach_persona_41_draft_3", first_preview.continuity_id
+    assert_equal "runtime_persona:coach_persona_41_draft_4", next_preview.continuity_id
+    assert_equal "runtime_persona:coach_persona_42_draft_3", other_preview.continuity_id
+    refute_equal first_preview.continuity_id, next_preview.continuity_id
+    refute_equal first_preview.continuity_id, other_preview.continuity_id
+    refute_includes first_preview.continuity_id, "coach_persona_version:"
   end
 
   test "persona resolver falls back when active cohort assignments conflict" do

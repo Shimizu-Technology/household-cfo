@@ -51,9 +51,12 @@ module Api
         end
 
         def render_not_found(error)
+          Rails.logger.warn(
+            "[MiaPersonaVersionsController] record not found error=#{error.class} message=#{error.message.inspect}"
+          )
           render json: {
-            error: error.message,
-            errors: [ error.message ],
+            error: "Persona version not found.",
+            errors: [ "Persona version not found." ],
             code: "persona_version_not_found"
           }, status: :not_found
         end

@@ -179,6 +179,26 @@ class ApiV1MiaReadOnlyPlanControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "I did not save a new voice"
   end
 
+  test "persona boundary remains complete when the structured lead reaches its length limit" do
+    controller = Api::V1::MiaMessagesController.new
+    boundary = Mia::Capabilities.persona_configuration_answer
+    original_lead = "A" * 500
+
+    _direct_answer, presentation = controller.send(
+      :apply_persona_capability_boundary,
+      "Switch your personality to a Southern coach.",
+      direct_answer: "A financial answer.",
+      presentation: { lead: original_lead }
+    )
+
+    lead = presentation.fetch(:lead)
+    assert_operator lead.length, :<=, 500
+    assert lead.end_with?(boundary)
+    assert_equal 1, lead.scan(boundary).length
+    assert_operator lead.length, :>, boundary.length
+    assert_not_equal original_lead, lead
+  end
+
   private
 
   def resolver_for(message, items)

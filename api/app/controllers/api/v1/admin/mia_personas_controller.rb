@@ -242,7 +242,10 @@ module Api
         end
 
         def render_not_found(error)
-          render_api_error(error.message, code: "persona_not_found", status: :not_found)
+          Rails.logger.warn(
+            "[MiaPersonasController] record not found error=#{error.class} message=#{error.message.inspect}"
+          )
+          render_api_error("Persona not found.", code: "persona_not_found", status: :not_found)
         end
       end
     end

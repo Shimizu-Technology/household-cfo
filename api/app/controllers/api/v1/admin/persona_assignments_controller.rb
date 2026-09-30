@@ -108,7 +108,13 @@ module Api
         end
 
         def render_not_found(error)
-          render json: { errors: [ error.message ], code: "persona_assignment_not_found" }, status: :not_found
+          Rails.logger.warn(
+            "[PersonaAssignmentsController] record not found error=#{error.class} message=#{error.message.inspect}"
+          )
+          render json: {
+            errors: [ "Persona assignment resource not found." ],
+            code: "persona_assignment_not_found"
+          }, status: :not_found
         end
       end
     end

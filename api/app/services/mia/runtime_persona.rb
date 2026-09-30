@@ -44,7 +44,9 @@ module Mia
     end
 
     def continuity_id
-      "coach_persona_version:#{version_id}"
+      return "coach_persona_version:#{version_id}" if version_id
+
+      "runtime_persona:#{id}"
     end
 
     def name
