@@ -1331,6 +1331,7 @@ test('a confirmed zero remains available when the rest of setup is completed man
   const backgroundWorkspaceRefresh = page.waitForResponse((response) => response.url() === 'http://api.test/api/v1/workspace' && response.request().method() === 'GET', { timeout: 10_000 })
   releaseImportRefresh?.()
   await backgroundWorkspaceRefresh
+  await page.evaluate(() => new Promise<void>((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve()))))
   await expect(page.getByLabel('Household name')).toHaveValue('Zero Spend Household')
   await expect(page.getByLabel('Primary goal')).toHaveValue('Keep a calm plan.')
   await expect(page.getByLabel('Primary monthly income')).toHaveValue('6200')
