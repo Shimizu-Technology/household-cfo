@@ -123,7 +123,10 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
     membership = add_participant(cohort)
     CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: @coach)
-    version.update_columns(config: { "identity" => { "assistant_name" => "Broken" } })
+    version.update_columns(config: {
+      "identity" => { "assistant_name" => "Broken" },
+      "response_shape" => { "validate_before_coaching" => true, "next_move_required" => true }
+    })
 
     resolved = Mia::PersonaResolver.new(user: @participant, cohort_membership: membership).call
 

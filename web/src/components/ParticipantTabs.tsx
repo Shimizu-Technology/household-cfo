@@ -14,6 +14,7 @@ const sectionDescriptions: Record<string, string> = {
   Wealth: 'See debt, assets, and long-range capacity.',
   'CFO Filter': 'Pressure-test a purchase before money moves.',
   Optionality: 'Compare choices against stability and runway.',
+  'Coach Studio': 'Build, preview, publish, and assign approved coaching voices.',
   Admin: 'Manage pilot access and cohort operations.',
 }
 

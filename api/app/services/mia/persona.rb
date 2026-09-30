@@ -148,7 +148,7 @@ module Mia
       rules << "plain text only" if shape.fetch("plain_text_only")
       rules << "no markdown" unless shape.fetch("markdown_allowed")
       rules << "validate before coaching" if shape.fetch("validate_before_coaching")
-      rules << "one next move is required" if shape.fetch("next_move_required")
+      rules << "one next move is required"
       rules.join("; ")
     end
 

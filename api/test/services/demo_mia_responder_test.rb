@@ -18,6 +18,20 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_equal "Real model response", responder.call("Can I buy the purse?")
   end
 
+  test "a rejected model answer is sourced as fallback and cannot authorize a persona preview" do
+    responder = Demo::MiaResponder.new(api_key: "test-key")
+    responder.define_singleton_method(:openrouter_response) do |*_args, **_options|
+      @response_source = "live_model"
+      "You can comfortably afford the purchase."
+    end
+    responder.define_singleton_method(:ungrounded_generic_financial_claim?) { |*| true }
+
+    response = responder.call("Can I afford this purchase?", context: { metrics: {} }.to_json)
+
+    assert_includes response, "household baseline"
+    assert_equal "deterministic_fallback", responder.response_source
+  end
+
   test "default chat model uses Claude Sonnet latest through OpenRouter" do
     with_env("OPENROUTER_MODEL" => nil) do
       responder = Demo::MiaResponder.new(api_key: nil)

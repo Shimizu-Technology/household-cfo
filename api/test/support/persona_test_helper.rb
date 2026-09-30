@@ -26,4 +26,18 @@ module PersonaTestHelper
       created_by_user: creator
     )
   end
+
+  def cohort_for(creator, name:, status: "active")
+    Cohort.create!(name: name, status: status, created_by_user: creator)
+  end
+
+  def publish_persona(persona, actor:)
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: actor)
+    preview = publisher.preview!(expected_draft_revision: persona.reload.draft_revision)
+    publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: persona.current_published_version_id
+    )
+  end
 end

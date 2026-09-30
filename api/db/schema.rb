@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_031100) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_031200) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -146,6 +146,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031100) do
     t.index ["coach_persona_id"], name: "index_coach_persona_versions_on_coach_persona_id"
     t.index ["published_by_user_id"], name: "index_coach_persona_versions_on_published_by_user_id"
     t.index ["source_version_id"], name: "index_coach_persona_versions_on_source_version_id"
+    t.check_constraint "NOT (config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_persona_versions_response_invariants_true"
     t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_digest_sha256"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
     t.check_constraint "octet_length(config::text) <= 36864", name: "coach_persona_versions_config_bytes"
@@ -170,6 +171,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031100) do
     t.index ["archived_at"], name: "index_coach_personas_on_archived_at"
     t.index ["created_by_user_id"], name: "index_coach_personas_on_created_by_user_id"
     t.index ["current_published_version_id"], name: "index_coach_personas_on_current_published_version_id"
+    t.check_constraint "NOT (draft_config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (draft_config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_personas_response_invariants_true"
     t.check_constraint "draft_revision > 0", name: "coach_personas_positive_draft_revision"
     t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "coach_personas_draft_config_object"
     t.check_constraint "octet_length(draft_config::text) <= 36864", name: "coach_personas_draft_config_bytes"

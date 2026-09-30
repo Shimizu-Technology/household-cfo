@@ -641,6 +641,215 @@ export type UserRole = 'admin' | 'coach' | 'participant'
 export type InvitationStatus = 'pending' | 'accepted' | 'revoked'
 export type AdminCohortStatus = 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'
 
+export type PersonaPhraseContext = 'greeting' | 'verified_milestone' | 'emotional_support' | 'repeated_pattern' | 'routine' | 'general' | 'crisis'
+export type PersonaPhraseFrequency = 'very_rare' | 'rare' | 'sparing' | 'as_needed'
+
+export type PersonaConfiguration = {
+  version: 1
+  identity: {
+    assistant_name: string
+    human_coach_name: string
+    human_coach_title: string
+    assistant_relationship: string
+    disclosure: string
+    audience: string
+    client_term: string
+  }
+  voice: {
+    tone_traits: string[]
+    energy: string
+    accountability_style: string
+    language_style: string[]
+  }
+  coaching: {
+    philosophy: string
+    method: string
+    principles: string[]
+    do: string[]
+    do_not: string[]
+  }
+  culture: {
+    locale_label: string
+    context: string
+    local_realities: string[]
+    references: string[]
+  }
+  phrases: Array<{
+    text: string
+    meaning: string
+    allowed_contexts: PersonaPhraseContext[]
+    prohibited_contexts: PersonaPhraseContext[]
+    frequency: PersonaPhraseFrequency
+    caution: string
+  }>
+  curriculum: {
+    guidance: Array<{ title: string; content: string }>
+    scripts: Array<{ title: string; steps: string[] }>
+    examples: Array<{ participant: string; assistant: string }>
+  }
+  response_shape: {
+    min_sentences: number
+    max_sentences: number
+    max_characters: number
+    plain_text_only: boolean
+    validate_before_coaching: boolean
+    next_move_required: boolean
+  }
+}
+
+export type AdminPersonaStatus = 'draft' | 'published' | 'archived'
+
+export type AdminPersonaUser = {
+  full_name: string
+  id?: number
+  email?: string
+}
+
+export type AdminPersonaVersion = {
+  id: number
+  number: number
+  digest: string
+  published_at: string
+  published_by: AdminPersonaUser
+  config?: PersonaConfiguration
+  restored_from_version?: null | {
+    id: number
+    number: number
+  }
+}
+
+export type AdminPersonaAssignment = {
+  id: number
+  cohort: {
+    id: number
+    name: string
+    status: AdminCohortStatus
+  }
+  persona: {
+    id: number
+    name: string
+  }
+  published_version: AdminPersonaVersion
+  assigned_at: string
+  updated_at: string
+  assigned_by: AdminPersonaUser
+}
+
+export type AdminPersonaPermissions = {
+  read: boolean
+  edit: boolean
+  publish: boolean
+  assign: boolean
+  archive: boolean
+  restore: boolean
+}
+
+export type AdminPersonaSummary = {
+  id: number
+  name: string
+  description: string
+  role: string | null
+  status: AdminPersonaStatus
+  owner: AdminPersonaUser
+  published_version: AdminPersonaVersion | null
+  visible_assignment_count: number
+  updated_at: string
+  permissions: AdminPersonaPermissions
+  draft_revision?: number
+  has_unpublished_changes?: boolean
+  preview_required?: boolean
+}
+
+export type AdminPersonaPreviewRecord = {
+  digest: string
+  draft_revision: number
+  generated_at: string
+}
+
+export type AdminPersonaDetail = AdminPersonaSummary & {
+  guardrails: {
+    editable: false
+    source: string
+    rules: string[]
+  }
+  versions: AdminPersonaVersion[]
+  assignments: AdminPersonaAssignment[]
+  draft?: PersonaConfiguration
+  preview?: AdminPersonaPreviewRecord | null
+}
+
+export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'safety_only' | 'unavailable'
+export type AdminPersonaBehavioralPreviewSource =
+  | 'not_requested'
+  | 'live_model'
+  | 'deterministic_safety'
+  | 'deterministic_fallback'
+  | 'verified_deterministic'
+  | 'model_unavailable'
+  | 'preview_error'
+
+export type AdminPersonaPreview = {
+  persona_id: number
+  draft_revision: number
+  digest: string
+  rendered_instructions: string
+  status: AdminPersonaBehavioralPreviewStatus
+  source: AdminPersonaBehavioralPreviewSource
+  sample_prompt: string | null
+  sample_reply: string | null
+  notice: string
+  warnings: string[]
+  guardrails_applied: boolean
+  generated_at: string
+}
+
+export type AdminPersonaPreviewResponse = {
+  preview: AdminPersonaPreview
+  persona: AdminPersonaDetail
+}
+
+export type AdminPersonaPublicationResponse = {
+  persona: AdminPersonaDetail
+  published_version: AdminPersonaVersion & { config: PersonaConfiguration }
+}
+
+export type AdminPersonaVersionResponse = {
+  persona: AdminPersonaSummary
+  version: AdminPersonaVersion
+}
+
+export type AdminPersonaAssignableCohort = {
+  id: number
+  name: string
+  status: AdminCohortStatus
+  assignable: boolean
+  blocked_reason: string | null
+  persona_assignment: AdminPersonaAssignment | null
+}
+
+export type AdminPersonaCreateInput = {
+  name?: string
+  description?: string
+  draft_config?: PersonaConfiguration
+}
+
+export type AdminPersonaUpdateInput = {
+  draft_revision: number
+  description?: string
+  draft_config?: PersonaConfiguration
+}
+
+export type AdminPersonaPublishInput = {
+  draft_revision: number
+  preview_digest: string
+  expected_published_version_id: number | null
+}
+
+export type AdminPersonaRollbackInput = {
+  draft_revision: number
+  expected_published_version_id: number | null
+}
+
 export type PilotSetupStatus = 'not_started' | 'started' | 'complete'
 
 export type PilotProgress = {
@@ -883,6 +1092,32 @@ type AuthTokenGetter = () => Promise<string | null>
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
 let authTokenGetter: AuthTokenGetter | null = null
 
+export type ApiErrorConflict = Record<string, unknown>
+
+export class ApiRequestError extends Error {
+  readonly status: number
+  readonly code: string | null
+  readonly errors: string[]
+  readonly conflicts: ApiErrorConflict[]
+
+  constructor(
+    message: string,
+    options: {
+      status: number
+      code?: string | null
+      errors?: string[]
+      conflicts?: ApiErrorConflict[]
+    },
+  ) {
+    super(message)
+    this.name = 'ApiRequestError'
+    this.status = options.status
+    this.code = options.code ?? null
+    this.errors = options.errors ?? []
+    this.conflicts = options.conflicts ?? []
+  }
+}
+
 function browserHostIsLocal() {
   if (typeof window === 'undefined') return true
 
@@ -935,7 +1170,7 @@ async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T>
   const response = await apiFetch(path, options)
 
   if (!response.ok) {
-    throw new Error(await responseErrorMessage(response, 'API request failed'))
+    throw await apiRequestError(response, 'API request failed')
   }
 
   if (response.status === 204) return undefined as T
@@ -972,7 +1207,7 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
     }
 
     if (!response.ok) {
-      throw new Error(await responseErrorMessage(response, 'API request failed'))
+      throw await apiRequestError(response, 'API request failed')
     }
 
     return response.json() as Promise<T>
@@ -988,6 +1223,40 @@ async function responseErrorMessage(response: Response, fallback: string) {
   } catch {
     return `${fallback}: ${response.status}`
   }
+}
+
+async function apiRequestError(response: Response, fallback: string) {
+  let payload: {
+    error?: unknown
+    errors?: unknown
+    code?: unknown
+    conflicts?: unknown
+  } = {}
+
+  try {
+    payload = (await response.json()) as typeof payload
+  } catch {
+    // A non-JSON failure still carries a useful HTTP status for the caller.
+  }
+
+  const errors = Array.isArray(payload.errors)
+    ? payload.errors.filter((error): error is string => typeof error === 'string')
+    : []
+  const conflicts = Array.isArray(payload.conflicts)
+    ? payload.conflicts.filter((conflict): conflict is ApiErrorConflict => (
+        typeof conflict === 'object' && conflict !== null && !Array.isArray(conflict)
+      ))
+    : []
+  const message = typeof payload.error === 'string'
+    ? payload.error
+    : errors.join(', ') || `${fallback}: ${response.status}`
+
+  return new ApiRequestError(message, {
+    status: response.status,
+    code: typeof payload.code === 'string' ? payload.code : null,
+    errors,
+    conflicts,
+  })
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
@@ -1050,6 +1319,112 @@ export async function fetchAdminUsers(): Promise<AdminUser[]> {
 export async function fetchAdminCohorts(): Promise<AdminCohort[]> {
   const payload = await fetchJson<{ cohorts: AdminCohort[] }>('/api/v1/admin/cohorts')
   return payload.cohorts
+}
+
+export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
+  const payload = await fetchJson<{ personas: AdminPersonaSummary[] }>('/api/v1/admin/personas')
+  return payload.personas
+}
+
+export async function fetchAdminPersona(id: number): Promise<AdminPersonaDetail> {
+  const payload = await fetchJson<{ persona: AdminPersonaDetail }>(`/api/v1/admin/personas/${id}`)
+  return payload.persona
+}
+
+export async function createAdminPersona(values: AdminPersonaCreateInput): Promise<AdminPersonaDetail> {
+  const payload = await postJson<{ persona: AdminPersonaDetail }>('/api/v1/admin/personas', { persona: values })
+  return payload.persona
+}
+
+export async function updateAdminPersona(id: number, values: AdminPersonaUpdateInput): Promise<AdminPersonaDetail> {
+  const payload = await fetchJson<{ persona: AdminPersonaDetail }>(`/api/v1/admin/personas/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ persona: values }),
+  })
+  return payload.persona
+}
+
+export async function archiveAdminPersona(id: number): Promise<AdminPersonaDetail> {
+  const payload = await fetchJson<{ persona: AdminPersonaDetail }>(`/api/v1/admin/personas/${id}`, { method: 'DELETE' })
+  return payload.persona
+}
+
+export async function restoreAdminPersona(id: number): Promise<AdminPersonaDetail> {
+  const payload = await postJson<{ persona: AdminPersonaDetail }>(`/api/v1/admin/personas/${id}/restore`, {})
+  return payload.persona
+}
+
+export async function previewAdminPersona(id: number, draftRevision: number, samplePrompt?: string): Promise<AdminPersonaPreviewResponse> {
+  return postJson<AdminPersonaPreviewResponse>(`/api/v1/admin/personas/${id}/preview`, {
+    preview: {
+      draft_revision: draftRevision,
+      ...(samplePrompt === undefined ? {} : { sample_prompt: samplePrompt }),
+    },
+  })
+}
+
+export async function publishAdminPersona(id: number, values: AdminPersonaPublishInput): Promise<AdminPersonaPublicationResponse> {
+  return postJson<AdminPersonaPublicationResponse>(`/api/v1/admin/personas/${id}/publish`, { publish: values })
+}
+
+export async function fetchAdminPersonaVersion(personaId: number, versionId: number): Promise<AdminPersonaVersionResponse> {
+  return fetchJson<AdminPersonaVersionResponse>(`/api/v1/admin/personas/${personaId}/versions/${versionId}`)
+}
+
+export async function rollbackAdminPersonaVersion(
+  personaId: number,
+  versionId: number,
+  values: AdminPersonaRollbackInput,
+): Promise<AdminPersonaPublicationResponse> {
+  return postJson<AdminPersonaPublicationResponse>(
+    `/api/v1/admin/personas/${personaId}/versions/${versionId}/rollback`,
+    { rollback: values },
+  )
+}
+
+export async function fetchAdminPersonaAssignableCohorts(): Promise<AdminPersonaAssignableCohort[]> {
+  const payload = await fetchJson<{ cohorts: AdminPersonaAssignableCohort[] }>('/api/v1/admin/personas/assignable_cohorts')
+  return payload.cohorts
+}
+
+export async function fetchAdminCohortPersonaAssignment(cohortId: number): Promise<AdminPersonaAssignment | null> {
+  const payload = await fetchJson<{ persona_assignment: AdminPersonaAssignment | null }>(
+    `/api/v1/admin/cohorts/${cohortId}/persona_assignment`,
+  )
+  return payload.persona_assignment
+}
+
+export async function updateAdminCohortPersonaAssignment(
+  cohortId: number,
+  personaId: number,
+  expectedPersonaId: number | null,
+): Promise<AdminPersonaAssignment> {
+  const payload = await fetchJson<{ persona_assignment: AdminPersonaAssignment }>(
+    `/api/v1/admin/cohorts/${cohortId}/persona_assignment`,
+    {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        persona_assignment: {
+          persona_id: personaId,
+          expected_persona_id: expectedPersonaId,
+        },
+      }),
+    },
+  )
+  return payload.persona_assignment
+}
+
+export async function deleteAdminCohortPersonaAssignment(
+  cohortId: number,
+  expectedPersonaId: number | null,
+): Promise<void> {
+  return fetchJson<void>(`/api/v1/admin/cohorts/${cohortId}/persona_assignment`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ persona_assignment: { expected_persona_id: expectedPersonaId } }),
+  })
 }
 
 export async function fetchAdminPlaidHealth(): Promise<AdminPlaidHealth> {

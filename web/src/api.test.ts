@@ -1,5 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { sendMiaMessage, setAuthTokenGetter, uploadDocumentImport } from './api'
+import {
+  ApiRequestError,
+  archiveAdminPersona,
+  createAdminPersona,
+  deleteAdminCohortPersonaAssignment,
+  fetchAdminCohortPersonaAssignment,
+  fetchAdminPersona,
+  fetchAdminPersonaAssignableCohorts,
+  fetchAdminPersonas,
+  fetchAdminPersonaVersion,
+  previewAdminPersona,
+  publishAdminPersona,
+  restoreAdminPersona,
+  rollbackAdminPersonaVersion,
+  sendMiaMessage,
+  setAuthTokenGetter,
+  updateAdminCohortPersonaAssignment,
+  updateAdminPersona,
+  uploadDocumentImport,
+} from './api'
 
 const completedPayload = {
   user_message: { id: 1, role: 'user', author: 'You', content: 'Hello', attachments: [], created_at: null },
@@ -10,6 +29,133 @@ afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
   setAuthTokenGetter(null)
+})
+
+function jsonResponse(payload: unknown, status = 200) {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  })
+}
+
+describe('Persona Studio API contract', () => {
+  it('uses the versioned draft lifecycle endpoints and request envelopes', async () => {
+    const persona = { id: 17, name: 'Coach Lani' }
+    const preview = { digest: 'preview-digest' }
+    const version = { id: 31, number: 1 }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ personas: [persona] }))
+      .mockResolvedValueOnce(jsonResponse({ persona }))
+      .mockResolvedValueOnce(jsonResponse({ persona }, 201))
+      .mockResolvedValueOnce(jsonResponse({ persona }))
+      .mockResolvedValueOnce(jsonResponse({ persona }))
+      .mockResolvedValueOnce(jsonResponse({ persona }))
+      .mockResolvedValueOnce(jsonResponse({ persona, preview }))
+      .mockResolvedValueOnce(jsonResponse({ persona, published_version: version }))
+      .mockResolvedValueOnce(jsonResponse({ persona, version }))
+      .mockResolvedValueOnce(jsonResponse({ persona, published_version: version }))
+    vi.stubGlobal('fetch', fetchMock)
+    setAuthTokenGetter(async () => 'staff-token')
+
+    expect(await fetchAdminPersonas()).toEqual([persona])
+    expect(await fetchAdminPersona(17)).toEqual(persona)
+    expect(await createAdminPersona({ name: 'Coach Lani' })).toEqual(persona)
+    expect(await updateAdminPersona(17, { draft_revision: 2, description: 'Clear and kind.' })).toEqual(persona)
+    expect(await archiveAdminPersona(17)).toEqual(persona)
+    expect(await restoreAdminPersona(17)).toEqual(persona)
+    expect(await previewAdminPersona(17, 2, 'Can I afford this?')).toEqual({ persona, preview })
+    expect(await publishAdminPersona(17, {
+      draft_revision: 2,
+      preview_digest: 'preview-digest',
+      expected_published_version_id: 30,
+    })).toEqual({ persona, published_version: version })
+    expect(await fetchAdminPersonaVersion(17, 31)).toEqual({ persona, version })
+    expect(await rollbackAdminPersonaVersion(17, 31, {
+      draft_revision: 2,
+      expected_published_version_id: 32,
+    })).toEqual({ persona, published_version: version })
+
+    expect(fetchMock).toHaveBeenCalledTimes(10)
+    expect(fetchMock.mock.calls.every((call) => (
+      (call[1] as RequestInit).headers as Record<string, string>
+    ).Authorization === 'Bearer staff-token')).toBe(true)
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/personas',
+      '/api/v1/admin/personas/17',
+      '/api/v1/admin/personas',
+      '/api/v1/admin/personas/17',
+      '/api/v1/admin/personas/17',
+      '/api/v1/admin/personas/17/restore',
+      '/api/v1/admin/personas/17/preview',
+      '/api/v1/admin/personas/17/publish',
+      '/api/v1/admin/personas/17/versions/31',
+      '/api/v1/admin/personas/17/versions/31/rollback',
+    ])
+    expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('PATCH')
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+      persona: { draft_revision: 2, description: 'Clear and kind.' },
+    })
+    expect((fetchMock.mock.calls[4][1] as RequestInit).method).toBe('DELETE')
+    expect(JSON.parse(String((fetchMock.mock.calls[6][1] as RequestInit).body))).toEqual({
+      preview: { draft_revision: 2, sample_prompt: 'Can I afford this?' },
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[7][1] as RequestInit).body))).toEqual({
+      publish: {
+        draft_revision: 2,
+        preview_digest: 'preview-digest',
+        expected_published_version_id: 30,
+      },
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[9][1] as RequestInit).body))).toEqual({
+      rollback: { draft_revision: 2, expected_published_version_id: 32 },
+    })
+  })
+
+  it('uses optimistic assignment values for replace and removal', async () => {
+    const assignment = { id: 44, persona: { id: 17, name: 'Coach Lani' } }
+    const cohort = { id: 9, persona_assignment: assignment }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ cohorts: [cohort] }))
+      .mockResolvedValueOnce(jsonResponse({ persona_assignment: assignment }))
+      .mockResolvedValueOnce(jsonResponse({ persona_assignment: assignment }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchAdminPersonaAssignableCohorts()).toEqual([cohort])
+    expect(await fetchAdminCohortPersonaAssignment(9)).toEqual(assignment)
+    expect(await updateAdminCohortPersonaAssignment(9, 17, 16)).toEqual(assignment)
+    await expect(deleteAdminCohortPersonaAssignment(9, 17)).resolves.toBeUndefined()
+
+    expect((fetchMock.mock.calls[2][1] as RequestInit).method).toBe('PATCH')
+    expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({
+      persona_assignment: { persona_id: 17, expected_persona_id: 16 },
+    })
+    expect((fetchMock.mock.calls[3][1] as RequestInit).method).toBe('DELETE')
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+      persona_assignment: { expected_persona_id: 17 },
+    })
+  })
+
+  it('preserves structured status, code, errors, and conflicts on an Error subclass', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(jsonResponse({
+      error: 'This cohort conflicts with another assignment.',
+      errors: ['Reload the current assignment.'],
+      code: 'persona_assignment_conflict',
+      conflicts: [{ participant_count: 3 }],
+    }, 409)))
+
+    const error = await updateAdminCohortPersonaAssignment(9, 17, null).catch((reason: unknown) => reason)
+
+    expect(error).toBeInstanceOf(Error)
+    expect(error).toBeInstanceOf(ApiRequestError)
+    expect(error).toMatchObject({
+      message: 'This cohort conflicts with another assignment.',
+      status: 409,
+      code: 'persona_assignment_conflict',
+      errors: ['Reload the current assignment.'],
+      conflicts: [{ participant_count: 3 }],
+    })
+  })
 })
 
 describe('Mia request idempotency polling', () => {

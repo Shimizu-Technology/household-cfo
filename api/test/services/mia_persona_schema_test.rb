@@ -218,6 +218,30 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     assert_includes errors, "$.phrases[0].allowed_contexts[0] is not supported"
   end
 
+  test "validation before coaching is a locked true invariant" do
+    config = persona_configuration
+    assert_includes Mia::PersonaPromptBuilder.call(config), "validate before coaching"
+    refute_includes Mia::PersonaPromptBuilder.call(config), "validation is optional"
+
+    [ false, nil, "true" ].each do |invalid|
+      config["response_shape"]["validate_before_coaching"] = invalid
+      assert_includes Mia::PersonaSchema.errors(config), "$.response_shape.validate_before_coaching must be true"
+      assert_raises(Mia::PersonaSchema::InvalidConfiguration) { Mia::PersonaPromptBuilder.call(config) }
+    end
+  end
+
+  test "one next move is a locked true invariant" do
+    config = persona_configuration
+    assert_includes Mia::PersonaPromptBuilder.call(config), "end with one next move"
+    refute_includes Mia::PersonaPromptBuilder.call(config), "a next move is optional"
+
+    [ false, nil, "true" ].each do |invalid|
+      config["response_shape"]["next_move_required"] = invalid
+      assert_includes Mia::PersonaSchema.errors(config), "$.response_shape.next_move_required must be true"
+      assert_raises(Mia::PersonaSchema::InvalidConfiguration) { Mia::PersonaPromptBuilder.call(config) }
+    end
+  end
+
   test "preview digest is bound to compiled prompt draft revision and safety version" do
     config = persona_configuration
     digest = Mia::PersonaPromptBuilder.digest(config, draft_revision: 3)

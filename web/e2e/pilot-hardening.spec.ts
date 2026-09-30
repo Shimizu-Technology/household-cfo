@@ -252,6 +252,70 @@ const pilotAdminUser = {
   workspace: { invited: true, signed_in: true, setup_status: 'started', setup_complete: false, has_pending_review_work: true, last_safe_activity_at: '2026-07-17T00:00:00Z' },
 }
 
+const personaConfiguration = {
+  version: 1 as const,
+  identity: {
+    assistant_name: 'Coach Lani', human_coach_name: 'Mrs. Mel', human_coach_title: 'Financial coach',
+    assistant_relationship: "A digital coaching assistant that applies the human coach's approved teaching without impersonating the human coach.",
+    disclosure: "Be clear that this is a digital assistant guided by the human coach's published approach.",
+    audience: "People participating in Mrs. Mel's financial education program.", client_term: 'participant',
+  },
+  voice: {
+    tone_traits: ['warm', 'direct', 'respectful'], energy: 'Calm and focused.',
+    accountability_style: "Name choices and patterns clearly while protecting the participant's dignity.",
+    language_style: ['Use plain language.', 'Keep the next step concrete.'],
+  },
+  coaching: {
+    philosophy: 'Help the participant understand the decision and make one practical move at a time.',
+    method: 'Answer the direct question, explain the reasoning, and identify one useful next step.',
+    principles: ["Use the participant's confirmed information.", 'Coach decisions and patterns without shame.'],
+    do: [], do_not: [],
+  },
+  culture: {
+    locale_label: 'No locale selected',
+    context: 'Use only cultural and community context explicitly approved by the human coach.',
+    local_realities: [], references: [],
+  },
+  phrases: [],
+  curriculum: { guidance: [], scripts: [], examples: [] },
+  response_shape: {
+    min_sentences: 2, max_sentences: 5, max_characters: 1500,
+    plain_text_only: true, validate_before_coaching: true, next_move_required: true,
+  },
+}
+
+function personaDetailFixture() {
+  return {
+    id: 81,
+    name: 'Coach Lani',
+    description: "Mrs. Mel's first cohort voice",
+    role: "A digital coaching assistant that applies the human coach's approved teaching without impersonating the human coach.",
+    status: 'draft',
+    owner: { id: 900, email: 'admin@pilot.test', full_name: 'Pilot Admin' },
+    published_version: null,
+    visible_assignment_count: 0,
+    updated_at: '2026-10-01T00:00:00Z',
+    permissions: { read: true, edit: true, publish: true, assign: true, archive: true, restore: false },
+    draft_revision: 1,
+    has_unpublished_changes: true,
+    preview_required: true,
+    guardrails: {
+      editable: false,
+      source: 'Household CFO system',
+      rules: [
+        'Use only approved household financial facts.',
+        'Keep the participant in control of every financial write.',
+        'Do not provide licensed advice or bypass crisis handling.',
+        'Do not imitate accents or invent cultural stereotypes.',
+      ],
+    },
+    versions: [],
+    assignments: [],
+    draft: structuredClone(personaConfiguration),
+    preview: null,
+  }
+}
+
 const pilotFeedbackSummary = {
   id: 72, workflow: 'ask_mia', status: 'submitted', screenshot_attached: true,
   reporter: { id: 901, email: 'participant@pilot.test', full_name: 'Test Participant' },
@@ -288,6 +352,16 @@ function chatMessages(count = 125) {
 
 async function mockDemoApi(page: Page) {
   let pilotFeedbackStatus = 'submitted'
+  let persona = personaDetailFixture()
+  let personaAssignment: null | Record<string, unknown> = null
+  const assignableCohort = () => ({
+    id: 41,
+    name: 'Household CFO pilot',
+    status: 'active',
+    assignable: true,
+    blocked_reason: null,
+    persona_assignment: personaAssignment,
+  })
   const responses: Record<string, unknown> = {
     '/api/demo/profile': profile,
     '/api/demo/dashboard': dashboard,
@@ -316,6 +390,72 @@ async function mockDemoApi(page: Page) {
   await page.route('http://api.test/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname
+    if (path === '/api/v1/admin/personas' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { personas: [persona] } })
+    }
+    if (path === '/api/v1/admin/personas' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON().persona
+      persona = { ...personaDetailFixture(), name: body.name, description: body.description ?? '', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: body.name } } }
+      return route.fulfill({ status: 201, json: { persona } })
+    }
+    if (path === '/api/v1/admin/personas/assignable_cohorts') {
+      return route.fulfill({ status: 200, json: { cohorts: [assignableCohort(), { id: 42, name: 'Completed cohort', status: 'completed', assignable: false, blocked_reason: 'Completed and archived cohorts are read-only.', persona_assignment: null }] } })
+    }
+    if (path === '/api/v1/admin/personas/81' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { persona } })
+    }
+    if (path === '/api/v1/admin/personas/81' && route.request().method() === 'PATCH') {
+      const body = route.request().postDataJSON().persona
+      persona = {
+        ...persona,
+        name: body.draft_config.identity.assistant_name,
+        description: body.description,
+        draft_revision: persona.draft_revision + 1,
+        draft: body.draft_config,
+        preview: null,
+        preview_required: true,
+        has_unpublished_changes: true,
+      }
+      return route.fulfill({ status: 200, json: { persona } })
+    }
+    if (path === '/api/v1/admin/personas/81' && route.request().method() === 'DELETE') {
+      persona = { ...persona, status: 'archived', permissions: { ...persona.permissions, edit: false, publish: false, assign: false, archive: false, restore: true } }
+      return route.fulfill({ status: 200, json: { persona } })
+    }
+    if (path === '/api/v1/admin/personas/81/preview' && route.request().method() === 'POST') {
+      const body = route.request().postDataJSON().preview
+      const digest = `preview-${persona.draft_revision}`
+      persona = { ...persona, preview: { digest, draft_revision: persona.draft_revision, generated_at: '2026-10-01T01:00:00Z' }, preview_required: false }
+      return route.fulfill({ status: 200, json: { persona, preview: { persona_id: 81, draft_revision: persona.draft_revision, digest, rendered_instructions: 'Identity: The assistant is Coach Lani. Always disclose that this is a digital assistant.', status: 'ready', source: 'live_model', sample_prompt: body.sample_prompt ?? null, sample_reply: 'Start by deciding whether this is a need or a want, then name the budget category that would cover it.', notice: 'Generated from this exact fictional draft with no participant financial data.', warnings: [], guardrails_applied: true, generated_at: '2026-10-01T01:00:00Z' } } })
+    }
+    if (path === '/api/v1/admin/personas/81/publish' && route.request().method() === 'POST') {
+      const number = (persona.published_version?.number ?? 0) + 1
+      const version = { id: 100 + number, number, digest: `version-${number}`, published_at: '2026-10-01T01:05:00Z', published_by: persona.owner, config: persona.draft }
+      persona = { ...persona, status: 'published', published_version: version, versions: [version, ...persona.versions], has_unpublished_changes: false, preview_required: false }
+      return route.fulfill({ status: 200, json: { persona, published_version: version } })
+    }
+    if (path === '/api/v1/admin/personas/81/restore' && route.request().method() === 'POST') {
+      persona = { ...persona, status: 'draft', permissions: { ...persona.permissions, edit: true, publish: true, assign: true, archive: true, restore: false }, has_unpublished_changes: true, preview_required: true }
+      return route.fulfill({ status: 200, json: { persona } })
+    }
+    const rollbackMatch = path.match(/^\/api\/v1\/admin\/personas\/81\/versions\/(\d+)\/rollback$/)
+    if (rollbackMatch && route.request().method() === 'POST') {
+      const target = persona.versions.find((version: { id: number }) => version.id === Number(rollbackMatch[1]))
+      const number = (persona.published_version?.number ?? 0) + 1
+      const version = { ...target, id: 100 + number, number, digest: `version-${number}`, published_at: '2026-10-01T01:20:00Z', published_by: persona.owner, restored_from_version: { id: target.id, number: target.number } }
+      persona = { ...persona, status: 'published', name: target.config.identity.assistant_name, draft: target.config, published_version: version, versions: [version, ...persona.versions], has_unpublished_changes: false, preview_required: true, preview: null }
+      return route.fulfill({ status: 200, json: { persona, published_version: version } })
+    }
+    if (path === '/api/v1/admin/cohorts/41/persona_assignment' && route.request().method() === 'PATCH') {
+      personaAssignment = { id: 501, cohort: { id: 41, name: 'Household CFO pilot', status: 'active' }, persona: { id: 81, name: persona.name }, published_version: persona.published_version, assigned_at: '2026-10-01T01:10:00Z', updated_at: '2026-10-01T01:10:00Z', assigned_by: persona.owner }
+      persona = { ...persona, visible_assignment_count: 1, assignments: [personaAssignment], permissions: { ...persona.permissions, archive: false } }
+      return route.fulfill({ status: 200, json: { persona_assignment: personaAssignment } })
+    }
+    if (path === '/api/v1/admin/cohorts/41/persona_assignment' && route.request().method() === 'DELETE') {
+      personaAssignment = null
+      persona = { ...persona, visible_assignment_count: 0, assignments: [], permissions: { ...persona.permissions, archive: true } }
+      return route.fulfill({ status: 204, body: '' })
+    }
     if (path === '/api/v1/workspace/setup' && route.request().method() === 'PATCH') return route.fulfill({ status: 200, json: realWorkspaceData(true) })
     if (path === '/api/v1/pilot_feedback_reports' && route.request().method() === 'POST') {
       return route.fulfill({ status: 201, json: { feedback_report: { id: 55, workflow: 'setup', screenshot_attached: false, status: 'submitted', created_at: '2026-07-17T00:00:00Z' } } })
@@ -2292,6 +2432,371 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   await expect(participantRow.getByText(/profile completeness/i)).toHaveCount(0)
   await expect(participantRow.getByText(/readiness/i)).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio preserves coach-authored community context through preview, publish, and assignment', async ({ page }) => {
+  let initialWorkspaceAuthorization = ''
+  await page.route('http://api.test/api/v1/workspace', async (route) => {
+    initialWorkspaceAuthorization = route.request().headers().authorization ?? ''
+    await route.fallback()
+  })
+  await page.goto('/?pilot_e2e_role=admin')
+  await openSection(page, 'Coach Studio')
+
+  expect(initialWorkspaceAuthorization).toBe('Bearer test_token:e2e_admin:admin@pilot.test:Pilot:Admin')
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await expect(page.getByRole('heading', { name: 'Shape a coaching assistant people can trust.' })).toBeFocused()
+  await expect(page.getByText('Always a digital assistant.')).toBeVisible()
+
+  const identityTab = page.getByRole('tab', { name: /Identity/ })
+  await identityTab.focus()
+  await identityTab.press('ArrowRight')
+  await expect(page.getByRole('tab', { name: /Voice/ })).toBeFocused()
+  await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'coach-step-tab-voice')
+  await page.getByRole('tab', { name: /Community/ }).click()
+  await expect(page.getByText('Coach authored only.')).toBeVisible()
+  await page.getByLabel('Locale label').fill("Guam families in Mrs. Mel's first cohort")
+  const localRealities = page.getByLabel('Local realities')
+  await localRealities.fill('')
+  await localRealities.pressSequentially('Higher shipping costs')
+  await localRealities.press('Enter')
+  await localRealities.pressSequentially('Multigenerational household support')
+  await expect(localRealities).toHaveValue('Higher shipping costs\nMultigenerational household support')
+  await expect(page.getByText('No phrases added. Locale alone will never create them.')).toBeVisible()
+  await page.getByRole('button', { name: 'Add phrase' }).click()
+  const phraseInput = page.getByLabel('Phrase', { exact: true })
+  await phraseInput.fill('')
+  await phraseInput.pressSequentially('Pause, name the number, then choose.')
+  await expect(phraseInput).toBeFocused()
+  await expect(phraseInput).toHaveValue('Pause, name the number, then choose.')
+
+  await page.getByRole('button', { name: /Advanced settings/ }).click()
+  await page.getByText('Community', { exact: true }).click()
+  await expect(page.getByLabel('Locale label')).toHaveValue("Guam families in Mrs. Mel's first cohort")
+  await page.getByRole('button', { name: /Guided setup/ }).click()
+  await expect(page.getByLabel('Locale label')).toHaveValue("Guam families in Mrs. Mel's first cohort")
+  await page.getByRole('tab', { name: /Teaching & response/ }).click()
+  await expect(page.getByLabel('Require one next move')).toHaveCount(0)
+  await expect(page.getByText('Fact validation and one concrete next move are always on.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Draft saved')
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+
+  const preview = page.getByRole('region', { name: 'Exact draft preview' })
+  await expect(preview).toContainText('Behavioral sample ready')
+  await expect(preview).toContainText('Live Model')
+  await expect(preview).toContainText('Guardrails applied: Yes')
+  await page.getByText('Locked system guardrails').click()
+  await expect(page.getByText('Do not imitate accents or invent cultural stereotypes.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Publish first version' }).click()
+  await expect(page.getByRole('status')).toContainText('version 1 is published')
+
+  const activeCohort = page.locator('.coach-cohort-list article').filter({ hasText: 'Household CFO pilot' })
+  await activeCohort.getByRole('button', { name: 'Assign', exact: true }).click()
+  await expect(activeCohort).toContainText('Coach Lani assigned')
+  await expect(page.getByText('1 visible assignment')).toBeVisible()
+  await expect(page.locator('.coach-library-list')).toContainText('1 cohort assignment')
+  await expect(page.getByText('Remove this assistant from every draft, enrolling, or active cohort before archiving.')).toBeVisible()
+
+  const completedCohort = page.locator('.coach-cohort-list article').filter({ hasText: 'Completed cohort' })
+  await expect(completedCohort.getByRole('button', { name: 'Assign', exact: true })).toBeDisabled()
+  await expect(completedCohort).toContainText('Completed and archived cohorts are read-only.')
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await activeCohort.getByRole('button', { name: 'Remove', exact: true }).click()
+  await expect(activeCohort).toContainText('Neutral product voice')
+  await expect(page.locator('.coach-library-list')).toContainText('0 cohort assignments')
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Archive assistant', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Restore assistant', exact: true })).toBeVisible()
+  await expect(page.getByText('This assistant is read-only for your account or while archived.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Restore assistant', exact: true }).click()
+  await expect(page.getByText('restored as an editable draft')).toBeVisible()
+
+  await page.getByRole('tab', { name: /Identity/ }).click()
+  await page.getByLabel('Assistant name').fill('Coach Lani Next')
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await page.getByRole('button', { name: 'Publish next version' }).click()
+  await expect(page.getByRole('status')).toContainText('version 2 is published')
+
+  await page.getByText('Version history (2)').click()
+  const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
+  page.once('dialog', (dialog) => dialog.accept())
+  await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
+  await expect(page.getByRole('status')).toContainText('Version 3 is now published from version 1')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio protects unsaved work across mobile back and section navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await expect(page.locator('.coach-library')).toBeHidden()
+  await expect(page.locator('.coach-save-bar')).toHaveCSS('position', 'static')
+
+  await page.getByLabel('Assistant name').fill('Coach Lani with unsaved work')
+  await page.getByRole('button', { name: 'All assistants' }).click()
+  const backConflict = page.getByRole('alert')
+  await expect(backConflict).toContainText('unsaved changes')
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani with unsaved work')
+  await backConflict.getByRole('button', { name: 'Keep editing' }).click()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard your unsaved Coach Studio changes')
+    await dialog.dismiss()
+  })
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani with unsaved work')
+
+  await page.getByRole('button', { name: 'All assistants' }).click()
+  await page.getByRole('alert').getByRole('button', { name: 'Discard and show assistants' }).click()
+  await expect(page.locator('.coach-library')).toBeVisible()
+  await expect(page.getByRole('heading', { name: '1 coaching assistant' })).toBeFocused()
+  await expect(page.locator('.coach-editor-column')).toBeHidden()
+  const filterHeight = await page.getByRole('button', { name: 'Active', exact: true }).evaluate((element) => element.getBoundingClientRect().height)
+  expect(filterHeight).toBeGreaterThanOrEqual(44)
+})
+
+test('Coach Studio keeps publishing locked when the behavioral preview is unavailable', async ({ page }) => {
+  await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
+    const detail = personaDetailFixture()
+    const body = route.request().postDataJSON().preview
+    return route.fulfill({
+      status: 200,
+      json: {
+        persona: detail,
+        preview: {
+          persona_id: 81,
+          draft_revision: 1,
+          digest: 'compile-only-digest',
+          rendered_instructions: 'Compiled safely.',
+          status: 'unavailable',
+          source: 'model_unavailable',
+          sample_prompt: body.sample_prompt,
+          sample_reply: null,
+          notice: 'The exact draft compiled, but the behavioral model preview is unavailable.',
+          warnings: [],
+          guardrails_applied: true,
+          generated_at: '2026-10-01T01:00:00Z',
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await expect(page.getByText('Use fictional details only.', { exact: false })).toBeVisible()
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await expect(page.getByRole('region', { name: 'Exact draft preview' })).toContainText('Behavioral sample unavailable')
+  await expect(page.getByRole('button', { name: 'Publish first version' })).toBeDisabled()
+  await expect(page.getByText('A successful behavioral preview is required before publishing.')).toBeVisible()
+})
+
+test('Coach Studio shows a crisis boundary without treating it as a publishable persona preview', async ({ page }) => {
+  await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
+    const detail = personaDetailFixture()
+    const body = route.request().postDataJSON().preview
+    return route.fulfill({
+      status: 200,
+      json: {
+        persona: detail,
+        preview: {
+          persona_id: 81,
+          draft_revision: 1,
+          digest: 'safety-only-digest',
+          rendered_instructions: 'Compiled safely.',
+          status: 'safety_only',
+          source: 'deterministic_safety',
+          sample_prompt: body.sample_prompt,
+          sample_reply: 'Call or text 988 now.',
+          notice: 'Safety rules took precedence. This cannot authorize publication.',
+          warnings: [],
+          guardrails_applied: true,
+          generated_at: '2026-10-01T01:00:00Z',
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByLabel('Behavioral preview question').fill('I want to die')
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+
+  const preview = page.getByRole('region', { name: 'Exact draft preview' })
+  await expect(preview).toContainText('Safety response checked')
+  await expect(preview).toContainText('Call or text 988 now.')
+  await expect(preview).toContainText('cannot authorize publication')
+  await expect(page.getByRole('button', { name: 'Publish first version' })).toBeDisabled()
+  await expect(page.getByText('The crisis boundary worked, but it did not exercise this persona.')).toBeVisible()
+})
+
+test('Coach Studio explains why a saved server preview must be reviewed again after reload', async ({ page }) => {
+  const savedPreview = {
+    ...personaDetailFixture(),
+    preview_required: false,
+    preview: { digest: 'saved-preview-digest', draft_revision: 1, generated_at: '2026-10-01T01:00:00Z' },
+  }
+  await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [savedPreview] } }))
+  await page.route('http://api.test/api/v1/admin/personas/81', (route) => route.fulfill({ status: 200, json: { persona: savedPreview } }))
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+
+  await expect(page.getByText('Saved Preview', { exact: true })).toBeVisible()
+  await expect(page.getByText('This exact revision passed preview in another session.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Publish first version' })).toBeDisabled()
+})
+
+test('Coach Studio confirms immediate assigned-cohort impact before publishing a new version', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await page.getByRole('button', { name: 'Publish first version' }).click()
+  const activeCohort = page.locator('.coach-cohort-list article').filter({ hasText: 'Household CFO pilot' })
+  await activeCohort.getByRole('button', { name: 'Assign', exact: true }).click()
+
+  await page.getByLabel('Assistant name').fill('Coach Lani Version Two')
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+  await expect(page.getByText('Publishing or restoring a version updates future participant messages')).toBeVisible()
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Future participant messages in 1 assigned cohort will use it immediately.')
+    await dialog.accept()
+  })
+  await page.getByRole('button', { name: 'Publish next version' }).click()
+  await expect(page.getByRole('status')).toContainText('version 2 is published')
+})
+
+test('Coach Studio ignores stale assistant detail responses during rapid selection', async ({ page }, testInfo) => {
+  test.skip(!['desktop-chrome', 'tablet-1024-chrome'].includes(testInfo.project.name), 'two-pane selection ordering check')
+  const first = personaDetailFixture()
+  const second = { ...personaDetailFixture(), id: 82, name: 'Coach B', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: 'Coach B' } } }
+  const third = { ...personaDetailFixture(), id: 83, name: 'Coach C', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: 'Coach C' } } }
+  await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [first, second, third] } }))
+  await page.route('http://api.test/api/v1/admin/personas/82', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 250))
+    await route.fulfill({ status: 200, json: { persona: second } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/83', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    await route.fulfill({ status: 200, json: { persona: third } })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.locator('.coach-library-list').getByRole('button', { name: /Coach B/ }).click()
+  await page.locator('.coach-library-list').getByRole('button', { name: /Coach C/ }).click()
+  await expect(page.getByRole('heading', { name: 'Coach C' })).toBeVisible()
+  await page.waitForTimeout(300)
+  await expect(page.getByRole('heading', { name: 'Coach C' })).toBeVisible()
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Coach C')
+})
+
+test('Coach Studio prevents assistant switches while a mutation is pending', async ({ page }, testInfo) => {
+  const first = personaDetailFixture()
+  const second = { ...personaDetailFixture(), id: 82, name: 'Coach B', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: 'Coach B' } } }
+  await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [first, second] } }))
+  await page.route('http://api.test/api/v1/admin/personas/82', (route) => route.fulfill({ status: 200, json: { persona: second } }))
+  await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await route.fallback()
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+
+  const selectionControl = ['desktop-chrome', 'tablet-1024-chrome'].includes(testInfo.project.name)
+    ? page.locator('.coach-library-list').getByRole('button', { name: /Coach B/ })
+    : page.getByRole('button', { name: 'All assistants' })
+  await expect(selectionControl).toBeDisabled()
+  await expect(page.getByRole('region', { name: 'Exact draft preview' })).toContainText('Behavioral sample ready')
+  await expect(selectionControl).toBeEnabled()
+})
+
+test('Coach Studio retains unsaved work when the server reports a draft conflict', async ({ page }) => {
+  let conflictPending = true
+  await page.route('http://api.test/api/v1/admin/personas/81', async (route) => {
+    if (route.request().method() !== 'PATCH' || !conflictPending) return route.fallback()
+    conflictPending = false
+    return route.fulfill({
+      status: 409,
+      json: {
+        error: 'This assistant changed on the server. Reload the latest draft before saving again.',
+        code: 'persona_draft_conflict',
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await expect(page.getByRole('heading', { name: 'Shape a coaching assistant people can trust.' })).toBeVisible()
+
+  await page.getByLabel('Assistant name').fill('Coach Lani — revised locally')
+  await page.getByRole('button', { name: 'Save draft' }).click()
+
+  const conflict = page.getByRole('alert')
+  await expect(conflict).toContainText('changed on the server')
+  await expect(conflict.getByRole('button', { name: 'Reload server draft' })).toBeVisible()
+  await expect(page.getByLabel('Assistant name')).toHaveValue('Coach Lani — revised locally')
+  await expect(page.getByText('Unsaved changes')).toBeVisible()
+})
+
+test('Coach Studio gives assigned coaches a scoped read-only view of another owner’s assistant', async ({ page }) => {
+  const version = {
+    id: 101,
+    number: 1,
+    digest: 'version-1',
+    published_at: '2026-10-01T01:05:00Z',
+    published_by: { full_name: 'Pilot Admin' },
+  }
+  const assignment = {
+    id: 501,
+    cohort: { id: 41, name: 'Household CFO pilot', status: 'active' },
+    persona: { id: 81, name: 'Coach Lani' },
+    published_version: version,
+    assigned_at: '2026-10-01T01:10:00Z',
+    updated_at: '2026-10-01T01:10:00Z',
+    assigned_by: { full_name: 'Pilot Admin' },
+  }
+  const readOnlyPersona: Record<string, unknown> = {
+    ...personaDetailFixture(),
+    description: '',
+    status: 'published',
+    published_version: version,
+    versions: [version],
+    assignments: [assignment],
+    visible_assignment_count: 1,
+    permissions: { read: true, edit: false, publish: false, assign: false, archive: false, restore: false },
+    preview_required: false,
+    has_unpublished_changes: false,
+  }
+  delete readOnlyPersona.draft
+  delete readOnlyPersona.draft_revision
+  delete readOnlyPersona.preview
+
+  await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [readOnlyPersona] } }))
+  await page.route('http://api.test/api/v1/admin/personas/81', (route) => route.fulfill({ status: 200, json: { persona: readOnlyPersona } }))
+
+  await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await expect(page.getByText('Published assistant assigned to a cohort you manage.')).toBeVisible()
+  await expect(page.getByText('Private draft settings are visible only to the owning coach and administrators.')).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Editing mode' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save draft' })).toHaveCount(0)
+  await expect(page.getByText('Remove this assistant from every draft, enrolling, or active cohort before archiving.')).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Admin', exact: true })).toHaveCount(0)
+})
+
+test('Coach Studio stays private from participant navigation and direct URLs', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name.includes('mobile'), 'desktop authorization history assertion')
+  await page.goto('/?pilot_e2e_role=participant#Coach%20Studio')
+
+  await expect(page).toHaveURL(/#Home$/)
+  await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Coach Studio', exact: true })).toHaveCount(0)
 })
 
 test('participant can add edit and explicitly remove individual debt records', async ({ page }) => {

@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class CoachPersona < ApplicationRecord
+  LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
+
   scope :active, -> { where(archived_at: nil) }
   scope :archived, -> { where.not(archived_at: nil) }
 
@@ -38,6 +40,10 @@ class CoachPersona < ApplicationRecord
 
   def archived?
     archived_at.present?
+  end
+
+  def live_cohort_assignments?
+    cohort_persona_assignments.joins(:cohort).where(cohorts: { status: LIVE_COHORT_STATUSES }).exists?
   end
 
   def archive!

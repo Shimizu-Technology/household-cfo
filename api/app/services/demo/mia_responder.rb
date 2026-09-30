@@ -482,6 +482,7 @@ module Demo
     end
 
     def fallback_response(message, context:)
+      @response_source = "deterministic_fallback"
       return crisis_response if crisis_message?(message)
       return low_signal_response(message) if low_signal_message?(message)
       return discretionary_spending_response if screenshot_spending_question?(message)

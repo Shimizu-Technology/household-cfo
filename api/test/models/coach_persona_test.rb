@@ -88,4 +88,25 @@ class CoachPersonaTest < ActiveSupport::TestCase
     persona.restore!
     refute persona.archived?
   end
+
+  test "live cohort assignments include only draft enrolling and active cohorts" do
+    persona = create_persona(name: "Assignment status assistant")
+    version = publish_persona(persona, actor: persona.created_by_user)
+    cohort = cohort_for(persona.created_by_user, name: "Assignment status cohort")
+    CohortPersonaAssignment.create!(
+      cohort: cohort,
+      coach_persona: persona,
+      coach_persona_version: version,
+      assigned_by_user: persona.created_by_user
+    )
+
+    %w[draft enrolling active].each do |status|
+      cohort.update!(status: status)
+      assert persona.live_cohort_assignments?, "expected #{status} to remain live"
+    end
+    %w[completed archived].each do |status|
+      cohort.update!(status: status)
+      refute persona.live_cohort_assignments?, "expected #{status} to be inactive"
+    end
+  end
 end

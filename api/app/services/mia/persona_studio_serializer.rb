@@ -133,7 +133,7 @@ module Mia
         edit: editable && !persona.archived?,
         publish: editable && !persona.archived?,
         assign: policy.can_assign?(persona),
-        archive: editable && !persona.archived? && persona.cohort_persona_assignments.none?,
+        archive: editable && !persona.archived? && !persona.live_cohort_assignments?,
         restore: editable && persona.archived?
       }
     end

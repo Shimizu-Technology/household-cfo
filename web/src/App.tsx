@@ -9,6 +9,7 @@ import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
+import { CoachStudio } from './components/CoachStudio'
 import {
   AnnualCashFlowChart,
   CategoryPressureList,
@@ -129,9 +130,10 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 
 const sections = ['Home', 'Review', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
+const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
-const allSections = [...sections, ADMIN_SECTION]
+const allSections = [...sections, COACH_STUDIO_SECTION, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 2_000
 const DEMO_MIA_STORAGE_MAX_MESSAGES = 100
@@ -326,7 +328,7 @@ function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSet
 
 function App() {
   const auth = useAuthContext()
-  const canLoadWorkspace = !auth.isClerkEnabled || Boolean(auth.currentUser)
+  const canLoadWorkspace = !auth.isVerifyingApi && (!auth.isClerkEnabled || Boolean(auth.currentUser))
   const [data, setData] = useState<AppData | null>(null)
   const [workspaceLoadAttempt, setWorkspaceLoadAttempt] = useState(0)
   const [setupDraft, setSetupDraft] = useState<WorkspaceSetupDraft | null>(null)
@@ -355,6 +357,7 @@ function App() {
   const [budgetAction, setBudgetAction] = useState<string | null>(null)
   const [budgetError, setBudgetError] = useState<string | null>(null)
   const [hasUnsavedBudgetChanges, setHasUnsavedBudgetChanges] = useState(false)
+  const [hasUnsavedCoachChanges, setHasUnsavedCoachChanges] = useState(false)
   const [budgetView, setBudgetView] = useState<{ year: number; monthIndex: number } | null>(null)
   const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
   const [spendingReportLoading, setSpendingReportLoading] = useState(false)
@@ -423,8 +426,12 @@ function App() {
   const isFirstSessionUpload = isFirstSessionSetup && firstSessionUploadOpen
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
-  const visibleSections = useMemo(() => (auth.currentUser?.is_admin ? [...sections, ADMIN_SECTION] : sections), [auth.currentUser?.is_admin])
-  const activeSection = active === ADMIN_SECTION && auth.currentUser && !auth.currentUser.is_admin ? sections[0] : active
+  const visibleSections = useMemo(() => {
+    const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
+    const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
+    return [...sections, ...staffSections, ...adminSections]
+  }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff])
+  const activeSection = !visibleSections.includes(active) ? sections[0] : active
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
     return explicitImport ?? documentImports.find((documentImport) => documentImport.status === 'needs_review') ?? documentImports[0] ?? null
@@ -1013,6 +1020,10 @@ function App() {
       setBudgetError('You have unsaved budget changes. Save or cancel them before leaving Budget.')
       return false
     }
+    if (activeSection === COACH_STUDIO_SECTION && targetSection !== COACH_STUDIO_SECTION && hasUnsavedCoachChanges) {
+      if (!window.confirm('Discard your unsaved Coach Studio changes and leave this screen?')) return false
+      setHasUnsavedCoachChanges(false)
+    }
     if (canResumePlaidOAuthReturn && targetSection !== 'My Profile') {
       setRouteAnnouncement('Finish the bank connection before leaving My Profile.')
       return false
@@ -1059,7 +1070,7 @@ function App() {
       )
     }
     return true
-  }, [activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, visibleSections])
+  }, [activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedCoachChanges, visibleSections])
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
@@ -2906,6 +2917,10 @@ function App() {
         <AdminConsole currentUser={auth.currentUser} />
       )}
 
+      {activeSection === COACH_STUDIO_SECTION && auth.currentUser?.is_staff && (
+        <CoachStudio currentUser={auth.currentUser} onDirtyChange={setHasUnsavedCoachChanges} />
+      )}
+
       {confirmClearChat && (
         <ClearChatConfirmDialog
           isClearing={miaClearing}
@@ -3248,6 +3263,7 @@ function pilotFeedbackWorkflowForSection(section: string): PilotFeedbackWorkflow
   if (section === 'Ask Mia') return 'ask_mia'
   if (section === 'My Profile') return 'setup'
   if (section === 'Budget') return 'budget'
+  if (section === COACH_STUDIO_SECTION) return 'admin'
   if (section === ADMIN_SECTION) return 'admin'
   if (section === 'Home') return 'home'
   return 'other'

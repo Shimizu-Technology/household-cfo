@@ -4,8 +4,6 @@ module Api
   module V1
     module Admin
       class MiaPersonasController < BaseController
-        LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
-
         before_action :authenticate_user!
         before_action :require_staff!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
@@ -64,7 +62,7 @@ module Api
         def destroy
           persona = editable_persona
           assigned = persona.with_lock do
-            next true if persona.cohort_persona_assignments.joins(:cohort).where(cohorts: { status: LIVE_COHORT_STATUSES }).exists?
+            next true if persona.live_cohort_assignments?
 
             persona.archive!
             false
@@ -103,13 +101,17 @@ module Api
 
         def preview
           persona = editable_persona
-          result = Mia::PersonaPublisher.new(persona: persona, actor: current_user).preview!(
+          publisher = Mia::PersonaPublisher.new(persona: persona, actor: current_user)
+          result = publisher.compile_preview!(
             expected_draft_revision: preview_params[:draft_revision]
           )
           behavioral_preview = Mia::PersonaPreviewer.new(
             persona: persona,
             sample_prompt: preview_params[:sample_prompt]
           ).call
+          if behavioral_preview.fetch(:status) == "ready"
+            result = publisher.preview!(expected_draft_revision: preview_params[:draft_revision])
+          end
           render json: {
             preview: {
               persona_id: persona.id,
@@ -119,7 +121,7 @@ module Api
               **behavioral_preview,
               warnings: [],
               guardrails_applied: true,
-              generated_at: persona.reload.previewed_at
+              generated_at: Time.current
             },
             persona: serializer(persona).detail
           }
