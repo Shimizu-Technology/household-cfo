@@ -1,4 +1,5 @@
 require "test_helper"
+require "spreadsheet"
 require "zip"
 
 class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::TestCase
@@ -329,6 +330,110 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
 
     refute result.success?
     assert_includes result.error, "more than 500 rows"
+    assert_includes result.error, "without silently truncating"
+  ensure
+    file&.close!
+  end
+
+  test "blank physical rows do not trigger the transaction row cap or hide a later transaction" do
+    file = Tempfile.new([ "sparse-statement", ".csv" ])
+    file.write("date,description,amount,category,notes\n")
+    600.times { file.write(",,,,\n") }
+    file.write("2026-07-10,Later merchant,12.50,Dining Out,After blank rows\n")
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "sparse-statement.csv", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Later merchant" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+  ensure
+    file&.close!
+  end
+
+  test "extracts a valid setup row beyond the old physical row sample" do
+    file = Tempfile.new([ "sparse-setup", ".csv" ])
+    file.write("type,label,amount,cadence,category\n")
+    600.times { file.write(",,,,\n") }
+    file.write("expense_item,Later category,125,monthly,discretionary\n")
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "sparse-setup.csv").call
+
+    assert result.success?, result.error
+    assert_equal [ "Later category" ], result.data.fetch(:items).map { |item| item.fetch(:label) }
+  ensure
+    file&.close!
+  end
+
+  test "extracts setup values from a twenty-first column" do
+    file = Tempfile.new([ "wide-setup", ".csv" ])
+    headers = [ "type", "label", "balance" ] + 17.times.map { |index| "unused_#{index + 1}" } + [ "payment" ]
+    values = [ "debt", "Visa card", "3400" ] + Array.new(17) + [ "175" ]
+    file.write(CSV.generate_line(headers))
+    file.write(CSV.generate_line(values))
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "wide-setup.csv").call
+
+    assert result.success?, result.error
+    debt = result.data.fetch(:items).sole
+    assert_equal 340_000, debt.fetch(:balance_cents)
+    assert_equal 17_500, debt.fetch(:payment_cents)
+  ensure
+    file&.close!
+  end
+
+  test "rejects worksheets wider than the explicit safe column bound" do
+    file = Tempfile.new([ "too-wide", ".csv" ])
+    headers = [ "type", "label", "balance" ] + 197.times.map { |index| "unused_#{index + 1}" } + [ "payment" ]
+    values = [ "debt", "Visa card", "3400" ] + Array.new(197) + [ "175" ]
+    file.write(CSV.generate_line(headers))
+    file.write(CSV.generate_line(values))
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "too-wide.csv").call
+
+    refute result.success?
+    assert_includes result.error, "more than #{FinancialDocuments::SpreadsheetSummarizer::MAX_COLUMNS} columns"
+    assert_includes result.error, "could not be inspected completely"
+  ensure
+    file&.close!
+  end
+
+  test "inspects a nonempty worksheet after the first five sheets" do
+    file = Tempfile.new([ "many-sheets", ".xls" ])
+    file.close
+    book = Spreadsheet::Workbook.new
+    5.times { |index| book.create_worksheet(name: "Empty #{index + 1}") }
+    sheet = book.create_worksheet(name: "Transactions")
+    sheet[0, 0] = "date"
+    sheet[0, 1] = "description"
+    sheet[0, 2] = "amount"
+    sheet[0, 3] = "category"
+    sheet[1, 0] = "2026-07-10"
+    sheet[1, 1] = "Sixth sheet merchant"
+    sheet[1, 2] = "12.50"
+    sheet[1, 3] = "Dining Out"
+    book.write(file.path)
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "many-sheets.xls", document_kind: "statement").call
+
+    assert result.success?, result.error
+    assert_equal [ "Sixth sheet merchant" ], result.data.fetch(:transaction_drafts).map { |draft| draft.fetch(:merchant) }
+  ensure
+    file&.unlink
+  end
+
+  test "rejects oversized setup CSVs instead of silently truncating values" do
+    file = Tempfile.new([ "oversized-setup", ".csv" ])
+    file.write("type,label,amount\n")
+    61.times { |index| file.write("expense_item,Category #{index + 1},#{index + 1}\n") }
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "oversized-setup.csv").call
+
+    refute result.success?
+    assert_includes result.error, "more than 60 budget/profile rows"
     assert_includes result.error, "without silently truncating"
   ensure
     file&.close!

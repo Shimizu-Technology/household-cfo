@@ -39,11 +39,12 @@ module Api
         current_data_presenter.app_data
       end
 
-      def current_data_presenter(household: current_household, annual_plan: nil)
+      def current_data_presenter(household: current_household, annual_plan: nil, ensure_plan: true)
         HouseholdFinance::DataPresenter.new(
           household,
           user: current_user,
           annual_plan: annual_plan,
+          ensure_plan: ensure_plan,
           persona: current_persona,
           cohort_membership: current_cohort_membership
         )

@@ -279,6 +279,65 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("errors").join, "verify the file"
   end
 
+  test "direct upload rejects inline PDF sources above twelve MiB" do
+    with_s3_stubs(configured?: true) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "statement.pdf", content_type: "application/pdf", byte_size: 12.megabytes + 1, checksum_sha256: "a" * 64, document_kind: "statement" },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").join, "max 12 MB"
+  end
+
+  test "direct upload permits structured sources above twelve MiB through twenty MiB" do
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/csv", byte_size: 15.megabytes, checksum_sha256: "a" * 64, document_kind: "spreadsheet" },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+  end
+
+  test "direct upload accepts the browser CSV comma-separated media type" do
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/comma-separated-values", byte_size: 32, checksum_sha256: "a" * 64, document_kind: "spreadsheet" },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "text/comma-separated-values", JSON.parse(response.body).fetch("upload_headers").fetch("Content-Type")
+  end
+
+  test "multipart upload rejects inline image sources above twelve MiB before storage" do
+    file = Tempfile.new([ "oversized-receipt", ".png" ])
+    file.binmode
+    file.write("\x89PNG\r\n\x1A\n")
+    file.truncate(12.megabytes + 1)
+    file.rewind
+    upload = Rack::Test::UploadedFile.new(file.path, "image/png", original_filename: "oversized-receipt.png")
+
+    with_s3_stubs(configured?: true, upload: ->(*) { flunk("oversized source must not reach storage") }) do
+      post "/api/v1/document_imports", params: { file: upload, document_kind: "receipt" }, headers: auth_headers(@user)
+    end
+
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").join, "max 12 MB"
+  ensure
+    file&.close!
+  end
+
   test "direct upload rejects an expired or altered completion token" do
     with_s3_stubs(configured?: true) do
       assert_no_difference("FinancialDocumentImport.count") do

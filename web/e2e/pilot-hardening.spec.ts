@@ -1550,10 +1550,15 @@ test('Ask Mia uses a new request ID when the retry targets a different budget mo
 
 test('Ask Mia restores uploaded attachment context and its exact request ID after reload', async ({ page }) => {
   const emptySourceErrors: string[] = []
+  let presignRequests = 0
   page.on('console', (message) => {
     if (message.type() === 'error' && message.text().includes('empty string ("") was passed to the src attribute')) {
       emptySourceErrors.push(message.text())
     }
+  })
+  await page.route('http://api.test/api/v1/document_imports/presign', (route) => {
+    presignRequests += 1
+    return route.fulfill({ status: 500, json: { error: 'A restored attachment must not be uploaded again.' } })
   })
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
   const message = 'Please review this receipt.'
@@ -1610,6 +1615,105 @@ test('Ask Mia restores uploaded attachment context and its exact request ID afte
 
   expect(submittedBody.request_id).toBe(requestId)
   expect(submittedBody.document_import_ids).toEqual([501])
+  expect(presignRequests).toBe(0)
+})
+
+test('Ask Mia uploads an attachment with its question and renders the grounded reply', async ({ page }) => {
+  const requestOrder: string[] = []
+  let presignBody: Record<string, unknown> = {}
+  let miaBody: Record<string, unknown> = {}
+  const documentImport = {
+    id: 640,
+    household_id: 77,
+    document_kind: 'receipt',
+    status: 'needs_review',
+    filename: 'receipt.png',
+    content_type: 'image/png',
+    byte_size: 20,
+    document_date: null,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'Receipt ready for Mia.',
+    extraction_error: null,
+    processed_at: `${currentYear}-10-01T00:00:05Z`,
+    applied_at: null,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-10-01T00:00:05Z`,
+    source_available: true,
+    details_included: false,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [],
+    attempts: [],
+  }
+
+  await page.route('http://api.test/api/v1/document_imports/presign', (route) => {
+    requestOrder.push('presign')
+    presignBody = route.request().postDataJSON()
+    return route.fulfill({
+      status: 200,
+      json: {
+        upload_url: 'https://private-storage.example/receipt-upload',
+        upload_headers: { 'Content-Type': 'image/png' },
+        upload_token: 'receipt-upload-token',
+      },
+    })
+  })
+  await page.route('https://private-storage.example/receipt-upload', (route) => {
+    requestOrder.push('storage')
+    expect(route.request().method()).toBe('PUT')
+    return route.fulfill({ status: 200, body: '' })
+  })
+  await page.route('http://api.test/api/v1/document_imports/complete', (route) => {
+    requestOrder.push('complete')
+    expect(route.request().postDataJSON()).toEqual({ upload_token: 'receipt-upload-token' })
+    return route.fulfill({ status: 201, json: { document_import: documentImport } })
+  })
+  await page.route('http://api.test/api/v1/mia/messages', (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    requestOrder.push('mia')
+    miaBody = route.request().postDataJSON()
+    return route.fulfill({
+      status: 201,
+      json: {
+        user_message: { id: 741, role: 'user', author: 'You', content: 'Does this grocery receipt fit my plan?', attachments: [{ document_import_id: 640, filename: 'receipt.png', content_type: 'image/png', document_kind: 'receipt', status: 'needs_review', source_available: true }] },
+        assistant_message: { id: 742, role: 'assistant', author: 'Mia', content: 'I reviewed the grocery receipt with your question. The draft purchase is ready for your approval.', attachments: [] },
+        transaction_draft: null,
+        mia_action_draft: null,
+        budget: null,
+        spending_report: null,
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.ask-row input[type="file"]').setInputFiles({
+    name: 'receipt.png',
+    mimeType: 'image/png',
+    buffer: Buffer.from('mock-receipt-evidence'),
+  })
+  await expect(page.getByText('Images and PDFs up to 12 MB · CSV, Excel, and Word up to 20 MB')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Receipt screenshot', exact: true })).toBeVisible()
+
+  await page.getByRole('textbox', { name: 'Ask Mia', exact: true }).fill('Does this grocery receipt fit my plan?')
+  await page.getByRole('button', { name: 'Send message to Mia' }).click()
+  await expect(page.getByText('I reviewed the grocery receipt with your question. The draft purchase is ready for your approval.')).toBeVisible()
+
+  expect(requestOrder).toEqual(['presign', 'storage', 'complete', 'mia'])
+  expect(presignBody).toMatchObject({
+    filename: 'receipt.png',
+    byte_size: 21,
+    document_kind: 'receipt',
+    upload_origin: 'mia',
+    upload_context: 'Does this grocery receipt fit my plan?',
+  })
+  expect(miaBody).toMatchObject({
+    message: 'Does this grocery receipt fit my plan?',
+    document_import_ids: [640],
+  })
 })
 
 test('Budget explains scheduled income changes and upcoming annual pressure', async ({ page }) => {
@@ -3443,4 +3547,25 @@ test('failed receipt upload leaves the participant on a retryable private-upload
   await expect(page.getByRole('alert')).toContainText('private file upload failed (503)')
   await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
   await expect(receiptCard.locator('input[type="file"]')).toBeEnabled()
+})
+
+test('an empty Profile upload is rejected before private upload work begins', async ({ page }) => {
+  let presignRequests = 0
+  await page.route('http://api.test/api/v1/document_imports/presign', (route) => {
+    presignRequests += 1
+    return route.fulfill({ status: 500, json: { error: 'Empty files should not reach presign.' } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await page.getByRole('button', { name: 'Test a private upload' }).click()
+  const receiptCard = page.locator('.document-upload-card').filter({ hasText: 'Receipt or quick evidence' })
+  await receiptCard.locator('input[type="file"]').setInputFiles({
+    name: 'empty-receipt.png',
+    mimeType: 'image/png',
+    buffer: Buffer.alloc(0),
+  })
+
+  await expect(page.getByRole('alert')).toHaveText('empty-receipt.png is empty. Choose the original file and try again.')
+  await expect(receiptCard.getByText('Choose file', { exact: true })).toBeVisible()
+  expect(presignRequests).toBe(0)
 })

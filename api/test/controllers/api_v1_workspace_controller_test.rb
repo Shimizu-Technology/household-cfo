@@ -969,6 +969,175 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal document_import.id, user_message.fetch("attachments").first.fetch("document_import_id")
   end
 
+  test "mia chat answers an attachment question from pending structured evidence" do
+    user = create_user(email: "mia-attachment-question@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "statement.pdf",
+      content_type: "application/pdf",
+      byte_size: 128,
+      s3_key: "household-cfo/test/question-statement.pdf"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.new(2026, 7, 3),
+      merchant: "Pay-Less",
+      total_amount_cents: 87_45,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "statement row"
+    )
+
+    assert_no_difference([ "HouseholdTransaction.count", "MiaActionDraft.count", "BudgetYear.count", "BudgetAllocation.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "What is the total and which merchant is in this attachment?", document_import_ids: [ document_import.id ], request_id: "attachment-question-1" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "1 transaction row totaling $87.45"
+    assert_includes content, "Pay-Less — $87.45"
+    assert_includes content, "pending review"
+    assert_includes content, "not actuals"
+
+    assert_no_difference("ChatMessage.count") do
+      post "/api/v1/mia/messages",
+           params: { message: "What is the total and which merchant is in this attachment?", document_import_ids: [ document_import.id ], request_id: "attachment-question-1" },
+           headers: auth_headers(user),
+           as: :json
+    end
+    assert_response :created
+  end
+
+  test "mia chat rejects an attachment ID outside the current household without routing the question" do
+    user = create_user(email: "mia-attachment-owner@example.com")
+    other_user = create_user(email: "mia-attachment-other@example.com")
+    other_household = HouseholdFinance::WorkspaceResolver.new(other_user).household
+    other_import = other_household.financial_document_imports.create!(
+      uploaded_by_user: other_user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "private-statement.pdf",
+      content_type: "application/pdf",
+      byte_size: 128,
+      s3_key: "household-cfo/test/private-statement.pdf"
+    )
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "What is the total?", document_import_ids: [ other_import.id ], request_id: "cross-household-attachment" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal [ "One or more attached uploads are unavailable in this household." ], JSON.parse(response.body).fetch("errors")
+    assert_not_includes response.body, "private-statement"
+  end
+
+  test "mia chat rejects more than five attachment IDs instead of silently dropping evidence" do
+    user = create_user(email: "mia-too-many-attachments@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    imports = 6.times.map do |index|
+      household.financial_document_imports.create!(
+        uploaded_by_user: user,
+        document_kind: "statement",
+        status: "needs_review",
+        filename: "statement-#{index}.pdf",
+        content_type: "application/pdf",
+        byte_size: 128,
+        s3_key: "household-cfo/test/statement-#{index}.pdf"
+      )
+    end
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "What is the total?", document_import_ids: imports.map(&:id), request_id: "too-many-attachments" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal [ "Attach up to 5 uploads to one Mia message." ], JSON.parse(response.body).fetch("errors")
+  end
+
+  test "mia attachment plan-fit answer stays read-only when no confirmed plan exists" do
+    user = create_user(email: "mia-plan-fit-missing@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = create_mia_attachment_import(household, user, "missing-plan")
+    create_mia_attachment_draft(document_import, household, category: category, amount_cents: 8_745, occurred_on: Date.new(2026, 8, 2))
+
+    assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "ExpenseItem.count", "HouseholdTransaction.count", "MiaActionDraft.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "Does this grocery receipt fit my plan?", document_import_ids: [ document_import.id ] },
+           headers: auth_headers(user), as: :json
+    end
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "I can verify $87.45 in the attached pending evidence"
+    assert_includes content, "there is no confirmed annual plan"
+    assert_includes content, "cannot safely say whether it fits"
+  end
+
+  test "mia attachment plan-fit controller covers within over split uncategorized and multiple uploads" do
+    user = create_user(email: "mia-plan-fit-matrix@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    groceries = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    dining = household.budget_categories.create!(name: "Dining", stack_key: "discretionary", sort_order: 2)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+    budget_year = manager.ensure_plan!
+    set_mia_plan_allocation(budget_year, groceries, month: 8, cents: 10_000)
+    set_mia_plan_allocation(budget_year, dining, month: 9, cents: 5_000)
+    set_mia_plan_allocation(budget_year, groceries, month: 10, cents: 10_000)
+    set_mia_plan_allocation(budget_year, dining, month: 10, cents: 8_000)
+    set_mia_plan_allocation(budget_year, groceries, month: 12, cents: 10_000)
+
+    within_import = create_mia_attachment_import(household, user, "within-plan")
+    create_mia_attachment_draft(within_import, household, category: groceries, amount_cents: 4_000, occurred_on: Date.new(2026, 8, 2))
+    post "/api/v1/mia/messages", params: { message: "Does this grocery receipt fit my plan?", document_import_ids: [ within_import.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Groceries would remain within plan with $60.00 left"
+
+    over_import = create_mia_attachment_import(household, user, "over-plan")
+    create_mia_attachment_draft(over_import, household, category: dining, amount_cents: 7_000, occurred_on: Date.new(2026, 9, 2))
+    post "/api/v1/mia/messages", params: { message: "Does this dining receipt fit my plan?", document_import_ids: [ over_import.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Dining would be $20.00 over plan"
+
+    split_import = create_mia_attachment_import(household, user, "split-plan")
+    split_draft = create_mia_attachment_draft(split_import, household, category: nil, amount_cents: 5_000, occurred_on: Date.new(2026, 10, 2))
+    split_draft.transaction_draft_splits.create!(budget_category: groceries, category_name: "Groceries", stack_key: "discretionary", amount_cents: 3_000)
+    split_draft.transaction_draft_splits.create!(budget_category: dining, category_name: "Dining", stack_key: "discretionary", amount_cents: 2_000)
+    post "/api/v1/mia/messages", params: { message: "Does this receipt fit my plan?", document_import_ids: [ split_import.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    split_content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes split_content, "Groceries would remain within plan with $70.00 left"
+    assert_includes split_content, "Dining would remain within plan with $60.00 left"
+
+    uncategorized_import = create_mia_attachment_import(household, user, "uncategorized-plan")
+    create_mia_attachment_draft(uncategorized_import, household, category: nil, amount_cents: 2_500, occurred_on: Date.new(2026, 11, 2))
+    post "/api/v1/mia/messages", params: { message: "Does this receipt fit my plan?", document_import_ids: [ uncategorized_import.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "category is not matched to an approved plan category"
+
+    multi_import_one = create_mia_attachment_import(household, user, "multi-one")
+    multi_import_two = create_mia_attachment_import(household, user, "multi-two")
+    create_mia_attachment_draft(multi_import_one, household, category: groceries, amount_cents: 1_000, occurred_on: Date.new(2026, 12, 2))
+    create_mia_attachment_draft(multi_import_two, household, category: groceries, amount_cents: 2_000, occurred_on: Date.new(2026, 12, 3))
+    post "/api/v1/mia/messages", params: { message: "Do these receipts fit my plan?", document_import_ids: [ multi_import_one.id, multi_import_two.id ] }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Groceries would remain within plan with $70.00 left"
+  end
+
   test "mia persistence bounds an oversized assistant response without failing the turn" do
     user = create_user(email: "mia-bounded-assistant@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1068,6 +1237,53 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assistant_content = JSON.parse(response.body).dig("assistant_message", "content")
     assert_includes assistant_content, "not reporting partial findings as complete"
     assert_not_includes assistant_content, "I created 1 pending transaction review"
+  end
+
+  test "mia attachment questions wait for every upload instead of answering from partial evidence" do
+    user = create_user(email: "mia-processing-question@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    completed = household.financial_document_imports.create!(
+      uploaded_by_user: user, document_kind: "statement", status: "needs_review", filename: "complete.png", content_type: "image/png", byte_size: 128, s3_key: "household-cfo/test/question-complete.png"
+    )
+    completed.transaction_drafts.create!(
+      household: household, occurred_on: Date.new(2026, 7, 1), merchant: "Private partial merchant", total_amount_cents: 500_00, source_type: "statement", status: "pending", raw_input: "completed row"
+    )
+    processing = household.financial_document_imports.create!(
+      uploaded_by_user: user, document_kind: "statement", status: "processing", filename: "processing.png", content_type: "image/png", byte_size: 128, s3_key: "household-cfo/test/question-processing.png"
+    )
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total across these uploads?", document_import_ids: [ completed.id, processing.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "not reporting partial findings as complete"
+    assert_not_includes content, "$500.00"
+    assert_not_includes content, "Private partial merchant"
+  end
+
+  test "mia attachment questions exclude failed imports and explain missing evidence" do
+    user = create_user(email: "mia-failed-question@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    failed = household.financial_document_imports.create!(
+      uploaded_by_user: user, document_kind: "statement", status: "failed", filename: "failed.pdf", content_type: "application/pdf", byte_size: 128, s3_key: "household-cfo/test/question-failed.pdf", extraction_error: "unsafe provider details"
+    )
+    failed.transaction_drafts.create!(
+      household: household, occurred_on: Date.new(2026, 7, 1), merchant: "Stale merchant", total_amount_cents: 700_00, source_type: "statement", status: "pending", raw_input: "stale row"
+    )
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total in this upload?", document_import_ids: [ failed.id ] },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    content = JSON.parse(response.body).dig("assistant_message", "content")
+    assert_includes content, "failed extraction and produced no verified rows"
+    assert_not_includes content, "$700.00"
+    assert_not_includes content, "unsafe provider details"
   end
 
   test "mia chat explains budget uploads as review before apply setup values" do
@@ -1502,6 +1718,36 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       primary_goal: "Build a stable plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
+  end
+
+  def create_mia_attachment_import(household, user, key)
+    household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "#{key}.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/#{key}-#{SecureRandom.hex(4)}.png"
+    )
+  end
+
+  def create_mia_attachment_draft(document_import, household, category:, amount_cents:, occurred_on:)
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: occurred_on,
+      merchant: document_import.filename.delete_suffix(".png").humanize,
+      total_amount_cents: amount_cents,
+      budget_category: category,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "attachment plan-fit test"
+    )
+  end
+
+  def set_mia_plan_allocation(budget_year, category, month:, cents:)
+    period = budget_year.budget_periods.find_by!(starts_on: Date.new(budget_year.year, month, 1))
+    BudgetAllocation.find_by!(budget_period: period, budget_category: category).update!(planned_amount_cents: cents)
   end
 
   def with_singleton_stub(target, method_name, replacement)

@@ -3950,6 +3950,15 @@ h3 {
   line-height: 1.5;
 }
 
+.document-import-guide small {
+  display: block;
+  margin-top: 4px;
+  color: var(--mauve);
+  font-size: 0.76rem;
+  font-weight: 850;
+  line-height: 1.4;
+}
+
 .document-import-guide a,
 .document-empty-upload-button {
   display: inline-flex;
@@ -5935,6 +5944,11 @@ h3 {
   color: var(--muted);
   font-size: 0.76rem;
   line-height: 1.35;
+}
+
+.composer-attachment-workflow > .attachment-size-guidance {
+  color: var(--mauve);
+  font-weight: 850;
 }
 
 .composer-attachment-card,

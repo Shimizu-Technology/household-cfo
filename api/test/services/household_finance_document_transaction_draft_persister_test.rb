@@ -44,6 +44,17 @@ class HouseholdFinanceDocumentTransactionDraftPersisterTest < ActiveSupport::Tes
     assert_equal BigDecimal("0.35"), draft.transaction_draft_splits.first.confidence
   end
 
+  test "rejects more than the complete transaction cap instead of truncating" do
+    payloads = Array.new(HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS + 1) { {} }
+
+    error = assert_raises(ArgumentError) do
+      HouseholdFinance::DocumentTransactionDraftPersister.new(@document_import, payloads)
+    end
+
+    assert_includes error.message, "more than 500 transaction rows"
+    assert_equal 0, @document_import.transaction_drafts.count
+  end
+
   test "rolls back partially-created draft when matcher raises during persistence" do
     payload = {
       occurred_on: "2026-07-05",

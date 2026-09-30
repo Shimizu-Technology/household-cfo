@@ -2,12 +2,12 @@ module HouseholdFinance
   class DataPresenter
     UNRESOLVED_COHORT = Object.new.freeze
 
-    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT)
+    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT, ensure_plan: true)
       @household = household
       @user = user
       @annual_plan = annual_plan
       @annual_budget_manager = AnnualBudgetManager.new(household)
-      @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager)
+      @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager, ensure_plan: ensure_plan)
       @cohort_membership = if cohort_membership.equal?(UNRESOLVED_COHORT)
         ::Mia::EffectiveCohortResolver.new(user: user).call
       else

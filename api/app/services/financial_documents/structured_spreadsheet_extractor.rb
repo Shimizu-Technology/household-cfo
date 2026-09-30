@@ -68,10 +68,22 @@ module FinancialDocuments
 
     def call
       summary = SpreadsheetSummarizer.new(file_path: file_path, filename: filename).call
-      return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} rows. Split it into smaller date ranges so Mia can stage every transaction without silently truncating the file.") if truncated_transaction_rows?(summary)
+      if summary[:sheet_limit_exceeded]
+        return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_SHEETS} worksheets and could not be inspected completely. Remove empty sheets or split it into smaller workbooks so every value can be reviewed.")
+      end
+      if summary[:column_limit_exceeded]
+        return failure("This workbook has more than #{SpreadsheetSummarizer::MAX_COLUMNS} columns on a worksheet and could not be inspected completely. Remove empty columns or split it into smaller files so every value can be reviewed.")
+      end
+      if summary[:scan_incomplete]
+        return failure("This workbook could not be inspected completely within the safe #{SpreadsheetSummarizer::MAX_SCANNED_CELLS}-cell limit. Remove empty rows or columns, or split it into smaller workbooks.")
+      end
+      if truncated_review_rows?(summary)
+        return failure("This spreadsheet has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} rows of review content. Split it into smaller files so every row can be reviewed without silently truncating the file.")
+      end
 
       items = extract_items(summary)
       transaction_drafts = extract_transaction_drafts(summary)
+      return failure("This spreadsheet has more than #{Extractor::MAX_ITEMS} budget/profile rows. Split it into smaller files so every value can be reviewed without silently truncating the file.") if items.length > Extractor::MAX_ITEMS
       return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so Mia can stage every transaction.") if transaction_drafts.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
       return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty?
 
@@ -95,11 +107,9 @@ module FinancialDocuments
 
     attr_reader :file_path, :filename, :document_kind, :warnings
 
-    def truncated_transaction_rows?(summary)
+    def truncated_review_rows?(summary)
       Array(summary[:sheets]).any? do |sheet|
-        rows = Array(sheet[:rows])
-        header_row = rows.find { |row| transaction_header?(row[:values]) }
-        header_row && sheet[:row_count].to_i > sheet[:sampled_row_count].to_i
+        sheet[:rows_truncated]
       end
     end
 
@@ -114,7 +124,7 @@ module FinancialDocuments
         rows.drop_while { |row| row[:row] <= header_row[:row] }.filter_map do |row|
           item_from_row(row[:values], header_map, cell_types: row[:cell_types], cell_formats: row[:cell_formats], skip_transaction_like: skip_transaction_like_rows)
         end
-      end.first(Extractor::MAX_ITEMS)
+      end
     end
 
     def structured_header?(values)
