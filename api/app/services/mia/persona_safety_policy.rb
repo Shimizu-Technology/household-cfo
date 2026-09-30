@@ -2,7 +2,8 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 3
+    VERSION = 4
+    NEGATION_PATTERN = /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)/i.freeze
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i
     CONCEALED_IDENTITY_PATTERNS = [
@@ -113,10 +114,10 @@ module Mia
       def claims_human_coach_identity?(value, human_coach_name)
         return false unless human_coach_name.is_a?(String) && human_coach_name.strip.present?
 
-        unnegated_match?(
-          value,
-          /\b(?:(?:i am|i['’]m|this is|you are|you['’]re|identify yourself as|present yourself as|claim to be|pretend to be|speak as|write as|respond as|masquerade as)\s+(?:the\s+)?|impersonate\s+)#{Regexp.escape(human_coach_name.strip)}\b/i
-        )
+        pattern = human_coach_identity_pattern(human_coach_name)
+        related_patterns = CONCEALED_IDENTITY_PATTERNS + [ pattern ]
+
+        unnegated_match?(value, pattern, related_patterns: related_patterns)
       end
 
       def walk(value, path, errors, human_coach_name)
@@ -134,27 +135,56 @@ module Mia
             errors << "#{path} cannot impersonate the human coach or conceal the assistant's AI identity"
           end
           errors << "#{path} contains safety or prompt-control guidance" if FORBIDDEN_GUIDANCE_PATTERNS.any? { |pattern| value.match?(pattern) }
+          financial_patterns = FORBIDDEN_FINANCIAL_GUIDANCE.map { |rule| rule.fetch(:pattern) }
           FORBIDDEN_FINANCIAL_GUIDANCE.each do |rule|
-            errors << "#{path} #{rule.fetch(:message)}" if unnegated_match?(value, rule.fetch(:pattern))
+            if unnegated_match?(value, rule.fetch(:pattern), related_patterns: financial_patterns)
+              errors << "#{path} #{rule.fetch(:message)}"
+            end
           end
         end
       end
 
       def identity_misrepresentation?(value, human_coach_name)
-        CONCEALED_IDENTITY_PATTERNS.any? { |pattern| unnegated_match?(value, pattern) } ||
+        related_patterns = CONCEALED_IDENTITY_PATTERNS.dup
+        related_patterns << human_coach_identity_pattern(human_coach_name) if human_coach_name.is_a?(String) && human_coach_name.strip.present?
+
+        CONCEALED_IDENTITY_PATTERNS.any? do |pattern|
+          unnegated_match?(value, pattern, related_patterns: related_patterns)
+        end ||
           claims_human_coach_identity?(value, human_coach_name)
       end
 
-      def unnegated_match?(value, pattern)
+      def human_coach_identity_pattern(human_coach_name)
+        /\b(?:(?:i am|i['’]m|this is|you are|you['’]re|identify yourself as|present yourself as|claim to be|pretend to be|speak as|write as|respond as|masquerade as)\s+(?:the\s+)?|impersonate\s+)#{Regexp.escape(human_coach_name.strip)}\b/i
+      end
+
+      def unnegated_match?(value, pattern, related_patterns: [ pattern ])
         value.to_enum(:scan, pattern).any? do
           match = Regexp.last_match
           prefix = value[0...match.begin(0)].to_s.last(120)
-          immediate_negation = prefix.match?(/(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)\s*\z/i)
-          coordinated_negation = prefix.match?(
-            /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)\b.{0,80}\b(?:and|or)\s*\z/i
-          )
+          immediate_negation = directly_negated?(prefix)
+          coordinated_negation = coordinated_negation?(prefix, related_patterns)
           !immediate_negation && !coordinated_negation
         end
+      end
+
+      def directly_negated?(prefix)
+        return true if prefix.match?(/#{NEGATION_PATTERN}\s*\z/)
+
+        prefix.match?(
+          /#{NEGATION_PATTERN}\b\s+(?:tell|instruct|urge|advise|direct|recommend|encourage|ask|require)\b(?:[^.!?;\n]{0,60}\bto)?\s*\z/i
+        )
+      end
+
+      def coordinated_negation?(prefix, related_patterns)
+        negation = prefix.to_enum(:scan, NEGATION_PATTERN).map { Regexp.last_match }.last
+        return false unless negation
+
+        suffix = prefix[negation.end(0)..]
+        match = suffix.match(/\A(?<prior_clause>.{1,80})\b(?:and|or)\s*\z/i)
+        return false unless match
+
+        related_patterns.any? { |pattern| match[:prior_clause].match?(pattern) }
       end
     end
   end

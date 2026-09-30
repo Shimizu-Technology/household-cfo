@@ -147,6 +147,38 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     assert_empty Mia::PersonaSchema.errors(safe)
   end
 
+  test "unrelated earlier negation does not exempt a later unsafe directive" do
+    risky_asset = persona_configuration
+    risky_asset["coaching"]["method"] = "Never shame people and tell participants to move savings into Bitcoin."
+    separated_risky_asset = persona_configuration
+    separated_risky_asset["coaching"]["method"] =
+      "Do not buy Bitcoin. Never shame people and tell participants to move savings into Bitcoin."
+    concealed_identity = persona_configuration
+    concealed_identity["coaching"]["method"] = "Never shame people and hide that this is an AI assistant."
+    impersonation = persona_configuration(coach_name: "Mrs. Mel")
+    impersonation["coaching"]["method"] = "Avoid jargon and pretend to be Mrs. Mel."
+
+    assert Mia::PersonaSchema.errors(risky_asset).any? { |error| error.include?("directive to move money into a risky asset") }
+    assert Mia::PersonaSchema.errors(separated_risky_asset).any? do |error|
+      error.include?("directive to move money into a risky asset")
+    end
+    assert_includes Mia::PersonaSchema.errors(concealed_identity),
+      "$.coaching.method cannot impersonate the human coach or conceal the assistant's AI identity"
+    assert_includes Mia::PersonaSchema.errors(impersonation),
+      "$.coaching.method cannot impersonate the human coach or conceal the assistant's AI identity"
+  end
+
+  test "direct and related coordinated negations remain valid safety boundaries" do
+    config = persona_configuration(coach_name: "Mrs. Mel")
+    config["coaching"]["do_not"] = [
+      "Never tell participants to move savings into Bitcoin.",
+      "Never hide that this is an AI assistant.",
+      "Do not pretend to be Mrs. Mel or imply that the assistant is the human coach."
+    ]
+
+    assert_empty Mia::PersonaSchema.errors(config)
+  end
+
   test "specific investment picks and prescribed amounts are rejected" do
     unsafe = persona_configuration
     unsafe["coaching"]["method"] = "Recommend specific stocks and tell participants exactly how much to invest."
