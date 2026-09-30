@@ -5,18 +5,24 @@ class ChatMessage < ApplicationRecord
   MAX_CONTENT_LENGTH = MAX_USER_CONTENT_LENGTH
 
   belongs_to :chat_session
+  belongs_to :coach_persona_version, optional: true, inverse_of: :chat_messages
+
+  normalizes :assistant_author, with: ->(value) { value.to_s.strip.presence }
 
   validates :role, inclusion: { in: ROLES }
   validates :content, presence: true
   validate :content_length_matches_role
   validate :attachments_are_safe_metadata
   validate :presentation_is_safe_metadata
+  validate :persona_attribution_is_complete
+
+  before_validation :set_global_assistant_author, on: :create
 
   def as_api_json(author: nil)
     {
       id: id,
       role: role,
-      author: author || (role == "assistant" ? "Mia" : "You"),
+      author: author || (role == "assistant" ? assistant_author.presence || "Mia" : "You"),
       content: content,
       attachments: attachments,
       presentation: presentation,
@@ -35,6 +41,24 @@ class ChatMessage < ApplicationRecord
     return if attachments.is_a?(Array) && attachments.length <= 5
 
     errors.add(:attachments, "must be an array of up to 5 files")
+  end
+
+  def persona_attribution_is_complete
+    if coach_persona_version_id.blank? && assistant_author.blank?
+      return
+    end
+    unless role == "assistant"
+      errors.add(:assistant_author, "and persona version are available only on assistant messages")
+      return
+    end
+
+    errors.add(:assistant_author, "is required when a persona version is set") if coach_persona_version_id.present? && assistant_author.blank?
+
+    errors.add(:assistant_author, "is too long (maximum is 80 characters)") if assistant_author.to_s.length > 80
+  end
+
+  def set_global_assistant_author
+    self.assistant_author = "Mia" if role == "assistant" && coach_persona_version_id.nil? && assistant_author.blank?
   end
 
   def presentation_is_safe_metadata
