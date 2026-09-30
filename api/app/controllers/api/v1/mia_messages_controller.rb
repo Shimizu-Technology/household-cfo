@@ -79,6 +79,11 @@ module Api
         transaction_draft_answer = routed[:transaction_draft_answer]
         intent_direct_answer = routed[:direct_answer]
         assistant_presentation = routed[:presentation] || {}
+        intent_direct_answer, assistant_presentation = apply_persona_capability_boundary(
+          content,
+          direct_answer: intent_direct_answer,
+          presentation: assistant_presentation
+        )
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
 
@@ -1028,6 +1033,20 @@ module Api
           draft_capable: false,
           conversation_resolution: conversation_resolution
         )
+      end
+
+      def apply_persona_capability_boundary(content, direct_answer:, presentation:)
+        return [ direct_answer, presentation ] unless Mia::Capabilities.persona_configuration_request?(content)
+        return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
+
+        boundary = Mia::Capabilities.persona_configuration_answer
+        bounded_direct_answer = [ direct_answer, boundary ].compact_blank.join(" ")
+        bounded_presentation = presentation.deep_dup
+        if bounded_presentation.present?
+          lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
+          bounded_presentation[lead_key] = [ bounded_presentation[lead_key], boundary ].compact_blank.join(" ").truncate(500, omission: "…")
+        end
+        [ bounded_direct_answer, bounded_presentation ]
       end
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
