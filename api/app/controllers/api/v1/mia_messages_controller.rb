@@ -103,6 +103,7 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
+        assistant_content = append_persona_capability_boundary(content, assistant_content)
         user_message, assistant_message = persist_chat_messages(
           session,
           content,
@@ -1040,13 +1041,21 @@ module Api
         return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
 
         boundary = Mia::Capabilities.persona_configuration_answer
-        bounded_direct_answer = [ direct_answer, boundary ].compact_blank.join(" ")
         bounded_presentation = presentation.deep_dup
         if bounded_presentation.present?
           lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
           bounded_presentation[lead_key] = [ bounded_presentation[lead_key], boundary ].compact_blank.join(" ").truncate(500, omission: "…")
         end
-        [ bounded_direct_answer, bounded_presentation ]
+        [ direct_answer, bounded_presentation ]
+      end
+
+      def append_persona_capability_boundary(content, assistant_content)
+        return assistant_content unless Mia::Capabilities.persona_configuration_request?(content)
+
+        boundary = Mia::Capabilities.persona_configuration_answer
+        return assistant_content if assistant_content.to_s.include?(boundary)
+
+        [ assistant_content, boundary ].compact_blank.join(" ")
       end
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
