@@ -15,6 +15,7 @@ class ChatMessage < ApplicationRecord
   validate :attachments_are_safe_metadata
   validate :presentation_is_safe_metadata
   validate :persona_attribution_is_complete
+  validate :persona_attribution_is_immutable, on: :update
 
   before_validation :set_global_assistant_author, on: :create
 
@@ -55,6 +56,12 @@ class ChatMessage < ApplicationRecord
     errors.add(:assistant_author, "is required when a persona version is set") if coach_persona_version_id.present? && assistant_author.blank?
 
     errors.add(:assistant_author, "is too long (maximum is 80 characters)") if assistant_author.to_s.length > 80
+  end
+
+  def persona_attribution_is_immutable
+    return unless will_save_change_to_role? || will_save_change_to_assistant_author? || will_save_change_to_coach_persona_version_id?
+
+    errors.add(:base, "message role and assistant attribution are immutable")
   end
 
   def set_global_assistant_author

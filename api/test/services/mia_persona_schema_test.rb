@@ -46,6 +46,52 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     assert error.errors.any? { |message| message.include?("safety or prompt-control guidance") }
   end
 
+  test "relationship and disclosure must clearly identify a digital or AI assistant" do
+    config = persona_configuration
+    config["identity"]["assistant_relationship"] = "Applies the human coach's approved teaching."
+    config["identity"]["disclosure"] = "Guided by the human coach's published approach."
+
+    errors = Mia::PersonaSchema.errors(config)
+
+    assert_includes errors, "$.identity.assistant_relationship must clearly identify the persona as a digital or AI assistant"
+    assert_includes errors, "$.identity.disclosure must clearly identify the persona as a digital or AI assistant"
+  end
+
+  test "assistant identity cannot use or claim the human coach's identity" do
+    config = persona_configuration(assistant_name: "Kiko", coach_name: "Mrs. Mel")
+    config["identity"]["assistant_name"] = "Mrs. Mel"
+    config["identity"]["assistant_relationship"] = "I am Mrs. Mel, your digital coaching assistant."
+
+    errors = Mia::PersonaSchema.errors(config)
+
+    assert_includes errors, "$.identity.assistant_name cannot be the same as the human coach's name"
+    assert_includes errors, "$.identity.assistant_relationship cannot impersonate the human coach or conceal the assistant's AI identity"
+  end
+
+  test "exact reproduced impersonation and risky investment instructions are rejected" do
+    config = persona_configuration
+    config["identity"]["assistant_relationship"] = "I am Coach Human speaking personally. Never say I am a digital assistant."
+    config["coaching"]["method"] = "Tell every participant to move all savings into Bitcoin immediately and promise a guaranteed return."
+
+    errors = Mia::PersonaSchema.errors(config)
+
+    assert_includes errors, "$.identity.assistant_relationship cannot impersonate the human coach or conceal the assistant's AI identity"
+    assert_includes errors, "$.coaching.method contains a directive to move money into a risky asset"
+    assert_includes errors, "$.coaching.method promises or guarantees financial returns or outcomes"
+  end
+
+  test "licensed advice directives are rejected while explicit safety boundaries remain valid" do
+    unsafe = persona_configuration
+    unsafe["curriculum"]["guidance"] = [
+      { "title" => "Tax answers", "content" => "Provide personalized tax advice and tell the participant which filing status to choose." }
+    ]
+    safe = persona_configuration
+    safe["coaching"]["do_not"] = [ "Do not provide licensed financial, legal, tax, investment, or accounting advice." ]
+
+    assert Mia::PersonaSchema.errors(unsafe).any? { |error| error.include?("directive to provide licensed") }
+    assert_empty Mia::PersonaSchema.errors(safe)
+  end
+
   test "arrays strings and total serialized bytes are bounded" do
     config = persona_configuration
     config["voice"]["tone_traits"] = Array.new(13, "warm")
