@@ -278,41 +278,66 @@ module Api
 
       def render_attached_action_response(session, content, processed_imports, evidence_content:, message_request:, history:,
         intent_result:, conversation_context:, annual_budget_manager:, annual_plan:)
-        routed = route_model_intent(
-          intent_result,
-          content: content,
-          conversation_context: conversation_context,
-          annual_budget_manager: annual_budget_manager,
-          annual_plan: annual_plan
-        )
-        action_result = routed[:action_result]
-        action_content = assistant_content_for(
-          content,
-          history,
-          routed[:annual_plan],
-          routed[:spending_report],
-          routed[:transaction_draft],
-          routed[:transaction_draft_answer],
-          routed[:budget_answer],
-          routed[:transaction_lookup_answer],
-          routed[:pending_draft_answer],
-          routed[:coach_answer],
-          action_result,
-          conversation_context,
-          direct_answer: routed[:direct_answer],
-          conversation_resolution: resolved_conversation_turn(intent_result)
-        )
-        combined_content = [ evidence_content, "Separately, #{action_content}" ].compact_blank.join(" ")
-        user_message, assistant_message = persist_chat_messages(
-          session,
-          content,
-          processed_imports,
-          combined_content
-        )
-        mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
-        if action_result&.proposal && mia_action_draft.nil?
-          assistant_message.update!(content: [ evidence_content, action_draft_persistence_failure_message ].compact_blank.join(" "))
-          assistant_message.reload
+        action_result = nil
+        combined_content = nil
+        user_message = nil
+        assistant_message = nil
+        mia_action_draft = nil
+        draft_persistence_error = nil
+        no_draft_result = false
+
+        ApplicationRecord.transaction do
+          routed = route_model_intent(
+            intent_result,
+            content: content,
+            conversation_context: conversation_context,
+            annual_budget_manager: annual_budget_manager,
+            annual_plan: annual_plan
+          )
+          action_result = routed[:action_result]
+          action_content = assistant_content_for(
+            content,
+            history,
+            routed[:annual_plan],
+            routed[:spending_report],
+            routed[:transaction_draft],
+            routed[:transaction_draft_answer],
+            routed[:budget_answer],
+            routed[:transaction_lookup_answer],
+            routed[:pending_draft_answer],
+            routed[:coach_answer],
+            action_result,
+            conversation_context,
+            direct_answer: routed[:direct_answer],
+            conversation_resolution: resolved_conversation_turn(intent_result)
+          )
+          combined_content = [ evidence_content, "Separately, #{action_content}" ].compact_blank.join(" ")
+          user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
+          mia_action_draft = action_result&.existing_draft
+          if mia_action_draft.nil? && action_result&.proposal
+            begin
+              mia_action_draft = action_result.proposal.create_draft!(
+                source_chat_message: user_message,
+                assistant_chat_message: assistant_message
+              )
+            rescue StandardError => e
+              draft_persistence_error = e
+              raise ActiveRecord::Rollback
+            end
+          elsif mia_action_draft.nil?
+            no_draft_result = true
+            raise ActiveRecord::Rollback
+          end
+        end
+
+        if draft_persistence_error
+          Rails.logger.error(
+            "Mia attachment action draft could not be persisted: #{draft_persistence_error.class}: #{draft_persistence_error.message}"
+          )
+          combined_content = [ evidence_content, action_draft_persistence_failure_message ].compact_blank.join(" ")
+          user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
+        elsif no_draft_result
+          user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
         end
         response_budget = if mia_action_draft
           annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data

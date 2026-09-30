@@ -1158,6 +1158,88 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
   end
 
+  test "a failed attached action draft rolls back newly prepared plan records" do
+    user = create_user(email: "mia-attachment-action-persistence-failure@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "receipt",
+      status: "needs_review",
+      filename: "failed-action-receipt.png",
+      content_type: "image/png",
+      byte_size: 128,
+      s3_key: "household-cfo/test/failed-action-receipt.png"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Pay-Less",
+      total_amount_cents: 87_45,
+      source_type: "receipt",
+      status: "pending",
+      raw_input: "receipt row"
+    )
+    message = "What is the receipt total? Also set Groceries to $900 for August."
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "budget_action",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Set Groceries to $900 for August #{Date.current.year}",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "budget_edit", title: "August Groceries edit", subject: "Groceries" },
+      action: { type: "set_allocation", category_id: category.id, category_name: category.name, amount: "900", months: [ 8 ], year: Date.current.year },
+      read_only_plan: {},
+      source: "model"
+    )
+    fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+    original_create_draft = HouseholdFinance::MiaActionDraftBuilder::Proposal.instance_method(:create_draft!)
+
+    begin
+      HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!) do |**|
+        raise RuntimeError, "simulated attached draft persistence failure"
+      end
+
+      assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "MiaActionDraft.count" ]) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+        end
+      end
+      assert_equal 0, household.budget_years.count
+      assert_equal 0, BudgetPeriod.where(budget_year_id: household.budget_years.select(:id)).count
+      assert_equal 0, BudgetAllocation.where(budget_period_id: BudgetPeriod.where(budget_year_id: household.budget_years.select(:id))).count
+
+      HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year).ensure_plan!
+      budget_year_ids = household.budget_years.order(:id).pluck(:id)
+      budget_period_ids = BudgetPeriod.where(budget_year_id: budget_year_ids).order(:id).pluck(:id)
+      budget_allocation_ids = BudgetAllocation.where(budget_period_id: budget_period_ids).order(:id).pluck(:id)
+      assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "MiaActionDraft.count" ]) do
+        with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+          post "/api/v1/mia/messages",
+               params: { message: message, document_import_ids: [ document_import.id ] },
+               headers: auth_headers(user),
+               as: :json
+        end
+      end
+      assert_equal budget_year_ids, household.budget_years.order(:id).pluck(:id)
+      assert_equal budget_period_ids, BudgetPeriod.where(budget_year_id: budget_year_ids).order(:id).pluck(:id)
+      assert_equal budget_allocation_ids, BudgetAllocation.where(budget_period_id: budget_period_ids).order(:id).pluck(:id)
+    ensure
+      HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!, original_create_draft)
+    end
+
+    assert_response :created
+    body = JSON.parse(response.body)
+    assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("budget")
+    assert_includes body.dig("assistant_message", "content"), "$87.45"
+    assert_includes body.dig("assistant_message", "content"), "could not prepare the review card"
+  end
+
   test "a combined attachment question and unsupported action returns evidence and an explicit boundary" do
     user = create_user(email: "mia-attachment-combined-boundary@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
