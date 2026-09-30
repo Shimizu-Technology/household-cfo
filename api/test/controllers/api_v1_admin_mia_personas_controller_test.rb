@@ -326,6 +326,11 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     cohort = cohort_for(admin, name: "Archive guard cohort")
     assignment = CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: admin)
 
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    assert_equal false, response.parsed_body.dig("persona", "permissions", "archive")
+
     delete "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(admin)
 
     assert_response :unprocessable_entity
@@ -334,6 +339,12 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_nil persona.reload.archived_at
 
     cohort.update!(status: "completed")
+
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(admin)
+
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("persona", "permissions", "archive")
+
     delete "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(admin)
 
     assert_response :success

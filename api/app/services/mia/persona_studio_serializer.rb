@@ -2,6 +2,7 @@
 
 module Mia
   class PersonaStudioSerializer
+    LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
     GUARDRAILS = [
       "Use only approved household financial facts.",
       "Keep the participant in control of every financial write.",
@@ -133,7 +134,7 @@ module Mia
         edit: editable && !persona.archived?,
         publish: editable && !persona.archived?,
         assign: policy.can_assign?(persona),
-        archive: editable && !persona.archived? && persona.cohort_persona_assignments.none?,
+        archive: editable && !persona.archived? && !persona.cohort_persona_assignments.joins(:cohort).where(cohorts: { status: LIVE_COHORT_STATUSES }).exists?,
         restore: editable && persona.archived?
       }
     end
