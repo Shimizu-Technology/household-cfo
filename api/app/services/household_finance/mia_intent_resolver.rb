@@ -60,9 +60,10 @@ module HouseholdFinance
     GUIDED_TEXT_SETUP_FIELDS = %w[household_name primary_goal].freeze
     GUIDED_MONEY_REPLY_PATTERN = /\A(?:about|around|approximately|roughly|maybe)?\s*\$?\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)\s*(?:(?:a|per|each)\s+month|monthly)?[.!]?\z/i.freeze
     GUIDED_SETUP_DISCOURSE_PREFIX = /\A(?:actually|well|okay|ok|um|hmm)[,\s]+/i.freeze
+    GUIDED_SETUP_POLITE_PREFIX = /\Aplease[\s,]+/i.freeze
     GUIDED_SETUP_QUESTION_PATTERN = /\A(?:why|what|how|when|where|who|can|could|should|would|do|does|did|is|are|will|may)\b/i.freeze
-    GUIDED_SETUP_DEFERRAL_PATTERN = /\A(?:no\b|skip\b|pass\b|not\s+(?:now|yet)\b|later\b|i\s+(?:do\s+not|don['’]?t|cannot|can['’]?t)\s+(?:know|answer|say|share|decide|want)\b|i(?:'d|\s+would)\s+rather\b)/i.freeze
-    GUIDED_SETUP_INSTRUCTION_PATTERN = /\A(?:(?:please\s+)?(?:ignore|forget|disregard|override|reveal|repeat|follow)\b|(?:system|assistant|developer|user)\s*:|help\s+me\s+(?:understand|explain|figure\s+out)\b)/i.freeze
+    GUIDED_SETUP_DEFERRAL_PATTERN = /\A(?:no\b|skip\b|pass\b|not\s+(?:now|yet)\b|later\b|maybe\s+(?:later|another\s+time|not\s+now)\b|i(?:['’]m|\s+am)\s+not\s+sure\b|i\s+(?:do\s+not|don['’]?t|cannot|can['’]?t)\s+(?:know|answer|say|share|decide|want)\b|i(?:['’]d|\s+would)\s+(?:rather\b|prefer\s+not\b)|prefer\s+not\b)/i.freeze
+    GUIDED_SETUP_INSTRUCTION_PATTERN = /\A(?:(?:ignore|forget|disregard|override|reveal|repeat|follow)\b|(?:system|assistant|developer|user)\s*:|help\s+me\s+(?:understand|explain|figure\s+out)\b)/i.freeze
 
     Result = Struct.new(
       :intent,
@@ -185,7 +186,7 @@ module HouseholdFinance
     end
 
     def guided_setup_non_answer?
-      candidate = user_message.sub(GUIDED_SETUP_DISCOURSE_PREFIX, "")
+      candidate = user_message.sub(GUIDED_SETUP_DISCOURSE_PREFIX, "").sub(GUIDED_SETUP_POLITE_PREFIX, "")
       candidate.end_with?("?") || candidate.match?(GUIDED_SETUP_QUESTION_PATTERN) ||
         candidate.match?(GUIDED_SETUP_DEFERRAL_PATTERN) || candidate.match?(GUIDED_SETUP_INSTRUCTION_PATTERN)
     end
