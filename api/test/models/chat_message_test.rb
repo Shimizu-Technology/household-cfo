@@ -7,20 +7,29 @@ class ChatMessageTest < ActiveSupport::TestCase
     @session = household.chat_sessions.create!(user: user, title: "Ask Mia")
   end
 
-  test "accepts exactly two thousand Unicode characters from a participant" do
-    message = @session.chat_messages.new(role: "user", content: "å" * 2_000)
+  test "accepts exactly eight thousand Unicode characters from a participant" do
+    message = @session.chat_messages.create!(role: "user", content: "å" * 8_000)
 
-    assert message.valid?
+    assert message.persisted?
   end
 
-  test "rejects more than two thousand participant characters" do
-    message = @session.chat_messages.new(role: "user", content: "å" * 2_001)
+  test "rejects more than eight thousand participant characters" do
+    message = @session.chat_messages.new(role: "user", content: "å" * 8_001)
 
     assert_not message.valid?
-    assert_includes message.errors.full_messages, "Content is too long (maximum is 2000 characters)"
+    assert_includes message.errors.full_messages, "Content is too long (maximum is 8000 characters)"
+    assert_raises(ActiveRecord::StatementInvalid) do
+      ChatMessage.insert_all!([ {
+        chat_session_id: @session.id,
+        role: "user",
+        content: "a" * 8_001,
+        created_at: Time.current,
+        updated_at: Time.current
+      } ])
+    end
   end
 
-  test "allows a bounded assistant response longer than the participant limit" do
+  test "allows an assistant response at the shared message limit" do
     message = @session.chat_messages.create!(role: "assistant", content: "a" * 8_000)
 
     assert message.persisted?

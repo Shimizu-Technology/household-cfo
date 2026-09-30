@@ -1,6 +1,52 @@
 require "test_helper"
 
 class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
+  test "applying a partial setup review asks exactly one concrete next question behind the review boundary" do
+    user = create_user(email: "mia-setup-next-question@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    draft = create_setup_draft(user, household, household_name: "Cruz Household")
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    status = HouseholdFinance::SetupStatus.new(household.reload)
+    refute status.complete?
+    assert_equal "primary_goal", status.missing_field_keys.first
+    message = response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content")
+    assert_includes message, "What is the main money goal you want this household to work toward?"
+    assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
+    refute_includes message, "primary monthly take-home income"
+    assert_equal 1, household.mia_action_drafts.count
+  end
+
+  test "applying the final setup review offers a first coaching step" do
+    user = create_user(email: "mia-setup-first-coaching-step@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    draft = create_setup_draft(
+      user,
+      household,
+      household_name: "Cruz Household",
+      primary_goal: "Build a six-month runway",
+      primary_income: "6200",
+      fixed_expenses: "3100",
+      flexible_spend: "0"
+    )
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert HouseholdFinance::SetupStatus.new(household.reload).complete?
+    message = response.parsed_body.dig("workspace", "mia", "messages").last.fetch("content")
+    assert_includes message, "Your starting picture is complete."
+    assert_includes message, "What should I focus on first this month?"
+    assert_includes message, "approved numbers"
+    refute_includes message, "nothing changes until you apply it"
+  end
+
   test "mia drafts budget allocation edits without mutating the official budget until apply" do
     user = create_user(email: "mia-action-apply@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -1173,6 +1219,21 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
   end
 
   private
+
+  def create_setup_draft(user, household, setup_updates)
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      household,
+      user: user,
+      annual_budget_manager: manager,
+      raw_input: "Update my starting picture",
+      command: { type: "update_household_setup", setup_updates: setup_updates }
+    ).call
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    user_message = session.chat_messages.create!(role: "user", content: "Update my starting picture")
+    assistant_message = session.chat_messages.create!(role: "assistant", content: result.response)
+    result.proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)
+  end
 
   def with_intent_resolver(resolver)
     singleton = class << HouseholdFinance::MiaIntentResolver; self; end

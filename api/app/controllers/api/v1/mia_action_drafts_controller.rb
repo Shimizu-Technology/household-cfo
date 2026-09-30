@@ -84,6 +84,9 @@ module Api
           "Applied the reviewed budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
         when "income_schedule"
           "Applied the reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
+        when "household_setup"
+          base = "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
+          "#{base} #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message}"
         else
           "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
         end
