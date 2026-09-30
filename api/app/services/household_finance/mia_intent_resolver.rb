@@ -55,6 +55,12 @@ module HouseholdFinance
       credit_card_debt: /\b(?:credit card debt|card debt|card balance|debt balance)\b/i,
       debt_payment: /\b(?:debt payment|debt minimum|minimum payment)\b/i
     }.freeze
+    SETUP_FIELD_PATTERNS = SETUP_ZERO_FIELD_PATTERNS.merge(
+      household_name: /\b(?:household name|family name|call (?:us|our household))\b/i,
+      primary_goal: /\b(?:primary goal|financial goal|household goal|goal is|priority is|focus is)\b/i,
+      primary_income: /\b(?:primary(?: monthly)? income|take[ -]?home pay|bring home|job income|salary|paycheck)\b/i,
+      target_runway_months: /\b(?:target runway|runway target|months? of runway)\b/i
+    ).freeze
     AMOUNT_CONTINUATION_PATTERN = /\A(?:(?:yes|yeah|yep|yup|ok|okay|sure)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))*|(?:please\s+)?(?:do that|do it|draft that|make that change|use that|keep it|repeat that|apply it|go ahead|same amount))[\s,!.]*\z/i.freeze
     REQUIRED_ZERO_SETUP_FIELDS = %w[primary_income fixed_expenses flexible_spend].freeze
     GUIDED_TEXT_SETUP_FIELDS = %w[household_name primary_goal].freeze
@@ -827,8 +833,17 @@ module HouseholdFinance
 
       current_updates = action[:setup_updates].to_h.symbolize_keys.reject { |_key, value| value.to_s.strip.blank? }
       prior_updates = prior_action[:setup_updates].to_h.symbolize_keys.reject { |_key, value| value.to_s.strip.blank? }
+      mentioned_setup_fields = participant_setup_fields
+      if action[:type] == "update_household_setup" && mentioned_setup_fields.any?
+        current_updates.select! { |key, _value| mentioned_setup_fields.include?(key) }
+        prior_updates.select! { |key, _value| mentioned_setup_fields.include?(key) }
+      end
       merged[:setup_updates] = prior_updates.merge(current_updates)
       merged
+    end
+
+    def participant_setup_fields
+      SETUP_FIELD_PATTERNS.filter_map { |field, pattern| field if user_message.match?(pattern) }
     end
 
     def continuation_actions_compatible?(prior_action, action)

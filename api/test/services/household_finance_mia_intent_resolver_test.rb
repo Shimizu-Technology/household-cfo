@@ -107,7 +107,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal 2026, result.action.fetch(:year)
   end
 
-  test "merges clarified setup fields by key without trusting stale prose" do
+  test "keeps only the setup field explicitly supplied on a retargeted clarification" do
     context = intent_context.deep_dup
     context[:conversation] = {
       active_thread: {
@@ -144,9 +144,93 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     result = resolver.call
 
     assert result.actionable?
-    assert_equal "6200", result.action.dig(:setup_updates, :primary_income)
-    assert_equal "3000", result.action.dig(:setup_updates, :fixed_expenses)
-    assert_equal "800", result.action.dig(:setup_updates, :flexible_spend)
+    assert_equal({ flexible_spend: "800" }, result.action.fetch(:setup_updates))
+  end
+
+  test "recognizes every supported setup field when a clarification is retargeted" do
+    setup_cases = {
+      household_name: [ "Household name is Cruz Family.", "Cruz Family" ],
+      primary_goal: [ "Our primary goal is debt freedom.", "Debt freedom" ],
+      primary_income: [ "Primary income is $7,101.", "7101" ],
+      business_income: [ "Business income is $7,102.", "7102" ],
+      fixed_expenses: [ "Fixed expenses are $7,103.", "7103" ],
+      flexible_spend: [ "Flexible spending is $7,104.", "7104" ],
+      expected_sinking_fund: [ "Expected sinking fund is $7,105.", "7105" ],
+      unexpected_sinking_fund: [ "Unexpected sinking fund is $7,106.", "7106" ],
+      emergency_fund: [ "Emergency fund is $7,107.", "7107" ],
+      other_assets: [ "Other assets are $7,108.", "7108" ],
+      credit_card_debt: [ "Credit card debt is $7,109.", "7109" ],
+      debt_payment: [ "Debt minimum is $7,110.", "7110" ],
+      target_runway_months: [ "Runway target is 6 months.", "6" ]
+    }
+
+    setup_cases.each do |field, (message, value)|
+      prior_field = field == :primary_income ? :business_income : :primary_income
+      context = intent_context.deep_dup
+      context[:conversation] = {
+        active_thread: {
+          schema_version: 2,
+          type: "household_setup",
+          title: "Starting household picture",
+          subject: "Household setup",
+          status: "needs_clarification",
+          action: { type: "update_household_setup", setup_updates: { prior_field => "6200" } }
+        },
+        recent_messages: []
+      }
+      result = HouseholdFinance::MiaIntentResolver.new(
+        user_message: message,
+        context: context,
+        api_key: "test-key",
+        transport: lambda do |_payload|
+          resolution_json(
+            intent: "household_action",
+            continuation: true,
+            resolved_message: message,
+            topic: { type: "household_setup", title: "Starting household picture", subject: "Household setup" },
+            action: default_action.merge(
+              type: "update_household_setup",
+              setup_updates: default_setup_updates.merge(field => value)
+            )
+          )
+        end
+      ).call
+
+      assert result.actionable?, field
+      assert_equal({ field => value }, result.action.fetch(:setup_updates), field)
+    end
+  end
+
+  test "keeps a validated setup value when a continuation does not retarget its field" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "household_setup",
+        title: "Starting household picture",
+        subject: "Primary monthly income",
+        status: "needs_clarification",
+        action: { type: "update_household_setup", setup_updates: { primary_income: "6200" } }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Yes, that is monthly.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "household_action",
+          continuation: true,
+          resolved_message: "Set primary monthly income to $6,200",
+          topic: { type: "household_setup", title: "Starting household picture", subject: "Primary monthly income" },
+          action: default_action.merge(type: "update_household_setup")
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal({ primary_income: "6200" }, result.action.fetch(:setup_updates))
   end
 
   test "does not replace a validated clarification amount with an unspoken model value" do

@@ -36,7 +36,6 @@ module Api
         ).call
         history = transcript.map { |message| message.slice(:role, :content) }
         @mia_conversation_messages = history
-        return render_attached_document_response(session, content, attached_imports, message_request: message_request) if attached_imports.any?
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
@@ -56,6 +55,19 @@ module Api
           user_message: content,
           context: intent_context
         ).call
+        if attached_imports.any?
+          return render_attached_document_response(
+            session,
+            content,
+            attached_imports,
+            message_request: message_request,
+            history: history,
+            intent_result: intent_result,
+            conversation_context: conversation_context,
+            annual_budget_manager: annual_budget_manager,
+            annual_plan: intent_plan
+          )
+        end
 
         if intent_result
           intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan?
@@ -222,22 +234,34 @@ module Api
         params[:month].to_i.clamp(1, 12)
       end
 
-      def render_attached_document_response(session, content, attached_imports, message_request:)
+      def render_attached_document_response(session, content, attached_imports, message_request:, history:, intent_result:,
+        conversation_context:, annual_budget_manager:, annual_plan:)
         processed_imports = process_attached_imports(attached_imports)
-        assistant_content = attached_document_message(content, processed_imports)
-        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).read_only_plan_data
+        evidence_prompt = attached_document_evidence_prompt(content, intent_result)
+        evidence_content = attached_document_message(evidence_prompt, processed_imports)
+        if supported_attached_action_intent?(intent_result)
+          return render_attached_action_response(
+            session,
+            content,
+            processed_imports,
+            evidence_content: evidence_content,
+            message_request: message_request,
+            history: history,
+            intent_result: intent_result,
+            conversation_context: conversation_context,
+            annual_budget_manager: annual_budget_manager,
+            annual_plan: annual_plan
+          )
+        end
+
+        boundary = attachment_action_boundary(intent_result, conversation_context)
+        assistant_content = [ evidence_content, boundary ].compact_blank.join(" ")
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
             assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
-        compact_conversation(
-          session,
-          user_message,
-          assistant_message,
-          persona_context_id: current_persona.continuity_id
-        )
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -250,6 +274,117 @@ module Api
         complete_message_request(message_request, response_payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message, attached_imports: processed_imports)
         render json: response_payload, status: :created
+      end
+
+      def render_attached_action_response(session, content, processed_imports, evidence_content:, message_request:, history:,
+        intent_result:, conversation_context:, annual_budget_manager:, annual_plan:)
+        routed = route_model_intent(
+          intent_result,
+          content: content,
+          conversation_context: conversation_context,
+          annual_budget_manager: annual_budget_manager,
+          annual_plan: annual_plan
+        )
+        action_result = routed[:action_result]
+        action_content = assistant_content_for(
+          content,
+          history,
+          routed[:annual_plan],
+          routed[:spending_report],
+          routed[:transaction_draft],
+          routed[:transaction_draft_answer],
+          routed[:budget_answer],
+          routed[:transaction_lookup_answer],
+          routed[:pending_draft_answer],
+          routed[:coach_answer],
+          action_result,
+          conversation_context,
+          direct_answer: routed[:direct_answer],
+          conversation_resolution: resolved_conversation_turn(intent_result)
+        )
+        combined_content = [ evidence_content, "Separately, #{action_content}" ].compact_blank.join(" ")
+        user_message, assistant_message = persist_chat_messages(
+          session,
+          content,
+          processed_imports,
+          combined_content
+        )
+        mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
+        if action_result&.proposal && mia_action_draft.nil?
+          assistant_message.update!(content: [ evidence_content, action_draft_persistence_failure_message ].compact_blank.join(" "))
+          assistant_message.reload
+        end
+        if mia_action_draft
+          annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data
+        else
+          annual_plan = routed[:annual_plan] || annual_plan
+        end
+        update_conversation_state(
+          session,
+          intent_result: intent_result,
+          user_message: user_message,
+          assistant_message: assistant_message,
+          mia_action_draft: mia_action_draft,
+          transaction_draft: nil,
+          persona_context_id: current_persona.continuity_id
+        )
+
+        response_payload = {
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message),
+          transaction_draft: nil,
+          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
+          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan, ensure_plan: false).budget,
+          spending_report: nil
+        }
+        complete_message_request(message_request, response_payload)
+        record_mia_operation(
+          "mia.request.completed",
+          assistant_message: assistant_message,
+          attached_imports: processed_imports,
+          mia_action_draft: mia_action_draft
+        )
+        render json: response_payload, status: :created
+      end
+
+      def supported_attached_action_intent?(intent_result)
+        return false unless intent_result
+        return false unless intent_result.intent.in?(%w[budget_action household_action income_action])
+
+        intent_result.action.to_h[:type].to_s != "none"
+      end
+
+      def attachment_action_boundary(intent_result, conversation_context)
+        action_type = intent_result&.action.to_h&.dig(:type).to_s
+        structured_action = action_type.present? && action_type != "none"
+        continuing_clarification = intent_result&.continuation && conversation_context.dig(:active_topic, :status).to_s == "needs_clarification"
+        return unless structured_action || continuing_clarification || attachment_action_request?
+
+        "I answered the upload part, but I could not safely prepare the separate requested household change in this turn. Nothing changed. Send the change as a new message without an attachment, and I’ll prepare a review card for you."
+      end
+
+      def attachment_action_request?(message = params[:message])
+        message.to_s.match?(
+          /\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b.{0,100}\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b|\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b.{0,100}\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i
+        )
+      end
+
+      def attached_document_evidence_prompt(content, intent_result)
+        action_type = intent_result&.action.to_h&.dig(:type).to_s
+        structured_action = action_type.present? && action_type != "none"
+        return content unless structured_action || attachment_action_request?(content)
+
+        segments = content.to_s.split(
+          /(?<=[?!.;])\s+|\s+\b(?:also|and then|then)\b\s*|\s+(?=(?:and\s+)?(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b)/i
+        )
+        evidence_segments = segments.reject do |segment|
+          attachment_action_request?(segment) ||
+            segment.match?(/\A\s*(?:also\s+|and\s+)?(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i)
+        end.select do |segment|
+          segment.match?(HouseholdFinance::AttachedDocumentQuestionAnswerer::SUBSTANTIVE_QUESTION_PATTERN) ||
+            HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(segment)
+        end
+        evidence_segments.join(" ").strip.presence
       end
 
       def reserve_message_request(session, content, attached_imports)
@@ -440,7 +575,7 @@ module Api
       end
 
       def attached_document_message(content, attached_imports)
-        unless HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
+        if content.present? && !HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
           processing = attached_imports.select { |document_import| document_import.status.in?(%w[uploaded processing]) }
           if processing.empty?
             answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(
