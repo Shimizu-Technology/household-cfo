@@ -6,7 +6,7 @@ module Mia
   class PersonaPreviewer
     PREVIEW_CONTEXT = {
       preview_mode: true,
-      data_basis: "Fictional no-write Persona Studio preview. No participant or household financial facts are available.",
+      data_basis: "No-write Persona Studio preview. Saved participant and household data is not loaded. The coach-authored sample prompt may contain fictional or user-supplied facts.",
       metrics: {},
       debts: { records: [] },
       pending_review: []
@@ -60,7 +60,7 @@ module Mia
     def preview_notice(source)
       return "Safety rules took precedence over the coach persona for this test message." if source == "deterministic_safety"
 
-      "Generated from this exact draft in a fictional, no-write preview with no participant financial data."
+      "Generated from this exact draft in a no-write preview."
     end
 
     def result(status:, source:, reply:, notice:)
@@ -69,7 +69,7 @@ module Mia
         source: source,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,
-        notice: notice
+        notice: "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."
       }
     end
   end

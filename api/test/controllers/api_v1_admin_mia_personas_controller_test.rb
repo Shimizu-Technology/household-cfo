@@ -162,6 +162,16 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "deterministic_fallback", response.parsed_body.dig("preview", "source")
     assert_nil response.parsed_body.dig("preview", "sample_reply")
     assert_includes response.parsed_body.dig("preview", "notice"), "No canned reply"
+    assert_match(/\A[0-9a-f]{64}\z/, response.parsed_body.dig("preview", "digest"))
+    assert_nil persona.reload.preview_digest
+
+    with_ready_preview do
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: 1, sample_prompt: "Can I afford this?" } },
+        headers: auth_headers(coach),
+        as: :json
+    end
+    assert_response :success
     assert_match(/\A[0-9a-f]{64}\z/, persona.reload.preview_digest)
 
     changed_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and grounded." })
@@ -274,6 +284,53 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal "persona_rollback_conflict", response.parsed_body.fetch("code")
     assert_equal 3, persona.versions.count
+  end
+
+  test "unavailable and unrequested behavioral previews cannot authorize publishing" do
+    coach = persona_user
+    persona = persona_for(coach, assistant_name: "Draft assistant")
+
+    [ "Can I afford this purchase?", nil ].each do |sample_prompt|
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: 1, sample_prompt: sample_prompt } },
+        headers: auth_headers(coach),
+        as: :json
+
+      assert_response :success
+      preview = response.parsed_body.fetch("preview")
+      assert_equal(sample_prompt ? "unavailable" : "not_requested", preview.fetch("status"))
+      assert preview.fetch("rendered_instructions").present?
+      assert_match(/\A[0-9a-f]{64}\z/, preview.fetch("digest"))
+      assert preview.fetch("generated_at").present?
+      assert_nil persona.reload.preview_digest
+      assert_nil persona.previewed_at
+      assert_nil persona.previewed_draft_revision
+
+      post "/api/v1/admin/personas/#{persona.id}/publish",
+        params: { publish: { draft_revision: 1, preview_digest: preview.fetch("digest"), expected_published_version_id: nil } },
+        headers: auth_headers(coach),
+        as: :json
+
+      assert_response :unprocessable_entity
+      assert_equal "persona_preview_required", response.parsed_body.fetch("code")
+      assert_empty persona.versions
+    end
+  end
+
+  test "draft changes during behavioral preview cannot authorize the new revision" do
+    coach = persona_user
+    persona = persona_for(coach, assistant_name: "Draft assistant")
+    with_ready_preview(before_reply: -> { persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "New calm energy." })) }) do
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: 1, sample_prompt: "Can I afford this?" } },
+        headers: auth_headers(coach),
+        as: :json
+    end
+
+    assert_response :conflict
+    assert_equal "persona_preview_conflict", response.parsed_body.fetch("code")
+    assert_nil persona.reload.preview_digest
+    assert_equal 2, persona.draft_revision
   end
 
   test "publish rejects an absent exact preview and stale published version" do
@@ -402,12 +459,26 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     )
   end
 
+  def with_ready_preview(before_reply: nil)
+    original = Mia::PersonaPreviewer.instance_method(:call)
+    Mia::PersonaPreviewer.define_method(:call) do
+      before_reply&.call
+      { status: "ready", source: "live_model", sample_reply: "Review your confirmed plan first.", notice: "Test model response." }
+    end
+    yield
+  ensure
+    Mia::PersonaPreviewer.define_method(:call, original)
+  end
+
   def preview_and_publish_through_api(persona, user, expected_version_id: nil)
-    post "/api/v1/admin/personas/#{persona.id}/preview",
-      params: { preview: { draft_revision: persona.reload.draft_revision } },
-      headers: auth_headers(user),
-      as: :json
+    with_ready_preview do
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: persona.reload.draft_revision, sample_prompt: "Help me plan this month." } },
+        headers: auth_headers(user),
+        as: :json
+    end
     assert_response :success
+    assert_equal "ready", response.parsed_body.dig("preview", "status")
     preview_digest = response.parsed_body.dig("preview", "digest")
 
     post "/api/v1/admin/personas/#{persona.id}/publish",

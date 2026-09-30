@@ -9,7 +9,11 @@ module Mia
       @actor = actor
     end
 
-    def preview!(expected_draft_revision:)
+    def compile_preview!(expected_draft_revision:)
+      preview!(expected_draft_revision: expected_draft_revision, record: false)
+    end
+
+    def preview!(expected_draft_revision:, record: true)
       ensure_staff!
       persona.with_lock do
         raise PublicationError, "Archived personas cannot be previewed" if persona.archived?
@@ -19,11 +23,13 @@ module Mia
 
         digest = PersonaPromptBuilder.digest(persona.draft_config, draft_revision: persona.draft_revision)
         prompt = PersonaPromptBuilder.call(persona.draft_config)
-        persona.update!(
-          preview_digest: digest,
-          previewed_at: Time.current,
-          previewed_draft_revision: persona.draft_revision
-        )
+        if record
+          persona.update!(
+            preview_digest: digest,
+            previewed_at: Time.current,
+            previewed_draft_revision: persona.draft_revision
+          )
+        end
         { digest: digest, prompt: prompt }
       end
     end

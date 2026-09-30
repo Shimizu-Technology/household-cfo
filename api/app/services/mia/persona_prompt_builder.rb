@@ -111,7 +111,7 @@ module Mia
         "#{shape.fetch("min_sentences")}-#{shape.fetch("max_sentences")} sentences",
         "at most #{shape.fetch("max_characters")} characters",
         (shape.fetch("plain_text_only") ? "plain text only" : "formatted text allowed"),
-        (shape.fetch("validate_before_coaching") ? "validate before coaching" : "validation is optional"),
+        "validate before coaching",
         (shape.fetch("next_move_required") ? "end with one next move" : "a next move is optional")
       ]
       "Response shape: #{rules.join("; ")}."

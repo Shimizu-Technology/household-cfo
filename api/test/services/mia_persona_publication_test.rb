@@ -12,6 +12,29 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
     @publisher = Mia::PersonaPublisher.new(persona: @persona, actor: @coach)
   end
 
+  test "compiling a draft does not record a publishable behavioral preview" do
+    preview = @publisher.compile_preview!(expected_draft_revision: 1)
+
+    assert preview.fetch(:prompt).present?
+    assert_match(/\A[0-9a-f]{64}\z/, preview.fetch(:digest))
+    assert_nil @persona.reload.preview_digest
+    assert_nil @persona.previewed_at
+    assert_nil @persona.previewed_draft_revision
+    error = assert_raises(Mia::PersonaPublisher::PublicationError) do
+      @publisher.publish!(expected_preview_digest: preview.fetch(:digest), expected_draft_revision: 1, expected_current_version_id: nil)
+    end
+    assert_equal "Preview this exact draft before publishing", error.message
+  end
+
+  test "compiling again preserves a prior successful preview of the same draft" do
+    preview = @publisher.preview!(expected_draft_revision: 1)
+    previewed_at = @persona.previewed_at
+
+    assert_equal preview, @publisher.compile_preview!(expected_draft_revision: 1)
+    assert_equal preview.fetch(:digest), @persona.reload.preview_digest
+    assert_equal previewed_at, @persona.previewed_at
+  end
+
   test "publish requires the exact compiled preview revision and current version" do
     preview = @publisher.preview!(expected_draft_revision: 1)
 
