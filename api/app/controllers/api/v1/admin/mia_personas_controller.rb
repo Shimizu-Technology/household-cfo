@@ -51,7 +51,14 @@ module Api
 
         def destroy
           persona = editable_persona
-          if persona.cohort_persona_assignments.exists?
+          assigned = persona.with_lock do
+            next true if persona.cohort_persona_assignments.exists?
+
+            persona.archive!
+            false
+          end
+
+          if assigned
             return render_api_error(
               "Remove every cohort assignment before archiving this persona.",
               code: "persona_archive_assigned",
@@ -59,7 +66,6 @@ module Api
             )
           end
 
-          persona.archive!
           render json: { persona: serializer(persona.reload).detail }
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_archive_invalid")
