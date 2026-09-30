@@ -2695,6 +2695,27 @@ test('Coach Studio ignores stale assistant detail responses during rapid selecti
   await expect(page.getByLabel('Assistant name')).toHaveValue('Coach C')
 })
 
+test('Coach Studio prevents assistant switches while a mutation is pending', async ({ page }, testInfo) => {
+  const first = personaDetailFixture()
+  const second = { ...personaDetailFixture(), id: 82, name: 'Coach B', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: 'Coach B' } } }
+  await page.route('http://api.test/api/v1/admin/personas', (route) => route.fulfill({ status: 200, json: { personas: [first, second] } }))
+  await page.route('http://api.test/api/v1/admin/personas/82', (route) => route.fulfill({ status: 200, json: { persona: second } }))
+  await page.route('http://api.test/api/v1/admin/personas/81/preview', async (route) => {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await route.fallback()
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('button', { name: 'Run exact preview' }).click()
+
+  const selectionControl = testInfo.project.name === 'desktop-chrome'
+    ? page.locator('.coach-library-list').getByRole('button', { name: /Coach B/ })
+    : page.getByRole('button', { name: 'All assistants' })
+  await expect(selectionControl).toBeDisabled()
+  await expect(page.getByRole('region', { name: 'Exact draft preview' })).toContainText('Behavioral sample ready')
+  await expect(selectionControl).toBeEnabled()
+})
+
 test('Coach Studio retains unsaved work when the server reports a draft conflict', async ({ page }) => {
   let conflictPending = true
   await page.route('http://api.test/api/v1/admin/personas/81', async (route) => {

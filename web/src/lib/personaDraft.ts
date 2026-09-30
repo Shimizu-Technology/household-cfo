@@ -1,4 +1,8 @@
-export const PERSONA_PHRASE_FREQUENCIES = ['very_rare', 'rare', 'sparing', 'as_needed'] as const
+import type { PersonaConfiguration, PersonaPhraseContext, PersonaPhraseFrequency } from '../api'
+
+export type { PersonaConfiguration } from '../api'
+
+export const PERSONA_PHRASE_FREQUENCIES = ['very_rare', 'rare', 'sparing', 'as_needed'] as const satisfies readonly PersonaPhraseFrequency[]
 export const PERSONA_PHRASE_CONTEXTS = [
   'greeting',
   'verified_milestone',
@@ -7,92 +11,12 @@ export const PERSONA_PHRASE_CONTEXTS = [
   'routine',
   'general',
   'crisis',
-] as const
+] as const satisfies readonly PersonaPhraseContext[]
 
-export type PersonaPhraseFrequency = (typeof PERSONA_PHRASE_FREQUENCIES)[number]
-export type PersonaPhraseContext = (typeof PERSONA_PHRASE_CONTEXTS)[number]
-
-export interface PersonaIdentity {
-  assistant_name: string
-  human_coach_name: string
-  human_coach_title: string
-  assistant_relationship: string
-  disclosure: string
-  audience: string
-  client_term: string
-}
-
-export interface PersonaVoice {
-  tone_traits: string[]
-  energy: string
-  accountability_style: string
-  language_style: string[]
-}
-
-export interface PersonaCoaching {
-  philosophy: string
-  method: string
-  principles: string[]
-  do: string[]
-  do_not: string[]
-}
-
-export interface PersonaCulture {
-  locale_label: string
-  context: string
-  local_realities: string[]
-  references: string[]
-}
-
-export interface PersonaPhrase {
-  text: string
-  meaning: string
-  allowed_contexts: PersonaPhraseContext[]
-  prohibited_contexts: PersonaPhraseContext[]
-  frequency: PersonaPhraseFrequency
-  caution: string
-}
-
-export interface PersonaGuidance {
-  title: string
-  content: string
-}
-
-export interface PersonaScript {
-  title: string
-  steps: string[]
-}
-
-export interface PersonaExample {
-  participant: string
-  assistant: string
-}
-
-export interface PersonaCurriculum {
-  guidance: PersonaGuidance[]
-  scripts: PersonaScript[]
-  examples: PersonaExample[]
-}
-
-export interface PersonaResponseShape {
-  min_sentences: number
-  max_sentences: number
-  max_characters: number
-  plain_text_only: boolean
-  validate_before_coaching: boolean
-  next_move_required: boolean
-}
-
-export interface PersonaConfiguration {
-  version: 1
-  identity: PersonaIdentity
-  voice: PersonaVoice
-  coaching: PersonaCoaching
-  culture: PersonaCulture
-  phrases: PersonaPhrase[]
-  curriculum: PersonaCurriculum
-  response_shape: PersonaResponseShape
-}
+type PersonaPhrase = PersonaConfiguration['phrases'][number]
+type PersonaGuidance = PersonaConfiguration['curriculum']['guidance'][number]
+type PersonaScript = PersonaConfiguration['curriculum']['scripts'][number]
+type PersonaExample = PersonaConfiguration['curriculum']['examples'][number]
 
 export type PersonaConfigurationSection = Exclude<keyof PersonaConfiguration, 'version' | 'phrases'>
 export type PersonaGuidedStep =

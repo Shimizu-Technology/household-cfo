@@ -4,8 +4,6 @@ module Api
   module V1
     module Admin
       class MiaPersonasController < BaseController
-        LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
-
         before_action :authenticate_user!
         before_action :require_staff!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
@@ -64,7 +62,7 @@ module Api
         def destroy
           persona = editable_persona
           assigned = persona.with_lock do
-            next true if persona.cohort_persona_assignments.joins(:cohort).where(cohorts: { status: LIVE_COHORT_STATUSES }).exists?
+            next true if persona.live_cohort_assignments?
 
             persona.archive!
             false

@@ -466,26 +466,12 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     { "Authorization" => "Bearer test_token_#{user.id}" }
   end
 
-  def cohort_for(creator, name:, status: "active")
-    Cohort.create!(name: name, status: status, created_by_user: creator)
-  end
-
   def persona_for(creator, assistant_name:)
     CoachPersona.create!(
       name: assistant_name,
       description: "A coach-approved participant experience.",
       draft_config: persona_configuration(assistant_name: assistant_name, coach_name: creator.full_name),
       created_by_user: creator
-    )
-  end
-
-  def publish_persona(persona, actor:)
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: actor)
-    preview = publisher.preview!(expected_draft_revision: persona.reload.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: persona.current_published_version_id
     )
   end
 

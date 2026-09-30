@@ -22,6 +22,16 @@ import type {
   CurrentUser,
   PersonaConfiguration,
 } from '../api'
+import {
+  PERSONA_LIST_LIMITS,
+  PERSONA_PHRASE_CONTEXTS,
+  appendListItem,
+  arrayToLineList,
+  isPersonaDraftDirty,
+  lineListToArray,
+  moveListItem,
+  replaceListItem as replaceAt,
+} from '../lib/personaDraft'
 import { Button } from './Button'
 import './CoachStudio.css'
 
@@ -31,16 +41,6 @@ const guidedSteps = [
   { id: 'coaching', label: 'Coaching' },
   { id: 'culture', label: 'Community' },
   { id: 'teaching', label: 'Teaching & response' },
-] as const
-
-const phraseContexts = [
-  'greeting',
-  'verified_milestone',
-  'emotional_support',
-  'repeated_pattern',
-  'routine',
-  'general',
-  'crisis',
 ] as const
 
 type GuidedStep = (typeof guidedSteps)[number]['id']
@@ -80,7 +80,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   const dirty = useMemo(() => {
     if (!selectedPersona?.draft || !draft) return false
-    return description !== selectedPersona.description || JSON.stringify(draft) !== JSON.stringify(selectedPersona.draft)
+    return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
 
   const filteredPersonas = useMemo(() => {
@@ -537,6 +537,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 <button
                   type="button"
                   key={persona.id}
+                  disabled={pendingAction !== null}
                   className={selectedPersona?.id === persona.id ? 'is-selected' : ''}
                   aria-current={selectedPersona?.id === persona.id ? 'true' : undefined}
                   onClick={() => requestSelection(persona.id)}
@@ -565,7 +566,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <article className="panel coach-editor-shell">
                 <header className="coach-editor-header">
                   <div>
-                    <button type="button" className="coach-mobile-back" onClick={requestLibraryReturn}>← All assistants</button>
+                    <button type="button" className="coach-mobile-back" disabled={pendingAction !== null} onClick={requestLibraryReturn}>← All assistants</button>
                     <p className="eyebrow">{selectedPersona.owner?.full_name ? `${selectedPersona.owner.full_name}'s assistant` : 'Coaching assistant'}</p>
                     <h3 ref={editorHeadingRef} tabIndex={-1}>{selectedPersona.name}</h3>
                     <p>{selectedPersona.description || (draft ? 'Add an internal description so other staff understand where this voice belongs.' : 'Published assistant assigned to a cohort you manage.')}</p>
@@ -943,7 +944,7 @@ function PhraseEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: 
   const phrases = draft.phrases
   return (
     <section className="coach-array-editor">
-      <header><div><strong>Approved phrases</strong><small>Meaning and context are required. Crisis use should normally stay prohibited.</small></div><Button type="button" size="compact" variant="secondary" disabled={phrases.length >= 24} onClick={() => mutate((current) => ({ ...current, phrases: [...current.phrases, { text: 'New phrase', meaning: 'Coach-approved meaning and intent.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '' }] }))}>Add phrase</Button></header>
+      <header><div><strong>Approved phrases</strong><small>Meaning and context are required. Crisis use should normally stay prohibited.</small></div><Button type="button" size="compact" variant="secondary" disabled={phrases.length >= PERSONA_LIST_LIMITS.phrases} onClick={() => mutate((current) => ({ ...current, phrases: appendListItem(current.phrases, { text: 'New phrase', meaning: 'Coach-approved meaning and intent.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '' }, PERSONA_LIST_LIMITS.phrases) }))}>Add phrase</Button></header>
       {phrases.length === 0 && <p>No phrases added. Locale alone will never create them.</p>}
       {phrases.map((phrase, index) => (
         <article key={index}>
@@ -962,17 +963,17 @@ function PhraseEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: 
 
 function GuidanceEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
   const items = draft.curriculum.guidance
-  return <StructuredEditor title="Approved guidance" addLabel="Add guidance" count={items.length} max={20} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: [...current.curriculum.guidance, { title: 'New guidance', content: 'Add the coach-approved teaching here.' }] } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Guidance {index + 1}</strong><ArrayActions label={`guidance ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: moveItem(current.curriculum.guidance, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: current.curriculum.guidance.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], title: value }) } }))} /><TextArea label="Content" value={item.content} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], content: value }) } }))} /></article>)}</StructuredEditor>
+  return <StructuredEditor title="Approved guidance" addLabel="Add guidance" count={items.length} max={PERSONA_LIST_LIMITS.guidance} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: appendListItem(current.curriculum.guidance, { title: 'New guidance', content: 'Add the coach-approved teaching here.' }, PERSONA_LIST_LIMITS.guidance) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Guidance {index + 1}</strong><ArrayActions label={`guidance ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: moveItem(current.curriculum.guidance, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: current.curriculum.guidance.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], title: value }) } }))} /><TextArea label="Content" value={item.content} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], content: value }) } }))} /></article>)}</StructuredEditor>
 }
 
 function ScriptEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
   const items = draft.curriculum.scripts
-  return <StructuredEditor title="Coaching scripts" addLabel="Add script" count={items.length} max={20} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: [...current.curriculum.scripts, { title: 'New script', steps: ['Add the first coach-approved step.'] }] } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Script {index + 1}</strong><ArrayActions label={`script ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: moveItem(current.curriculum.scripts, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: current.curriculum.scripts.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], title: value }) } }))} /><LineList label="Steps" values={item.steps} minItems={1} maxItems={12} itemMaxLength={500} onChange={(values) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], steps: values }) } }))} /></article>)}</StructuredEditor>
+  return <StructuredEditor title="Coaching scripts" addLabel="Add script" count={items.length} max={PERSONA_LIST_LIMITS.scripts} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: appendListItem(current.curriculum.scripts, { title: 'New script', steps: ['Add the first coach-approved step.'] }, PERSONA_LIST_LIMITS.scripts) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Script {index + 1}</strong><ArrayActions label={`script ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: moveItem(current.curriculum.scripts, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: current.curriculum.scripts.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], title: value }) } }))} /><LineList label="Steps" values={item.steps} minItems={1} maxItems={12} itemMaxLength={500} onChange={(values) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], steps: values }) } }))} /></article>)}</StructuredEditor>
 }
 
 function ExampleEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
   const items = draft.curriculum.examples
-  return <StructuredEditor title="Example conversations" addLabel="Add example" count={items.length} max={20} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: [...current.curriculum.examples, { participant: 'Participant question', assistant: 'Coach-approved example answer.' }] } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Example {index + 1}</strong><ArrayActions label={`example ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: moveItem(current.curriculum.examples, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: current.curriculum.examples.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextArea label="Participant" value={item.participant} maxLength={600} rows={3} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], participant: value }) } }))} /><TextArea label="Assistant" value={item.assistant} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], assistant: value }) } }))} /></article>)}</StructuredEditor>
+  return <StructuredEditor title="Example conversations" addLabel="Add example" count={items.length} max={PERSONA_LIST_LIMITS.examples} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: appendListItem(current.curriculum.examples, { participant: 'Participant question', assistant: 'Coach-approved example answer.' }, PERSONA_LIST_LIMITS.examples) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Example {index + 1}</strong><ArrayActions label={`example ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: moveItem(current.curriculum.examples, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: current.curriculum.examples.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextArea label="Participant" value={item.participant} maxLength={600} rows={3} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], participant: value }) } }))} /><TextArea label="Assistant" value={item.assistant} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], assistant: value }) } }))} /></article>)}</StructuredEditor>
 }
 
 function StructuredEditor({ title, addLabel, count, max, onAdd, children }: { title: string; addLabel: string; count: number; max: number; onAdd: () => void; children: ReactNode }) {
@@ -997,9 +998,9 @@ function LineList({ label, values, onChange, minItems = 0, maxItems, itemMaxLeng
     onChange(lines.map((line) => line.slice(0, itemMaxLength)))
   }
   const normalizeLines = () => {
-    onChange(values.map((value) => value.trim()).filter(Boolean).slice(0, maxItems))
+    onChange(lineListToArray(arrayToLineList(values)).slice(0, maxItems))
   }
-  return <label className="is-wide"><span>{label}</span><textarea rows={Math.max(3, Math.min(values.length + 1, 7))} value={values.join('\n')} onChange={(event) => updateLines(event.target.value)} onBlur={normalizeLines} /> <small>{help ?? `One item per line. ${minItems ? `At least ${minItems}; ` : ''}up to ${maxItems}, ${itemMaxLength} characters each.`}</small></label>
+  return <label className="is-wide"><span>{label}</span><textarea rows={Math.max(3, Math.min(values.length + 1, 7))} value={arrayToLineList(values)} onChange={(event) => updateLines(event.target.value)} onBlur={normalizeLines} /> <small>{help ?? `One item per line. ${minItems ? `At least ${minItems}; ` : ''}up to ${maxItems}, ${itemMaxLength} characters each.`}</small></label>
 }
 
 function NumberInput({ label, value, onChange, min, max }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number }) {
@@ -1010,8 +1011,8 @@ function CheckField({ label, checked, onChange }: { label: string; checked: bool
   return <label className="coach-check"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span>{label}</span></label>
 }
 
-function ContextChecks({ label, selected, onChange }: { label: string; selected: string[]; onChange: (values: typeof phraseContexts[number][]) => void }) {
-  return <fieldset className="coach-context-checks"><legend>{label}</legend>{phraseContexts.map((context) => <label key={context}><input type="checkbox" checked={selected.includes(context)} onChange={(event) => onChange(event.target.checked ? [...selected.filter((value) => value !== context), context] as typeof phraseContexts[number][] : selected.filter((value) => value !== context) as typeof phraseContexts[number][])} /><span>{titleize(context)}</span></label>)}</fieldset>
+function ContextChecks({ label, selected, onChange }: { label: string; selected: string[]; onChange: (values: typeof PERSONA_PHRASE_CONTEXTS[number][]) => void }) {
+  return <fieldset className="coach-context-checks"><legend>{label}</legend>{PERSONA_PHRASE_CONTEXTS.map((context) => <label key={context}><input type="checkbox" checked={selected.includes(context)} onChange={(event) => onChange(event.target.checked ? [...selected.filter((value) => value !== context), context] as typeof PERSONA_PHRASE_CONTEXTS[number][] : selected.filter((value) => value !== context) as typeof PERSONA_PHRASE_CONTEXTS[number][])} /><span>{titleize(context)}</span></label>)}</fieldset>
 }
 
 function ArrayActions({ label, index, count, onMove, onRemove }: { label: string; index: number; count: number; onMove: (direction: -1 | 1) => void; onRemove: () => void }) {
@@ -1034,17 +1035,8 @@ function replacePersonaSummary(current: AdminPersonaSummary[], persona: AdminPer
     : [summary, ...current]
 }
 
-function replaceAt<T>(items: T[], index: number, value: T) {
-  return items.map((item, itemIndex) => itemIndex === index ? value : item)
-}
-
 function moveItem<T>(items: T[], index: number, direction: -1 | 1) {
-  const target = index + direction
-  if (target < 0 || target >= items.length) return items
-  const next = [...items]
-  const [item] = next.splice(index, 1)
-  next.splice(target, 0, item)
-  return next
+  return moveListItem(items, index, index + direction)
 }
 
 function errorMessage(caught: unknown, fallback: string) {
