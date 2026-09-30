@@ -163,6 +163,29 @@ class ApiDemoControllerTest < ActionDispatch::IntegrationTest
     assert_equal "assistant", JSON.parse(response.body).fetch("assistant_message").fetch("role")
   end
 
+  test "mia chat keeps an eight thousand character history message and its decisive tail" do
+    decisive_tail = "The requested change is Groceries at $900 for August 2026."
+    content = ("x" * (ChatMessage::MAX_USER_CONTENT_LENGTH - decisive_tail.length)) + decisive_tail
+    captured_history = nil
+    responder = Object.new
+    responder.define_singleton_method(:call) do |_message, history:|
+      captured_history = history
+      "Safe demo response."
+    end
+    original_new = Demo::MiaResponder.method(:new)
+    Demo::MiaResponder.define_singleton_method(:new) { responder }
+
+    post "/api/demo/mia/messages",
+         params: { message: "Continue", messages: [ { role: "user", content: content } ] },
+         as: :json
+
+    assert_response :created
+    assert_equal content, captured_history.sole.fetch(:content)
+    assert captured_history.sole.fetch(:content).end_with?(decisive_tail)
+  ensure
+    Demo::MiaResponder.define_singleton_method(:new, original_new) if original_new
+  end
+
   test "mia chat ignores malformed prior conversation history" do
     post "/api/demo/mia/messages",
          params: {

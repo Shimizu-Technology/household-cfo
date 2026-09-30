@@ -4,8 +4,7 @@ module HouseholdFinance
     MAX_MESSAGES = 32
     FETCH_LIMIT = 80
     MAX_TOTAL_CHARACTERS = 24_000
-    MAX_MESSAGE_CHARACTERS = 4_000
-    MIN_RECENT_MESSAGES = 8
+    MAX_MESSAGE_CHARACTERS = ChatMessage::MAX_CONTENT_LENGTH
 
     def initialize(chat_session, persona_version_id: UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
@@ -24,7 +23,7 @@ module HouseholdFinance
         next unless payload
 
         next_size = payload.fetch(:content).length
-        break if selected.length >= MIN_RECENT_MESSAGES && used_characters + next_size > MAX_TOTAL_CHARACTERS
+        break if used_characters + next_size > MAX_TOTAL_CHARACTERS
 
         selected << payload
         used_characters += next_size

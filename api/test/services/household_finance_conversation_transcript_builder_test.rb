@@ -21,7 +21,7 @@ class HouseholdFinanceConversationTranscriptBuilderTest < ActiveSupport::TestCas
     assert transcript.all? { |message| message.key?(:id) && message.key?(:created_at) }
   end
 
-  test "keeps at least the most recent eight turns when older messages exceed the character budget" do
+  test "keeps the most recent turns that fit within the aggregate character budget" do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "transcript-budget@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Transcript Budget Household")
     session = household.chat_sessions.create!(user: user, title: "Ask Mia")
@@ -32,9 +32,45 @@ class HouseholdFinanceConversationTranscriptBuilderTest < ActiveSupport::TestCas
 
     transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
 
-    assert_operator transcript.length, :>=, 8
     assert_operator transcript.length, :<, 20
+    assert_operator transcript.sum { |message| message.fetch(:content).length }, :<=,
+      HouseholdFinance::ConversationTranscriptBuilder::MAX_TOTAL_CHARACTERS
     assert_includes transcript.last.fetch(:content), "Turn 20"
+  end
+
+  test "keeps the complete accepted user message when decisive facts are near character eight thousand" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "transcript-long-message@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Long Transcript Household")
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    decisive_tail = "Set Groceries to $900 for August 2026."
+    content = ("x" * (ChatMessage::MAX_USER_CONTENT_LENGTH - decisive_tail.length)) + decisive_tail
+    message = session.chat_messages.create!(role: "user", content: content)
+
+    transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
+
+    assert_equal ChatMessage::MAX_USER_CONTENT_LENGTH, transcript.sole.fetch(:content).length
+    assert_equal message.content, transcript.sole.fetch(:content)
+    assert transcript.sole.fetch(:content).end_with?(decisive_tail)
+  end
+
+  test "never exceeds the aggregate context budget with maximum length messages" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "transcript-hard-budget@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Bounded Transcript Household")
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+
+    4.times do |index|
+      marker = "message-#{index + 1}:"
+      content = marker + ("x" * (ChatMessage::MAX_CONTENT_LENGTH - marker.length))
+      session.chat_messages.create!(role: index.even? ? "user" : "assistant", content: content)
+    end
+
+    transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
+
+    assert_equal 3, transcript.length
+    assert_operator transcript.sum { |message| message.fetch(:content).length }, :<=,
+      HouseholdFinance::ConversationTranscriptBuilder::MAX_TOTAL_CHARACTERS
+    assert transcript.first.fetch(:content).start_with?("message-2:")
+    assert transcript.last.fetch(:content).start_with?("message-4:")
   end
 
   test "keeps user turns while excluding assistant turns from other persona versions" do

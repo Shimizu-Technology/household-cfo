@@ -443,6 +443,22 @@ class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
     assert_includes bounded_history.last.fetch(:content), "message-39"
   end
 
+  test "keeps the decisive tail of an accepted eight thousand character history message" do
+    decisive_tail = "The requested change is Groceries at $900 for August 2026."
+    content = ("x" * (ChatMessage::MAX_USER_CONTENT_LENGTH - decisive_tail.length)) + decisive_tail
+    narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Continue that request.",
+      history: [ { role: "user", content: content } ],
+      answer_packet: { kind: "coaching", fallback_response: "Continue safely.", write_state: "no_write" },
+      api_key: nil
+    )
+
+    bounded_history = narrator.send(:conversation_history)
+
+    assert_equal content, bounded_history.sole.fetch(:content)
+    assert bounded_history.sole.fetch(:content).end_with?(decisive_tail)
+  end
+
   test "allows historical transaction lookup narration without treating recorded language as a write claim" do
     response = ok_response(
       choices: [

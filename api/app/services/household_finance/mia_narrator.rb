@@ -11,7 +11,7 @@ module HouseholdFinance
     MAX_PACKET_BYTES = 12_000
     MAX_HISTORY_MESSAGES = 32
     MAX_HISTORY_CHARACTERS = 24_000
-    MAX_HISTORY_MESSAGE_CHARACTERS = 4_000
+    MAX_HISTORY_MESSAGE_CHARACTERS = ChatMessage::MAX_CONTENT_LENGTH
     MAX_OUTPUT_TOKENS = 512
     OPEN_TIMEOUT_SECONDS = 5
     READ_TIMEOUT_SECONDS = 10
@@ -159,11 +159,10 @@ module HouseholdFinance
       selected = []
       used_characters = 0
       candidates.reverse_each do |message|
-        remaining = MAX_HISTORY_CHARACTERS - used_characters
-        break if remaining <= 0
+        content = message.fetch(:content)
+        break if used_characters + content.length > MAX_HISTORY_CHARACTERS
 
-        content = message.fetch(:content).truncate(remaining, omission: "…")
-        selected.unshift(message.merge(content: content))
+        selected.unshift(message)
         used_characters += content.length
       end
       selected
