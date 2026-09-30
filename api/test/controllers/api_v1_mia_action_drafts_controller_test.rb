@@ -35,7 +35,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ 80_000 ], planned_amounts_for(category)
     assert_equal [ "manual" ], allocation_sources_for(category)
     assert_empty apply_body.fetch("workspace").fetch("budget").fetch("annual_plan").fetch("pending_mia_action_drafts")
-    assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied Mia’s budget edit"
+    assert_includes apply_body.fetch("workspace").fetch("mia").fetch("messages").last.fetch("content"), "Applied the reviewed budget edit"
   end
 
   test "malformed persisted action payload fails safely without changing the budget" do

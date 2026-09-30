@@ -88,4 +88,67 @@ class ChatMessageTest < ActiveSupport::TestCase
     refute message.valid?
     assert_includes message.errors.full_messages, "Presentation is not a supported Mia presentation"
   end
+
+  test "assistant author may identify a global persona without a database version" do
+    message = @session.chat_messages.create!(role: "assistant", content: "Global answer")
+
+    assert_nil message.coach_persona_version
+    assert_equal "Mia", message.assistant_author
+    assert_equal "Mia", message.as_api_json.fetch(:author)
+  end
+
+  test "a persona version requires an assistant author and cannot be attached to a user message" do
+    coach = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "coach-#{SecureRandom.hex(6)}@example.com", role: "coach", invitation_status: "accepted")
+    persona = CoachPersona.create!(
+      name: "Versioned assistant",
+      draft_config: Mia::PersonaSchema.default_configuration(assistant_name: "Kiko", human_coach_name: "Coach Ana"),
+      created_by_user: coach
+    )
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
+    preview = publisher.preview!(expected_draft_revision: 1)
+    version = publisher.publish!(expected_preview_digest: preview.fetch(:digest), expected_draft_revision: 1, expected_current_version_id: nil)
+
+    missing_author = @session.chat_messages.new(role: "assistant", content: "Versioned answer", coach_persona_version: version)
+    refute missing_author.valid?
+    assert_includes missing_author.errors[:assistant_author], "is required when a persona version is set"
+
+    participant_message = @session.chat_messages.new(role: "user", content: "Hello", assistant_author: "Kiko")
+    refute participant_message.valid?
+    assert_includes participant_message.errors[:assistant_author], "and persona version are available only on assistant messages"
+  end
+
+  test "persisted message role and assistant attribution are immutable" do
+    message = @session.chat_messages.create!(role: "assistant", content: "Original answer")
+
+    refute message.update(role: "user", assistant_author: nil)
+    assert_includes message.errors[:base], "message role and assistant attribution are immutable"
+    assert_equal "assistant", message.reload.role
+    assert_equal "Mia", message.assistant_author
+
+    refute message.update(assistant_author: "Tampered attribution")
+    assert_includes message.errors[:base], "message role and assistant attribution are immutable"
+    assert_equal "Mia", message.reload.assistant_author
+  end
+
+  test "persisted persona version attribution cannot be changed or removed" do
+    coach = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "immutable-coach-#{SecureRandom.hex(6)}@example.com", role: "coach", invitation_status: "accepted")
+    persona = CoachPersona.create!(
+      name: "Immutable assistant",
+      draft_config: Mia::PersonaSchema.default_configuration(assistant_name: "Kiko", human_coach_name: "Coach Ana"),
+      created_by_user: coach
+    )
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
+    preview = publisher.preview!(expected_draft_revision: 1)
+    version = publisher.publish!(expected_preview_digest: preview.fetch(:digest), expected_draft_revision: 1, expected_current_version_id: nil)
+    message = @session.chat_messages.create!(
+      role: "assistant",
+      content: "Versioned answer",
+      assistant_author: "Kiko",
+      coach_persona_version: version
+    )
+
+    refute message.update(coach_persona_version: nil)
+    assert_includes message.errors[:base], "message role and assistant attribution are immutable"
+    assert_equal version, message.reload.coach_persona_version
+  end
 end

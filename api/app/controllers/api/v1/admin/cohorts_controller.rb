@@ -5,6 +5,7 @@ module Api
         before_action :authenticate_user!
         before_action :require_admin!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
+        rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_assignment_conflict
 
         def index
           cohorts = Cohort.includes(cohort_list_includes).order(created_at: :desc).to_a
@@ -26,7 +27,16 @@ module Api
 
         def update
           cohort = Cohort.find(params[:id])
-          cohort.update!(cohort_params)
+          Cohort.transaction do
+            cohort.lock!
+            if activating_persona_assignment?(cohort)
+              participant_ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort: cohort)
+              Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: participant_ids)
+              assignment = cohort.cohort_persona_assignment
+              Mia::PersonaAssignmentCompatibility.ensure_cohort_can_use!(cohort: cohort, persona: assignment.coach_persona) if assignment
+            end
+            cohort.update!(cohort_params)
+          end
           render json: { cohort: serialize_cohort(find_cohort(cohort.id), include_members: true) }
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
@@ -36,6 +46,12 @@ module Api
 
         def cohort_params
           params.require(:cohort).permit(:name, :status, :starts_on, :ends_on, :notes)
+        end
+
+        def activating_persona_assignment?(cohort)
+          requested_status = cohort_params[:status].presence
+          requested_status.in?(Mia::PersonaAssignmentCompatibility::RELEVANT_COHORT_STATUSES) &&
+            !cohort.status.in?(Mia::PersonaAssignmentCompatibility::RELEVANT_COHORT_STATUSES)
         end
 
         def find_cohort(id)
@@ -158,6 +174,10 @@ module Api
 
         def render_not_found(error)
           render json: { errors: [ error.message ] }, status: :not_found
+        end
+
+        def render_persona_assignment_conflict(error)
+          render json: { error: error.message, code: "persona_assignment_conflict" }, status: :conflict
         end
       end
     end

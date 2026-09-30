@@ -20,11 +20,13 @@ module HouseholdFinance
     PURCHASE_TERMS = /\b(?:buy|purchase|spend|afford|get|book|order|trip|vacation|staycation|shoes|phone|takeout|hotel)\b/i.freeze
     TRANSACTION_TERMS = /\b(?:i|we)\s+(?:spent|paid|charged|bought|withdrew)\b/i.freeze
 
-    def initialize(chat_session, user_message:, assistant_message:, follow_up: false)
+    def initialize(chat_session, user_message:, assistant_message:, follow_up: false,
+      persona_context_id: PersonaVersionedContinuity::UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
       @user_message = user_message
       @assistant_message = assistant_message
       @follow_up = follow_up
+      @persona_context_id = persona_context_id
       @now = Time.current
     end
 
@@ -59,7 +61,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :chat_session, :user_message, :assistant_message, :now
+    attr_reader :chat_session, :user_message, :assistant_message, :now, :persona_context_id
 
     def follow_up?
       @follow_up
@@ -189,7 +191,7 @@ module HouseholdFinance
       topic = topic.deep_stringify_keys
       amount_cents = amount_from_text(latest_user_text) || topic["amount_cents"]
       budget_subject = budget_report_subject_from_assistant(topic, latest_assistant_text)
-      topic.merge(
+      merged = topic.merge(
         "id" => topic["id"].presence || SecureRandom.uuid,
         "status" => topic["status"].presence || "open",
         "subject" => budget_subject || topic["subject"],
@@ -201,6 +203,11 @@ module HouseholdFinance
         "updated_at" => now.iso8601,
         "turn_count" => topic["turn_count"].to_i + 1
       ).compact
+      PersonaVersionedContinuity.stamp_assistant_context(
+        merged,
+        persona_context_id: persona_context_id,
+        persona_version_id: persona_version_id
+      )
     end
 
     def latest_user_context_for(topic, latest_user_text)
@@ -252,10 +259,14 @@ module HouseholdFinance
     end
 
     def normalized_topic(value)
-      topic = value.to_h.deep_stringify_keys
+      topic = PersonaVersionedContinuity.filter_topic(value, persona_context_id: persona_context_id)
       return nil if topic.blank? || topic["title"].blank?
 
       topic
+    end
+
+    def persona_version_id
+      assistant_message.coach_persona_version_id
     end
 
     def text_looks_like_follow_up?(text)

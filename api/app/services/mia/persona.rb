@@ -3,12 +3,17 @@ require "yaml"
 module Mia
   class Persona
     DEFAULT_ID = "mia_household_cfo_guam".freeze
+    NEUTRAL_ID = "mia_household_cfo_neutral".freeze
     CONFIG_PATH = Rails.root.join("config", "mia_personas.yml")
 
     class << self
       def default
         configured_default = config.fetch("default", DEFAULT_ID)
         find(ENV.fetch("MIA_PERSONA_ID", configured_default))
+      end
+
+      def neutral
+        new(NEUTRAL_ID, config.fetch("personas").fetch(NEUTRAL_ID))
       end
 
       def find(id)
@@ -30,6 +35,18 @@ module Mia
     end
 
     attr_reader :id, :data
+
+    def persona_id
+      nil
+    end
+
+    def version_id
+      nil
+    end
+
+    def continuity_id
+      "built_in_persona:#{id}"
+    end
 
     def initialize(id, data)
       @id = id
@@ -80,6 +97,19 @@ module Mia
         Phrase library: #{phrase_library_prompt}
         Do not: #{data.fetch("do_not").join("; ")}.
       PROMPT
+    end
+
+    def cultural_phrases
+      data.fetch("phrase_library").values.map do |entry|
+        {
+          "text" => entry.fetch("phrase"),
+          "meaning" => entry.fetch("use"),
+          "allowed_contexts" => [],
+          "prohibited_contexts" => [],
+          "frequency" => entry["frequency"].presence || "sparing",
+          "caution" => entry["caution"].to_s
+        }
+      end
     end
 
     private

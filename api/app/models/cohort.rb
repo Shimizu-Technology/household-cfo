@@ -5,6 +5,9 @@ class Cohort < ApplicationRecord
 
   has_many :cohort_memberships, dependent: :destroy
   has_many :users, through: :cohort_memberships
+  has_one :cohort_persona_assignment, dependent: :destroy, inverse_of: :cohort
+  has_one :coach_persona, through: :cohort_persona_assignment
+  has_one :coach_persona_version, through: :cohort_persona_assignment
 
   validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false }
   validates :status, inclusion: { in: STATUSES }

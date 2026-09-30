@@ -9,6 +9,21 @@ module Api
         @current_household ||= HouseholdFinance::WorkspaceResolver.new(current_user).household
       end
 
+      def current_cohort_membership
+        return @current_cohort_membership if defined?(@current_cohort_membership)
+
+        @current_cohort_membership = ::Mia::EffectiveCohortResolver.new(user: current_user).call
+      end
+
+      def current_persona
+        return @current_persona if defined?(@current_persona)
+
+        @current_persona = ::Mia::PersonaResolver.new(
+          user: current_user,
+          cohort_membership: current_cohort_membership
+        ).call
+      end
+
       def require_writable_household!
         membership = current_household.household_memberships.find_by(user_id: current_user.id)
         return if membership&.role.in?(%w[owner partner])
@@ -21,7 +36,17 @@ module Api
       end
 
       def current_workspace_data
-        HouseholdFinance::DataPresenter.new(current_household, user: current_user).app_data
+        current_data_presenter.app_data
+      end
+
+      def current_data_presenter(household: current_household, annual_plan: nil)
+        HouseholdFinance::DataPresenter.new(
+          household,
+          user: current_user,
+          annual_plan: annual_plan,
+          persona: current_persona,
+          cohort_membership: current_cohort_membership
+        )
       end
     end
   end

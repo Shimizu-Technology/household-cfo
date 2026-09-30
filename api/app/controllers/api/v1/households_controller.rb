@@ -30,7 +30,7 @@ module Api
       private
 
       def presenter
-        @presenter ||= HouseholdFinance::DataPresenter.new(current_household, user: current_user)
+        @presenter ||= current_data_presenter
       end
 
       def budget_presenter
@@ -38,7 +38,7 @@ module Api
 
         year = params[:year].to_i.clamp(2000, 2100)
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: year).plan_data
-        HouseholdFinance::DataPresenter.new(current_household, user: current_user, annual_plan: annual_plan)
+        current_data_presenter(annual_plan: annual_plan)
       end
     end
   end

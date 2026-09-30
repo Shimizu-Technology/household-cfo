@@ -46,7 +46,7 @@ module Api
       end
 
       def append_chat_status_message(content)
-        current_chat_session.chat_messages.create!(role: "assistant", content: content)
+        ::Mia::AssistantMessageWriter.new(session: current_chat_session, persona: current_persona).create!(content: content)
       rescue StandardError => e
         Rails.logger.warn("Mia action draft status message was not saved draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
         false
@@ -75,17 +75,17 @@ module Api
       def workspace_payload_for(year)
         response_year = HouseholdFinance::AnnualBudgetManager.supported_year?(year) ? year : Date.current.year
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: response_year).plan_data
-        HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).app_data
+        current_data_presenter(household: current_household.reload, annual_plan: annual_plan).app_data
       end
 
       def applied_message(draft)
         case draft.draft_type
         when "budget_edit"
-          "Applied Mia’s budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
+          "Applied the reviewed budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
         when "income_schedule"
-          "Applied Mia’s reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
+          "Applied the reviewed income change: #{applied_summary(draft.summary)} The income timeline and cash-flow view now use the approved schedule."
         else
-          "Applied Mia’s reviewed household update: #{applied_summary(draft.summary)} Mia and the Home snapshot now use the approved values."
+          "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
         end
       end
 
@@ -101,7 +101,7 @@ module Api
         when "income_schedule" then "No income timeline changed."
         else "No approved household numbers changed."
         end
-        "Canceled Mia’s review draft: #{draft.title}. #{unchanged}"
+        "Canceled the assistant review draft: #{draft.title}. #{unchanged}"
       end
 
       def serialize_action_draft(draft)

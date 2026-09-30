@@ -5,13 +5,15 @@ module HouseholdFinance
     MAX_TOPICS = 8
     MAX_TEXT_LENGTH = 240
 
-    def initialize(chat_session, intent_result:, user_message:, assistant_message:, mia_action_draft: nil, transaction_draft: nil)
+    def initialize(chat_session, intent_result:, user_message:, assistant_message:, mia_action_draft: nil, transaction_draft: nil,
+      persona_context_id: PersonaVersionedContinuity::UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
       @intent_result = intent_result
       @user_message = user_message
       @assistant_message = assistant_message
       @mia_action_draft = mia_action_draft
       @transaction_draft = transaction_draft
+      @persona_context_id = persona_context_id
     end
 
     def call
@@ -20,6 +22,7 @@ module HouseholdFinance
       chat_session.with_lock do
         current = normalized_topic(chat_session.active_topic)
         topic = topic_for(current)
+        topic = stamp_assistant_context(topic) if topic
         topics = normalized_topics(chat_session.open_topics)
         topics = upsert_topic(topics, topic) if topic
 
@@ -40,7 +43,20 @@ module HouseholdFinance
 
     private
 
-    attr_reader :chat_session, :intent_result, :user_message, :assistant_message, :mia_action_draft, :transaction_draft
+    attr_reader :chat_session, :intent_result, :user_message, :assistant_message, :mia_action_draft, :transaction_draft,
+      :persona_context_id
+
+    def persona_version_id
+      assistant_message.coach_persona_version_id
+    end
+
+    def stamp_assistant_context(topic)
+      PersonaVersionedContinuity.stamp_assistant_context(
+        topic,
+        persona_context_id: persona_context_id,
+        persona_version_id: persona_version_id
+      )
+    end
 
     def topic_for(current)
       return recall_topic(current) if intent_result.intent == "recall"
@@ -212,7 +228,7 @@ module HouseholdFinance
     end
 
     def normalized_topic(value)
-      topic = value.to_h.deep_stringify_keys
+      topic = PersonaVersionedContinuity.filter_topic(value, persona_context_id: persona_context_id)
       return nil if topic.blank? || topic["title"].blank?
 
       topic

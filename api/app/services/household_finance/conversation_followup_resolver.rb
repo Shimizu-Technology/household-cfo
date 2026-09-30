@@ -41,14 +41,65 @@ module HouseholdFinance
 
     def recall_result
       topics = open_topics.presence || [ active_topic ].compact
-      topic_lines = topics.first(4).map do |topic|
-        parts = [ topic["title"], topic["amount_label"], topic["latest_mia_summary"], topic["next_move"] ].compact_blank
-        parts.join(" — ")
-      end
+      topic_lines = topics.first(4).map { |topic| recall_topic_summary(topic) }
       summary = topic_lines.to_sentence.presence || rolling_summary
-      answer = "Here is the conversation context I can pick up from: #{summary}. This is conversation memory, not financial truth; confirmed actuals, balances, and plan amounts still come from approved records. Next CFO move: tell me which topic you want to continue, or send the missing amount and due date for the active decision."
+      answer = "Here is the conversation context I can pick up from: #{summary}. This is conversation memory, not financial truth; confirmed actuals, balances, and plan amounts still come from approved records. Next CFO move: #{recall_next_move(topics)}"
 
       Result.new(message: message, direct_answer: answer, follow_up?: true)
+    end
+
+    def recall_topic_summary(topic)
+      subject = topic["subject"] unless topic["subject"].to_s.casecmp?(topic["title"].to_s)
+      scenario_summaries = Array(topic.dig("read_only_plan", "items")).first(3).filter_map do |item|
+        recall_scenario_summary(item.to_h)
+      end
+      participant_context = topic["latest_user_context"] if scenario_summaries.empty?
+      assistant_context = if scenario_summaries.empty?
+        [ topic["latest_mia_summary"], topic["next_move"] ]
+      else
+        []
+      end
+
+      [
+        topic["title"],
+        subject,
+        topic["amount_label"],
+        *scenario_summaries,
+        participant_context,
+        *assistant_context
+      ].compact_blank.uniq.join(" — ")
+    end
+
+    def recall_scenario_summary(item)
+      label = item["scenario_label"].presence || item["source_text"].presence
+      return if label.blank?
+
+      amount = formatted_scenario_amount(item["amount"])
+      [ label, amount ].compact_blank.join(" at ")
+    end
+
+    def formatted_scenario_amount(value)
+      amount = BigDecimal(value.to_s, exception: false)
+      return if amount.nil?
+
+      formatted = format("%.2f", amount).sub(/\.00\z/, "").sub(/(\.\d)0\z/, "\\1")
+      "$#{formatted}"
+    end
+
+    def recall_next_move(topics)
+      items = topics.flat_map { |topic| Array(topic.dig("read_only_plan", "items")) }
+      if items.any? { |item| purchase_scenario?(item.to_h) }
+        return "pick the budget category and funding account that would cover the purchase. Nothing will be saved until you review it."
+      end
+
+      return "confirm the timing and which approved category or account would fund the decision." if topics.any? { |topic| topic["amount_label"].present? }
+
+      "tell me which topic you want to continue, or send the missing amount and timing for the active decision."
+    end
+
+    def purchase_scenario?(item)
+      item["kind"] == "purchase_scenario" ||
+        (item["kind"] == "scenario" && item["scenario_type"] == "purchase")
     end
 
     def empty_recall_result

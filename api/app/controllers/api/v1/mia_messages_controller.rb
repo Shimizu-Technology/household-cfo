@@ -5,7 +5,7 @@ module Api
       before_action :require_writable_household!, only: %i[create destroy]
 
       def index
-        render json: HouseholdFinance::DataPresenter.new(current_household, user: current_user).mia(
+        render json: current_data_presenter.mia(
           before_id: params[:before_id],
           limit: params[:limit]
         )
@@ -24,14 +24,20 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
-        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(session).call
+        transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
+          session,
+          persona_version_id: current_persona.version_id
+        ).call
         history = transcript.map { |message| message.slice(:role, :content) }
         @mia_conversation_messages = history
         return render_attached_document_response(session, content, attached_imports, message_request: message_request) if attached_imports.any?
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
         intent_plan = annual_budget_manager.read_only_plan_data
-        conversation_context = HouseholdFinance::ConversationContextBuilder.new(session).call
+        conversation_context = HouseholdFinance::ConversationContextBuilder.new(
+          session,
+          persona_context_id: current_persona.continuity_id
+        ).call
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
           annual_plan: intent_plan,
@@ -49,6 +55,7 @@ module Api
           routed = route_model_intent(
             intent_result,
             content: content,
+            conversation_context: conversation_context,
             annual_budget_manager: annual_budget_manager,
             annual_plan: intent_plan
           )
@@ -73,6 +80,11 @@ module Api
         transaction_draft_answer = routed[:transaction_draft_answer]
         intent_direct_answer = routed[:direct_answer]
         assistant_presentation = routed[:presentation] || {}
+        intent_direct_answer, assistant_presentation = apply_persona_capability_boundary(
+          content,
+          direct_answer: intent_direct_answer,
+          presentation: assistant_presentation
+        )
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
 
@@ -92,6 +104,7 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
+        assistant_content = append_persona_capability_boundary(content, assistant_content)
         user_message, assistant_message = persist_chat_messages(
           session,
           content,
@@ -113,18 +126,25 @@ module Api
             user_message: user_message,
             assistant_message: assistant_message,
             mia_action_draft: mia_action_draft,
-            transaction_draft: transaction_draft
+            transaction_draft: transaction_draft,
+            persona_context_id: current_persona.continuity_id
           )
         else
-          compact_conversation(session, user_message, assistant_message, follow_up: followup.follow_up?)
+          compact_conversation(
+            session,
+            user_message,
+            assistant_message,
+            follow_up: followup.follow_up?,
+            persona_context_id: current_persona.continuity_id
+          )
         end
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
-          assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
+          assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
-          budget: annual_plan && !intent_result&.read_only_plan? ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
+          budget: annual_plan && !intent_result&.read_only_plan? ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)
@@ -177,20 +197,22 @@ module Api
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(
-              role: "assistant",
-              content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…")
-            )
+            assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
-        compact_conversation(session, user_message, assistant_message)
+        compact_conversation(
+          session,
+          user_message,
+          assistant_message,
+          persona_context_id: current_persona.continuity_id
+        )
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
-          assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
+          assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
           mia_action_draft: nil,
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
+          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget,
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)
@@ -293,8 +315,7 @@ module Api
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         ApplicationRecord.transaction do
           user_message = session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) })
-          assistant_message = session.chat_messages.new(
-            role: "assistant",
+          assistant_message = assistant_message_writer(session).build(
             content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"),
             presentation: assistant_presentation
           )
@@ -548,8 +569,12 @@ module Api
         document_import.document_kind.to_s.humanize.downcase
       end
 
-      def route_model_intent(intent_result, content:, annual_budget_manager:, annual_plan:)
+      def route_model_intent(intent_result, content:, conversation_context:, annual_budget_manager:, annual_plan:)
         resolved_content = intent_result.resolved_message.presence || content
+        followup = HouseholdFinance::ConversationFollowupResolver.new(
+          content,
+          conversation_context: conversation_context
+        ).call
         read_only_result = if intent_result.read_only_plan?
           HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
             current_household,
@@ -587,6 +612,10 @@ module Api
           # against Rails-owned transaction truth instead of replaying a stale answer.
           if transaction_lookup_answer.nil? && intent_result.intent == "recall"
             transaction_lookup_answer = HouseholdFinance::TransactionLookupAnswerer.new(current_household, content).call
+          end
+
+          if transaction_lookup_answer.nil? && intent_result.intent == "recall" && followup.follow_up?
+            direct_answer = followup.direct_answer
           end
 
           case transaction_lookup_answer ? nil : intent_result.intent
@@ -682,7 +711,7 @@ module Api
 
         {
           routed_content: resolved_content,
-          followup: nil,
+          followup: followup,
           direct_answer: direct_answer,
           presentation: read_only_result&.presentation,
           pending_draft_answer: pending_draft_answer,
@@ -1007,13 +1036,38 @@ module Api
           conversation_context: conversation_context
         ).call
         response_history = conversation_resolution&.dig(:intent) == "recall" ? [] : history
-        ::Demo::MiaResponder.new.call(
+        ::Demo::MiaResponder.new(persona: current_persona).call(
           content,
           history: response_history,
           context: context,
           draft_capable: false,
           conversation_resolution: conversation_resolution
         )
+      end
+
+      def apply_persona_capability_boundary(content, direct_answer:, presentation:)
+        return [ direct_answer, presentation ] unless Mia::Capabilities.persona_configuration_request?(content)
+        return [ direct_answer, presentation ] if direct_answer.blank? && presentation.blank?
+
+        boundary = Mia::Capabilities.persona_configuration_answer
+        bounded_presentation = presentation.deep_dup
+        if bounded_presentation.present?
+          lead_key = bounded_presentation.key?(:lead) ? :lead : "lead"
+          existing_lead = bounded_presentation[lead_key].to_s
+          available_lead_length = [ 500 - boundary.length - 1, 0 ].max
+          bounded_lead = existing_lead.truncate(available_lead_length, omission: "…")
+          bounded_presentation[lead_key] = [ bounded_lead, boundary ].compact_blank.join(" ")
+        end
+        [ direct_answer, bounded_presentation ]
+      end
+
+      def append_persona_capability_boundary(content, assistant_content)
+        return assistant_content unless Mia::Capabilities.persona_configuration_request?(content)
+
+        boundary = Mia::Capabilities.persona_configuration_answer
+        return assistant_content if assistant_content.to_s.include?(boundary)
+
+        [ assistant_content, boundary ].compact_blank.join(" ")
       end
 
       def narrate_structured_answer(content, history, conversation_context, kind:, fallback_response:, write_state:, annual_plan: nil, spending_report: nil, transaction_draft: nil, mia_action_result: nil, selected_month: nil)
@@ -1032,8 +1086,13 @@ module Api
         HouseholdFinance::MiaNarrator.new(
           user_message: content,
           history: history,
-          answer_packet: answer_packet
+          answer_packet: answer_packet,
+          persona: current_persona
         ).call
+      end
+
+      def assistant_message_writer(session)
+        ::Mia::AssistantMessageWriter.new(session: session, persona: current_persona)
       end
 
       def drafted_transaction_message(draft, annual_plan)
@@ -1113,26 +1172,29 @@ module Api
         }
       end
 
-      def update_conversation_state(session, intent_result:, user_message:, assistant_message:, mia_action_draft:, transaction_draft:)
+      def update_conversation_state(session, intent_result:, user_message:, assistant_message:, mia_action_draft:, transaction_draft:,
+        persona_context_id:)
         HouseholdFinance::MiaConversationStateUpdater.new(
           session,
           intent_result: intent_result,
           user_message: user_message,
           assistant_message: assistant_message,
           mia_action_draft: mia_action_draft,
-          transaction_draft: transaction_draft
+          transaction_draft: transaction_draft,
+          persona_context_id: persona_context_id
         ).call
       rescue StandardError => e
         Rails.logger.warn("Mia conversation state could not be saved chat_session_id=#{session&.id}: #{e.class}: #{e.message}")
         false
       end
 
-      def compact_conversation(session, user_message, assistant_message, follow_up: false)
+      def compact_conversation(session, user_message, assistant_message, follow_up: false, persona_context_id:)
         HouseholdFinance::ConversationCompactor.new(
           session,
           user_message: user_message,
           assistant_message: assistant_message,
-          follow_up: follow_up
+          follow_up: follow_up,
+          persona_context_id: persona_context_id
         ).call
       rescue StandardError => e
         Rails.logger.warn("Conversation compaction could not be scheduled chat_session_id=#{session&.id}: #{e.class}: #{e.message}")

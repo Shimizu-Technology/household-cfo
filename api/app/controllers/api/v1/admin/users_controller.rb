@@ -2,8 +2,11 @@ module Api
   module V1
     module Admin
       class UsersController < BaseController
+        InvitationMembershipLockSetChanged = Class.new(StandardError)
+
         before_action :authenticate_user!
         before_action :require_staff!
+        rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_membership_conflict
 
         def index
           users = users_scope.to_a
@@ -58,6 +61,7 @@ module Api
 
           admin_guard_error = nil
           User.transaction do
+            lock_cohorts!(cohort_ids)
             locked_admin_ids = requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil
             user.lock!
             role = attributes[:role].presence || user.role
@@ -81,6 +85,9 @@ module Api
             if membership_params_present
               sync_cohort_memberships(user, cohort_ids, role: cohort_role_for(user.role))
             else
+              if cohort_role_for(user.role) == "participant"
+                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+              end
               user.cohort_memberships.update_all(role: cohort_role_for(user.role), updated_at: Time.current)
             end
           end
@@ -116,6 +123,7 @@ module Api
         def create_new_invited_user(attributes:, role:, cohort_ids:)
           user = nil
           User.transaction do
+            lock_cohorts!(cohort_ids)
             user = User.create!(
               email: attributes[:email],
               first_name: bounded_text(attributes[:first_name], 80),
@@ -141,11 +149,11 @@ module Api
 
           was_revoked = user.revoked?
           target_status = linked_to_clerk?(user) ? "accepted" : "pending"
-          target_cohort_ids = []
-          User.transaction do
-            user.lock!
-            existing_cohort_ids = user.cohort_memberships.pluck(:cohort_id)
-            target_cohort_ids = was_revoked ? cohort_ids : (existing_cohort_ids | cohort_ids)
+          with_stable_invitation_membership_locks(
+            user,
+            requested_cohort_ids: cohort_ids,
+            replace_memberships: was_revoked
+          ) do |target_cohort_ids|
             user.assign_attributes(
               role: role,
               invitation_status: target_status,
@@ -216,7 +224,7 @@ module Api
         end
 
         def coach_cohort_ids
-          @coach_cohort_ids ||= current_user.cohort_memberships.pluck(:cohort_id)
+          @coach_cohort_ids ||= current_user.cohort_memberships.where(role: "coach").pluck(:cohort_id)
         end
 
         def requested_admin_access_removal?(attributes)
@@ -286,11 +294,65 @@ module Api
         end
 
         def sync_cohort_memberships(user, cohort_ids, role:)
+          if role == "participant"
+            Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: [ user.id ])
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+          end
           user.cohort_memberships.where.not(cohort_id: cohort_ids).destroy_all
           cohort_ids.each do |cohort_id|
             membership = user.cohort_memberships.find_or_initialize_by(cohort_id: cohort_id)
             membership.update!(role: role)
           end
+        end
+
+        def with_stable_invitation_membership_locks(user, requested_cohort_ids:, replace_memberships:)
+          locked_cohort_ids = invitation_target_cohort_ids(
+            user,
+            requested_cohort_ids: requested_cohort_ids,
+            replace_memberships: replace_memberships
+          )
+
+          loop do
+            retry_cohort_ids = nil
+            begin
+              User.transaction do
+                lock_cohorts!(locked_cohort_ids)
+                user.lock!
+                target_cohort_ids = invitation_target_cohort_ids(
+                  user,
+                  requested_cohort_ids: requested_cohort_ids,
+                  replace_memberships: replace_memberships
+                )
+
+                if target_cohort_ids.sort != locked_cohort_ids.sort
+                  retry_cohort_ids = target_cohort_ids
+                  raise InvitationMembershipLockSetChanged
+                end
+
+                yield target_cohort_ids
+              end
+              return
+            rescue InvitationMembershipLockSetChanged
+              locked_cohort_ids = retry_cohort_ids
+            end
+          end
+        end
+
+        def invitation_target_cohort_ids(user, requested_cohort_ids:, replace_memberships:)
+          requested_ids = Array(requested_cohort_ids).map(&:to_i).uniq
+          return requested_ids if replace_memberships
+
+          existing_ids = CohortMembership.where(user_id: user.id).pluck(:cohort_id)
+          existing_ids | requested_ids
+        end
+
+        def lock_cohorts!(cohort_ids)
+          ids = Array(cohort_ids).map(&:to_i).uniq.sort
+          Cohort.where(id: ids).order(:id).lock.load if ids.any?
+        end
+
+        def render_persona_membership_conflict(error)
+          render json: { error: error.message, code: "persona_assignment_conflict" }, status: :conflict
         end
 
         def cohort_role_for(user_role)

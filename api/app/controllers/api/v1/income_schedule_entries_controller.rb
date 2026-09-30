@@ -80,7 +80,7 @@ module Api
         manager = HouseholdFinance::AnnualBudgetManager.new(current_household.reload, year: budget_year_param(entry))
         render json: {
           income_schedule_entry: serialize_entry(entry),
-          budget: HouseholdFinance::DataPresenter.new(current_household, user: current_user, annual_plan: manager.plan_data).budget
+          budget: current_data_presenter(annual_plan: manager.plan_data).budget
         }, status: status
       end
 

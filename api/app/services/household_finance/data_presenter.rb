@@ -1,12 +1,19 @@
 module HouseholdFinance
   class DataPresenter
-    def initialize(household, user: nil, annual_plan: nil)
+    UNRESOLVED_COHORT = Object.new.freeze
+
+    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT)
       @household = household
       @user = user
       @annual_plan = annual_plan
       @annual_budget_manager = AnnualBudgetManager.new(household)
       @snapshot_builder = SnapshotBuilder.new(household, annual_budget_manager: @annual_budget_manager)
-      @persona = ::Mia::Persona.default
+      @cohort_membership = if cohort_membership.equal?(UNRESOLVED_COHORT)
+        ::Mia::EffectiveCohortResolver.new(user: user).call
+      else
+        cohort_membership
+      end
+      @persona = persona || ::Mia::PersonaResolver.new(user: user, cohort_membership: @cohort_membership).call
     end
 
     def app_data
@@ -199,10 +206,7 @@ module HouseholdFinance
     end
 
     def cohort_context
-      return unless user
-
-      membership = user.cohort_memberships.includes(:cohort).joins(:cohort).where(cohorts: { status: %w[enrolling active] }).order("cohorts.starts_on DESC NULLS LAST", "cohorts.id DESC").first
-      membership ||= user.cohort_memberships.includes(:cohort).order(created_at: :desc).first
+      membership = cohort_membership
       return unless membership
 
       {
@@ -219,7 +223,7 @@ module HouseholdFinance
       @setup_status ||= SetupStatus.new(household)
     end
 
-    attr_reader :household, :user, :snapshot_builder, :persona
+    attr_reader :household, :user, :snapshot_builder, :persona, :cohort_membership
 
     def annual_plan
       @annual_plan ||= annual_budget_manager.plan_data

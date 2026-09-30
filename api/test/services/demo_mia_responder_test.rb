@@ -137,10 +137,11 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     prompt = Demo::MiaResponder::SAFETY_SYSTEM_PROMPT
 
     assert_includes prompt, "The participant is the Household CFO"
-    assert_includes prompt, "Mia is not the CFO"
+    assert_includes prompt, "assigned AI coaching assistant is not the CFO"
     assert_includes prompt, "call or text 988"
     assert_includes prompt, "That's a good question"
-    assert_includes prompt, "Do not use Chamorro words reflexively"
+    assert_includes prompt, "assigned persona's approved cultural language"
+    assert_includes prompt, "Never imitate an accent"
     assert_includes prompt, "month-to-date actuals change only after the Household CFO confirms the draft"
     assert_includes prompt, "pre-spend CFO decision"
     assert_includes prompt, "That's a smart question"

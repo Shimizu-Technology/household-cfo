@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_031100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -38,7 +38,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["budget_period_id", "budget_category_id"], name: "idx_on_budget_period_id_budget_category_id_396e159b33", unique: true
     t.index ["budget_period_id"], name: "index_budget_allocations_on_budget_period_id"
     t.check_constraint "planned_amount_cents >= 0", name: "budget_allocations_amount_non_negative"
-    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'setup'::character varying, 'imported'::character varying, 'mia_suggested'::character varying]::text[])", name: "budget_allocations_source_valid"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying::text, 'setup'::character varying::text, 'imported'::character varying::text, 'mia_suggested'::character varying::text])", name: "budget_allocations_source_valid"
   end
 
   create_table "budget_categories", force: :cascade do |t|
@@ -53,7 +53,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id", "active", "sort_order"], name: "idx_on_household_id_active_sort_order_01ee1248fa"
     t.index ["household_id"], name: "index_budget_categories_on_household_id"
     t.check_constraint "char_length(name::text) <= 80", name: "budget_categories_name_length"
-    t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[])", name: "budget_categories_stack_key_valid"
+    t.check_constraint "stack_key::text = ANY (ARRAY['non_discretionary'::character varying::text, 'discretionary'::character varying::text, 'sinking_expected'::character varying::text, 'sinking_unexpected'::character varying::text])", name: "budget_categories_stack_key_valid"
   end
 
   create_table "budget_periods", force: :cascade do |t|
@@ -66,7 +66,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["budget_year_id", "starts_on"], name: "index_budget_periods_on_budget_year_id_and_starts_on", unique: true
     t.index ["budget_year_id"], name: "index_budget_periods_on_budget_year_id"
     t.check_constraint "ends_on >= starts_on", name: "budget_periods_dates_ordered"
-    t.check_constraint "status::text = ANY (ARRAY['open'::character varying, 'reviewing'::character varying, 'closed'::character varying]::text[])", name: "budget_periods_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['open'::character varying::text, 'reviewing'::character varying::text, 'closed'::character varying::text])", name: "budget_periods_status_valid"
   end
 
   create_table "budget_years", force: :cascade do |t|
@@ -77,13 +77,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.integer "year", null: false
     t.index ["household_id", "year"], name: "index_budget_years_on_household_id_and_year", unique: true
     t.index ["household_id"], name: "index_budget_years_on_household_id"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'active'::character varying, 'archived'::character varying]::text[])", name: "budget_years_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'active'::character varying::text, 'archived'::character varying::text])", name: "budget_years_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "budget_years_year_reasonable"
   end
 
   create_table "chat_messages", force: :cascade do |t|
+    t.string "assistant_author"
     t.jsonb "attachments", default: [], null: false
     t.bigint "chat_session_id", null: false
+    t.bigint "coach_persona_version_id"
     t.text "content", null: false
     t.datetime "created_at", null: false
     t.jsonb "presentation", default: {}, null: false
@@ -91,9 +93,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.datetime "updated_at", null: false
     t.index ["chat_session_id", "created_at"], name: "index_chat_messages_on_chat_session_id_and_created_at"
     t.index ["chat_session_id"], name: "index_chat_messages_on_chat_session_id"
+    t.index ["coach_persona_version_id"], name: "index_chat_messages_on_coach_persona_version_id"
     t.index ["role"], name: "index_chat_messages_on_role"
-    t.check_constraint "role::text = 'user'::text AND char_length(content) <= 2000 OR role::text = 'assistant'::text AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
+    t.check_constraint "(assistant_author IS NULL OR role::text = 'assistant'::text) AND (coach_persona_version_id IS NULL OR role::text = 'assistant'::text AND assistant_author IS NOT NULL)", name: "chat_messages_persona_attribution_complete"
+    t.check_constraint "assistant_author IS NULL OR char_length(assistant_author::text) >= 1 AND char_length(assistant_author::text) <= 80", name: "chat_messages_assistant_author_length"
     t.check_constraint "jsonb_typeof(presentation) = 'object'::text", name: "chat_messages_presentation_object"
+    t.check_constraint "role::text = 'user'::text AND char_length(content) <= 2000 OR role::text = 'assistant'::text AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
   end
 
   create_table "chat_sessions", force: :cascade do |t|
@@ -113,6 +118,65 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
   end
 
+  create_table "coach_persona_publication_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "coach_persona_id", null: false
+    t.bigint "coach_persona_version_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.bigint "source_version_id"
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_coach_persona_publication_events_on_actor_user_id"
+    t.index ["coach_persona_id"], name: "index_coach_persona_publication_events_on_coach_persona_id"
+    t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_4ab8b00110"
+    t.index ["source_version_id"], name: "index_coach_persona_publication_events_on_source_version_id"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "coach_persona_publication_events_type_valid"
+  end
+
+  create_table "coach_persona_versions", force: :cascade do |t|
+    t.bigint "coach_persona_id", null: false
+    t.jsonb "config", null: false
+    t.string "config_digest", null: false
+    t.datetime "created_at", null: false
+    t.bigint "published_by_user_id", null: false
+    t.bigint "source_version_id"
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["coach_persona_id", "version_number"], name: "index_coach_persona_versions_on_persona_and_number", unique: true
+    t.index ["coach_persona_id"], name: "index_coach_persona_versions_on_coach_persona_id"
+    t.index ["published_by_user_id"], name: "index_coach_persona_versions_on_published_by_user_id"
+    t.index ["source_version_id"], name: "index_coach_persona_versions_on_source_version_id"
+    t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_digest_sha256"
+    t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
+    t.check_constraint "octet_length(config::text) <= 36864", name: "coach_persona_versions_config_bytes"
+    t.check_constraint "version_number > 0", name: "coach_persona_versions_positive_number"
+  end
+
+  create_table "coach_personas", force: :cascade do |t|
+    t.datetime "archived_at"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.bigint "current_published_version_id"
+    t.text "description"
+    t.jsonb "draft_config", default: {}, null: false
+    t.integer "draft_revision", default: 1, null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "name", null: false
+    t.string "preview_digest"
+    t.datetime "previewed_at"
+    t.integer "previewed_draft_revision"
+    t.datetime "updated_at", null: false
+    t.index "created_by_user_id, lower((name)::text)", name: "index_coach_personas_on_creator_and_lower_name", unique: true
+    t.index ["archived_at"], name: "index_coach_personas_on_archived_at"
+    t.index ["created_by_user_id"], name: "index_coach_personas_on_created_by_user_id"
+    t.index ["current_published_version_id"], name: "index_coach_personas_on_current_published_version_id"
+    t.check_constraint "draft_revision > 0", name: "coach_personas_positive_draft_revision"
+    t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "coach_personas_draft_config_object"
+    t.check_constraint "octet_length(draft_config::text) <= 36864", name: "coach_personas_draft_config_bytes"
+    t.check_constraint "preview_digest IS NULL AND previewed_at IS NULL AND previewed_draft_revision IS NULL OR preview_digest IS NOT NULL AND previewed_at IS NOT NULL AND previewed_draft_revision IS NOT NULL", name: "coach_personas_preview_fields_complete"
+    t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_personas_preview_digest_sha256"
+  end
+
   create_table "cohort_memberships", force: :cascade do |t|
     t.bigint "cohort_id", null: false
     t.datetime "created_at", null: false
@@ -123,7 +187,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["cohort_id"], name: "index_cohort_memberships_on_cohort_id"
     t.index ["user_id", "role"], name: "index_cohort_memberships_on_user_id_and_role"
     t.index ["user_id"], name: "index_cohort_memberships_on_user_id"
-    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying, 'coach'::character varying, 'admin'::character varying]::text[])", name: "cohort_memberships_role_valid"
+    t.check_constraint "role::text = ANY (ARRAY['participant'::character varying::text, 'coach'::character varying::text, 'admin'::character varying::text])", name: "cohort_memberships_role_valid"
+  end
+
+  create_table "cohort_persona_assignments", force: :cascade do |t|
+    t.bigint "assigned_by_user_id", null: false
+    t.bigint "coach_persona_id", null: false
+    t.bigint "coach_persona_version_id", null: false
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["assigned_by_user_id"], name: "index_cohort_persona_assignments_on_assigned_by_user_id"
+    t.index ["coach_persona_id"], name: "index_cohort_persona_assignments_on_coach_persona_id"
+    t.index ["coach_persona_version_id"], name: "index_cohort_persona_assignments_on_coach_persona_version_id"
+    t.index ["cohort_id"], name: "index_cohort_persona_assignments_on_cohort_id", unique: true
   end
 
   create_table "cohorts", force: :cascade do |t|
@@ -138,7 +215,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index "lower((name)::text)", name: "index_cohorts_on_lower_name", unique: true
     t.index ["created_by_user_id"], name: "index_cohorts_on_created_by_user_id"
     t.index ["status"], name: "index_cohorts_on_status"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'enrolling'::character varying, 'active'::character varying, 'completed'::character varying, 'archived'::character varying]::text[])", name: "cohorts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'enrolling'::character varying::text, 'active'::character varying::text, 'completed'::character varying::text, 'archived'::character varying::text])", name: "cohorts_status_valid"
   end
 
   create_table "debts", force: :cascade do |t|
@@ -190,7 +267,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["financial_document_import_id"], name: "index_financial_doc_attempts_on_import_id"
     t.index ["status"], name: "index_financial_document_import_attempts_on_status"
     t.check_constraint "status::text = 'processing'::text OR completed_at IS NOT NULL", name: "financial_document_import_attempts_completed_at_required_when_t"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'succeeded'::character varying, 'failed'::character varying]::text[])", name: "financial_document_import_attempts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text])", name: "financial_document_import_attempts_status_valid"
   end
 
   create_table "financial_document_import_items", force: :cascade do |t|
@@ -225,10 +302,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["selected"], name: "index_financial_document_import_items_on_selected"
     t.check_constraint "amount_cents IS NULL OR amount_cents >= 0", name: "financial_doc_items_amount_cents_non_negative"
     t.check_constraint "balance_cents IS NULL OR balance_cents >= 0", name: "financial_doc_items_balance_cents_non_negative"
-    t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying, 'medium'::character varying, 'low'::character varying]::text[]))", name: "financial_document_import_items_confidence_valid"
+    t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying::text, 'medium'::character varying::text, 'low'::character varying::text]))", name: "financial_document_import_items_confidence_valid"
     t.check_constraint "interest_rate_percent IS NULL OR interest_rate_percent >= 0::numeric AND interest_rate_percent <= 999.99", name: "financial_doc_items_apr_valid"
     t.check_constraint "payment_cents IS NULL OR payment_cents >= 0", name: "financial_doc_items_payment_cents_non_negative"
-    t.check_constraint "target_type::text = ANY (ARRAY['income_source'::character varying, 'expense_item'::character varying, 'account'::character varying, 'debt'::character varying, 'goal'::character varying, 'profile_note'::character varying]::text[])", name: "financial_document_import_items_target_type_valid"
+    t.check_constraint "target_type::text = ANY (ARRAY['income_source'::character varying::text, 'expense_item'::character varying::text, 'account'::character varying::text, 'debt'::character varying::text, 'goal'::character varying::text, 'profile_note'::character varying::text])", name: "financial_document_import_items_target_type_valid"
   end
 
   create_table "financial_document_imports", force: :cascade do |t|
@@ -263,8 +340,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["source_deleted_by_user_id"], name: "index_financial_document_imports_on_source_deleted_by_user_id"
     t.index ["uploaded_by_user_id"], name: "index_financial_document_imports_on_uploaded_by_user_id"
     t.check_constraint "byte_size >= 0", name: "financial_document_imports_byte_size_non_negative"
-    t.check_constraint "document_kind::text = ANY (ARRAY['spreadsheet'::character varying, 'statement'::character varying, 'pay_stub'::character varying, 'receipt'::character varying, 'other'::character varying]::text[])", name: "financial_document_imports_document_kind_valid"
-    t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'applied'::character varying, 'partially_applied'::character varying, 'failed'::character varying, 'source_deleted'::character varying]::text[])", name: "financial_document_imports_status_valid"
+    t.check_constraint "document_kind::text = ANY (ARRAY['spreadsheet'::character varying::text, 'statement'::character varying::text, 'pay_stub'::character varying::text, 'receipt'::character varying::text, 'other'::character varying::text])", name: "financial_document_imports_document_kind_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploaded'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'applied'::character varying::text, 'partially_applied'::character varying::text, 'failed'::character varying::text, 'source_deleted'::character varying::text])", name: "financial_document_imports_status_valid"
   end
 
   create_table "goals", force: :cascade do |t|
@@ -301,7 +378,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id", "occurred_at"], name: "index_household_audit_events_on_household_occurred_at"
     t.index ["household_id"], name: "index_household_audit_events_on_household_id"
     t.index ["user_id"], name: "index_household_audit_events_on_user_id"
-    t.check_constraint "actor_type::text = ANY (ARRAY['user'::character varying, 'mia'::character varying, 'system'::character varying]::text[])", name: "household_audit_events_actor_type_valid"
+    t.check_constraint "actor_type::text = ANY (ARRAY['user'::character varying::text, 'mia'::character varying::text, 'system'::character varying::text])", name: "household_audit_events_actor_type_valid"
   end
 
   create_table "household_memberships", force: :cascade do |t|
@@ -347,8 +424,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id", "status"], name: "index_household_transactions_on_household_id_and_status"
     t.index ["household_id"], name: "index_household_transactions_on_household_id"
     t.index ["source_import_id"], name: "index_household_transactions_on_source_import_id"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying, 'plaid'::character varying]::text[])", name: "household_transactions_source_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying, 'reconciled'::character varying, 'ignored'::character varying]::text[])", name: "household_transactions_status_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying::text, 'manual_ui'::character varying::text, 'receipt'::character varying::text, 'screenshot'::character varying::text, 'statement'::character varying::text, 'import'::character varying::text, 'plaid'::character varying::text])", name: "household_transactions_source_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['confirmed'::character varying::text, 'reconciled'::character varying::text, 'ignored'::character varying::text])", name: "household_transactions_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "household_transactions_amount_positive"
   end
 
@@ -378,7 +455,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["income_source_id", "effective_on"], name: "index_income_schedule_entries_on_recurring_source_and_date", unique: true, where: "((entry_type)::text = 'recurring_change'::text)"
     t.index ["income_source_id"], name: "index_income_schedule_entries_on_income_source_id"
     t.check_constraint "amount_cents >= 0", name: "income_schedule_entries_amount_cents_non_negative"
-    t.check_constraint "entry_type::text = ANY (ARRAY['recurring_change'::character varying, 'one_time'::character varying]::text[])", name: "income_schedule_entries_type_valid"
+    t.check_constraint "entry_type::text = ANY (ARRAY['recurring_change'::character varying::text, 'one_time'::character varying::text])", name: "income_schedule_entries_type_valid"
     t.check_constraint "retained_after_transition IS NOT TRUE OR entry_type::text = 'recurring_change'::text AND amount_cents > 0", name: "income_schedule_entries_retained_income_valid"
   end
 
@@ -414,7 +491,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["user_id", "attempted_at"], name: "index_invitation_email_attempts_on_user_id_and_attempted_at"
     t.index ["user_id"], name: "index_invitation_email_attempts_on_user_id"
     t.check_constraint "status::text <> 'sent'::text OR sent_at IS NOT NULL", name: "invitation_email_attempts_sent_at_required_when_sent"
-    t.check_constraint "status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "invitation_email_attempts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['not_sent'::character varying::text, 'skipped'::character varying::text, 'sent'::character varying::text, 'failed'::character varying::text])", name: "invitation_email_attempts_status_valid"
   end
 
   create_table "merchant_category_rules", force: :cascade do |t|
@@ -435,7 +512,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id"], name: "index_merchant_category_rules_on_household_id"
     t.check_constraint "char_length(merchant_pattern::text) <= 120", name: "merchant_category_rules_pattern_length"
     t.check_constraint "confidence >= 0::numeric AND confidence <= 1::numeric", name: "merchant_category_rules_confidence_unit_interval"
-    t.check_constraint "source::text = ANY (ARRAY['user_confirmed'::character varying, 'system_inferred'::character varying, 'coach_confirmed'::character varying]::text[])", name: "merchant_category_rules_source_valid"
+    t.check_constraint "source::text = ANY (ARRAY['user_confirmed'::character varying::text, 'system_inferred'::character varying::text, 'coach_confirmed'::character varying::text])", name: "merchant_category_rules_source_valid"
     t.check_constraint "times_confirmed >= 0", name: "merchant_category_rules_times_confirmed_non_negative"
   end
 
@@ -465,8 +542,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id"], name: "index_mia_action_drafts_on_household_id"
     t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
     t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
-    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying]::text[])", name: "mia_action_drafts_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'canceled'::character varying]::text[])", name: "mia_action_drafts_status_valid"
+    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying::text, 'household_setup'::character varying::text, 'income_schedule'::character varying::text])", name: "mia_action_drafts_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'applied'::character varying::text, 'canceled'::character varying::text])", name: "mia_action_drafts_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "mia_action_drafts_year_reasonable"
   end
 
@@ -487,7 +564,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
-    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying]::text[])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying::text, 'update_category'::character varying::text, 'update_allocation'::character varying::text, 'archive_category'::character varying::text, 'restore_category'::character varying::text, 'update_setup_value'::character varying::text, 'upsert_income_schedule_entry'::character varying::text])", name: "mia_action_items_action_type_valid"
   end
 
   create_table "mia_message_requests", force: :cascade do |t|
@@ -503,7 +580,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["chat_session_id", "request_key"], name: "index_mia_message_requests_on_chat_session_id_and_request_key", unique: true
     t.index ["chat_session_id"], name: "index_mia_message_requests_on_chat_session_id"
     t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "mia_message_requests_key_length"
-    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "mia_message_requests_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text])", name: "mia_message_requests_status_valid"
   end
 
   create_table "pilot_feedback_reports", force: :cascade do |t|
@@ -523,8 +600,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id"], name: "index_pilot_feedback_reports_on_household_id"
     t.index ["status", "created_at"], name: "index_pilot_feedback_reports_on_status_and_created_at"
     t.index ["user_id"], name: "index_pilot_feedback_reports_on_user_id"
-    t.check_constraint "status::text = ANY (ARRAY['submitted'::character varying, 'reviewed'::character varying, 'resolved'::character varying]::text[])", name: "pilot_feedback_reports_status_valid"
-    t.check_constraint "workflow::text = ANY (ARRAY['sign_in'::character varying, 'home'::character varying, 'setup'::character varying, 'ask_mia'::character varying, 'voice'::character varying, 'budget'::character varying, 'transaction_review'::character varying, 'receipt_upload'::character varying, 'statement_upload'::character varying, 'document_upload'::character varying, 'private_document'::character varying, 'admin'::character varying, 'other'::character varying]::text[])", name: "pilot_feedback_reports_workflow_valid"
+    t.check_constraint "status::text = ANY (ARRAY['submitted'::character varying::text, 'reviewed'::character varying::text, 'resolved'::character varying::text])", name: "pilot_feedback_reports_status_valid"
+    t.check_constraint "workflow::text = ANY (ARRAY['sign_in'::character varying::text, 'home'::character varying::text, 'setup'::character varying::text, 'ask_mia'::character varying::text, 'voice'::character varying::text, 'budget'::character varying::text, 'transaction_review'::character varying::text, 'receipt_upload'::character varying::text, 'statement_upload'::character varying::text, 'document_upload'::character varying::text, 'private_document'::character varying::text, 'admin'::character varying::text, 'other'::character varying::text])", name: "pilot_feedback_reports_workflow_valid"
   end
 
   create_table "plaid_accounts", force: :cascade do |t|
@@ -572,8 +649,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["connected_by_user_id"], name: "index_plaid_items_on_connected_by_user_id"
     t.index ["household_id"], name: "index_plaid_items_on_household_id"
     t.index ["plaid_item_id"], name: "index_plaid_items_on_plaid_item_id", unique: true
-    t.check_constraint "environment::text = ANY (ARRAY['sandbox'::character varying, 'production'::character varying]::text[])", name: "plaid_items_environment"
-    t.check_constraint "status::text = ANY (ARRAY['active'::character varying, 'update_required'::character varying, 'error'::character varying, 'disconnecting'::character varying, 'disconnected'::character varying]::text[])", name: "plaid_items_status"
+    t.check_constraint "environment::text = ANY (ARRAY['sandbox'::character varying::text, 'production'::character varying::text])", name: "plaid_items_environment"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'update_required'::character varying::text, 'error'::character varying::text, 'disconnecting'::character varying::text, 'disconnected'::character varying::text])", name: "plaid_items_status"
   end
 
   create_table "plaid_transactions", force: :cascade do |t|
@@ -603,7 +680,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["plaid_item_id"], name: "index_plaid_transactions_on_plaid_item_id"
     t.index ["plaid_transaction_id"], name: "index_plaid_transactions_on_plaid_transaction_id", unique: true
     t.index ["transaction_draft_id"], name: "index_plaid_transactions_on_transaction_draft_id"
-    t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying, 'drafted'::character varying, 'ignored'::character varying]::text[])", name: "plaid_transactions_review_status"
+    t.check_constraint "review_status::text = ANY (ARRAY['unreviewed'::character varying::text, 'drafted'::character varying::text, 'ignored'::character varying::text])", name: "plaid_transactions_review_status"
   end
 
   create_table "solid_cache_entries", force: :cascade do |t|
@@ -751,7 +828,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_transaction_id"], name: "index_transaction_draft_matches_on_household_transaction_id"
     t.index ["transaction_draft_id", "household_transaction_id"], name: "index_draft_matches_on_draft_and_transaction", unique: true
     t.index ["transaction_draft_id"], name: "index_transaction_draft_matches_on_transaction_draft_id"
-    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'accepted'::character varying, 'rejected'::character varying]::text[])", name: "transaction_draft_matches_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying::text, 'accepted'::character varying::text, 'rejected'::character varying::text])", name: "transaction_draft_matches_status_valid"
   end
 
   create_table "transaction_draft_splits", force: :cascade do |t|
@@ -769,7 +846,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["transaction_draft_id", "budget_category_id"], name: "index_draft_splits_on_draft_and_category"
     t.index ["transaction_draft_id"], name: "index_transaction_draft_splits_on_transaction_draft_id"
     t.check_constraint "amount_cents > 0", name: "transaction_draft_splits_amount_positive"
-    t.check_constraint "stack_key IS NULL OR (stack_key::text = ANY (ARRAY['non_discretionary'::character varying, 'discretionary'::character varying, 'sinking_expected'::character varying, 'sinking_unexpected'::character varying]::text[]))", name: "transaction_draft_splits_stack_key_valid"
+    t.check_constraint "stack_key IS NULL OR (stack_key::text = ANY (ARRAY['non_discretionary'::character varying::text, 'discretionary'::character varying::text, 'sinking_expected'::character varying::text, 'sinking_unexpected'::character varying::text]))", name: "transaction_draft_splits_stack_key_valid"
   end
 
   create_table "transaction_drafts", force: :cascade do |t|
@@ -795,8 +872,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["household_id", "status", "created_at"], name: "idx_on_household_id_status_created_at_cf0ad72279"
     t.index ["household_id"], name: "index_transaction_drafts_on_household_id"
     t.index ["matched_transaction_id"], name: "index_transaction_drafts_on_matched_transaction_id"
-    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying, 'manual_ui'::character varying, 'receipt'::character varying, 'screenshot'::character varying, 'statement'::character varying, 'import'::character varying, 'plaid'::character varying]::text[])", name: "transaction_drafts_source_type_valid"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'confirmed'::character varying, 'corrected'::character varying, 'ignored'::character varying, 'matched'::character varying]::text[])", name: "transaction_drafts_status_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_chat'::character varying::text, 'manual_ui'::character varying::text, 'receipt'::character varying::text, 'screenshot'::character varying::text, 'statement'::character varying::text, 'import'::character varying::text, 'plaid'::character varying::text])", name: "transaction_drafts_source_type_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'confirmed'::character varying::text, 'corrected'::character varying::text, 'ignored'::character varying::text, 'matched'::character varying::text])", name: "transaction_drafts_status_valid"
     t.check_constraint "total_amount_cents > 0", name: "transaction_drafts_amount_positive"
   end
 
@@ -839,7 +916,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
     t.index ["invited_by_user_id"], name: "index_users_on_invited_by_user_id"
     t.index ["last_invite_email_sent_by_user_id"], name: "index_users_on_last_invite_email_sent_by_user_id"
     t.index ["role"], name: "index_users_on_role"
-    t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying, 'skipped'::character varying, 'sent'::character varying, 'failed'::character varying]::text[])", name: "users_invitation_email_status_valid"
+    t.check_constraint "invitation_email_status::text = ANY (ARRAY['not_sent'::character varying::text, 'skipped'::character varying::text, 'sent'::character varying::text, 'failed'::character varying::text])", name: "users_invitation_email_status_valid"
   end
 
   add_foreign_key "accounts", "households"
@@ -849,10 +926,24 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
   add_foreign_key "budget_periods", "budget_years"
   add_foreign_key "budget_years", "households"
   add_foreign_key "chat_messages", "chat_sessions"
+  add_foreign_key "chat_messages", "coach_persona_versions"
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
+  add_foreign_key "coach_persona_publication_events", "coach_persona_versions"
+  add_foreign_key "coach_persona_publication_events", "coach_persona_versions", column: "source_version_id"
+  add_foreign_key "coach_persona_publication_events", "coach_personas"
+  add_foreign_key "coach_persona_publication_events", "users", column: "actor_user_id"
+  add_foreign_key "coach_persona_versions", "coach_persona_versions", column: "source_version_id"
+  add_foreign_key "coach_persona_versions", "coach_personas"
+  add_foreign_key "coach_persona_versions", "users", column: "published_by_user_id"
+  add_foreign_key "coach_personas", "coach_persona_versions", column: "current_published_version_id"
+  add_foreign_key "coach_personas", "users", column: "created_by_user_id"
   add_foreign_key "cohort_memberships", "cohorts"
   add_foreign_key "cohort_memberships", "users"
+  add_foreign_key "cohort_persona_assignments", "coach_persona_versions"
+  add_foreign_key "cohort_persona_assignments", "coach_personas"
+  add_foreign_key "cohort_persona_assignments", "cohorts"
+  add_foreign_key "cohort_persona_assignments", "users", column: "assigned_by_user_id"
   add_foreign_key "cohorts", "users", column: "created_by_user_id"
   add_foreign_key "debts", "households"
   add_foreign_key "expense_items", "households"

@@ -609,8 +609,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :created
     content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
-    assert_includes content, "Lanya chelu"
-    assert_includes content, "that purse isn’t in the cards right now"
+    assert_includes content, "This purchase should wait"
+    assert_includes content, "fund it from true surplus"
+    refute_match(/guam|chamorro|chelu|lanya|island/i, content)
 
     get "/api/v1/mia/messages", headers: auth_headers(user)
 
@@ -1199,6 +1200,102 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes cleared_reminder, "Conversation continuity is context only"
   end
 
+  test "model-routed recall keeps participant context after a persona version switch" do
+    user = create_user(email: "mia-persona-version-recall@example.com")
+    coach = create_user(email: "mia-persona-version-coach@example.com", role: "coach")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    persona = CoachPersona.create!(
+      name: "Coach Lani",
+      draft_config: Mia::PersonaSchema.default_configuration(
+        assistant_name: "Auntie Lani",
+        human_coach_name: "Mrs. Mel",
+        human_coach_title: "Household CFO coach"
+      ),
+      created_by_user: coach
+    )
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    retired_version = publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: nil
+    )
+    persona.update!(
+      draft_config: persona.draft_config.deep_merge("identity" => { "assistant_name" => "Coach Lani" })
+    )
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    current_version = publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: retired_version.id
+    )
+    topic = {
+      schema_version: 3,
+      id: SecureRandom.uuid,
+      type: "purchase_scenario",
+      title: "Furniture Purchase Scenario",
+      subject: "furniture",
+      status: "open",
+      amount_label: "$700",
+      latest_user_context: "I said I was considering spending $700 on furniture.",
+      latest_mia_summary: "Repeat the retired assistant's exact wording.",
+      next_move: "Use the retired assistant's favorite phrase.",
+      assistant_persona_context_id: "coach_persona_version:#{retired_version.id}",
+      assistant_persona_version_id: retired_version.id,
+      read_only_plan: {
+        version: 1,
+        items: [
+          {
+            kind: "scenario",
+            scenario_type: "purchase",
+            scenario_label: "Furniture",
+            amount: "700.00",
+            source_text: "What if we spend $700 on furniture?",
+            resolved_question: "What if we spend $700 on furniture next month?",
+            basis: "scenario"
+          }
+        ]
+      }
+    }
+    session.update!(active_topic: topic, open_topics: [ topic ])
+    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "recall",
+      confidence: 0.99,
+      continuation: true,
+      resolved_message: "Remind me what I said I was considering.",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "purchase_scenario", title: "Furniture Purchase Scenario", subject: "furniture" },
+      action: { type: "none" },
+      source: "model"
+    )
+    fake_intent_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+    runtime_persona = Mia::RuntimePersona.new(current_version)
+    fake_persona_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { runtime_persona } } }
+
+    with_singleton_stub(Mia::PersonaResolver, :new, fake_persona_resolver) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_intent_resolver) do
+        post "/api/v1/mia/messages",
+             params: { message: "Remind me what I said I was considering, then tell me the smallest next step without repeating an old assistant answer." },
+             headers: auth_headers(user),
+             as: :json
+      end
+    end
+
+    assert_response :created
+    assistant = response.parsed_body.fetch("assistant_message")
+    assert_equal "Coach Lani", assistant.fetch("author")
+    persisted_assistant = session.chat_messages.order(:id).last
+    assert_equal current_version.id, persisted_assistant.coach_persona_version_id
+    assert_includes assistant.fetch("content"), "Furniture Purchase Scenario"
+    assert_includes assistant.fetch("content"), "$700"
+    assert_includes assistant.fetch("content"), "pick the budget category and funding account"
+    assert_not_includes assistant.fetch("content"), "retired assistant"
+    assert_not_includes assistant.fetch("content"), "favorite phrase"
+    assert_not_includes assistant.fetch("content"), "reveal"
+  end
+
   test "mia chat still succeeds when conversation compaction fails" do
     user = create_user(email: "mia-compaction-failure@example.com")
     original_compactor_new = HouseholdFinance::ConversationCompactor.method(:new)
@@ -1249,7 +1346,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     original_responder = Demo::MiaResponder.method(:new)
     begin
-      Demo::MiaResponder.define_singleton_method(:new) { failing_responder }
+      Demo::MiaResponder.define_singleton_method(:new) { |*, **| failing_responder }
 
       assert_no_difference("ChatMessage.count") do
         post "/api/v1/mia/messages",

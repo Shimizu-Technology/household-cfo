@@ -75,6 +75,20 @@ class MiaPersonaTest < ActiveSupport::TestCase
     assert_equal "Mia", persona.name
   end
 
+  test "neutral fallback contains no Guam or coach-specific voice" do
+    persona = Mia::Persona.neutral
+    prompt = persona.system_prompt
+    combined_fallbacks = %i[low_signal_greeting spending spending_check default_next_step].map do |key|
+      persona.fallback_response(key)
+    end.join(" ")
+
+    assert_equal Mia::Persona::NEUTRAL_ID, persona.id
+    assert_equal "built_in_persona:#{Mia::Persona::NEUTRAL_ID}", persona.continuity_id
+    assert_includes prompt, "no regional or cultural persona is active"
+    assert_includes prompt, "Do not infer culture, accent, dialect, slang, identity, or values"
+    refute_match(/guam|chamorro|chelu|lanya|dededo|island/i, "#{prompt} #{combined_fallbacks}")
+  end
+
   test "demo household data resolves persona per call" do
     first_persona = Demo::HouseholdData.persona
     Mia::Persona.reset_cache!

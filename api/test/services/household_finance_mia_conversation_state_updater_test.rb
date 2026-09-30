@@ -136,4 +136,49 @@ class HouseholdFinanceMiaConversationStateUpdaterTest < ActiveSupport::TestCase
     assert_equal "2000", active.dig("read_only_plan", "items", 0, "amount")
     assert_equal "What if I get a $2,000 bonus?", active.dig("read_only_plan", "items", 0, "source_text")
   end
+
+  test "a new persona version compacts away assistant fields from the retired version" do
+    retired_topic = {
+      schema_version: 2,
+      id: "car-repair",
+      type: "car_repair",
+      title: "Car repair",
+      subject: "work transportation",
+      status: "open",
+      latest_user_context: "The repair estimate is $640.",
+      latest_mia_summary: "Use the old coach's signature voice.",
+      next_move: "Repeat the old coach's favorite phrase.",
+      assistant_persona_context_id: "coach_persona_version:10",
+      assistant_persona_version_id: 10
+    }
+    @session.update!(active_topic: retired_topic, open_topics: [ retired_topic ])
+    user_message = @session.chat_messages.create!(role: "user", content: "Tell me something unrelated")
+    assistant_message = @session.chat_messages.create!(role: "assistant", content: "What would you like to work through?")
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "general",
+      confidence: 0.9,
+      continuation: false,
+      resolved_message: "Tell me something unrelated",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "", title: "", subject: "" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    assert HouseholdFinance::MiaConversationStateUpdater.new(
+      @session,
+      intent_result: intent,
+      user_message: user_message,
+      assistant_message: assistant_message,
+      persona_context_id: "coach_persona_version:20"
+    ).call
+
+    preserved_topic = @session.reload.open_topics.first
+    assert_equal "Car repair", preserved_topic.fetch("title")
+    assert_equal "The repair estimate is $640.", preserved_topic.fetch("latest_user_context")
+    refute preserved_topic.key?("latest_mia_summary")
+    refute preserved_topic.key?("next_move")
+    refute_includes @session.rolling_summary, "old coach"
+  end
 end
