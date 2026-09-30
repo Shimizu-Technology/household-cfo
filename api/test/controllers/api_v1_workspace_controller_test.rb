@@ -1028,6 +1028,16 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_nil body.fetch("budget")
     assert_equal topic.deep_stringify_keys, session.reload.active_topic
     assert_equal "Set Fixed essentials to $3,000.", session.active_topic.fetch("latest_user_context")
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the largest transaction in that upload?" },
+         headers: auth_headers(user),
+         as: :json
+
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload"
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "Pay-Less"
+    assert_equal topic.deep_stringify_keys, session.reload.active_topic
   end
 
   test "an attachment turn can complete a validated structured clarification" do
@@ -2030,6 +2040,154 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :no_content
+  end
+
+  test "mia answers successive attachment evidence follow-ups without reattaching" do
+    user = create_user(email: "mia-prior-evidence-followups@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    confirm_setup_for_test(user)
+    groceries = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    dining = household.budget_categories.create!(name: "Dining", stack_key: "discretionary", sort_order: 2)
+    budget_year = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year).ensure_plan!
+    set_mia_plan_allocation(budget_year, groceries, month: Date.current.month, cents: 50_000)
+    set_mia_plan_allocation(budget_year, groceries, month: Date.current.prev_month.month, cents: 50_000)
+    document_import = create_mia_attachment_import(household, user, "followup-receipt")
+    create_mia_attachment_draft(document_import, household, category: groceries, amount_cents: 12_00, occurred_on: Date.current.prev_month.beginning_of_month + 3.days)
+    create_mia_attachment_draft(document_import, household, category: groceries, amount_cents: 25_00, occurred_on: Date.current.beginning_of_month)
+    create_mia_attachment_draft(document_import, household, category: dining, amount_cents: 100_00, occurred_on: Date.current.prev_month.beginning_of_month + 4.days)
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total in this upload?", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+
+    session = household.chat_sessions.find_by!(user: user)
+    evidence = session.reload.active_topic.fetch("document_evidence")
+    assert_equal 1, evidence.fetch("schema_version")
+    assert_equal [ document_import.id ], evidence.fetch("financial_document_import_ids")
+    assert_equal %w[financial_document_import_ids import_count schema_version], evidence.keys.sort
+    financial_counts = [ BudgetYear, BudgetPeriod, BudgetAllocation, ExpenseItem, HouseholdTransaction, TransactionDraft, MiaActionDraft ]
+      .index_with(&:count)
+
+    assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "ExpenseItem.count", "HouseholdTransaction.count", "TransactionDraft.count", "MiaActionDraft.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "What about groceries?", request_id: "prior-evidence-groceries" },
+           headers: auth_headers(user),
+           as: :json
+    end
+    assert_response :created
+    groceries_answer = response.parsed_body.dig("assistant_message", "content")
+    assert_includes groceries_answer, "Using your prior upload"
+    assert_includes groceries_answer, "$37"
+
+    post "/api/v1/mia/messages",
+         params: { message: "Only last month?", request_id: "prior-evidence-last-month" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    last_month_answer = response.parsed_body.dig("assistant_message", "content")
+    assert_includes last_month_answer, "Using your prior upload"
+    assert_includes last_month_answer, "$12"
+    assert_not_includes last_month_answer, "$37"
+
+    post "/api/v1/mia/messages",
+         params: { message: "Does that fit my plan?", request_id: "prior-evidence-plan-fit" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    plan_answer = response.parsed_body.dig("assistant_message", "content")
+    assert_includes plan_answer, "Using your prior upload"
+    assert_includes plan_answer, "would remain within plan"
+    assert_not_includes plan_answer, "Dining"
+    assert_equal financial_counts, financial_counts.keys.index_with(&:count)
+
+    assert_no_difference("ChatMessage.count") do
+      post "/api/v1/mia/messages",
+           params: { message: "Does that fit my plan?", request_id: "prior-evidence-plan-fit" },
+           headers: auth_headers(user),
+           as: :json
+    end
+    assert_response :created
+    assert_equal plan_answer, response.parsed_body.dig("assistant_message", "content")
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total in the whole upload?" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    whole_upload_answer = response.parsed_body.dig("assistant_message", "content")
+    assert_includes whole_upload_answer, "Using your prior upload"
+    assert_includes whole_upload_answer, "$137"
+    assert_not_includes whole_upload_answer, "matching that merchant, category, date, or amount filter"
+  end
+
+  test "attachment evidence survives bounded transcript compaction but retires on an unrelated topic" do
+    user = create_user(email: "mia-prior-evidence-compaction@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    confirm_setup_for_test(user)
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = create_mia_attachment_import(household, user, "compacted-evidence")
+    create_mia_attachment_draft(document_import, household, category: category, amount_cents: 42_00, occurred_on: Date.current.prev_month)
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total in this upload?", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    session = household.chat_sessions.find_by!(user: user)
+    40.times do |index|
+      session.chat_messages.create!(role: index.even? ? "user" : "assistant", content: "Compacted filler #{index}")
+    end
+
+    post "/api/v1/mia/messages", params: { message: "Only last month?" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "$42"
+
+    post "/api/v1/mia/messages",
+         params: { message: "What should my groceries budget be next month?" },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    assert_not_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload"
+    session.reload
+    refute HouseholdFinance::DocumentEvidenceContinuity.topic?(session.active_topic)
+    refute session.open_topics.any? { |topic| HouseholdFinance::DocumentEvidenceContinuity.topic?(topic) }
+  end
+
+  test "prior attachment evidence fails closed when imports stop being eligible and clear chat removes it" do
+    user = create_user(email: "mia-prior-evidence-invalid@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = create_mia_attachment_import(household, user, "invalidated-evidence")
+    create_mia_attachment_draft(document_import, household, category: category, amount_cents: 31_00, occurred_on: Date.current)
+
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total in this upload?", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    session = household.chat_sessions.find_by!(user: user)
+    assert HouseholdFinance::DocumentEvidenceContinuity.topic?(session.reload.active_topic)
+
+    document_import.update!(status: "processing")
+    post "/api/v1/mia/messages", params: { message: "What about groceries?" }, headers: auth_headers(user), as: :json
+    assert_response :created
+    assert_not_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload"
+
+    document_import.update!(status: "needs_review")
+    post "/api/v1/mia/messages",
+         params: { message: "What is the total in this upload?", document_import_ids: [ document_import.id ] },
+         headers: auth_headers(user),
+         as: :json
+    assert_response :created
+    session.reload
+    assert [ session.active_topic, *session.open_topics ].any? { |topic| HouseholdFinance::DocumentEvidenceContinuity.topic?(topic) }
+
+    delete "/api/v1/mia/messages", headers: auth_headers(user)
+    assert_response :no_content
+    assert_empty session.reload.active_topic
+    assert_empty session.open_topics
   end
 
   private

@@ -229,6 +229,7 @@ module HouseholdFinance
 
     def normalized_topic(value)
       topic = PersonaVersionedContinuity.filter_topic(value, persona_context_id: persona_context_id)
+      topic = DocumentEvidenceContinuity.sanitize_topic(topic, household: chat_session.household)
       return nil if topic.blank? || topic["title"].blank?
 
       topic
