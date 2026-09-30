@@ -59,6 +59,7 @@ module Api
 
           admin_guard_error = nil
           User.transaction do
+            lock_cohorts!(cohort_ids)
             locked_admin_ids = requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil
             user.lock!
             role = attributes[:role].presence || user.role
@@ -120,6 +121,7 @@ module Api
         def create_new_invited_user(attributes:, role:, cohort_ids:)
           user = nil
           User.transaction do
+            lock_cohorts!(cohort_ids)
             user = User.create!(
               email: attributes[:email],
               first_name: bounded_text(attributes[:first_name], 80),
@@ -145,11 +147,11 @@ module Api
 
           was_revoked = user.revoked?
           target_status = linked_to_clerk?(user) ? "accepted" : "pending"
-          target_cohort_ids = []
+          existing_cohort_ids = user.cohort_memberships.pluck(:cohort_id)
+          target_cohort_ids = was_revoked ? cohort_ids : (existing_cohort_ids | cohort_ids)
           User.transaction do
+            lock_cohorts!(target_cohort_ids)
             user.lock!
-            existing_cohort_ids = user.cohort_memberships.pluck(:cohort_id)
-            target_cohort_ids = was_revoked ? cohort_ids : (existing_cohort_ids | cohort_ids)
             user.assign_attributes(
               role: role,
               invitation_status: target_status,
@@ -299,6 +301,11 @@ module Api
             membership = user.cohort_memberships.find_or_initialize_by(cohort_id: cohort_id)
             membership.update!(role: role)
           end
+        end
+
+        def lock_cohorts!(cohort_ids)
+          ids = Array(cohort_ids).map(&:to_i).uniq.sort
+          Cohort.where(id: ids).order(:id).lock.load if ids.any?
         end
 
         def render_persona_membership_conflict(error)

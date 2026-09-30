@@ -239,9 +239,11 @@ module HouseholdFinance
     end
 
     def dynamic_persona_write_claim?(content)
-      content.match?(
-        /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?(?:added|recorded|logged|posted|tracked|deducted|applied|updated|drafted|created)\b/i
-      )
+      subject = /\b#{Regexp.escape(persona.name)}\s+(?:already\s+|just\s+)?/i
+      return true if content.match?(/#{subject}(?:added|recorded|logged|posted|tracked|deducted|applied|updated)\b/i)
+      return false unless answer_packet[:write_state] == "no_write"
+
+      content.match?(/#{subject}(?:drafted|created)\b/i)
     end
 
     def safe_pending_draft_update_claim?(content)

@@ -2,7 +2,8 @@
 
 module Mia
   class ResponseShapePolicy
-    MARKDOWN_PATTERN = /(?:\A|\s)(?:\#{1,6}\s|[-+*]\s|\d+\.\s)|[*_~`]{2}|\[[^\]]+\]\([^)]+\)/.freeze
+    MARKDOWN_BLOCK_PATTERN = /(?:\A|\n)[ \t]{0,3}(?:\#{1,6}[ \t]+|[-+*][ \t]+|\d+\.[ \t]+)/.freeze
+    MARKDOWN_INLINE_PATTERN = /[*_~`]{2}|\[[^\]]+\]\([^)]+\)/.freeze
     SENTENCE_BOUNDARY = /(?<=[.!?])(?:["”’']*)\s+/.freeze
 
     class << self
@@ -12,7 +13,8 @@ module Mia
     end
 
     def initialize(content, persona:)
-      @content = content.to_s.squish
+      @raw_content = content.to_s
+      @content = raw_content.squish
       @persona = persona
     end
 
@@ -22,15 +24,15 @@ module Mia
       content.present? &&
         content.length <= shape.fetch("max_characters") &&
         sentence_count.between?(shape.fetch("min_sentences"), shape.fetch("max_sentences")) &&
-        (!shape.fetch("plain_text_only") || !content.match?(MARKDOWN_PATTERN))
+        (!shape.fetch("plain_text_only") || !markdown?)
     end
 
     private
 
-    attr_reader :content, :persona
+    attr_reader :content, :raw_content, :persona
 
     def custom_response_shape?
-      persona.respond_to?(:version_id) && persona.version_id.present? && persona.respond_to?(:response_shape)
+      persona.respond_to?(:response_shape)
     end
 
     def shape
@@ -39,6 +41,10 @@ module Mia
 
     def sentence_count
       content.split(SENTENCE_BOUNDARY).count(&:present?)
+    end
+
+    def markdown?
+      raw_content.match?(MARKDOWN_BLOCK_PATTERN) || raw_content.match?(MARKDOWN_INLINE_PATTERN)
     end
   end
 end

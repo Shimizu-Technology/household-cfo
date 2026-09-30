@@ -116,6 +116,22 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     assert_equal "Review the confirmed plan first.", narrator.call
   end
 
+  test "custom assistant may accurately describe a pending draft but not a confirmed write" do
+    narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Draft this purchase for review.",
+      answer_packet: {
+        kind: "transaction_draft",
+        fallback_response: "Coach Lila drafted the purchase for review. Confirm it only if the details are right.",
+        write_state: "pending_review"
+      },
+      api_key: "test-key",
+      persona: @runtime
+    )
+
+    refute narrator.send(:dynamic_persona_write_claim?, "Coach Lila drafted the purchase for review.")
+    assert narrator.send(:dynamic_persona_write_claim?, "Coach Lila recorded the purchase in actuals.")
+  end
+
   test "responder sends the supplied runtime persona prompt to the provider" do
     captured_requests = []
     response = Net::HTTPOK.new("1.1", "200", "OK")
