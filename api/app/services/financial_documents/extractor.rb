@@ -25,7 +25,7 @@ module FinancialDocuments
       "low" => BigDecimal("0.35")
     }.freeze
     BASE64_READ_CHUNK_BYTES = 49_152
-    MAX_DATA_URL_SOURCE_BYTES = 12 * 1024 * 1024
+    MAX_DATA_URL_SOURCE_BYTES = UploadLimits::INLINE_SOURCE_MAX_BYTES
 
     Result = Data.define(:success, :data, :error, :metadata) do
       def success?

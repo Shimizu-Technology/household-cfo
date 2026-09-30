@@ -11,7 +11,6 @@ module Api
       before_action :require_writable_household!, only: %i[create presign complete destroy reprocess apply destroy_source]
       before_action :set_document_import, only: %i[show destroy reprocess apply source_url source_preview destroy_source]
 
-      MAX_UPLOAD_BYTES = 20.megabytes
       ALLOWED_EXTENSIONS = %w[.pdf .csv .xls .xlsx .docx .jpg .jpeg .png .webp .heic .heif].freeze
       REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
       ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
@@ -349,7 +348,12 @@ module Api
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
         return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" unless metadata.fetch(:byte_size).positive?
-        return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if metadata.fetch(:byte_size) > MAX_UPLOAD_BYTES
+        size_error = FinancialDocuments::UploadLimits.validation_error(
+          byte_size: metadata.fetch(:byte_size),
+          filename: metadata.fetch(:filename),
+          content_type: metadata.fetch(:content_type)
+        )
+        return size_error if size_error
         return "Could not verify the file before upload. Refresh the page and try again." if metadata[:checksum_sha256].blank?
 
         allowed = ALLOWED_CONTENT_TYPES_BY_EXTENSION.fetch(extension)
@@ -474,7 +478,12 @@ module Api
         return "Unsupported file type" if REJECTED_EXTENSIONS.include?(extension)
         return "Unsupported file type. Upload PDF, CSV, XLS, XLSX, DOCX, JPG, PNG, WEBP, HEIC, or HEIF." unless ALLOWED_EXTENSIONS.include?(extension)
         return "Uploaded file is empty" if File.zero?(file.tempfile.path)
-        return "Uploaded file is too large (max #{MAX_UPLOAD_BYTES / 1.megabyte} MB)" if File.size(file.tempfile.path) > MAX_UPLOAD_BYTES
+        size_error = FinancialDocuments::UploadLimits.validation_error(
+          byte_size: File.size(file.tempfile.path),
+          filename: filename,
+          content_type: file.content_type
+        )
+        return size_error if size_error
 
         content_type = sniffed_content_type(file)
         allowed_content_types = ALLOWED_CONTENT_TYPES_BY_EXTENSION.fetch(extension)

@@ -14,7 +14,13 @@ module Api
       def create
         @mia_request_started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         content = params[:message].to_s.strip
+        if attachment_limit_exceeded?
+          return render json: { errors: [ "Attach up to 5 uploads to one Mia message." ] }, status: :unprocessable_entity
+        end
         attached_imports = attached_document_imports
+        if unavailable_attachment_ids.any?
+          return render json: { errors: [ "One or more attached uploads are unavailable in this household." ] }, status: :unprocessable_entity
+        end
         content = "Please review this upload." if content.blank? && attached_imports.any?
         return render json: { errors: [ "Message can't be blank" ] }, status: :unprocessable_entity if content.blank?
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
@@ -325,10 +331,26 @@ module Api
       end
 
       def attached_document_imports
-        ids = Array(params[:document_import_ids]).filter_map { |id| id.to_i if id.to_i.positive? }.uniq.first(5)
+        ids = requested_attachment_ids
         return [] if ids.empty?
 
         current_household.financial_document_imports.where(id: ids).order(:id).to_a
+      end
+
+      def requested_attachment_ids
+        @requested_attachment_ids ||= raw_requested_attachment_ids.first(5)
+      end
+
+      def raw_requested_attachment_ids
+        @raw_requested_attachment_ids ||= Array(params[:document_import_ids]).filter_map { |id| id.to_i if id.to_i.positive? }.uniq
+      end
+
+      def attachment_limit_exceeded?
+        raw_requested_attachment_ids.length > 5
+      end
+
+      def unavailable_attachment_ids
+        requested_attachment_ids - attached_document_imports.map(&:id)
       end
 
       def process_attached_imports(document_imports)
@@ -417,7 +439,19 @@ module Api
         }
       end
 
-      def attached_document_message(_content, attached_imports)
+      def attached_document_message(content, attached_imports)
+        unless HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(content)
+          processing = attached_imports.select { |document_import| document_import.status.in?(%w[uploaded processing]) }
+          if processing.empty?
+            answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(
+              current_household,
+              message: content,
+              document_imports: attached_imports
+            ).call
+            return answer if answer.present?
+          end
+        end
+
         return attached_document_result_message(attached_imports.first) if attached_imports.one? && attached_imports.first.document_kind != "statement"
 
         processing = attached_imports.select { |document_import| document_import.status.in?(%w[uploaded processing]) }
