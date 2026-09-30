@@ -43,7 +43,7 @@ module HouseholdFinance
       end
       sections = compact_sections(sections)
 
-      basis = presentation_basis(items)
+      basis = presentation_basis(items, scenario_values)
       lead = lead_for(basis, sections.length)
       presentation = {
         version: 1,
@@ -148,10 +148,9 @@ module HouseholdFinance
       TITLES.fetch(item[:kind], "Household CFO answer")
     end
 
-    def presentation_basis(items)
-      scenarios = items.count { |item| item.to_h.deep_symbolize_keys[:basis] == "hypothetical" }
-      return "saved_household" if scenarios.zero?
-      return "scenario_only" if scenarios == items.length
+    def presentation_basis(items, scenario_values)
+      return "saved_household" if scenario_values.empty?
+      return "scenario_only" if items.all? { |item| item.to_h.deep_symbolize_keys[:kind] == "scenario" }
 
       "saved_household_plus_scenario"
     end

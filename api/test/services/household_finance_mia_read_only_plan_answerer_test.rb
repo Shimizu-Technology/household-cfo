@@ -135,6 +135,20 @@ class HouseholdFinanceMiaReadOnlyPlanAnswererTest < ActiveSupport::TestCase
     assert_includes result.presentation.dig(:sections, 1, :body), "Scenario only"
   end
 
+  test "does not claim a scenario basis when every scenario answer fails" do
+    result = HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
+      @household,
+      plan: { title: "Failed scenario", items: [ scenario_item("unsupported", "Unknown scenario", "100") ] },
+      annual_budget_manager: @manager,
+      annual_plan: @annual_plan,
+      reference_month: Date.current.month
+    ).call
+
+    assert_equal "saved_household", result.presentation.fetch(:basis)
+    refute result.presentation.key?(:scenario)
+    assert_includes result.presentation.dig(:sections, 0, :body), "could not answer this part safely"
+  end
+
   test "compacts a long generated section before chat-message persistence" do
     answerer = Object.new
     answerer.define_singleton_method(:call) { "Detailed answer " + ("å" * 3_000) }

@@ -1072,6 +1072,44 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     refute_equal "500", result.read_only_plan.dig(:items, 0, :amount)
   end
 
+  test "deterministic fallback classifies bonus income before generic get wording" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "What if I get a $1,000 bonus?",
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) { nil }
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal "deterministic", result.source
+    assert_equal "one_time_income", result.read_only_plan.dig(:items, 0, :scenario_type)
+    assert_equal "Bonus", result.read_only_plan.dig(:items, 0, :scenario_label)
+  end
+
+  test "does not interpret modal may as a calendar month" do
+    modal_message = "What if I may buy a $900 laptop?"
+    modal_item = read_only_item(
+      kind: "scenario",
+      source_text: modal_message,
+      resolved_question: modal_message,
+      basis: "hypothetical",
+      scenario_type: "purchase",
+      scenario_label: "Laptop",
+      amount: "900"
+    )
+    calendar_message = "What if I buy a $900 laptop in May?"
+    calendar_item = modal_item.merge(source_text: calendar_message, resolved_question: calendar_message)
+
+    modal = resolver_for_read_only_plan(modal_message, [ modal_item ]).call
+    calendar = resolver_for_read_only_plan(calendar_message, [ calendar_item ]).call
+    expected_year = Date.current.month > 5 ? Date.current.year + 1 : Date.current.year
+
+    assert modal.read_only_plan?
+    assert_equal "", modal.read_only_plan.dig(:items, 0, :effective_on)
+    refute modal.read_only_plan.dig(:items, 0, :timing_unavailable)
+    assert_equal Date.new(expected_year, 5, 1).iso8601, calendar.read_only_plan.dig(:items, 0, :effective_on)
+  end
+
   test "deterministic scenario fallback never replaces a supervised write result" do
     message = "Can I buy a $900 laptop and set Fixed essentials to $900 for July?"
     result = HouseholdFinance::MiaIntentResolver.new(

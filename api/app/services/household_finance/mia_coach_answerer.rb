@@ -9,13 +9,13 @@ module HouseholdFinance
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
     PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i.freeze
-    SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b|\b(?:how much|what(?:'s| is))\b.{0,40}\bsafe(?: |-)?to(?: |-)?spend\b|\bsafe(?: |-)?to(?: |-)?spend\b.{0,40}\b(?:amount|guardrail)\b/i.freeze
+    SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b|\b(?:how much|what(?:\s+(?:is|s)))\b.{0,40}\bsafe(?: |-)?to(?: |-)?spend\b|\bsafe(?: |-)?to(?: |-)?spend\b.{0,40}\b(?:amount|guardrail)\b/i.freeze
     COMPOUND_PURCHASE_DEBT_PATTERN = /(?=.*\b(?:buy|purchase|spend|trip|vacation|book|order)\b)(?=.*(?:\b(?:extra|additional)\b.{0,40}\b(?:debt|credit card|loan)\b|\b(?:debt|credit card|loan)\b.{0,40}\b(?:extra|additional)\b))/i.freeze
     PURCHASE_TERM_PATTERN = /(?<!safe-to-)\b(?:buy|purchase|spend|trip|vacation|book|order)\b/i.freeze
     DEBT_TERM_PATTERN = /\b(?:debt|credit card|loan)\b/i.freeze
     READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:(?:out of\s+)?(?:the\s+)?red|(?:to|into)\s+(?:the\s+)?(?:yellow|green))\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b|\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(?:red|yellow|green)\b/i.freeze
     READINESS_STATUS_PATTERN = /\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(red|yellow|green)\b/i.freeze
-    READINESS_OVERVIEW_PATTERN = /\b(?:(?:could|can|would)\s+you\s+)?(?:explain|show|tell\s+me\s+about|summarize|what(?:'s|\s+is)|how(?:'s|\s+is))\s+(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\b/i.freeze
+    READINESS_OVERVIEW_PATTERN = /\b(?:(?:could|can|would)\s+you\s+)?(?:explain|show|tell\s+me\s+about|summarize|what(?:\s+(?:is|s))|how(?:\s+(?:is|s)))\s+(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\b/i.freeze
     MONTHLY_FOCUS_PATTERN = /\b(?:what should (?:i|we) focus on|what(?:'s| is) (?:my|our) (?:first |top )?priority|where should (?:i|we) start)\b.*\b(?:this month|income|spending|goal)\b/i.freeze
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
@@ -303,6 +303,7 @@ module HouseholdFinance
     def sinking_fund_answer
       return nil unless normalized_message.match?(SINKING_FUND_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
+      return unavailable_plan_answer unless plan_available?
 
       target_month = target_month_index_from_message || reference_month - 1
       plan = active_plan
@@ -486,6 +487,8 @@ module HouseholdFinance
     end
 
     def readiness_execution_plan(surplus_cents, transfer_cents, yellow_gap, green_gap)
+      return unavailable_plan_answer unless plan_available?
+
       month_index = reference_month - 1
       discretionary_line = top_month_row_line("discretionary", month_index) || "the largest discretionary line"
       expected_line = top_month_row_line("sinking_expected", month_index) || "the next expected sinking-fund bill"
@@ -545,6 +548,8 @@ module HouseholdFinance
     end
 
     def family_support_tradeoff_answer(amount_cents)
+      return unavailable_plan_answer unless plan_available?
+
       plan = active_plan
       month_index = reference_month - 1
       dining_rows = active_rows(plan).select { |row| row.fetch(:name).match?(/dining|restaurant|coffee|takeout/i) }
@@ -614,6 +619,7 @@ module HouseholdFinance
       return nil if normalized_message.match?(TRANSACTION_DRAFT_FOLLOWUP_PATTERN)
       return nil if normalized_message.match?(CAR_REGISTRATION_PATTERN)
       return nil if normalized_message.match?(BILL_TRIAGE_PATTERN) || normalized_message.match?(EXTRA_MONEY_PATTERN) || normalized_message.match?(MONEY_MOVEMENT_PATTERN)
+      return unavailable_plan_answer unless plan_available?
 
       amount_cents = amount_from_message_cents
       need_language = normalized_message.match?(/\b(?:kid|school|work|health|medical|league|required|need)\b/i)
@@ -631,6 +637,7 @@ module HouseholdFinance
       if normalized_message.match?(ESSENTIAL_PURCHASE_TERMS)
         return "This sounds like a baseline need, not a discretionary want. Based on the Household CFO priority order, protect roof, food, utilities, medical needs, and debt minimums before judging it like optional spending. I still need the amount and timing to say whether it fits this month’s cash flow. Next CFO move: send me the price and due date, then we will place it against the active plan."
       end
+      return unavailable_plan_answer unless plan_available?
 
       item = purchase_item.presence || "that purchase"
       discretionary_remaining_cents = current_discretionary_remaining_cents
@@ -673,12 +680,16 @@ module HouseholdFinance
     end
 
     def current_discretionary_remaining_cents
+      return unless plan_available?
+
       month_index = reference_month - 1
       rows = active_rows(active_plan).select { |row| row.fetch(:stack_key) == "discretionary" }
       sum_month(rows, month_index, :remaining)
     end
 
     def top_month_row_line(stack_key, month_index)
+      return unless plan_available?
+
       rows = active_rows(active_plan).select { |row| row.fetch(:stack_key) == stack_key }
       row = rows.max_by { |candidate| dollars_to_cents(candidate.fetch(:months).fetch(month_index).fetch(:remaining)) }
       return unless row
@@ -689,6 +700,14 @@ module HouseholdFinance
 
     def active_rows(plan)
       plan.fetch(:rows).select { |row| row.fetch(:active, true) }
+    end
+
+    def plan_available?
+      active_plan.fetch(:plan_available, true)
+    end
+
+    def unavailable_plan_answer
+      "I cannot use the selected annual plan as approved data because that plan has not been created yet. Preview estimates are not approved plan amounts, so I will not use them for a spending, sinking-fund, family-support, or readiness decision. No financial records or reviews changed. Next CFO move: open and confirm that year’s plan, then ask me to compare the decision again."
     end
 
     def sum_month(rows, month_index, key)

@@ -189,9 +189,9 @@ module HouseholdFinance
       text = normalized_user_message
       return unless text.match?(HYPOTHETICAL_PATTERN) || text.match?(PURCHASE_SCENARIO_PATTERN)
       return "extra_debt_payment" if text.match?(/\b(?:extra|additional)\b.{0,50}\b(?:debt|credit card|loan|principal|payment)\b|\b(?:debt|credit card|loan)\b.{0,50}\b(?:extra|additional)\b/i)
-      return "purchase" if text.match?(/\b(?:buy|purchase|afford|spend|get)\b/i)
       return "one_time_income" if text.match?(/\b(?:bonus|refund|windfall|one[- ]time income|receive|received)\b/i)
-      "essential_expense" if text.match?(/\b(?:medical|doctor|dental|essential|repair|bill|expense)\b/i)
+      return "essential_expense" if text.match?(/\b(?:medical|doctor|dental|essential|repair|bill|expense)\b/i)
+      "purchase" if text.match?(/\b(?:buy|purchase|afford|spend|get)\b/i)
     end
 
     def deterministic_scenario_label(scenario_type)
@@ -582,7 +582,7 @@ module HouseholdFinance
           Date.current.next_year(count)
         end
         target.beginning_of_month
-      elsif (month_index = MonthTerms.detect_index(source_text))
+      elsif (month_index = calendar_month_index(source_text))
         explicit_year = source_text.match(/\b(20\d{2})\b/)&.[](1)&.to_i
         target_year = explicit_year || Date.current.year
         target_year += 1 if explicit_year.nil? && month_index + 1 < Date.current.month
@@ -603,6 +603,17 @@ module HouseholdFinance
       [ grounded&.iso8601.to_s, timing_unavailable ]
     rescue Date::Error
       raise ArgumentError, "Scenario date is invalid"
+    end
+
+    def calendar_month_index(source_text)
+      month_name, month_number = MonthTerms.detect(source_text)
+      return unless month_name && month_number
+
+      month = Regexp.escape(month_name)
+      calendar_context = source_text.match?(
+        /\b(?:in|during|by|before|after|for|on|around|through|until|this|next|coming|last)\s+#{month}\b|\b#{month}\s+(?:(?:\d{1,2})(?:st|nd|rd|th)?,?\s*)?(?:20\d{2}|this year|next year)\b|\b#{month}\s+\d{1,2}(?:st|nd|rd|th)?\b/i
+      )
+      calendar_context ? month_number - 1 : nil
     end
 
     def prior_scenario_timing_allowed?(item, amount, supplied, continuation:)
