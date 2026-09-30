@@ -299,15 +299,22 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     end
   end
 
-  test "accepts an ordinary goal that begins with help" do
-    result = HouseholdFinance::MiaIntentResolver.new(
-      user_message: "Help my kids graduate debt-free",
-      context: setup_zero_context("primary_goal"),
-      api_key: nil
-    ).call
+  test "accepts ordinary guided text answers whose first word can also appear in questions or refusals" do
+    {
+      primary_goal: [ "Help my kids graduate debt-free", "No debt" ],
+      household_name: [ "Will & Grace Household", "May Family" ]
+    }.each do |field, messages|
+      messages.each do |message|
+        result = HouseholdFinance::MiaIntentResolver.new(
+          user_message: message,
+          context: setup_zero_context(field.to_s),
+          api_key: nil
+        ).call
 
-    assert result.actionable?
-    assert_equal({ primary_goal: "Help my kids graduate debt-free" }, result.action.fetch(:setup_updates))
+        assert result.actionable?
+        assert_equal({ field => message }, result.action.fetch(:setup_updates))
+      end
+    end
   end
 
   test "uses the open budget year when a supported budget action omits its year" do
