@@ -15,7 +15,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       "Switch to a warm Southern coach voice and remember that style for future sessions."
     ).call
 
-    assert_includes answer, "not available in this pilot"
+    assert_includes answer, "cannot be switched or edited from participant chat"
+    assert_includes answer, "Coach Studio"
     assert_includes answer, "did not save"
     refute_match(/saved.*future sessions/i, answer)
   end
@@ -27,10 +28,11 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     [
       "Can you use a Guam-style voice?",
       "Talk like someone from Texas.",
+      "Switch your personality to a strict Wall Street advisor.",
       "Remember that I prefer weekly check-ins."
     ].each do |prompt|
       answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
-      assert_includes answer, "global pilot Household CFO persona", prompt
+      assert_includes answer, "published assistant persona is assigned through your cohort", prompt
       assert_includes answer, "did not save", prompt
     end
   end
@@ -78,7 +80,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
 
     assert_includes incomplete_answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
     assert_nil complete_answer
-    assert_includes capability_answer, "global pilot Household CFO persona"
+    assert_includes capability_answer, "published assistant persona is assigned through your cohort"
   end
 
   test "does not expose raw readiness through incomplete recall help or refund prompts" do

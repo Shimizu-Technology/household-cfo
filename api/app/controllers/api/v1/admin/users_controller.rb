@@ -4,6 +4,7 @@ module Api
       class UsersController < BaseController
         before_action :authenticate_user!
         before_action :require_staff!
+        rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_membership_conflict
 
         def index
           users = users_scope.to_a
@@ -216,7 +217,7 @@ module Api
         end
 
         def coach_cohort_ids
-          @coach_cohort_ids ||= current_user.cohort_memberships.pluck(:cohort_id)
+          @coach_cohort_ids ||= current_user.cohort_memberships.where(role: "coach").pluck(:cohort_id)
         end
 
         def requested_admin_access_removal?(attributes)
@@ -286,11 +287,16 @@ module Api
         end
 
         def sync_cohort_memberships(user, cohort_ids, role:)
+          Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids) if role == "participant"
           user.cohort_memberships.where.not(cohort_id: cohort_ids).destroy_all
           cohort_ids.each do |cohort_id|
             membership = user.cohort_memberships.find_or_initialize_by(cohort_id: cohort_id)
             membership.update!(role: role)
           end
+        end
+
+        def render_persona_membership_conflict(error)
+          render json: { error: error.message, code: "persona_assignment_conflict" }, status: :conflict
         end
 
         def cohort_role_for(user_role)

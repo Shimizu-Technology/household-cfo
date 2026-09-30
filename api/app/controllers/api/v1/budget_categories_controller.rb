@@ -75,7 +75,7 @@ module Api
       def render_category_response(category, status: :ok)
         render json: {
           category: serialize_category(category),
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: budget_manager.plan_data).budget
+          budget: current_data_presenter(household: current_household.reload, annual_plan: budget_manager.plan_data).budget
         }, status: status
       end
 

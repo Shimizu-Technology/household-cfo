@@ -241,7 +241,7 @@ module Api
         render json: {
           document_import: serialize_document_import(result.import, include_attempts: true),
           applied_count: result.applied_count,
-          workspace: HouseholdFinance::DataPresenter.new(current_household, user: current_user).app_data
+          workspace: current_data_presenter.app_data
         }
       end
 

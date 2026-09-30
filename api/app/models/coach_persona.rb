@@ -28,6 +28,7 @@ class CoachPersona < ApplicationRecord
   validate :current_version_belongs_to_persona
 
   before_validation :normalize_draft_config
+  before_validation :synchronize_name_from_draft
   before_update :track_draft_revision_and_preview
 
   def published?
@@ -50,6 +51,11 @@ class CoachPersona < ApplicationRecord
 
   def normalize_draft_config
     self.draft_config = Mia::PersonaSchema.normalize(draft_config) if draft_config.is_a?(Hash)
+  end
+
+  def synchronize_name_from_draft
+    configured_name = draft_config.to_h.dig("identity", "assistant_name").to_s.squish
+    self.name = configured_name if configured_name.present?
   end
 
   def creator_is_staff

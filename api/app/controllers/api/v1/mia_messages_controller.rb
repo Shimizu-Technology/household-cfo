@@ -5,7 +5,7 @@ module Api
       before_action :require_writable_household!, only: %i[create destroy]
 
       def index
-        render json: HouseholdFinance::DataPresenter.new(current_household, user: current_user).mia(
+        render json: current_data_presenter.mia(
           before_id: params[:before_id],
           limit: params[:limit]
         )
@@ -121,10 +121,10 @@ module Api
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
-          assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
+          assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
-          budget: annual_plan && !intent_result&.read_only_plan? ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
+          budget: annual_plan && !intent_result&.read_only_plan? ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)
@@ -177,20 +177,17 @@ module Api
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(
-              role: "assistant",
-              content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…")
-            )
+            assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
         compact_conversation(session, user_message, assistant_message)
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
-          assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
+          assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
           mia_action_draft: nil,
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget,
+          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget,
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)
@@ -293,8 +290,7 @@ module Api
       def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         ApplicationRecord.transaction do
           user_message = session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) })
-          assistant_message = session.chat_messages.new(
-            role: "assistant",
+          assistant_message = assistant_message_writer(session).build(
             content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"),
             presentation: assistant_presentation
           )
@@ -1007,7 +1003,7 @@ module Api
           conversation_context: conversation_context
         ).call
         response_history = conversation_resolution&.dig(:intent) == "recall" ? [] : history
-        ::Demo::MiaResponder.new.call(
+        ::Demo::MiaResponder.new(persona: current_persona).call(
           content,
           history: response_history,
           context: context,
@@ -1032,8 +1028,13 @@ module Api
         HouseholdFinance::MiaNarrator.new(
           user_message: content,
           history: history,
-          answer_packet: answer_packet
+          answer_packet: answer_packet,
+          persona: current_persona
         ).call
+      end
+
+      def assistant_message_writer(session)
+        ::Mia::AssistantMessageWriter.new(session: session, persona: current_persona)
       end
 
       def drafted_transaction_message(draft, annual_plan)

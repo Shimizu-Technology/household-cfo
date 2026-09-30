@@ -150,7 +150,7 @@ module Api
       end
 
       def append_chat_status_message(content)
-        current_chat_session.chat_messages.create!(role: "assistant", content: content)
+        ::Mia::AssistantMessageWriter.new(session: current_chat_session, persona: current_persona).create!(content: content)
       rescue StandardError => e
         Rails.logger.warn("Transaction draft status message was not saved draft_id=#{@draft&.id}: #{e.class}: #{e.message}")
         false
@@ -179,7 +179,7 @@ module Api
       def workspace_payload_for(year)
         response_year = HouseholdFinance::AnnualBudgetManager.supported_year?(year) ? year : Date.current.year
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: response_year).plan_data
-        HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).app_data
+        current_data_presenter(household: current_household.reload, annual_plan: annual_plan).app_data
       end
 
       def confirmed_message(draft)

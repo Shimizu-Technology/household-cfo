@@ -1249,7 +1249,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
     original_responder = Demo::MiaResponder.method(:new)
     begin
-      Demo::MiaResponder.define_singleton_method(:new) { failing_responder }
+      Demo::MiaResponder.define_singleton_method(:new) { |*, **| failing_responder }
 
       assert_no_difference("ChatMessage.count") do
         post "/api/v1/mia/messages",

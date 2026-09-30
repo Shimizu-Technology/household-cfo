@@ -12,7 +12,7 @@ module Api
 
         render json: {
           allocation: serialize_allocation(allocation.reload),
-          budget: HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget
+          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget
         }
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Budget allocation not found" ] }, status: :not_found

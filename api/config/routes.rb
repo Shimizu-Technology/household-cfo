@@ -79,7 +79,17 @@ Rails.application.routes.draw do
       resources :pilot_feedback_reports, only: :create
       namespace :admin do
         get "plaid_health", to: "plaid_health#index"
-        resources :cohorts, only: %i[index show create update]
+        resources :personas, controller: "mia_personas", only: %i[index show create update destroy] do
+          get :assignable_cohorts, on: :collection
+          post :preview, on: :member
+          post :publish, on: :member
+          resources :versions, controller: "mia_persona_versions", only: :show do
+            post :rollback, on: :member
+          end
+        end
+        resources :cohorts, only: %i[index show create update] do
+          resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]
+        end
         resources :pilot_feedback_reports, only: %i[index show update] do
           get :screenshot_url, on: :member
         end

@@ -17,12 +17,15 @@ module Mia
     )\b/ix.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
-    def initialize(user_message:, history: [])
+    def initialize(user_message:, history: [], persona: Persona.default)
       @user_message = user_message.to_s
       @history = Array(history)
+      @persona = persona
     end
 
     def sanitize(content)
+      return sanitize_custom_persona(content) if custom_persona?
+
       culture_allowed = cultural_language_allowed? && !cultural_language_recently_used?
       value = culture_allowed ? content.to_s : remove_reflexive_cultural_opener(content.to_s)
       value = remove_generic_praise(value) unless earned_moment?
@@ -40,7 +43,74 @@ module Mia
 
     private
 
-    attr_reader :user_message, :history
+    attr_reader :user_message, :history, :persona
+
+    def custom_persona?
+      persona.respond_to?(:version_id) && persona.version_id.present?
+    end
+
+    def sanitize_custom_persona(content)
+      value = content.to_s
+      value = remove_generic_praise(value) unless earned_moment?
+      cultural_phrases.each do |entry|
+        next if custom_phrase_allowed?(entry)
+
+        value = value.gsub(custom_phrase_pattern(entry.fetch("text")), " ")
+      end
+      value = value.sub(/\A\s*(should|can|could|need|will|may|might|have|are)\b/i, 'You \1')
+      normalize(value.gsub(/\s+([.!?,;:])/, "\\1"))
+    end
+
+    def cultural_phrases
+      Array(persona.cultural_phrases).filter_map do |entry|
+        normalized = entry.respond_to?(:stringify_keys) ? entry.stringify_keys : nil
+        normalized if normalized&.fetch("text", nil).to_s.squish.present?
+      end
+    end
+
+    def custom_phrase_allowed?(entry)
+      phrase = entry.fetch("text")
+      return false if custom_phrase_recently_used?(phrase, entry.fetch("frequency", "sparing"))
+      return true if user_message.match?(custom_phrase_pattern(phrase))
+
+      prohibited = Array(entry["prohibited_contexts"]).map { |context| context.to_s.downcase }
+      return false if prohibited.any? { |context| context_matches?(context) }
+
+      allowed = Array(entry["allowed_contexts"]).map { |context| context.to_s.downcase }
+      allowed.any? { |context| context_matches?(context) }
+    end
+
+    def context_matches?(context)
+      return user_message.match?(GREETING_PATTERN) if context.match?(/greet|welcome/)
+      return earned_moment? if context.match?(/milestone|celebrat|achievement|surprise|windfall/)
+      return user_message.match?(EMOTIONAL_SUPPORT_PATTERN) if context.match?(/emotion|support|stress|hard moment/)
+      return user_message.match?(REPEATED_PATTERN) if context.match?(/repeat|accountab|known.bad|pattern/)
+      return routine_moment? if context.match?(/routine|ordinary|warm|familiar|community/)
+      return true if context.match?(/general|any.relevant|as needed|always|all contexts/)
+
+      false
+    end
+
+    def routine_moment?
+      !user_message.match?(GREETING_PATTERN) &&
+        !earned_moment? &&
+        !user_message.match?(EMOTIONAL_SUPPORT_PATTERN) &&
+        !user_message.match?(REPEATED_PATTERN)
+    end
+
+    def custom_phrase_recently_used?(phrase, frequency)
+      lookback = case frequency.to_s
+      when "as_needed" then 2
+      when "very_rare" then 6
+      else 4
+      end
+      pattern = custom_phrase_pattern(phrase)
+      assistant_history.last(lookback).any? { |message| message.match?(pattern) }
+    end
+
+    def custom_phrase_pattern(phrase)
+      /(?<![[:alnum:]_])#{Regexp.escape(phrase.to_s.squish)}(?![[:alnum:]_])/i
+    end
 
     def earned_moment?
       user_message.match?(MILESTONE_PATTERN)
