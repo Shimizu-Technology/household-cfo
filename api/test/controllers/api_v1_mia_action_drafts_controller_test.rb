@@ -17,23 +17,14 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
   end
 
-  test "exact setup CTA overrides a model classification with the same server-owned question" do
+  test "exact setup CTA short-circuits an available model path with the same server-owned question" do
     user = create_user(email: "mia-setup-cta-model@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     HouseholdFinance::SetupUpdater.new(household, household_name: "Cruz Household").call
-    model_result = HouseholdFinance::MiaIntentResolver::Result.new(
-      intent: "general",
-      confidence: 0.99,
-      continuation: false,
-      resolved_message: "Let us discuss your finances generally.",
-      needs_clarification: false,
-      clarification: "",
-      topic: { type: "general", title: "General finances", subject: "Finances" },
-      action: { type: "none" },
-      source: "model"
-    )
+    unavailable_model = Object.new
+    unavailable_model.define_singleton_method(:call) { raise "setup CTA reached the model provider" }
 
-    with_intent_resolver(Struct.new(:result) { def call = result }.new(model_result)) do
+    with_intent_resolver(unavailable_model) do
       post "/api/v1/mia/messages",
         params: { message: HouseholdFinance::MiaSetupGuide::SETUP_REQUEST },
         headers: auth_headers(user),
@@ -46,7 +37,6 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     message = body.dig("assistant_message", "content")
     assert_includes message, "What is the main money goal you want this household to work toward?"
     assert_includes message, "I’ll prepare a review card; nothing changes until you apply it."
-    refute_includes message, "discuss your finances generally"
   end
 
   test "bare zero replies advance only the exact server-asked required setup field through review and apply" do

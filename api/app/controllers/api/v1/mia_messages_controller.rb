@@ -45,11 +45,11 @@ module Api
           transcript: transcript,
           selected_month: budget_month_param
         ).call
-        model_intent_result = HouseholdFinance::MiaIntentResolver.new(
+        intent_result = setup_guide_intent_result(content)
+        intent_result ||= HouseholdFinance::MiaIntentResolver.new(
           user_message: content,
           context: intent_context
         ).call
-        intent_result = setup_guide_intent_result(content) || model_intent_result
 
         if intent_result
           intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan?
