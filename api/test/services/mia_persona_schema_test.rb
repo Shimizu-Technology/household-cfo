@@ -92,6 +92,16 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     assert_empty Mia::PersonaSchema.errors(safe)
   end
 
+  test "specific investment picks and prescribed amounts are rejected" do
+    unsafe = persona_configuration
+    unsafe["coaching"]["method"] = "Recommend specific stocks and tell participants exactly how much to invest."
+
+    errors = Mia::PersonaSchema.errors(unsafe)
+
+    assert errors.any? { |error| error.include?("recommend specific investments") }
+    assert errors.any? { |error| error.include?("prescribe a specific investment amount") }
+  end
+
   test "arrays strings and total serialized bytes are bounded" do
     config = persona_configuration
     config["voice"]["tone_traits"] = Array.new(13, "warm")
@@ -101,6 +111,24 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
 
     assert_includes errors, "$.voice.tone_traits must contain 1 to 12 items"
     assert_includes errors, "$.coaching.philosophy must be a non-blank string up to 1200 characters"
+  end
+
+  test "phrase contexts use stable supported identifiers" do
+    config = persona_configuration
+    config["phrases"] = [
+      {
+        "text" => "friend",
+        "meaning" => "warm familiarity",
+        "allowed_contexts" => [ "routine coaching when addressing the household" ],
+        "prohibited_contexts" => [ "crisis" ],
+        "frequency" => "sparing",
+        "caution" => "Use naturally."
+      }
+    ]
+
+    errors = Mia::PersonaSchema.errors(config)
+
+    assert_includes errors, "$.phrases[0].allowed_contexts[0] is not supported"
   end
 
   test "preview digest is bound to compiled prompt draft revision and safety version" do

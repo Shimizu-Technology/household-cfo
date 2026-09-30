@@ -17,8 +17,8 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       {
         "text" => "y'all",
         "meaning" => "a natural second-person plural",
-        "allowed_contexts" => [ "routine coaching when addressing the household" ],
-        "prohibited_contexts" => [ "never use as a caricature" ],
+        "allowed_contexts" => [ "routine" ],
+        "prohibited_contexts" => [ "crisis" ],
         "frequency" => "as_needed",
         "caution" => "Use naturally and sparingly."
       }

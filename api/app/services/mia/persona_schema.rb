@@ -7,6 +7,7 @@ module Mia
   class PersonaSchema
     MAX_BYTES = 32_768
     FREQUENCIES = %w[very_rare rare sparing as_needed].freeze
+    PHRASE_CONTEXTS = %w[greeting verified_milestone emotional_support repeated_pattern routine general crisis].freeze
     TOP_LEVEL_KEYS = %w[version identity voice coaching culture phrases curriculum response_shape].freeze
 
     class InvalidConfiguration < ArgumentError
@@ -204,8 +205,8 @@ module Mia
           exact_keys(phrase, %w[text meaning allowed_contexts prohibited_contexts frequency caution], item_path, errors)
           bounded_string(phrase["text"], "#{item_path}.text", errors, 100)
           bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
-          string_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..8, item_max: 180)
-          string_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..8, item_max: 180)
+          enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
+          enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
           errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
           optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
         end
@@ -306,6 +307,15 @@ module Mia
 
         errors << "#{path} must contain #{range.min} to #{range.max} items" unless range.cover?(value.length)
         value.each_with_index { |item, index| bounded_string(item, "#{path}[#{index}]", errors, item_max) }
+      end
+
+      def enum_array(value, path, errors, range:, values:)
+        return array_required(value, path, errors) unless value.is_a?(Array)
+
+        errors << "#{path} must contain #{range.min} to #{range.max} items" unless range.cover?(value.length)
+        value.each_with_index do |item, index|
+          errors << "#{path}[#{index}] is not supported" unless item.is_a?(String) && item.in?(values)
+        end
       end
 
       def bounded_integer(value, path, errors, range)

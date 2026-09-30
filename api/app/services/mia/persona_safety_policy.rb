@@ -23,6 +23,14 @@ module Mia
     ].freeze
     FORBIDDEN_FINANCIAL_GUIDANCE = [
       {
+        pattern: /\b(?:recommend|pick|name|select)\b.{0,60}\b(?:specific|individual)?\s*(?:stocks?|securities?|funds?|investments?)\b/i,
+        message: "contains a directive to recommend specific investments"
+      },
+      {
+        pattern: /\b(?:tell|instruct|direct|recommend|advise)\b.{0,100}\b(?:exactly|specific(?:ally)?)\s+(?:how much|what amount)\b.{0,60}\b(?:invest|buy|sell|allocate)\b/i,
+        message: "contains a directive to prescribe a specific investment amount"
+      },
+      {
         pattern: /\b(?:provide|give|offer|deliver)\b.{0,60}\b(?:financial|legal|tax|investment|accounting)\s+advice\b/i,
         message: "contains a directive to provide licensed financial, legal, tax, investment, or accounting advice"
       },

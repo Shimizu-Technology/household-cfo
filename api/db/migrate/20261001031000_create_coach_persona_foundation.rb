@@ -22,7 +22,9 @@ class CreateCoachPersonaFoundation < ActiveRecord::Migration[8.1]
       name: "index_coach_personas_on_creator_and_lower_name"
     add_index :coach_personas, :archived_at
     add_check_constraint :coach_personas, "jsonb_typeof(draft_config) = 'object'", name: "coach_personas_draft_config_object"
-    add_check_constraint :coach_personas, "octet_length(draft_config::text) <= 32768", name: "coach_personas_draft_config_bytes"
+    # PostgreSQL's jsonb::text adds separator whitespace that compact JSON does not.
+    # The application still enforces a 32 KiB compact JSON limit.
+    add_check_constraint :coach_personas, "octet_length(draft_config::text) <= 36864", name: "coach_personas_draft_config_bytes"
     add_check_constraint :coach_personas,
       "preview_digest IS NULL OR preview_digest ~ '^[0-9a-f]{64}$'",
       name: "coach_personas_preview_digest_sha256"
@@ -47,7 +49,7 @@ class CreateCoachPersonaFoundation < ActiveRecord::Migration[8.1]
     add_foreign_key :coach_persona_versions, :coach_persona_versions, column: :source_version_id
     add_check_constraint :coach_persona_versions, "version_number > 0", name: "coach_persona_versions_positive_number"
     add_check_constraint :coach_persona_versions, "jsonb_typeof(config) = 'object'", name: "coach_persona_versions_config_object"
-    add_check_constraint :coach_persona_versions, "octet_length(config::text) <= 32768", name: "coach_persona_versions_config_bytes"
+    add_check_constraint :coach_persona_versions, "octet_length(config::text) <= 36864", name: "coach_persona_versions_config_bytes"
     add_check_constraint :coach_persona_versions,
       "config_digest ~ '^[0-9a-f]{64}$'",
       name: "coach_persona_versions_digest_sha256"
