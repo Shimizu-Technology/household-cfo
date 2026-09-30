@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_09_30_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_09_30_020000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -86,12 +86,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_09_30_010000) do
     t.bigint "chat_session_id", null: false
     t.text "content", null: false
     t.datetime "created_at", null: false
+    t.jsonb "presentation", default: {}, null: false
     t.string "role", null: false
     t.datetime "updated_at", null: false
     t.index ["chat_session_id", "created_at"], name: "index_chat_messages_on_chat_session_id_and_created_at"
     t.index ["chat_session_id"], name: "index_chat_messages_on_chat_session_id"
     t.index ["role"], name: "index_chat_messages_on_role"
     t.check_constraint "role::text = 'user'::text AND char_length(content) <= 2000 OR role::text = 'assistant'::text AND char_length(content) <= 8000", name: "chat_messages_content_length_by_role"
+    t.check_constraint "jsonb_typeof(presentation) = 'object'::text", name: "chat_messages_presentation_object"
   end
 
   create_table "chat_sessions", force: :cascade do |t|

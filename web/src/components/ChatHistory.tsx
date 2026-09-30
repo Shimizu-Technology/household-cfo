@@ -1,5 +1,8 @@
 import type { ReactNode, RefObject } from 'react'
 import type { FinancialDocumentImport, MiaMessage, MiaMessageAttachment } from '../api'
+import { parseMiaAnswerPresentation } from '../lib/miaPresentation'
+import { MiaReadOnlyAnswer } from './MiaReadOnlyAnswer'
+import { SafeMessageText } from './SafeMessageText'
 
 type ChatHistoryProps = {
   messages: MiaMessage[]
@@ -57,25 +60,31 @@ export function ChatHistory({
             {historyLoading ? 'Loading earlier messages' : `Load earlier messages (${remainingMessageCount} remaining)`}
           </button>
         )}
-        {messages.map((message, index) => (
-          <div className={`message-row ${message.role}`} key={messageKey(message, hiddenMessageCount + index)}>
-            {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
-            <div className={`message ${message.role}`}>
-              <strong>{message.author}</strong>
-              {messageContent(message, `${message.author}-${hiddenMessageCount + index}`)}
-              {(message.attachments ?? []).length > 0 && (
-                <MessageAttachmentList
-                  attachments={message.attachments ?? []}
-                  imports={imports}
-                  onOpenLocal={onOpenLocal}
-                  onOpenImport={onOpenImport}
-                  onOpenImportId={onOpenImportId}
-                  onReviewImportId={onReviewImportId}
-                />
-              )}
+        {messages.map((message, index) => {
+          const messageIndex = hiddenMessageCount + index
+          const presentation = message.role === 'assistant' ? parseMiaAnswerPresentation(message.presentation) : null
+          return (
+            <div className={`message-row ${message.role}${presentation ? ' has-structured-answer' : ''}`} key={messageKey(message, messageIndex)}>
+              {message.role === 'assistant' && <span className="message-avatar" aria-hidden="true">M</span>}
+              <div className={`message ${message.role}`}>
+                <strong>{message.author}</strong>
+                {presentation
+                  ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
+                  : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripMiaPrefix={message.role === 'assistant'} />}
+                {(message.attachments ?? []).length > 0 && (
+                  <MessageAttachmentList
+                    attachments={message.attachments ?? []}
+                    imports={imports}
+                    onOpenLocal={onOpenLocal}
+                    onOpenImport={onOpenImport}
+                    onOpenImportId={onOpenImportId}
+                    onReviewImportId={onReviewImportId}
+                  />
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          )
+        })}
         {miaLoading && (
           <div className="message-row assistant typing-row">
             <span className="message-avatar" aria-hidden="true">M</span>
@@ -150,42 +159,6 @@ function MessageAttachmentList({
 
 function messageKey(message: MiaMessage, index: number) {
   return message.id ? `server-${message.id}` : message.client_id ?? `${message.author}-${index}`
-}
-
-function messageContent(message: MiaMessage, keyPrefix: string) {
-  const content = message.role === 'assistant' ? message.content.replace(/^Mia:\s*/i, '') : message.content
-  const blocks: Array<{ type: 'paragraph' | 'list'; lines: string[] }> = []
-  let startsNewParagraph = false
-
-  for (const rawLine of content.split('\n')) {
-    const line = rawLine.trim()
-    if (!line) {
-      startsNewParagraph = true
-      continue
-    }
-
-    const listMatch = message.role === 'assistant' ? line.match(/^[-*]\s+(.+)$/) : null
-    const type = listMatch ? 'list' : 'paragraph'
-    const value = listMatch?.[1] ?? line
-    const current = blocks.at(-1)
-    if (current?.type === type && !(type === 'paragraph' && startsNewParagraph)) current.lines.push(value)
-    else blocks.push({ type, lines: [value] })
-    startsNewParagraph = false
-  }
-
-  return blocks.map((block, blockIndex) => block.type === 'list'
-    ? <ul key={`${keyPrefix}-${blockIndex}`}>
-      {block.lines.map((line, lineIndex) => <li key={`${keyPrefix}-${blockIndex}-${lineIndex}`}>{messageInlineText(line, message.role === 'assistant')}</li>)}
-    </ul>
-    : <p key={`${keyPrefix}-${blockIndex}`}>{messageInlineText(block.lines.join(' '), message.role === 'assistant')}</p>)
-}
-
-function messageInlineText(value: string, allowFormatting: boolean): ReactNode {
-  if (!allowFormatting) return value
-
-  return value.split(/(\*\*[^*]+\*\*)/g).map((part, index) => part.startsWith('**') && part.endsWith('**')
-    ? <strong key={`${part}-${index}`}>{part.slice(2, -2)}</strong>
-    : part)
 }
 
 function attachmentDisplayName(attachment: MiaMessageAttachment) {

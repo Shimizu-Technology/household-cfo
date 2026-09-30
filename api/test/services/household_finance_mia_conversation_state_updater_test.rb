@@ -96,4 +96,44 @@ class HouseholdFinanceMiaConversationStateUpdaterTest < ActiveSupport::TestCase
     assert_equal "budget", @session.reload.active_topic.fetch("id")
     assert_equal "Fixed essentials", @session.active_topic.fetch("subject")
   end
+
+  test "persists a bounded version-three read-only plan for safe corrections" do
+    user_message = @session.chat_messages.create!(role: "user", content: "What if I get a $2,000 bonus?")
+    assistant_message = @session.chat_messages.create!(role: "assistant", content: "Scenario only — the bonus is not saved.")
+    item = {
+      kind: "scenario",
+      source_text: "What if I get a $2,000 bonus?",
+      resolved_question: "What if I get a $2,000 bonus?",
+      basis: "hypothetical",
+      scenario_type: "one_time_income",
+      scenario_label: "Bonus",
+      amount: "2000",
+      effective_on: ""
+    }
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "coaching",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Model a $2,000 bonus",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "read_only_plan", title: "Bonus scenario", subject: "Bonus" },
+      action: { type: "none" },
+      read_only_plan: { title: "Bonus scenario", items: [ item ] },
+      source: "model"
+    )
+
+    assert HouseholdFinance::MiaConversationStateUpdater.new(
+      @session,
+      intent_result: intent,
+      user_message: user_message,
+      assistant_message: assistant_message
+    ).call
+
+    active = @session.reload.active_topic
+    assert_equal 3, active.fetch("schema_version")
+    assert_equal "read_only_plan", active.fetch("type")
+    assert_equal "2000", active.dig("read_only_plan", "items", 0, "amount")
+    assert_equal "What if I get a $2,000 bonus?", active.dig("read_only_plan", "items", 0, "source_text")
+  end
 end

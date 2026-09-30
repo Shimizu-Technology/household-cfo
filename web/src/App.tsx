@@ -872,18 +872,18 @@ function App() {
     setShowChatScrollButton(distanceFromBottom > 72)
   }, [])
 
-  const scrollMiaChatToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
+  const scrollMiaChatToBottom = useCallback(() => {
     const chatCard = chatCardRef.current
     if (!chatCard) return
 
-    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior })
+    chatCard.scrollTo({ top: chatCard.scrollHeight, behavior: 'smooth' })
     setShowChatScrollButton(false)
   }, [])
 
   useEffect(() => {
     if (activeSection !== 'Ask Mia') return
 
-    scrollMiaChatToBottom('smooth')
+    scrollMiaChatToBottom()
   }, [activeSection, currentMessages.length, miaLoading, scrollMiaChatToBottom])
 
   const stopVoiceStream = useCallback(() => {

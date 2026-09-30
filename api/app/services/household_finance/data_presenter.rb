@@ -532,7 +532,8 @@ module HouseholdFinance
     end
 
     def target_runway_months
-      snapshot.fetch(:target_runway_months)
+      stored_target = goals.find { |goal| goal.goal_type == "runway" }&.target_months.to_f
+      stored_target.positive? ? stored_target : SnapshotBuilder::DEFAULT_RUNWAY_TARGET_MONTHS
     end
 
     def transition_retained_income_cents

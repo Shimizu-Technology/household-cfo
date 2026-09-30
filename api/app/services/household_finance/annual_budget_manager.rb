@@ -29,6 +29,18 @@ module HouseholdFinance
 
     def plan_data
       budget_year = ensure_plan!
+      plan_data_for(budget_year).merge(plan_available: true)
+    end
+
+    def read_only_plan_data
+      budget_year = household.budget_years.find_by(year: year)
+      periods = budget_year&.budget_periods&.order(:starts_on)&.to_a || []
+      return plan_data_for(budget_year).merge(plan_available: true) if periods.length == 12
+
+      read_only_plan_preview
+    end
+
+    def plan_data_for(budget_year)
       periods = budget_year.budget_periods.order(:starts_on).to_a
       categories = plan_categories(periods)
       allocations_by_category_and_period = BudgetAllocation
@@ -144,6 +156,76 @@ module HouseholdFinance
     private
 
     attr_reader :household
+
+    def read_only_plan_preview
+      months = (1..12).map do |month|
+        starts_on = Date.new(year, month, 1)
+        {
+          id: "preview-#{year}-#{month}",
+          label: MONTH_NAMES.fetch(month - 1),
+          starts_on: starts_on.iso8601,
+          ends_on: starts_on.end_of_month.iso8601,
+          status: starts_on.end_of_month < Date.current ? "closed" : "open"
+        }
+      end
+      sources = scheduled_income_sources
+      monthly_income = months.index_with do |month|
+        starts_on = Date.iso8601(month.fetch(:starts_on))
+        ends_on = Date.iso8601(month.fetch(:ends_on))
+        Money.dollars(sources.sum { |source| IncomeTimeline.period_cents(source, starts_on: starts_on, ends_on: ends_on) })
+      end.transform_keys { |month| month.fetch(:id) }
+      categories = household.budget_categories.ordered.to_a
+      expenses = active_expenses
+      row_sources = categories.map do |category|
+        [ category.id, category.name, category.stack_key, category.stack_label, category.active, expenses.find { |expense| expense.label.casecmp?(category.name) } ]
+      end
+      category_names = categories.map { |category| category.name.downcase }
+      row_sources.concat(expenses.reject { |expense| category_names.include?(expense.label.downcase) }.map do |expense|
+        [ 0, expense.label, expense.stack_key, SnapshotBuilder::STACK_LABELS.fetch(expense.stack_key), expense.active, expense ]
+      end)
+      rows = row_sources.map do |id, name, stack_key, stack_label, active, expense|
+        cells = months.map do |month|
+          planned_cents = if expense
+            Money.period_cents(expense.amount_cents, expense.cadence, month: Date.iso8601(month.fetch(:starts_on)).month)
+          else
+            0
+          end
+          {
+            period_id: month.fetch(:id),
+            allocation_id: nil,
+            planned: Money.dollars(planned_cents),
+            actual: 0,
+            remaining: Money.dollars(planned_cents),
+            allocation_missing: true
+          }
+        end
+        {
+          id: id,
+          name: name,
+          stack_key: stack_key,
+          stack_label: stack_label,
+          active: active,
+          months: cells,
+          planned_total: cells.sum { |cell| cell.fetch(:planned) },
+          actual_total: 0
+        }
+      end
+
+      {
+        year: year,
+        months: months,
+        rows: rows,
+        monthly_income: monthly_income,
+        monthly_debt_minimums: Money.dollars(household.debts.sum(:minimum_payment_cents)),
+        income_sources: income_sources_payload,
+        annual_outlook: { typical_monthly_outflow: 0, months: [], upcoming_spikes: [], next_irregular_month: nil },
+        pending_transaction_drafts: [],
+        pending_mia_action_drafts: [],
+        recent_transactions: [],
+        archived_categories: archived_categories_payload,
+        plan_available: false
+      }
+    end
 
     def ensure_plan_records!
       raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(year)

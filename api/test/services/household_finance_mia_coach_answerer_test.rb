@@ -89,6 +89,27 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     end
   end
 
+  test "blocks debt strategy recommendations until setup is confirmed" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "incomplete-debt-strategy@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Incomplete debt household")
+    household.debts.create!(label: "Card A", debt_type: "credit_card", balance_cents: 300_000, minimum_payment_cents: 15_000, interest_rate_percent: 29.0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which card should I pay off first using avalanche?").call
+
+    assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    refute_includes answer, "Avalanche:"
+  end
+
+  test "allows debt strategy recommendations after setup is confirmed" do
+    household = create_yellow_household
+    household.debts.first.update!(interest_rate_percent: 24.0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which card should I pay off first using avalanche?").call
+
+    assert_includes answer, "Avalanche: Debt first"
+    refute_includes answer, "starting picture is confirmed"
+  end
+
   test "routes a baseline color question through approved readiness facts" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",
@@ -209,6 +230,33 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "40%"
     assert_includes answer, "$262"
     assert_includes answer, "not a purchase amount"
+  end
+
+  test "answers a direct safe-to-spend amount question" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "How much is safe to spend?"
+    ).call
+
+    assert_includes answer, "$262 monthly safe-to-spend guardrail"
+    assert_includes answer, "$655 positive baseline surplus"
+    assert_includes answer, "not a purchase amount"
+  end
+
+  test "explains readiness without requiring the participant to name a color" do
+    household = create_yellow_household
+    household.accounts.find_by!(account_type: "emergency_fund").update!(balance_cents: 0)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "Could you explain my readiness?"
+    ).call
+
+    assert_includes answer, "approved readiness is Red"
+    assert_includes answer, "runway"
+    assert_includes answer, "Next CFO move"
   end
 
   test "uses the selected budget month and year for every financial guardrail" do

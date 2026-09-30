@@ -22,7 +22,7 @@ module HouseholdFinance
       return budget_status_answer(totals, top_line) if budget_status_question?
 
       [
-        "For #{report.fetch(:period_label)}, synced bank activity shows #{money(totals.fetch(:bank_observed, 0))} in posted outflows; based on confirmed transactions, confirmed spending is #{money(totals.fetch(:actual))} against #{money(totals.fetch(:planned))} planned.",
+        spending_comparison_line(totals),
         "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}. Posted bank activity still needing household review totals #{money(totals.fetch(:bank_needs_review, 0))}; bank-pending activity totals #{money(totals.fetch(:bank_pending, 0))} and is excluded from posted spending.",
         "Top actual categories: #{top_line}.",
         bank_merchant_line(bank),
@@ -44,6 +44,10 @@ module HouseholdFinance
     end
 
     def category_status_answer(categories, totals)
+      unless plan_available?
+        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot label categories over or under plan. Confirmed actuals are #{money(totals.fetch(:actual))}; pending drafts remain separate."
+      end
+
       over_categories = categories.select { |category| category.fetch(:actual).to_f > category.fetch(:planned).to_f }
       pending_line = "Pending drafts waiting for your approval total #{money(totals.fetch(:pending))}; I am not counting those as actuals until you confirm them."
       if over_categories.empty?
@@ -67,6 +71,10 @@ module HouseholdFinance
     end
 
     def budget_status_answer(totals, top_line)
+      unless plan_available?
+        return "I can report confirmed spending for #{report.fetch(:period_label)}, but no approved historical plan is available for that period, so I cannot say whether the household was within budget. Confirmed actuals are #{money(totals.fetch(:actual))}, and pending drafts total #{money(totals.fetch(:pending))}."
+      end
+
       planned = totals.fetch(:planned).to_f
       actual = totals.fetch(:actual).to_f
       pending = totals.fetch(:pending).to_f
@@ -113,11 +121,27 @@ module HouseholdFinance
     end
 
     def closing_line(totals)
+      return "No approved historical plan is available for this period, so I am not treating $0 as the planned amount." unless plan_available?
+
       remaining = totals.fetch(:remaining).to_f
       return "You are #{money(remaining)} under the planned amount for this period so far." if remaining.positive?
       return "You are exactly at the planned amount for this period." if remaining.zero?
 
       "You are #{money(remaining.abs)} over the planned amount for this period. Review what was structural versus one-off before cutting essentials."
+    end
+
+    def spending_comparison_line(totals)
+      observed = money(totals.fetch(:bank_observed, 0))
+      actual = money(totals.fetch(:actual))
+      if plan_available?
+        return "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows; based on confirmed transactions, confirmed spending is #{actual} against #{money(totals.fetch(:planned))} planned."
+      end
+
+      "For #{report.fetch(:period_label)}, synced bank activity shows #{observed} in posted outflows and confirmed spending is #{actual}. No approved historical plan is available for this period, so no planned comparison is shown."
+    end
+
+    def plan_available?
+      report.fetch(:plan_available, true)
     end
 
     def money(value)

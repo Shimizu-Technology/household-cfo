@@ -792,6 +792,113 @@ test('Mia preserves accessible financial lists and emphasis instead of flattenin
   await expect(answer.locator('li strong')).toHaveText(['$300.25', '$80.50'])
 })
 
+test('mobile Ask Mia renders ordered read-only answers and isolates scenario values', async ({ page }) => {
+  const lead = 'Protect the required minimums before directing extra money to debt.'
+  await page.addInitScript(({ leadText }) => {
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify([{
+      id: 9902,
+      role: 'assistant',
+      author: 'Mia',
+      content: 'RAW FALLBACK CONTENT SHOULD NOT BE DUPLICATED',
+      attachments: [],
+      presentation: {
+        version: 1,
+        kind: 'read_only_answer',
+        basis: 'saved_household_plus_scenario',
+        lead: leadText,
+        sections: [
+          { id: 'avalanche', title: 'Avalanche', body: 'Card A comes first because its saved APR is highest.\n\nKeep minimums current while directing the extra payment there.' },
+          { id: 'snowball', title: 'Snowball', body: '<script>window.miaMarkupExecuted = true</script> remains text in this answer.\n\n- Compare total interest\n- Check the monthly margin' },
+          { id: 'next-move', title: 'Next move', body: 'Keep runway protected, then choose one fixed extra payment.' },
+        ],
+        scenario: {
+          values: [
+            { label: '<img src=x onerror=alert(1)> personal loan balance', display_value: '$8,000' },
+            { label: 'Personal loan APR', display_value: '11.5%' },
+            { label: 'Temporary income drop', display_value: '$900 for 3 months' },
+          ],
+        },
+      },
+    }]))
+  }, { leadText: lead })
+
+  await page.goto('/#Ask%20Mia')
+
+  const answer = page.locator('.message.assistant')
+  const structured = answer.getByRole('group', { name: 'Mia read-only answer' })
+  await expect(structured).toBeVisible()
+  await expect(structured.getByText('Answer basis')).toBeVisible()
+  await expect(structured.getByText('Saved household records + your scenario')).toBeVisible()
+  await expect(structured.getByText(lead, { exact: true })).toHaveCount(1)
+
+  const sections = structured.getByRole('list', { name: 'Mia answer sections' })
+  const sectionItems = sections.locator(':scope > li')
+  await expect(sectionItems).toHaveCount(3)
+  await expect(sections.getByRole('heading', { level: 4 })).toHaveText(['Avalanche', 'Snowball', 'Next move'])
+  const avalancheSection = sectionItems.nth(0)
+  await expect(avalancheSection.locator('p')).toHaveText([
+    'Card A comes first because its saved APR is highest.',
+    'Keep minimums current while directing the extra payment there.',
+  ])
+  const snowballSection = sectionItems.nth(1)
+  await expect(snowballSection.locator('p')).toHaveText(['<script>window.miaMarkupExecuted = true</script> remains text in this answer.'])
+  await expect(snowballSection.getByRole('listitem')).toHaveText(['Compare total interest', 'Check the monthly margin'])
+
+  const scenario = structured.getByRole('note', { name: 'Scenario only · not saved' })
+  await expect(scenario).toContainText('Mia used these values for this answer. Your saved household records did not change.')
+  await expect(scenario).toContainText('<img src=x onerror=alert(1)> personal loan balance')
+  await expect(scenario).toContainText('$8,000')
+  await expect(scenario).toContainText('11.5%')
+  await expect(scenario).toContainText('$900 for 3 months')
+  await expect(structured).toContainText('<script>window.miaMarkupExecuted = true</script> remains text in this answer.')
+  await expect(structured.locator('script, img')).toHaveCount(0)
+  expect(await page.evaluate(() => (window as Window & { miaMarkupExecuted?: boolean }).miaMarkupExecuted)).toBeUndefined()
+
+  await expect(answer).not.toContainText('RAW FALLBACK CONTENT SHOULD NOT BE DUPLICATED')
+  await expect(answer.getByRole('button')).toHaveCount(0)
+  await expect(answer.getByText(lead, { exact: true })).toHaveCount(1)
+  await expect(page.getByRole('textbox', { name: 'Ask Mia', exact: true })).toBeVisible()
+
+  const layout = await structured.evaluate((element) => {
+    const scenarioRow = element.querySelector('.mia-answer-scenario dl > div')
+    return {
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      answerOverflow: element.scrollWidth - element.clientWidth,
+      scenarioColumns: scenarioRow ? getComputedStyle(scenarioRow).gridTemplateColumns.split(' ').length : 0,
+      viewportWidth: document.documentElement.clientWidth,
+    }
+  })
+  expect(layout.documentOverflow).toBeLessThanOrEqual(1)
+  expect(layout.answerOverflow).toBeLessThanOrEqual(1)
+  if (layout.viewportWidth <= 420) expect(layout.scenarioColumns).toBe(1)
+})
+
+test('Mia falls back to plain content when read-only presentation metadata is malformed', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify([{
+      id: 9903,
+      role: 'assistant',
+      author: 'Mia',
+      content: '**Approved answer preserved**\n- Keep minimums current\n- Protect runway',
+      attachments: [],
+      presentation: {
+        version: 1,
+        kind: 'read_only_answer',
+        basis: 'saved_household_plus_scenario',
+        lead: 'This incomplete presentation must not replace the answer.',
+        sections: [{ id: 'next', title: 'Next move', body: 'Protect runway.' }],
+      },
+    }]))
+  })
+
+  await page.goto('/#Ask%20Mia')
+
+  const answer = page.locator('.message.assistant')
+  await expect(answer.getByRole('group', { name: 'Mia read-only answer' })).toHaveCount(0)
+  await expect(answer.getByText('Approved answer preserved', { exact: true })).toBeVisible()
+  await expect(answer.getByRole('listitem')).toHaveText(['Keep minimums current', 'Protect runway'])
+})
+
 test('chat-first Mia reviews household, income, and budget writes without bypassing approval', async ({ page }) => {
   const baseWorkspace = realWorkspaceData(true)
   const workspace = {

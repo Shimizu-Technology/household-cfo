@@ -9,12 +9,13 @@ module HouseholdFinance
       /\b(?:can|should|could|may)\s+(?:i|we)\b.*\b(?:take|go on|book)\b.*\b(?:trip|vacation|staycation)\b/i
     ].freeze
     PURCHASE_IMPACT_PATTERN = /\b(?:buy|purchase|spend)\b.*\b(?:runway|safe-to-spend)\b|\b(?:runway|safe-to-spend)\b.*\b(?:buy|purchase|spend)\b/i.freeze
-    SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b/i.freeze
+    SAFE_TO_SPEND_FORMULA_PATTERN = /\bhow\b.{0,80}\b(?:calculate|calculated|derive|derived)\b.{0,80}\bsafe-to-spend\b|\bsafe-to-spend\b.{0,80}\b(?:formula|calculated|derived)\b|\bformula\b.{0,80}\bsafe-to-spend\b|\b(?:how much|what(?:'s| is))\b.{0,40}\bsafe(?: |-)?to(?: |-)?spend\b|\bsafe(?: |-)?to(?: |-)?spend\b.{0,40}\b(?:amount|guardrail)\b/i.freeze
     COMPOUND_PURCHASE_DEBT_PATTERN = /(?=.*\b(?:buy|purchase|spend|trip|vacation|book|order)\b)(?=.*(?:\b(?:extra|additional)\b.{0,40}\b(?:debt|credit card|loan)\b|\b(?:debt|credit card|loan)\b.{0,40}\b(?:extra|additional)\b))/i.freeze
     PURCHASE_TERM_PATTERN = /(?<!safe-to-)\b(?:buy|purchase|spend|trip|vacation|book|order)\b/i.freeze
     DEBT_TERM_PATTERN = /\b(?:debt|credit card|loan)\b/i.freeze
     READINESS_PLAN_PATTERN = /\b(?:help\s+(?:me|us)\s+)?(?:create|make|build)?\s*(?:a\s+)?(?:concrete\s+|specific\s+|detailed\s+|step(?: |-)?by(?: |-)?step\s+)?plan\b|\b(?:get|move)\s+(?:me|us|the household)?\s*(?:(?:out of\s+)?(?:the\s+)?red|(?:to|into)\s+(?:the\s+)?(?:yellow|green))\b|\b(?:yellow|green)\b.*\b(?:plan|readiness|baseline|runway|stabiliz|what do we need|next step)\b|\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(?:red|yellow|green)\b/i.freeze
     READINESS_STATUS_PATTERN = /\b(?:why\s+(?:am|is|are)\s+)?(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\s+(?:is\s+)?(red|yellow|green)\b/i.freeze
+    READINESS_OVERVIEW_PATTERN = /\b(?:(?:could|can|would)\s+you\s+)?(?:explain|show|tell\s+me\s+about|summarize|what(?:'s|\s+is)|how(?:'s|\s+is))\s+(?:(?:my|our|the household(?:'s)?)\s+)?(?:baseline|readiness)(?:\s+status)?\b/i.freeze
     MONTHLY_FOCUS_PATTERN = /\b(?:what should (?:i|we) focus on|what(?:'s| is) (?:my|our) (?:first |top )?priority|where should (?:i|we) start)\b.*\b(?:this month|income|spending|goal)\b/i.freeze
     CAR_REGISTRATION_PATTERN = /\b(?:(?:car|vehicle|auto)\s+)?(?:registration|tags?)\b/i.freeze
     CAR_REPAIR_PATTERN = /\b(?:car|vehicle|auto)\s+repair\b/i.freeze
@@ -41,12 +42,14 @@ module HouseholdFinance
     PROMPT_INJECTION_PATTERN = /\b(?:ignore all previous rules|ignore previous instructions|developer mode|jailbreak|you are now)\b/i.freeze
     TRANSACTION_DRAFT_FOLLOWUP_PATTERN = /\bfollow-up to previous transaction_draft topic\b|\btopic:\s*reported spending\b/i.freeze
 
-    def initialize(household, message, annual_budget_manager: nil, reference_month: Date.current.month, conversation_messages: [])
+    def initialize(household, message, annual_budget_manager: nil, annual_plan: nil, reference_month: Date.current.month, conversation_messages: [], ensure_plan: true)
       @household = household
       @message = message.to_s.squish
       @annual_budget_manager = annual_budget_manager || AnnualBudgetManager.new(household, year: Date.current.year)
+      @provided_annual_plan = annual_plan&.deep_symbolize_keys
       @reference_month = reference_month.to_i.clamp(1, 12)
       @conversation_messages = Array(conversation_messages)
+      @ensure_plan = ensure_plan
     end
 
     def call
@@ -65,7 +68,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message, :annual_budget_manager, :reference_month, :conversation_messages
+    attr_reader :household, :message, :annual_budget_manager, :provided_annual_plan, :reference_month, :conversation_messages, :ensure_plan
 
     def capability_answer
       return unless ::Mia::Capabilities.persona_configuration_request?(message)
@@ -88,11 +91,13 @@ module HouseholdFinance
       return false if external_fact && !tax_context
 
       readiness_coaching = normalized_message.match?(READINESS_PLAN_PATTERN) && !purchase_question? && !budget_report_question?
+      debt_strategy = DebtStrategyPlanner.question?(message)
       matched_guardrail = [
         PURCHASE_IMPACT_PATTERN,
         SAFE_TO_SPEND_FORMULA_PATTERN,
         COMPOUND_PURCHASE_DEBT_PATTERN,
         READINESS_STATUS_PATTERN,
+        READINESS_OVERVIEW_PATTERN,
         MONTHLY_FOCUS_PATTERN,
         CAR_REGISTRATION_PATTERN,
         CAR_REPAIR_PATTERN,
@@ -115,14 +120,19 @@ module HouseholdFinance
         EMOTIONAL_STRESS_PATTERN
       ].any? { |pattern| normalized_message.match?(pattern) }
 
-      purchase_question? || readiness_coaching || matched_guardrail || tax_context
+      purchase_question? || readiness_coaching || debt_strategy || matched_guardrail || tax_context
     end
 
     def debt_strategy_answer
       return nil if normalized_message.match?(COMPOUND_PURCHASE_DEBT_PATTERN)
       return nil if normalized_message.match?(/balance transfer/i)
 
-      DebtStrategyPlanner.new(household, message, conversation_messages: conversation_messages).call
+      DebtStrategyPlanner.new(
+        household,
+        message,
+        conversation_messages: conversation_messages,
+        ensure_plan: ensure_plan
+      ).call
     end
 
     def memory_recall_answer
@@ -325,7 +335,16 @@ module HouseholdFinance
 
       target_date = normalized_message.match?(/\bnext month\b/i) ? Date.current.next_month : Date.current
       target_manager = AnnualBudgetManager.new(household, year: target_date.year)
-      target_plan = target_manager.plan_data
+      target_plan = if ensure_plan
+        target_manager.plan_data
+      elsif target_date.year == annual_budget_manager.year
+        active_plan
+      else
+        target_manager.read_only_plan_data
+      end
+      unless target_plan.fetch(:plan_available, true)
+        return "I cannot compare car registration with #{target_date.strftime('%B %Y')} as an approved plan because that plan has not been created yet. The registration amount and timing remain a scenario, and no records or reviews changed. Open that year’s plan or add the real bill amount and due date before making the CFO call."
+      end
       month_index = target_date.month - 1
       expected_rows = active_rows(target_plan).select { |row| row.fetch(:stack_key) == "sinking_expected" }
       registration_row = expected_rows.find { |row| row.fetch(:name).match?(CAR_REGISTRATION_PATTERN) }
@@ -380,12 +399,14 @@ module HouseholdFinance
 
     def readiness_status_answer
       match = normalized_message.match(READINESS_STATUS_PATTERN)
-      return unless match
+      overview = normalized_message.match?(READINESS_OVERVIEW_PATTERN)
+      return unless match || overview
+      return if match.nil? && normalized_message.match?(READINESS_PLAN_PATTERN)
 
       facts = snapshot
       actual_tone = facts.fetch(:readiness_tone)
-      claimed_tone = match[1].downcase
-      status_line = if claimed_tone == actual_tone
+      claimed_tone = match&.[](1)&.downcase
+      status_line = if claimed_tone.nil? || claimed_tone == actual_tone
         "Your approved readiness is #{actual_tone.capitalize}."
       else
         "Your approved readiness is #{actual_tone.capitalize}, not #{claimed_tone.capitalize}."
@@ -648,7 +669,7 @@ module HouseholdFinance
     end
 
     def active_plan
-      @active_plan ||= annual_budget_manager.plan_data
+      @active_plan ||= provided_annual_plan || (ensure_plan ? annual_budget_manager.plan_data : annual_budget_manager.read_only_plan_data)
     end
 
     def current_discretionary_remaining_cents
@@ -717,7 +738,8 @@ module HouseholdFinance
       @snapshot ||= SnapshotBuilder.new(
         household,
         annual_budget_manager: annual_budget_manager,
-        reference_date: snapshot_reference_date
+        reference_date: snapshot_reference_date,
+        ensure_plan: ensure_plan
       ).call
     end
 

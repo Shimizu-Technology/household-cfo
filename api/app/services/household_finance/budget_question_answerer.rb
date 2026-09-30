@@ -13,7 +13,7 @@ module HouseholdFinance
       /\bfollow up to previous budget report topic\b/i,
       /\bbudget report\b/i
     ].freeze
-    BUDGET_HEALTH_PATTERN = /\b(?:how are we looking|where are we at|how do we look|are we on track|on track|off track|budget status)\b/i
+    BUDGET_HEALTH_PATTERN = /\b(?:how are we looking|where are we at|how do we look|are we on track|on track|off track|budget status|(?:am i|are we)\s+(?:over|under)\s+budget|over budget|under budget)\b/i
     CATEGORY_BREAKDOWN_PATTERN = /\b(?:breakdowns?|break down|by category|each category|all categories|line items?)\b/i
     LARGEST_CATEGORY_PATTERN = /\b(?:largest|biggest|highest|top)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i
     SMALLEST_CATEGORY_PATTERN = /\b(?:smallest|lowest)\b.*\b(?:category|budget|spending|expense|line item|planned)\b/i

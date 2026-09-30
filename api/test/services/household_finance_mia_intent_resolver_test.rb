@@ -916,6 +916,615 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_nil resolver.call
   end
 
+  test "accepts an ordered readiness and hypothetical purchase plan" do
+    message = "Why is my readiness Red? Also, what if I buy a $900 laptop?"
+    result = resolver_for_read_only_plan(
+      message,
+      [
+        read_only_item(kind: "coaching", source_text: "Why is my readiness Red?", resolved_question: "Why is my readiness Red?"),
+        read_only_item(
+          kind: "scenario",
+          source_text: "what if I buy a $900 laptop?",
+          resolved_question: "What if I buy a $900 laptop?",
+          basis: "approved",
+          scenario_type: "purchase",
+          scenario_label: "Laptop",
+          amount: "900"
+        )
+      ]
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal %w[coaching scenario], result.read_only_plan.fetch(:items).pluck(:kind)
+    assert_equal "hypothetical", result.read_only_plan.dig(:items, 1, :basis)
+  end
+
+  test "grounds next-month scenario timing and rejects an invented effective date" do
+    message = "What if I get a $1,000 bonus next month?"
+    item = read_only_item(
+      kind: "scenario",
+      source_text: message,
+      resolved_question: message,
+      basis: "hypothetical",
+      scenario_type: "one_time_income",
+      scenario_label: "Bonus",
+      amount: "1000"
+    )
+
+    grounded = resolver_for_read_only_plan(message, [ item ]).call
+    mismatched = resolver_for_read_only_plan(
+      message,
+      [ item.merge(effective_on: Date.current.beginning_of_month.iso8601) ]
+    ).call
+    vague_message = "What if I get a $1,000 bonus sometime later?"
+    vague = resolver_for_read_only_plan(
+      vague_message,
+      [ item.merge(source_text: vague_message, resolved_question: vague_message) ]
+    ).call
+
+    assert grounded.read_only_plan?
+    assert_equal Date.current.next_month.beginning_of_month.iso8601, grounded.read_only_plan.dig(:items, 0, :effective_on)
+    refute mismatched.read_only_plan?
+    assert vague.read_only_plan?
+    assert vague.read_only_plan.dig(:items, 0, :timing_unavailable)
+  end
+
+  test "grounds participant-authored ISO dates and marks unsupported timing unavailable" do
+    dated_message = "What if I get a $1,000 bonus on 2026-11-15?"
+    dated_item = read_only_item(
+      kind: "scenario",
+      source_text: dated_message,
+      resolved_question: dated_message,
+      basis: "hypothetical",
+      scenario_type: "one_time_income",
+      scenario_label: "Bonus",
+      amount: "1000"
+    )
+    dated = resolver_for_read_only_plan(dated_message, [ dated_item.merge(effective_on: "2026-11-01") ]).call
+
+    weekday_message = "What if I buy a $500 appliance on Friday?"
+    weekday_item = read_only_item(
+      kind: "scenario",
+      source_text: weekday_message,
+      resolved_question: weekday_message,
+      basis: "hypothetical",
+      scenario_type: "purchase",
+      scenario_label: "Appliance",
+      amount: "500"
+    )
+    weekday = resolver_for_read_only_plan(weekday_message, [ weekday_item ]).call
+
+    payday_message = "What if I buy a $500 appliance after payday?"
+    payday_item = weekday_item.merge(source_text: payday_message, resolved_question: payday_message)
+    payday = resolver_for_read_only_plan(payday_message, [ payday_item ]).call
+    holiday_message = "What if I buy a $500 appliance by Christmas?"
+    holiday_item = weekday_item.merge(source_text: holiday_message, resolved_question: holiday_message)
+    holiday = resolver_for_read_only_plan(holiday_message, [ holiday_item ]).call
+    selected_month_fallback = resolver_for_read_only_plan(
+      payday_message,
+      [ payday_item.merge(effective_on: "2026-07-01") ]
+    ).call
+
+    assert dated.read_only_plan?
+    assert_equal "2026-11-01", dated.read_only_plan.dig(:items, 0, :effective_on)
+    assert weekday.read_only_plan?
+    assert weekday.read_only_plan.dig(:items, 0, :timing_unavailable)
+    assert payday.read_only_plan?
+    assert payday.read_only_plan.dig(:items, 0, :timing_unavailable)
+    assert holiday.read_only_plan?
+    assert holiday.read_only_plan.dig(:items, 0, :timing_unavailable)
+    refute selected_month_fallback.read_only_plan?
+  end
+
+  test "falls back deterministically when the provider misses an explicit single scenario" do
+    message = "What if I buy a $400 appliance next Friday?"
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) { nil }
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal "deterministic", result.source
+    assert_equal "purchase", result.read_only_plan.dig(:items, 0, :scenario_type)
+    assert_equal "Appliance", result.read_only_plan.dig(:items, 0, :scenario_label)
+    assert_equal "400", result.read_only_plan.dig(:items, 0, :amount)
+    assert result.read_only_plan.dig(:items, 0, :timing_unavailable)
+    assert_equal "none", result.action.fetch(:type)
+  end
+
+  test "replaces an ordinary provider classification for an explicit single scenario" do
+    message = "Can I buy a $900 laptop?"
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "coaching", title: "Purchase question", subject: "Laptop" },
+          action: default_action,
+          read_only_plan: { title: "", items: [] }
+        )
+      end
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal "deterministic", result.source
+    assert_equal "Laptop", result.read_only_plan.dig(:items, 0, :scenario_label)
+    assert_equal "900", result.read_only_plan.dig(:items, 0, :amount)
+  end
+
+  test "deterministic fallback never revives a rejected amount" do
+    message = "Not $500; what if I buy the appliance for $400?"
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) { nil }
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal "400", result.read_only_plan.dig(:items, 0, :amount)
+    refute_equal "500", result.read_only_plan.dig(:items, 0, :amount)
+  end
+
+  test "deterministic scenario fallback never replaces a supervised write result" do
+    message = "Can I buy a $900 laptop and set Fixed essentials to $900 for July?"
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "budget_edit", title: "Budget edit", subject: "Fixed essentials" },
+          action: default_action.merge(type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "900", months: [ 7 ], year: 2026),
+          read_only_plan: { title: "", items: [] }
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "model", result.source
+    assert_equal "set_allocation", result.action.fetch(:type)
+    refute result.read_only_plan?
+  end
+
+  test "resolver contract treats validated version-three plans as trusted continuity" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "What were we discussing?",
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) { nil }
+    )
+    contract = resolver.send(:resolver_contract)
+
+    assert_includes contract, "schema version 3 additionally validates the bounded read_only_plan"
+    assert_includes contract, "validated open threads"
+    refute_includes contract, "version-2 validated active thread"
+  end
+
+  test "keeps ordinary could and would questions approved and rejects hypothetical non-scenario parts" do
+    message = "Could you explain readiness? Would you explain my budget?"
+    ordinary = resolver_for_read_only_plan(
+      message,
+      [
+        read_only_item(source_text: "Could you explain readiness?", resolved_question: "Explain readiness"),
+        read_only_item(kind: "budget_question", source_text: "Would you explain my budget?", resolved_question: "Explain my budget")
+      ]
+    ).call
+    invalid = resolver_for_read_only_plan(
+      "What if I get a bonus? Also explain readiness.",
+      [
+        read_only_item(source_text: "What if I get a bonus?", resolved_question: "What if I get a bonus?", basis: "hypothetical"),
+        read_only_item(source_text: "explain readiness", resolved_question: "Explain readiness")
+      ]
+    ).call
+
+    assert ordinary.read_only_plan?
+    assert_equal %w[approved approved], ordinary.read_only_plan.fetch(:items).pluck(:basis)
+    refute invalid.read_only_plan?
+  end
+
+  test "requires common purchase questions with amounts to use a hypothetical scenario" do
+    phrases = [
+      "Can I buy a $900 laptop?",
+      "Could I buy a $900 laptop?",
+      "Tell me if I can buy a $900 laptop."
+    ]
+
+    phrases.each do |message|
+      incorrectly_approved = resolver_for_read_only_plan(
+        "#{message} Also explain readiness.",
+        [
+          read_only_item(source_text: message, resolved_question: message),
+          read_only_item(source_text: "explain readiness", resolved_question: "Explain readiness")
+        ]
+      ).call
+      scenario = resolver_for_read_only_plan(
+        message,
+        [ read_only_item(kind: "scenario", source_text: message, resolved_question: message, scenario_type: "purchase", scenario_label: "Laptop", amount: "900") ]
+      ).call
+
+      refute incorrectly_approved.read_only_plan?, message
+      assert scenario.read_only_plan?, message
+      assert_equal "hypothetical", scenario.read_only_plan.dig(:items, 0, :basis)
+    end
+  end
+
+  test "accepts six read-only parts and rejects duplicate or seventh parts" do
+    spans = [ "readiness", "safe-to-spend", "budget", "spending", "transactions", "pending reviews" ]
+    message = spans.join("; ")
+    items = spans.map { |span| read_only_item(source_text: span, resolved_question: "Explain #{span}") }
+
+    accepted = resolver_for_read_only_plan(message, items).call
+    duplicate = resolver_for_read_only_plan(message, items.take(5) + [ items.first ]).call
+    oversized = resolver_for_read_only_plan("#{message}; accounts", items + [ read_only_item(source_text: "accounts", resolved_question: "Explain accounts") ]).call
+
+    assert accepted.read_only_plan?
+    assert_equal 6, accepted.read_only_plan.fetch(:items).length
+    refute duplicate.read_only_plan?
+    refute oversized.read_only_plan?
+  end
+
+  test "rejects a read-only plan paired with a write action, invented amount, or invalid basis" do
+    message = "Set Fixed essentials to $3,000 and tell me if I can buy a $900 laptop"
+    plan = {
+      title: "Mixed request",
+      items: [ read_only_item(kind: "scenario", source_text: "tell me if I can buy a $900 laptop", resolved_question: "Can I buy a $900 laptop?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900") ]
+    }
+    write_resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "budget_action",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "budget_edit", title: "Budget edit", subject: "Fixed essentials" },
+          action: default_action.merge(type: "set_allocation", category_id: 42, category_name: "Fixed essentials", amount: "3000", months: [ 7 ], year: 2026),
+          read_only_plan: plan
+        )
+      end
+    )
+    invented = resolver_for_read_only_plan(
+      "What if I buy a laptop?",
+      [ read_only_item(kind: "scenario", source_text: "What if I buy a laptop?", resolved_question: "What if I buy a $900 laptop?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900") ]
+    ).call
+    invalid_basis = resolver_for_read_only_plan(
+      "readiness; budget",
+      [
+        read_only_item(source_text: "readiness", resolved_question: "Explain readiness", basis: "invented"),
+        read_only_item(source_text: "budget", resolved_question: "Explain budget")
+      ]
+    ).call
+    write_result = write_resolver.call
+
+    assert write_result.actionable?
+    refute write_result.read_only_plan?
+    refute invented.read_only_plan?
+    refute invalid_basis.read_only_plan?
+  end
+
+  test "a correction uses the current participant amount instead of a stale scenario value" do
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = {
+      schema_version: 3,
+      type: "read_only_plan",
+      title: "Bonus scenario",
+      read_only_plan: {
+        title: "Bonus scenario",
+        items: [ read_only_item(kind: "scenario", source_text: "What if I get a $2,000 bonus?", resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000") ]
+      }
+    }
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Actually make the bonus $1,200.",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Model a $1,200 bonus",
+          topic: { type: "read_only_plan", title: "Bonus scenario", subject: "Bonus" },
+          action: default_action,
+          read_only_plan: {
+            title: "Bonus scenario",
+            items: [ read_only_item(kind: "scenario", source_text: "Actually make the bonus $1,200.", resolved_question: "What if I get a $1,200 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "1200") ]
+          }
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.read_only_plan?
+    assert_equal "1200", result.read_only_plan.dig(:items, 0, :amount)
+    refute_includes result.read_only_plan.dig(:items, 0, :resolved_question), "2,000"
+  end
+
+  test "a correction can retain an unchanged participant-authored scenario value" do
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = {
+      schema_version: 3,
+      type: "read_only_plan",
+      title: "Bonus and medical scenarios",
+      read_only_plan: {
+        title: "Bonus and medical scenarios",
+        items: [
+          read_only_item(kind: "scenario", source_text: "What if I get a $2,000 bonus?", resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000"),
+          read_only_item(kind: "scenario", source_text: "What if I have a $1,200 medical bill?", resolved_question: "What if I have a $1,200 medical bill?", basis: "hypothetical", scenario_type: "essential_expense", scenario_label: "Medical bill", amount: "1200")
+        ]
+      }
+    }
+    message = "Actually keep the bonus amount the same, but make the medical bill $800."
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Model the existing $2,000 bonus and an $800 medical bill",
+          topic: { type: "read_only_plan", title: "Bonus and medical scenarios", subject: "Bonus and medical scenarios" },
+          action: default_action,
+          read_only_plan: {
+            title: "Bonus and medical scenarios",
+            items: [
+              read_only_item(kind: "scenario", source_text: "keep the bonus amount the same", resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000"),
+              read_only_item(kind: "scenario", source_text: "make the medical bill $800", resolved_question: "What if I have an $800 medical bill?", basis: "hypothetical", scenario_type: "essential_expense", scenario_label: "Medical bill", amount: "800")
+            ]
+          }
+        )
+      end
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal %w[2000 800], result.read_only_plan.fetch(:items).pluck(:amount)
+  end
+
+  test "a correction can retain an unchanged scenario from a validated open thread after clarification" do
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = {
+      schema_version: 2,
+      type: "clarification",
+      title: "Laptop amount correction"
+    }
+    context[:conversation][:open_threads] = [
+      {
+        schema_version: 3,
+        type: "read_only_plan",
+        title: "Laptop and debt scenarios",
+        read_only_plan: {
+          title: "Laptop and debt scenarios",
+          items: [
+            read_only_item(kind: "scenario", source_text: "What if I buy a $900 laptop next month?", resolved_question: "What if I buy a $900 laptop next month?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900", effective_on: Date.current.next_month.beginning_of_month.iso8601),
+            read_only_item(kind: "scenario", source_text: "What if I pay an extra $300 toward debt?", resolved_question: "What if I pay an extra $300 toward debt?", basis: "hypothetical", scenario_type: "extra_debt_payment", scenario_label: "Extra debt payment", amount: "300")
+          ]
+        }
+      }
+    ]
+    message = "Actually, keep the laptop price the same but make the extra debt payment $200."
+
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Model the same $900 laptop and a $200 extra debt payment",
+          topic: { type: "read_only_plan", title: "Laptop and debt scenarios", subject: "Laptop and debt scenarios" },
+          action: default_action,
+          read_only_plan: {
+            title: "Laptop and debt scenarios",
+            items: [
+              read_only_item(kind: "scenario", source_text: "keep the laptop price the same", resolved_question: "What if I buy the same $900 laptop next month?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900", effective_on: Date.current.next_month.beginning_of_month.iso8601),
+              read_only_item(kind: "scenario", source_text: "make the extra debt payment $200", resolved_question: "What if I make a $200 extra debt payment?", basis: "hypothetical", scenario_type: "extra_debt_payment", scenario_label: "Extra debt payment", amount: "200")
+            ]
+          }
+        )
+      end
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal %w[900 200], result.read_only_plan.fetch(:items).pluck(:amount)
+    assert_equal Date.current.next_month.beginning_of_month.iso8601, result.read_only_plan.dig(:items, 0, :effective_on)
+  end
+
+  test "a same-amount correction cannot invent a different scenario date" do
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = {
+      schema_version: 3,
+      type: "read_only_plan",
+      title: "Laptop scenario",
+      read_only_plan: {
+        title: "Laptop scenario",
+        items: [
+          read_only_item(kind: "scenario", source_text: "What if I buy a $900 laptop next month?", resolved_question: "What if I buy a $900 laptop next month?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900", effective_on: Date.current.next_month.beginning_of_month.iso8601)
+        ]
+      }
+    }
+    message = "Actually, keep the laptop price the same."
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Model the same $900 laptop in January 2099",
+          topic: { type: "read_only_plan", title: "Laptop scenario", subject: "Laptop" },
+          action: default_action,
+          read_only_plan: {
+            title: "Laptop scenario",
+            items: [
+              read_only_item(kind: "scenario", source_text: message, resolved_question: "What if I buy the same $900 laptop in January 2099?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900", effective_on: "2099-01-01")
+            ]
+          }
+        )
+      end
+    ).call
+
+    refute result.read_only_plan?
+  end
+
+  test "a correction cannot reuse a rejected or unstated prior amount" do
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = {
+      schema_version: 3,
+      type: "read_only_plan",
+      title: "Bonus scenario",
+      read_only_plan: {
+        title: "Bonus scenario",
+        items: [ read_only_item(kind: "scenario", source_text: "What if I get a $2,000 bonus?", resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000") ]
+      }
+    }
+    rejected_message = "Actually, not $2,000."
+    rejected = HouseholdFinance::MiaIntentResolver.new(
+      user_message: rejected_message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Keep the $2,000 bonus scenario",
+          topic: { type: "read_only_plan", title: "Bonus scenario", subject: "Bonus" },
+          action: default_action,
+          read_only_plan: {
+            title: "Bonus scenario",
+            items: [ read_only_item(kind: "scenario", source_text: rejected_message, resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000") ]
+          }
+        )
+      end
+    ).call
+    unstated_message = "Actually, change the bonus."
+    unstated = HouseholdFinance::MiaIntentResolver.new(
+      user_message: unstated_message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Keep the $2,000 bonus scenario",
+          topic: { type: "read_only_plan", title: "Bonus scenario", subject: "Bonus" },
+          action: default_action,
+          read_only_plan: {
+            title: "Bonus scenario",
+            items: [ read_only_item(kind: "scenario", source_text: unstated_message, resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000") ]
+          }
+        )
+      end
+    ).call
+    purchase_context = intent_context.deep_dup
+    purchase_context[:conversation][:active_thread] = {
+      schema_version: 3,
+      type: "read_only_plan",
+      title: "Laptop scenario",
+      read_only_plan: {
+        title: "Laptop scenario",
+        items: [ read_only_item(kind: "scenario", source_text: "What if I buy a $900 laptop?", resolved_question: "What if I buy a $900 laptop?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900") ]
+      }
+    }
+    same_laptop_message = "Actually use the same laptop, not $900."
+    same_laptop = HouseholdFinance::MiaIntentResolver.new(
+      user_message: same_laptop_message,
+      context: purchase_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Keep the $900 laptop scenario",
+          topic: { type: "read_only_plan", title: "Laptop scenario", subject: "Laptop" },
+          action: default_action,
+          read_only_plan: {
+            title: "Laptop scenario",
+            items: [ read_only_item(kind: "scenario", source_text: same_laptop_message, resolved_question: "What if I buy the same $900 laptop?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Laptop", amount: "900") ]
+          }
+        )
+      end
+    ).call
+
+    refute rejected.read_only_plan?
+    refute unstated.read_only_plan?
+    refute same_laptop.read_only_plan?
+  end
+
+  test "does not reuse a rejected amount when the number precedes the rejection" do
+    [ "$2,000 is wrong.", "$2,000 was incorrect." ].each do |message|
+      result = resolver_for_read_only_plan(
+        message,
+        [
+          read_only_item(
+            kind: "scenario",
+            source_text: message,
+            resolved_question: "What if I get a $2,000 bonus?",
+            basis: "hypothetical",
+            scenario_type: "one_time_income",
+            scenario_label: "Bonus",
+            amount: "2000"
+          )
+        ]
+      ).call
+
+      refute result.read_only_plan?, message
+    end
+  end
+
+  test "scenario labels must come from participant text or a validated correction" do
+    invented = resolver_for_read_only_plan(
+      "What if I spend $900?",
+      [ read_only_item(kind: "scenario", source_text: "What if I spend $900?", resolved_question: "What if I spend $900?", basis: "hypothetical", scenario_type: "purchase", scenario_label: "Luxury laptop", amount: "900") ]
+    ).call
+
+    context = intent_context.deep_dup
+    context[:conversation][:active_thread] = {
+      schema_version: 3,
+      type: "read_only_plan",
+      title: "Bonus scenario",
+      read_only_plan: {
+        title: "Bonus scenario",
+        items: [ read_only_item(kind: "scenario", source_text: "What if I get a $2,000 bonus?", resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000") ]
+      }
+    }
+    retained = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Actually keep that amount the same.",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: true,
+          resolved_message: "Keep the $2,000 bonus scenario",
+          topic: { type: "read_only_plan", title: "Bonus scenario", subject: "Bonus" },
+          action: default_action,
+          read_only_plan: {
+            title: "Bonus scenario",
+            items: [ read_only_item(kind: "scenario", source_text: "keep that amount the same", resolved_question: "What if I get a $2,000 bonus?", basis: "hypothetical", scenario_type: "one_time_income", scenario_label: "Bonus", amount: "2000") ]
+          }
+        )
+      end
+    ).call
+
+    assert invented.read_only_plan?
+    assert_equal "", invented.read_only_plan.dig(:items, 0, :scenario_label)
+    assert retained.read_only_plan?
+    assert_equal "Bonus", retained.read_only_plan.dig(:items, 0, :scenario_label)
+  end
+
   private
 
   def intent_context
@@ -940,7 +1549,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     }
   end
 
-  def resolution_json(intent:, continuation:, resolved_message:, topic:, action:, confidence: 0.98, needs_clarification: false, clarification: "")
+  def resolution_json(intent:, continuation:, resolved_message:, topic:, action:, confidence: 0.98, needs_clarification: false, clarification: "", read_only_plan: { title: "", items: [] })
     {
       intent: intent,
       confidence: confidence,
@@ -949,8 +1558,40 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       needs_clarification: needs_clarification,
       clarification: clarification,
       topic: topic,
+      read_only_plan: read_only_plan,
       action: action
     }.to_json
+  end
+
+  def resolver_for_read_only_plan(message, items)
+    HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "coaching",
+          continuation: false,
+          resolved_message: message,
+          topic: { type: "read_only_plan", title: "Household questions", subject: "Household" },
+          action: default_action,
+          read_only_plan: { title: "Household questions", items: items }
+        )
+      end
+    )
+  end
+
+  def read_only_item(kind: "coaching", source_text:, resolved_question:, basis: "approved", scenario_type: "none", scenario_label: "", amount: "", effective_on: "")
+    {
+      kind: kind,
+      source_text: source_text,
+      resolved_question: resolved_question,
+      basis: basis,
+      scenario_type: scenario_type,
+      scenario_label: scenario_label,
+      amount: amount,
+      effective_on: effective_on
+    }
   end
 
   def default_action

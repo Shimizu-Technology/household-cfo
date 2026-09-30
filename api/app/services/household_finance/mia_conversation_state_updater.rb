@@ -45,6 +45,25 @@ module HouseholdFinance
     def topic_for(current)
       return recall_topic(current) if intent_result.intent == "recall"
 
+      if intent_result.respond_to?(:read_only_plan?) && intent_result.read_only_plan?
+        plan = normalized_intent_read_only_plan
+        return {
+          "schema_version" => 3,
+          "id" => continuation_topic_id(current, { type: "read_only_plan", subject: plan.fetch("title") }),
+          "type" => "read_only_plan",
+          "title" => plan.fetch("title"),
+          "subject" => plan.fetch("title"),
+          "status" => "open",
+          "latest_user_context" => bounded(user_message.content, MAX_TEXT_LENGTH),
+          "latest_mia_summary" => bounded(assistant_message.content, MAX_TEXT_LENGTH),
+          "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),
+          "intent" => intent_result.intent,
+          "confidence" => intent_result.confidence.to_f.round(3),
+          "read_only_plan" => plan,
+          "updated_at" => Time.current.iso8601
+        }
+      end
+
       topic = intent_result.topic.to_h.deep_symbolize_keys
       return current if topic[:title].blank? && intent_result.continuation
       return nil if topic[:title].blank?
@@ -95,16 +114,19 @@ module HouseholdFinance
         }.compact
       end
 
-      candidates.first || current
+      recalled = candidates.first || current
+      upgraded_recall_topic(recalled) if recalled
     end
 
     def upgraded_recall_topic(topic)
-      topic.merge(
-        "schema_version" => 2,
+      read_only_plan = normalized_read_only_plan(topic["read_only_plan"]) if topic["schema_version"].to_i >= 3
+      topic.except("read_only_plan").merge(
+        "schema_version" => read_only_plan ? 3 : 2,
         "intent" => "recall",
         "confidence" => intent_result.confidence.to_f.round(3),
         "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),
         "action" => recalled_action || topic["action"],
+        "read_only_plan" => read_only_plan,
         "updated_at" => Time.current.iso8601
       ).compact
     end
@@ -119,6 +141,45 @@ module HouseholdFinance
       return current["id"] if current.present? && current["type"].to_s == topic[:type].to_s && current["subject"].to_s.casecmp?(topic[:subject].to_s)
 
       SecureRandom.uuid
+    end
+
+    def normalized_intent_read_only_plan
+      normalized_read_only_plan_payload(intent_result.read_only_plan)
+    end
+
+    def normalized_read_only_plan(value)
+      return unless value.present?
+
+      normalized_read_only_plan_payload(value)
+    end
+
+    def normalized_read_only_plan_payload(value)
+      plan = value.to_h.deep_symbolize_keys
+      items = Array(plan[:items]).first(6).filter_map do |item|
+        value = item.to_h.deep_symbolize_keys
+        kind = bounded(value[:kind], 40)
+        source_text = bounded(value[:source_text], 500)
+        resolved_question = bounded(value[:resolved_question], 600)
+        next if kind.blank? || source_text.blank? || resolved_question.blank?
+
+        {
+          "kind" => kind,
+          "source_text" => source_text,
+          "resolved_question" => resolved_question,
+          "basis" => bounded(value[:basis], 20),
+          "scenario_type" => bounded(value[:scenario_type], 40),
+          "scenario_label" => bounded(value[:scenario_label], 120),
+          "amount" => bounded(value[:amount], 40),
+          "effective_on" => bounded(value[:effective_on], 20),
+          "timing_unavailable" => ActiveModel::Type::Boolean.new.cast(value[:timing_unavailable])
+        }
+      end
+      return if items.empty?
+
+      {
+        "title" => bounded(plan[:title], 160) || "Household CFO questions",
+        "items" => items
+      }
     end
 
     def topic_status

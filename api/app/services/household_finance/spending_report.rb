@@ -4,17 +4,18 @@ module HouseholdFinance
     MAX_RANGE_DAYS = 400
     YEAR_RANGE = 2000..2100
 
-    def initialize(household, start_on:, end_on:)
+    def initialize(household, start_on:, end_on:, ensure_plans: true)
       @household = household
       @start_on = start_on.to_date
       @end_on = end_on.to_date
+      @ensure_plans = ensure_plans
       raise ArgumentError, "end_on before start_on" if @end_on < @start_on
       raise ArgumentError, "report range is too large" if (@end_on - @start_on).to_i > MAX_RANGE_DAYS
       raise ArgumentError, "report year is out of range" unless YEAR_RANGE.cover?(@start_on.year) && YEAR_RANGE.cover?(@end_on.year)
     end
 
     def as_json
-      ensure_plans!
+      ensure_plans! if ensure_plans
       rows = category_rows
       bank = bank_activity
 
@@ -22,6 +23,7 @@ module HouseholdFinance
         period_label: period_label,
         start_on: start_on.iso8601,
         end_on: end_on.iso8601,
+        plan_available: report_plan_available?,
         totals: {
           planned: Money.dollars(rows.sum { |row| row.fetch(:planned_cents) }),
           actual: Money.dollars(rows.sum { |row| row.fetch(:actual_cents) }),
@@ -45,7 +47,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :start_on, :end_on
+    attr_reader :household, :start_on, :end_on, :ensure_plans
 
     def ensure_plans!
       missing_years = (start_on.year..end_on.year).reject { |year| report_plan_ready?(year) }
@@ -72,6 +74,10 @@ module HouseholdFinance
         .where(budget_category_id: active_category_ids, budget_periods: { budget_year_id: budget_year.id })
         .distinct
         .count(:id) >= active_category_ids.size * 12
+    end
+
+    def report_plan_available?
+      (start_on.year..end_on.year).all? { |year| report_plan_ready?(year) }
     end
 
     def category_rows

@@ -30,7 +30,7 @@ module Api
         return render_attached_document_response(session, content, attached_imports, message_request: message_request) if attached_imports.any?
 
         annual_budget_manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
-        intent_plan = annual_budget_manager.plan_data
+        intent_plan = annual_budget_manager.read_only_plan_data
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(session).call
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
@@ -45,6 +45,7 @@ module Api
         ).call
 
         if intent_result
+          intent_plan = annual_budget_manager.plan_data unless intent_result.read_only_plan?
           routed = route_model_intent(
             intent_result,
             content: content,
@@ -52,6 +53,7 @@ module Api
             annual_plan: intent_plan
           )
         else
+          intent_plan = annual_budget_manager.plan_data
           routed = route_legacy_message(
             content,
             conversation_context: conversation_context,
@@ -70,6 +72,7 @@ module Api
         transaction_draft = routed[:transaction_draft]
         transaction_draft_answer = routed[:transaction_draft_answer]
         intent_direct_answer = routed[:direct_answer]
+        assistant_presentation = routed[:presentation] || {}
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
 
@@ -89,7 +92,13 @@ module Api
           direct_answer: intent_direct_answer,
           conversation_resolution: conversation_resolution
         )
-        user_message, assistant_message = persist_chat_messages(session, content, attached_imports, assistant_content)
+        user_message, assistant_message = persist_chat_messages(
+          session,
+          content,
+          attached_imports,
+          assistant_content,
+          assistant_presentation: assistant_presentation
+        )
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
         if action_result&.proposal && mia_action_draft.nil?
           assistant_message.update!(content: action_draft_persistence_failure_message)
@@ -115,7 +124,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message, author: "Mia"),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
           mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
-          budget: annual_plan ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
+          budget: annual_plan && !intent_result&.read_only_plan? ? HouseholdFinance::DataPresenter.new(current_household.reload, user: current_user, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
         complete_message_request(message_request, response_payload)
@@ -281,15 +290,20 @@ module Api
         document_imports.map(&:reload)
       end
 
-      def persist_chat_messages(session, content, attached_imports, assistant_content)
+      def persist_chat_messages(session, content, attached_imports, assistant_content, assistant_presentation: {})
         ApplicationRecord.transaction do
-          [
-            session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) }),
-            session.chat_messages.create!(
-              role: "assistant",
-              content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…")
-            )
-          ]
+          user_message = session.chat_messages.create!(role: "user", content: content, attachments: attached_imports.map { |document_import| serialize_attachment(document_import) })
+          assistant_message = session.chat_messages.new(
+            role: "assistant",
+            content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"),
+            presentation: assistant_presentation
+          )
+          if assistant_presentation.present? && assistant_message.invalid? && assistant_message.errors[:presentation].any?
+            Rails.logger.warn("Mia presentation exceeded the persistence contract; saving the canonical plain answer")
+            assistant_message.presentation = {}
+          end
+          assistant_message.save!
+          [ user_message, assistant_message ]
         end
       end
 
@@ -536,8 +550,20 @@ module Api
 
       def route_model_intent(intent_result, content:, annual_budget_manager:, annual_plan:)
         resolved_content = intent_result.resolved_message.presence || content
-        direct_answer = if intent_result.clarification?
-          coaching_guardrail_answer(
+        read_only_result = if intent_result.read_only_plan?
+          HouseholdFinance::MiaReadOnlyPlanAnswerer.new(
+            current_household,
+            plan: intent_result.read_only_plan,
+            annual_budget_manager: annual_budget_manager,
+            annual_plan: annual_plan,
+            reference_month: budget_month_param,
+            conversation_messages: @mia_conversation_messages
+          ).call
+        end
+        annual_plan = read_only_result.annual_plan if read_only_result
+        direct_answer = read_only_result&.answer
+        if direct_answer.blank? && intent_result.clarification?
+          direct_answer = coaching_guardrail_answer(
             resolved_content,
             annual_budget_manager: annual_budget_manager
           ).presence || clarification_answer(intent_result)
@@ -658,6 +684,7 @@ module Api
           routed_content: resolved_content,
           followup: nil,
           direct_answer: direct_answer,
+          presentation: read_only_result&.presentation,
           pending_draft_answer: pending_draft_answer,
           action_result: action_result,
           coach_answer: coach_answer,
@@ -877,13 +904,14 @@ module Api
         topic = intent_result.topic.to_h.deep_symbolize_keys
         action = intent_result.action.to_h.deep_symbolize_keys
         {
-          schema_version: 2,
+          schema_version: intent_result.read_only_plan? ? 3 : 2,
           type: topic[:type],
           title: topic[:title],
           subject: topic[:subject],
           intent: intent_result.intent,
           confidence: intent_result.confidence,
           resolved_message: intent_result.resolved_message,
+          read_only_plan: intent_result.read_only_plan? ? intent_result.read_only_plan : nil,
           action: action[:type] == "none" ? nil : action
         }.compact
       end
