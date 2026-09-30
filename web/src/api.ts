@@ -1090,7 +1090,23 @@ export type AppData = {
 type AuthTokenGetter = () => Promise<string | null>
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:3000'
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000
+const MIA_REQUEST_TIMEOUT_MS = 90_000
+const FILE_UPLOAD_TIMEOUT_MS = 180_000
+const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
 let authTokenGetter: AuthTokenGetter | null = null
+
+type ApiFetchSettings = {
+  timeoutMs?: number
+  timeoutMessage?: string
+}
+
+class ApiDeadlineError extends Error {
+  constructor(message: string, options?: ErrorOptions) {
+    super(message, options)
+    this.name = 'ApiDeadlineError'
+  }
+}
 
 export type ApiErrorConflict = Record<string, unknown>
 
@@ -1147,7 +1163,39 @@ async function authHeaders(): Promise<Record<string, string>> {
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
-async function apiFetch(path: string, options: RequestInit = {}) {
+async function fetchWithDeadline(
+  input: RequestInfo | URL,
+  options: RequestInit,
+  timeoutMs: number,
+  timeoutMessage: string,
+) {
+  const controller = new AbortController()
+  const callerSignal = options.signal
+  let deadlineReached = false
+  const abortFromCaller = () => controller.abort(callerSignal?.reason)
+
+  if (callerSignal?.aborted) abortFromCaller()
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true })
+
+  const deadline = globalThis.setTimeout(() => {
+    deadlineReached = true
+    controller.abort()
+  }, timeoutMs)
+
+  try {
+    return await fetch(input, { ...options, signal: controller.signal })
+  } catch (error) {
+    if (deadlineReached) {
+      throw new ApiDeadlineError(`${timeoutMessage} Please try again.`, { cause: error })
+    }
+    throw error
+  } finally {
+    globalThis.clearTimeout(deadline)
+    callerSignal?.removeEventListener('abort', abortFromCaller)
+  }
+}
+
+async function apiFetch(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}) {
   const headers = {
     ...(await authHeaders()),
     ...(options.headers as Record<string, string> | undefined),
@@ -1155,19 +1203,22 @@ async function apiFetch(path: string, options: RequestInit = {}) {
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}${path}`, {
-      ...options,
-      headers,
-    })
+    response = await fetchWithDeadline(
+      `${API_BASE}${path}`,
+      { ...options, headers },
+      settings.timeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS,
+      settings.timeoutMessage ?? 'This request took too long.',
+    )
   } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
     throw new Error(apiNetworkErrorMessage('API request could not reach the server'), { cause: error })
   }
 
   return response
 }
 
-async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const response = await apiFetch(path, options)
+async function fetchJson<T>(path: string, options: RequestInit = {}, settings: ApiFetchSettings = {}): Promise<T> {
+  const response = await apiFetch(path, options, settings)
 
   if (!response.ok) {
     throw await apiRequestError(response, 'API request failed')
@@ -1178,12 +1229,12 @@ async function fetchJson<T>(path: string, options: RequestInit = {}): Promise<T>
   return response.json() as Promise<T>
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: string, body: unknown, settings: ApiFetchSettings = {}): Promise<T> {
   return fetchJson<T>(path, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
-  })
+  }, settings)
 }
 
 async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T> {
@@ -1193,6 +1244,9 @@ async function postJsonUntilComplete<T>(path: string, body: unknown): Promise<T>
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
+    }, {
+      timeoutMs: MIA_REQUEST_TIMEOUT_MS,
+      timeoutMessage: 'Mia took too long to finish this request.',
     })
 
     if (response.status === 202) {
@@ -1274,12 +1328,18 @@ export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<P
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/api/v1/pilot_feedback_reports`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: formData,
-    })
+    response = await fetchWithDeadline(
+      `${API_BASE}/api/v1/pilot_feedback_reports`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: formData,
+      },
+      FILE_UPLOAD_TIMEOUT_MS,
+      'Feedback submission took too long.',
+    )
   } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
     throw new Error(apiNetworkErrorMessage('Feedback submission could not reach the API'), { cause: error })
   }
 
@@ -1863,12 +1923,18 @@ export async function transcribeMiaVoice(audio: Blob): Promise<string> {
 
   let response: Response
   try {
-    response = await fetch(`${API_BASE}/api/v1/mia/transcriptions`, {
-      method: 'POST',
-      headers: await authHeaders(),
-      body: formData,
-    })
+    response = await fetchWithDeadline(
+      `${API_BASE}/api/v1/mia/transcriptions`,
+      {
+        method: 'POST',
+        headers: await authHeaders(),
+        body: formData,
+      },
+      FILE_UPLOAD_TIMEOUT_MS,
+      'Voice transcription took too long.',
+    )
   } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
     throw new Error(apiNetworkErrorMessage('Voice transcription could not reach the API'), { cause: error })
   }
 
@@ -1912,19 +1978,32 @@ export async function uploadDocumentImport(file: File, documentKind: DocumentImp
 
   let uploadResponse: Response
   try {
-    uploadResponse = await fetch(presign.upload_url, {
-      method: 'PUT',
-      headers: presign.upload_headers,
-      body: file,
-    })
+    uploadResponse = await fetchWithDeadline(
+      presign.upload_url,
+      {
+        method: 'PUT',
+        headers: presign.upload_headers,
+        body: file,
+      },
+      FILE_UPLOAD_TIMEOUT_MS,
+      'The private file upload took too long.',
+    )
   } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
     throw new Error('The private file upload could not reach storage. Check your connection and try again.', { cause: error })
   }
   if (!uploadResponse.ok) {
     throw new Error(`The private file upload failed (${uploadResponse.status}). Try again or report the problem.`)
   }
 
-  const payload = await postJson<{ document_import: FinancialDocumentImport }>('/api/v1/document_imports/complete', { upload_token: presign.upload_token })
+  const payload = await postJson<{ document_import: FinancialDocumentImport }>(
+    '/api/v1/document_imports/complete',
+    { upload_token: presign.upload_token },
+    {
+      timeoutMs: EXTRACTION_REQUEST_TIMEOUT_MS,
+      timeoutMessage: 'Document extraction took too long.',
+    },
+  )
   return payload.document_import
 }
 
@@ -1966,7 +2045,14 @@ export async function applyDocumentImport(documentImportId: number, itemIds: num
 }
 
 export async function reprocessDocumentImport(documentImportId: number): Promise<FinancialDocumentImport> {
-  const payload = await postJson<{ document_import: FinancialDocumentImport }>(`/api/v1/document_imports/${documentImportId}/reprocess`, {})
+  const payload = await postJson<{ document_import: FinancialDocumentImport }>(
+    `/api/v1/document_imports/${documentImportId}/reprocess`,
+    {},
+    {
+      timeoutMs: EXTRACTION_REQUEST_TIMEOUT_MS,
+      timeoutMessage: 'Document extraction took too long.',
+    },
+  )
   return payload.document_import
 }
 

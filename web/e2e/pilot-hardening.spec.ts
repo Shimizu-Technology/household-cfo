@@ -1117,6 +1117,88 @@ test('applying an unrelated Mia draft preserves unsaved profile edits', async ({
   await expect(page.getByLabel('Household name')).toHaveValue('Unsaved family name')
 })
 
+test('profile summary edits focus the matching manual field while source provenance stays explicit', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.profile.sections = [
+    { label: 'Income', summary: 'Current recurring income.', items: [{ label: 'Primary income', amount: 5_000 }] },
+    { label: 'Expenses', summary: 'Current recurring expenses.', items: [{ label: 'Fixed essentials', amount: 2_500 }] },
+    { label: 'Savings & Debt', summary: 'Current balances.', items: [{ label: 'Emergency fund', amount: 8_000 }] },
+  ]
+  const appliedImport = {
+    id: 515,
+    household_id: 77,
+    document_kind: 'spreadsheet',
+    status: 'applied',
+    filename: 'approved-budget.csv',
+    content_type: 'text/csv',
+    byte_size: 1_200,
+    document_date: null,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'Approved expense source.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: `${currentYear}-08-16T01:05:00Z`,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:05:00Z`,
+    source_available: true,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [{
+      id: 516,
+      target_type: 'expense_item',
+      label: 'Fixed essentials',
+      amount: 2_500,
+      amount_cents: 250_000,
+      balance: null,
+      balance_cents: null,
+      payment: null,
+      payment_cents: null,
+      interest_rate_percent: null,
+      cadence: 'monthly',
+      source_type: null,
+      stack_key: 'non_discretionary',
+      account_type: null,
+      debt_type: null,
+      confidence: 'high',
+      evidence: 'Budget row',
+      selected: true,
+      ignored: false,
+      applied_at: `${currentYear}-08-16T01:05:00Z`,
+      applied_record_type: 'ExpenseItem',
+      applied_record_id: 12,
+      metadata: {},
+    }],
+    transaction_drafts: [],
+    attempts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [appliedImport] } }))
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  const incomeCard = page.locator('.profile-section').filter({ hasText: 'Income' })
+  const expensesCard = page.locator('.profile-section').filter({ hasText: 'Expenses' })
+  const savingsCard = page.locator('.profile-section').filter({ hasText: 'Savings & Debt' })
+  await expect(expensesCard.getByRole('button', { name: 'View source' })).toBeVisible()
+
+  await incomeCard.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
+  await expensesCard.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Editing household numbers' })).toBeVisible()
+  await expect(page.getByLabel('Fixed essentials')).toBeFocused()
+  await expect(page.getByLabel('Fixed essentials')).toBeEnabled()
+
+  await savingsCard.getByRole('button', { name: 'Edit', exact: true }).click()
+  await expect(page.getByLabel('Total credit card debt')).toBeFocused()
+  await expect(page.locator('.setup-optional-fields')).toHaveAttribute('open', '')
+
+  await expensesCard.getByRole('button', { name: 'View source' }).click()
+  await expect(page.getByText('Showing the approved source details for expenses.')).toBeVisible()
+})
+
 test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
   const partialSetupDraft = {
     ...miaHouseholdDraft,
@@ -1315,6 +1397,39 @@ test('Ask Mia composer grows, caps, scrolls, and shrinks without losing its cont
   await expect(voiceButton).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 
+  await composer.fill('x'.repeat(6_999))
+  await expect(page.locator('#mia-composer-count')).toHaveCount(0)
+  await composer.fill('x'.repeat(7_000))
+  await expect(page.locator('#mia-composer-count')).toHaveText('1,000 characters remaining')
+  const nearLimitLayout = await page.locator('.mia-chat-shell .ask-row').evaluate((row) => {
+    const rowBounds = row.getBoundingClientRect()
+    const rect = (selector: string) => {
+      const element = row.querySelector(selector)
+      if (!(element instanceof HTMLElement)) throw new Error(`Missing composer element: ${selector}`)
+      const bounds = element.getBoundingClientRect()
+      return { left: bounds.left, right: bounds.right, top: bounds.top, bottom: bounds.bottom }
+    }
+    return {
+      viewportWidth: document.documentElement.clientWidth,
+      row: { left: rowBounds.left, right: rowBounds.right, top: rowBounds.top, bottom: rowBounds.bottom },
+      field: rect('.composer-message-field'),
+      textarea: rect('textarea'),
+      count: rect('#mia-composer-count'),
+      voice: rect('.composer-voice'),
+      send: rect('.send-button'),
+    }
+  })
+  expect(nearLimitLayout.count.top).toBeGreaterThanOrEqual(nearLimitLayout.textarea.bottom - 1)
+  expect(nearLimitLayout.field.left).toBeGreaterThanOrEqual(nearLimitLayout.voice.right)
+  expect(nearLimitLayout.field.right).toBeLessThanOrEqual(nearLimitLayout.send.left)
+  expect(nearLimitLayout.count.right).toBeLessThanOrEqual(nearLimitLayout.viewportWidth)
+  expect(nearLimitLayout.row.bottom).toBeGreaterThanOrEqual(nearLimitLayout.count.bottom)
+  await composer.fill('x'.repeat(7_999))
+  await expect(page.locator('#mia-composer-count')).toHaveText('1 character remaining')
+  await composer.fill('x'.repeat(8_001))
+  await expect(composer).toHaveValue('x'.repeat(8_000))
+  await expect(page.locator('#mia-composer-count')).toHaveText('0 characters remaining')
+
   await composer.fill('First line')
   await composer.press('Shift+Enter')
   await composer.type('Second line')
@@ -1358,6 +1473,8 @@ test('Ask Mia preserves one request ID through a network failure and reload so r
   await composer.fill('What should I focus on?')
   await page.getByRole('button', { name: 'Send message to Mia' }).click()
   await expect(composer).toHaveValue('What should I focus on?')
+  await expect(composer).toBeEnabled()
+  await expect(page.getByRole('button', { name: 'Send message to Mia' })).toBeEnabled()
 
   await page.reload()
   const restoredComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
@@ -2153,8 +2270,13 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
   await expect(page.getByText('0 of 5 essentials confirmed')).toBeVisible()
   const guidedComposer = page.getByRole('textbox', { name: 'Ask Mia', exact: true })
-  await expect(guidedComposer).toHaveValue(/Help me set up my household/)
+  await expect(guidedComposer).toHaveValue('Help me set up my household. Please ask me one simple question at a time.')
   await expect(guidedComposer).toBeFocused()
+
+  await page.getByRole('button', { name: 'Share everything at once' }).click()
+  await expect(guidedComposer).toHaveValue(/Here is everything I know so far: our household is called ___/)
+  await page.getByRole('button', { name: 'Ask me one question at a time' }).click()
+  await expect(guidedComposer).toHaveValue('Help me set up my household. Please ask me one simple question at a time.')
 
   await page.getByRole('button', { name: 'Enter manually' }).click()
   await expect(page.getByRole('heading', { name: 'Give Mia the basics for a useful first answer.' })).toBeVisible()

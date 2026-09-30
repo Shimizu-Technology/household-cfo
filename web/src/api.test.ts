@@ -208,6 +208,30 @@ describe('Mia request idempotency polling', () => {
       .rejects.toThrow('approved household numbers were not changed')
     expect(fetchMock).toHaveBeenCalledTimes(1)
   })
+
+  it('ends a stalled request and keeps the caller request ID available for a safe retry', async () => {
+    vi.useFakeTimers()
+    const fetchMock = vi.fn()
+      .mockImplementationOnce((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')), { once: true })
+      }))
+      .mockResolvedValueOnce(jsonResponse(completedPayload, 201))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const firstAttempt = sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1')
+    const firstResult = expect(firstAttempt).rejects.toThrow('Mia took too long to finish this request. Please try again.')
+    await vi.advanceTimersByTimeAsync(90_000)
+    await firstResult
+
+    await expect(sendMiaMessage('Hello', [], true, 2026, 9, [], 'mia-request-timeout-1'))
+      .resolves.toMatchObject({ assistant_message: { content: 'Verified reply' } })
+
+    const requestBodies = fetchMock.mock.calls.map((call) => JSON.parse(String((call[1] as RequestInit).body)))
+    expect(requestBodies.map((body) => body.request_id)).toEqual([
+      'mia-request-timeout-1',
+      'mia-request-timeout-1',
+    ])
+  })
 })
 
 describe('private document upload', () => {
