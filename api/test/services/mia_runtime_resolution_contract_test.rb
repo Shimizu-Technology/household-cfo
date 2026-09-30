@@ -30,6 +30,10 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     assert_nil Mia::EffectiveCohortResolver.new(user: nil).call
   end
 
+  test "effective cohort is absent when the participant has no membership" do
+    assert_nil Mia::EffectiveCohortResolver.new(user: @participant).call
+  end
+
   test "persona resolver returns the effective cohort published runtime persona" do
     persona, version = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
     cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
