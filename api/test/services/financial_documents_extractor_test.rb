@@ -371,6 +371,48 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects model output above transaction and setup row caps instead of truncating" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+
+    transaction_error = extractor.send(
+      :extraction_row_limit_error,
+      { "transaction_drafts" => Array.new(HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS + 1) { {} } }
+    )
+    item_error = extractor.send(
+      :extraction_row_limit_error,
+      { "items" => Array.new(FinancialDocuments::Extractor::MAX_ITEMS + 1) { {} } }
+    )
+
+    assert_includes transaction_error, "more than 500 transaction rows"
+    assert_includes transaction_error, "without silently truncating"
+    assert_includes item_error, "more than 60 budget/profile values"
+    assert_includes item_error, "without silently truncating"
+  end
+
+  test "rejects merged PDF batches above the setup value cap" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    items = Array.new(FinancialDocuments::Extractor::MAX_ITEMS + 1) do |index|
+      { target_type: "expense_item", label: "Item #{index}", amount_cents: index + 1 }
+    end
+
+    result = extractor.send(:merge_pdf_batch_results, [ { items: items, transaction_drafts: [], warnings: [] } ], [], page_count: 2)
+
+    refute result.success?
+    assert_includes result.error, "more than 60 budget/profile values"
+    assert_includes result.error, "without silently truncating"
+  end
+
+  test "treats oversized structured setup rows as terminal instead of falling back to the model" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    result = FinancialDocuments::StructuredSpreadsheetExtractor::Result.new(
+      success: false,
+      data: nil,
+      error: "This spreadsheet has more than 60 budget/profile rows. Split it into smaller files."
+    )
+
+    assert extractor.send(:terminal_structured_spreadsheet_error?, result)
+  end
+
   private
 
   def with_s3_stubs(stubs)

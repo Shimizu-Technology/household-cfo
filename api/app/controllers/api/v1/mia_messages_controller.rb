@@ -225,7 +225,7 @@ module Api
       def render_attached_document_response(session, content, attached_imports, message_request:)
         processed_imports = process_attached_imports(attached_imports)
         assistant_content = attached_document_message(content, processed_imports)
-        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).plan_data
+        annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param).read_only_plan_data
         user_message, assistant_message = ApplicationRecord.transaction do
           [
             session.chat_messages.create!(role: "user", content: content, attachments: processed_imports.map { |document_import| serialize_attachment(document_import) }),
@@ -244,7 +244,7 @@ module Api
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
           mia_action_draft: nil,
-          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget,
+          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan, ensure_plan: false).budget,
           spending_report: nil
         }
         complete_message_request(message_request, response_payload)

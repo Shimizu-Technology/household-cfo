@@ -334,6 +334,21 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "rejects oversized setup CSVs instead of silently truncating values" do
+    file = Tempfile.new([ "oversized-setup", ".csv" ])
+    file.write("type,label,amount\n")
+    61.times { |index| file.write("expense_item,Category #{index + 1},#{index + 1}\n") }
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "oversized-setup.csv").call
+
+    refute result.success?
+    assert_includes result.error, "more than 60 budget/profile rows"
+    assert_includes result.error, "without silently truncating"
+  ensure
+    file&.close!
+  end
+
   test "does not import transaction-like combined rows as budget setup items" do
     file = Tempfile.new([ "combined", ".csv" ])
     file.write(<<~CSV)

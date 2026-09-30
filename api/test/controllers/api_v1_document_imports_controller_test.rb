@@ -305,6 +305,21 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "direct upload accepts the browser CSV comma-separated media type" do
+    with_s3_stubs(
+      configured?: true,
+      presigned_upload: ->(_key, content_type:, **) { { url: "https://storage.example/upload", headers: { "Content-Type" => content_type }, expires_in: 900 } }
+    ) do
+      post "/api/v1/document_imports/presign",
+        params: { filename: "budget.csv", content_type: "text/comma-separated-values", byte_size: 32, checksum_sha256: "a" * 64, document_kind: "spreadsheet" },
+        headers: auth_headers(@user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "text/comma-separated-values", JSON.parse(response.body).fetch("upload_headers").fetch("Content-Type")
+  end
+
   test "multipart upload rejects inline image sources above twelve MiB before storage" do
     file = Tempfile.new([ "oversized-receipt", ".png" ])
     file.binmode

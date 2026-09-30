@@ -72,6 +72,7 @@ module FinancialDocuments
 
       items = extract_items(summary)
       transaction_drafts = extract_transaction_drafts(summary)
+      return failure("This spreadsheet has more than #{Extractor::MAX_ITEMS} budget/profile rows. Split it into smaller files so every value can be reviewed without silently truncating the file.") if items.length > Extractor::MAX_ITEMS
       return failure("This statement has more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so Mia can stage every transaction.") if transaction_drafts.length > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
       return failure("No structured Household CFO rows found") if items.empty? && transaction_drafts.empty? && warnings.empty?
 
@@ -114,7 +115,7 @@ module FinancialDocuments
         rows.drop_while { |row| row[:row] <= header_row[:row] }.filter_map do |row|
           item_from_row(row[:values], header_map, cell_types: row[:cell_types], cell_formats: row[:cell_formats], skip_transaction_like: skip_transaction_like_rows)
         end
-      end.first(Extractor::MAX_ITEMS)
+      end
     end
 
     def structured_header?(values)

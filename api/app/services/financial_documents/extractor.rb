@@ -161,6 +161,8 @@ module FinancialDocuments
 
       parsed = parse_json_content(response.data.fetch(:content))
       return parsed unless parsed.success?
+      row_limit_error = extraction_row_limit_error(parsed.data)
+      return failure(row_limit_error, metadata: response.metadata) if row_limit_error
 
       normalized = normalize_extraction(parsed.data, document_import)
       Result.new(success: true, data: normalized, error: nil, metadata: response.metadata)
@@ -174,7 +176,9 @@ module FinancialDocuments
 
       items = batch_data.flat_map { |data| Array(data[:items]) }
         .uniq { |item| item.slice(:target_type, :label, :amount_cents, :balance_cents, :payment_cents) }
-        .first(MAX_ITEMS)
+      if items.length > MAX_ITEMS
+        return failure("This document contains more than #{MAX_ITEMS} budget/profile values. Split it into smaller files so every value can be reviewed without silently truncating the results.")
+      end
       warnings = batch_data.flat_map { |data| Array(data[:warnings]) }
       warnings.unshift("Processed all #{page_count} PDF pages in #{batch_data.length} extraction batches.")
       dates = transactions.filter_map { |draft| parsed_date(draft[:occurred_on]) }
@@ -224,7 +228,7 @@ module FinancialDocuments
     end
 
     def terminal_structured_spreadsheet_error?(result)
-      result && !result.success? && result.error.to_s.match?(/more than \d+ (?:rows|transaction rows)/i)
+      result && !result.success? && result.error.to_s.match?(/more than \d+ (?:transaction |budget\/profile )?rows/i)
     end
 
     def inline_payload_size_error(document_import, file_path)
@@ -397,10 +401,14 @@ module FinancialDocuments
     end
 
     def normalize_extraction(data, document_import)
+      if (limit_error = extraction_row_limit_error(data))
+        raise ArgumentError, limit_error
+      end
+
       payload = data.is_a?(Hash) ? data : {}
       warnings = Array(payload["warnings"]).filter_map { |warning| sanitized_text(warning, max_length: 240).presence }.first(MAX_WARNINGS)
-      normalized_items = Array(payload["items"]).first(MAX_ITEMS).filter_map { |item| normalize_item(item) }
-      normalized_transaction_drafts = Array(payload["transaction_drafts"]).first(HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS).filter_map { |draft| normalize_transaction_draft(draft, document_import) }
+      normalized_items = Array(payload["items"]).filter_map { |item| normalize_item(item) }
+      normalized_transaction_drafts = Array(payload["transaction_drafts"]).filter_map { |draft| normalize_transaction_draft(draft, document_import) }
 
       {
         document_kind: normalized_document_kind(payload["document_kind"], fallback: document_import.document_kind),
@@ -413,6 +421,21 @@ module FinancialDocuments
         items: normalized_items,
         transaction_drafts: normalized_transaction_drafts
       }
+    end
+
+    def extraction_row_limit_error(data)
+      payload = data.is_a?(Hash) ? data : {}
+      transaction_count = Array(payload["transaction_drafts"]).length
+      if transaction_count > HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS
+        return "This document contains more than #{HouseholdFinance::DocumentTransactionDraftPersister::MAX_DRAFTS} transaction rows. Split it into smaller date ranges so every row can be reviewed without silently truncating the results."
+      end
+
+      item_count = Array(payload["items"]).length
+      if item_count > MAX_ITEMS
+        return "This document contains more than #{MAX_ITEMS} budget/profile values. Split it into smaller files so every value can be reviewed without silently truncating the results."
+      end
+
+      nil
     end
 
     def normalize_item(raw_item)

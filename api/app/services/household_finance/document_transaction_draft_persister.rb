@@ -11,7 +11,10 @@ module HouseholdFinance
     def initialize(document_import, transaction_drafts)
       @document_import = document_import
       @household = document_import.household
-      @transaction_drafts = Array(transaction_drafts).first(MAX_DRAFTS)
+      @transaction_drafts = Array(transaction_drafts)
+      if @transaction_drafts.length > MAX_DRAFTS
+        raise ArgumentError, "Document contains more than #{MAX_DRAFTS} transaction rows; split it into smaller date ranges before staging reviews."
+      end
       @category_suggester = TransactionCategorySuggester.new(household)
       @created_count = 0
       @match_count = 0

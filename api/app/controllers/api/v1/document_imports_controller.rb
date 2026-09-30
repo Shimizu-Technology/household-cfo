@@ -15,7 +15,7 @@ module Api
       REJECTED_EXTENSIONS = %w[.doc .zip .rar .7z .exe .svg].freeze
       ALLOWED_CONTENT_TYPES_BY_EXTENSION = {
         ".pdf" => %w[application/pdf],
-        ".csv" => %w[text/csv text/plain application/csv application/vnd.ms-excel],
+        ".csv" => %w[text/csv text/plain text/comma-separated-values application/csv application/vnd.ms-excel],
         ".xls" => %w[application/vnd.ms-excel application/xls application/excel],
         ".xlsx" => %w[application/vnd.openxmlformats-officedocument.spreadsheetml.sheet application/zip],
         ".docx" => %w[application/vnd.openxmlformats-officedocument.wordprocessingml.document application/zip],
