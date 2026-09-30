@@ -1543,10 +1543,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     document_import.items.create!(target_type: "income_source", label: "Main income", amount_cents: 6_000_00, cadence: "monthly", confidence: "high", selected: true)
     document_import.items.create!(target_type: "expense_item", label: "Groceries", amount_cents: 900_00, cadence: "monthly", stack_key: "discretionary", confidence: "high", selected: true)
 
-    post "/api/v1/mia/messages",
-         params: { message: "Can you set up my budget from this?", document_import_ids: [ document_import.id ] },
-         headers: auth_headers(user),
-         as: :json
+    nil_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { nil } } }
+    with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, nil_resolver) do
+      post "/api/v1/mia/messages",
+           params: { message: "Can you set up my budget from this?", document_import_ids: [ document_import.id ] },
+           headers: auth_headers(user),
+           as: :json
+    end
 
     assert_response :created
     assistant_content = JSON.parse(response.body).fetch("assistant_message").fetch("content")
@@ -1554,6 +1557,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes assistant_content, "budget/profile setup values"
     assert_includes assistant_content, "Main income and Groceries"
     assert_includes assistant_content, "open Review imports to approve or adjust"
+    assert_not_includes assistant_content, "could not safely prepare"
   end
 
   test "mia chat compacts conversation continuity for follow-up questions" do

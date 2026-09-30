@@ -364,9 +364,18 @@ module Api
       end
 
       def attachment_action_request?(message = params[:message])
+        return false if pure_attachment_review_request?(message)
+
         message.to_s.match?(
           /\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b.{0,100}\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b|\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b.{0,100}\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i
         )
+      end
+
+      def pure_attachment_review_request?(message)
+        normalized = message.to_s.squish
+        return false unless HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(normalized)
+
+        !normalized.match?(/\b(?:also|and then|then)\b|\band\s+(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i)
       end
 
       def attached_document_evidence_prompt(content, intent_result)
