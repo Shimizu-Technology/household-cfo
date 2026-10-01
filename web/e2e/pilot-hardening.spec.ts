@@ -1494,8 +1494,10 @@ test('profile summary edits focus the matching manual field', async ({ page }) =
   await expect(page.getByLabel('Fixed essentials')).toBeEnabled()
 
   await savingsCard.getByRole('button', { name: 'Edit', exact: true }).click()
-  await expect(page.getByLabel('Total credit card debt')).toBeFocused()
-  await expect(page.locator('.setup-optional-fields')).toHaveAttribute('open', '')
+  const debtManager = page.locator('.debt-manager')
+  await expect(debtManager).toBeVisible()
+  await expect(debtManager).toBeInViewport()
+  await expect(debtManager.getByRole('button', { name: 'Add a debt' })).toBeFocused()
 })
 
 test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
@@ -2366,7 +2368,7 @@ test('My Profile keeps debt summary and individual tracking explicit on desktop 
   await page.getByRole('button', { name: 'Save tracking choice' }).click()
   await expect(page.getByText('Mia is using the approved household summary.')).toBeVisible()
   await expect(page.getByLabel('Canonical debt totals').getByText('$15,000.00')).toBeVisible()
-  await expect(page.getByText('Individual records below stay preserved')).toBeVisible()
+  await expect(page.locator('.debt-empty')).toContainText('Individual records are preserved below for review and editing')
   expect(requests.at(-1)?.body).toMatchObject({ debt_tracking: { mode: 'summary', summary_balance: 15000, summary_minimum_payment: 500 } })
   expect(requests.every((request) => Boolean(request.key))).toBe(true)
 

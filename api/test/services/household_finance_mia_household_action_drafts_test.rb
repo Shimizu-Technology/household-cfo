@@ -57,6 +57,26 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_equal "applied", draft.reload.status
   end
 
+  test "setup impact keeps outflow and surplus unknown when the debt minimum is unknown" do
+    @household.household_profile.update!(
+      debt_summary_minimum_payment_cents: 0,
+      debt_summary_minimum_payment_known: false
+    )
+
+    result = build_command(
+      type: "update_household_setup",
+      setup_updates: { unexpected_sinking_fund: "225" }
+    )
+
+    impact = result.proposal.metadata.fetch(:impact)
+    assert_equal 5_500.0, impact.fetch(:before_monthly_income)
+    assert_equal 5_500.0, impact.fetch(:after_monthly_income)
+    assert_nil impact.fetch(:before_monthly_outflow)
+    assert_nil impact.fetch(:after_monthly_outflow)
+    assert_nil impact.fetch(:before_baseline_surplus)
+    assert_nil impact.fetch(:after_baseline_surplus)
+  end
+
   test "drafts and atomically applies the complete first-session picture" do
     result = build_command(
       type: "update_household_setup",

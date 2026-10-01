@@ -329,7 +329,10 @@ module HouseholdFinance
     end
 
     def setup_money_total(values, *keys)
-      Money.dollars(keys.sum { |key| Money.cents(values.fetch(key, 0)) })
+      amounts = keys.map { |key| values.fetch(key, 0) }
+      return if amounts.any?(&:nil?)
+
+      Money.dollars(amounts.sum { |value| Money.cents(value) })
     end
 
     def structured_income_source
@@ -396,6 +399,8 @@ module HouseholdFinance
     end
 
     def money_difference(minuend, subtrahend)
+      return if minuend.nil? || subtrahend.nil?
+
       Money.dollars(Money.cents(minuend) - Money.cents(subtrahend))
     end
   end
