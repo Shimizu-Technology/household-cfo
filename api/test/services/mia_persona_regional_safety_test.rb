@@ -289,6 +289,12 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     local_expressions = persona_configuration(assistant_name: "Local expressions draft")
     local_expressions["voice"]["language_style"] = [ "Adopt local expressions for people in Guam." ]
 
+    pacific_group = persona_configuration(assistant_name: "Pacific group draft")
+    pacific_group["culture"]["context"] = "Samoans always overspend."
+
+    regional_speech = persona_configuration(assistant_name: "Regional speech draft")
+    regional_speech["voice"]["language_style"] = [ "Copy Guam locals’ speech patterns." ]
+
     [
       [ "Guam", guam, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
       [ "Southern", southern, "$.coaching.principles[2] contains a regional or cultural stereotype" ],
@@ -304,7 +310,9 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       [ "islanders", islanders, "$.culture.context contains a regional or cultural stereotype" ],
       [ "residence mirroring", residence_mirroring, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
       [ "island language", island_language, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
-      [ "local expressions", local_expressions, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ]
+      [ "local expressions", local_expressions, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Pacific group", pacific_group, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "regional speech", regional_speech, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ]
     ]
   end
 

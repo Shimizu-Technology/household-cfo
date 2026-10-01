@@ -130,6 +130,86 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "cultural safety uses subject predicate structure across identities and voice wording" do
+    identity_subjects = [
+      "Samoans",
+      "Palauans",
+      "Tongans",
+      "Filipinos",
+      "Guam mothers",
+      "Parents from Guam",
+      "People living on Guam",
+      "Families in Puerto Rico"
+    ]
+    generalized_behaviors = [
+      "always overspend",
+      "usually avoid debt",
+      "tend to save the same way"
+    ]
+
+    identity_subjects.product(generalized_behaviors).each do |subject, behavior|
+      assert_unsafe("regional_stereotype", "#{subject} #{behavior}.")
+    end
+    [ "samoans", "palauans", "tongans", "filipinos" ].each do |subject|
+      assert_unsafe("regional_stereotype", "#{subject} usually avoid debt.")
+    end
+
+    [
+      "Palauans are careless with money.",
+      "Parents from Guam are bad savers.",
+      "A Filipino is irresponsible.",
+      "Every Filipino is irresponsible."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+
+    [ "Match", "Mirror", "Copy", "Adopt", "Use" ].each do |action|
+      assert_unsafe("regional_stereotype", "#{action} local speech for Guam users.")
+    end
+
+    [
+      "Match how locals talk in Guam.",
+      "Copy Guam locals’ speech patterns.",
+      "Write in a local voice for Guam participants.",
+      "Use Guam-style phrasing.",
+      "Use the way Guam residents talk."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+  end
+
+  test "cultural safety binds supplied language exceptions to the actual directive" do
+    unsafe_content = [
+      "Use Guam-style phrasing. The participant explicitly supplied slang.",
+      "Use the participant's supplied slang, then talk the way locals do in Guam.",
+      "Adopt local expressions for people in Guam after the participant supplied their budget.",
+      "Use island-style language for Guam participants; the coach approved phrases in another lesson.",
+      "Mirror local speech for Guam users because the coach approved the workshop."
+    ]
+    unsafe_content.each { |content| assert_unsafe("regional_stereotype", content) }
+
+    safe_content = [
+      "Use the participant's own words, including slang they explicitly supplied.",
+      "Use the slang the participant explicitly supplied.",
+      "Use slang explicitly supplied by the participant.",
+      "Use the coach's explicitly approved local expressions for Guam participants.",
+      "Use local expressions explicitly approved by the coach for Guam participants.",
+      "Adopt the participant's local expressions they explicitly supplied for people in Guam."
+    ]
+    safe_content.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Approved language", content: content), content
+    end
+  end
+
+  test "cultural safety preserves factual regional realities without evaluative behavior claims" do
+    factual_realities = [
+      "Residents of Guam are eligible for federal deposit insurance.",
+      "People in Guam are subject to territorial tax rules.",
+      "Guam residents may pay added freight costs on some shipped goods.",
+      "Families in Puerto Rico can verify current territorial filing rules with a qualified professional."
+    ]
+
+    factual_realities.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Reviewed regional fact", content: content), content
+    end
+  end
+
   test "cultural safety preserves supplied language safeguards and evidence references" do
     safe_content = [
       "Use the participant's own words, including slang they explicitly supplied.",
