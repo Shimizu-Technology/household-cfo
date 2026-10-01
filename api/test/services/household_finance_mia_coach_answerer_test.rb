@@ -212,6 +212,44 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     refute_match(/reduce .* to create a surplus/i, answer)
   end
 
+  test "models conditional monthly income against approved outflow without changing household data" do
+    household = create_yellow_household
+    HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
+    income_before = household.income_sources.order(:id).pluck(:id, :amount_cents, :cadence, :starts_on, :ends_on, :active)
+    draft_count_before = household.mia_action_drafts.count
+
+    [
+      "If our monthly income is $5,000, how much can we save?",
+      "Given our monthly income is $5,000, what is our surplus?"
+    ].each do |prompt|
+      answer = HouseholdFinance::MiaCoachAnswerer.new(household, prompt).call
+
+      assert_includes answer, "Assumption only", prompt
+      assert_includes answer, "monthly income were $5,000", prompt
+      assert_includes answer, "approved monthly outflow stayed $7,845", prompt
+      assert_includes answer, "$2,845 monthly shortfall", prompt
+      assert_includes answer, "approved recurring monthly income remains $8,500", prompt
+      assert_includes answer, "did not save this scenario or change any household data", prompt
+      refute_includes answer, "purchase is", prompt
+    end
+
+    assert_equal income_before, household.reload.income_sources.order(:id).pluck(:id, :amount_cents, :cadence, :starts_on, :ends_on, :active)
+    assert_equal draft_count_before, household.mia_action_drafts.count
+  end
+
+  test "still treats a priced school item as a planned purchase follow-up" do
+    household = create_yellow_household
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(
+      household,
+      "The laptop costs $900 and it is for school. Does that change the decision?"
+    ).call
+
+    assert_includes answer, "family need or commitment"
+    assert_includes answer, "purchase is $900"
+    refute_includes answer, "Assumption only"
+  end
+
   test "breakeven coaching does not require bank activity when no bank is connected" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",
