@@ -36,7 +36,9 @@ module CohortExperience
       configuration = cohort_membership.cohort.cohort_experience_configuration
       version = configuration&.current_published_version
       return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] unless version
+      return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] unless version.cohort_experience_configuration_id == configuration.id
       return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] if Schema.errors(version.config).any?
+      return [ Schema::DEFAULT_CONFIG, "safe_default", nil ] unless version.config_digest == Schema.digest(version.config)
 
       [ Schema.normalize(version.config), "published_cohort", version ]
     end

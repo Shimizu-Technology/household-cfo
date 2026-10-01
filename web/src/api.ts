@@ -1503,8 +1503,11 @@ export async function fetchAdminCohorts(): Promise<AdminCohort[]> {
   return payload.cohorts
 }
 
-export async function fetchCohortExperienceConfiguration(cohortId: number): Promise<CohortExperienceConfiguration> {
-  const payload = await fetchJson<{ experience_configuration: CohortExperienceConfiguration }>(`/api/v1/admin/cohorts/${cohortId}/experience_configuration`)
+export async function fetchCohortExperienceConfiguration(cohortId: number, signal?: AbortSignal): Promise<CohortExperienceConfiguration> {
+  const payload = await fetchJson<{ experience_configuration: CohortExperienceConfiguration }>(
+    `/api/v1/admin/cohorts/${cohortId}/experience_configuration`,
+    { signal },
+  )
   return payload.experience_configuration
 }
 

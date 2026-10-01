@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ApiRequestError,
   fetchCohortExperienceConfiguration,
@@ -45,32 +45,65 @@ export function CohortExperienceStudio({
   const [pendingAction, setPendingAction] = useState<PendingAction>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const loadRequestRef = useRef(0)
+  const loadAbortControllerRef = useRef<AbortController | null>(null)
 
   const dirty = useMemo(() => Boolean(configuration && draft && JSON.stringify(configuration.draft) !== JSON.stringify(draft)), [configuration, draft])
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
+  const prepareCohortSelection = useCallback((cohortId: number | null) => {
+    loadRequestRef.current += 1
+    loadAbortControllerRef.current?.abort()
+    loadAbortControllerRef.current = null
+    setConfiguration(null)
+    setDraft(null)
+    setPreview(null)
+    setError(null)
+    setNotice(null)
+    setPendingAction(cohortId ? 'load' : null)
+    setSelectedCohortId(cohortId)
+  }, [])
+
   useEffect(() => {
     if (selectedCohortId && cohorts.some((cohort) => cohort.id === selectedCohortId)) return
 
     const firstCohortId = cohorts[0]?.id ?? null
-    queueMicrotask(() => setSelectedCohortId(firstCohortId))
-  }, [cohorts, selectedCohortId])
+    queueMicrotask(() => prepareCohortSelection(firstCohortId))
+  }, [cohorts, prepareCohortSelection, selectedCohortId])
 
   const loadConfiguration = useCallback(async (cohortId: number) => {
+    const requestId = loadRequestRef.current + 1
+    loadRequestRef.current = requestId
+    loadAbortControllerRef.current?.abort()
+    const abortController = new AbortController()
+    loadAbortControllerRef.current = abortController
     setPendingAction('load')
     setError(null)
+    setConfiguration(null)
+    setDraft(null)
+    setPreview(null)
     try {
-      const next = await fetchCohortExperienceConfiguration(cohortId)
+      const next = await fetchCohortExperienceConfiguration(cohortId, abortController.signal)
+      if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
+      if (next.cohort.id !== cohortId) throw new Error('Participant tools returned the wrong cohort. Reload and try again.')
       setConfiguration(next)
       setDraft(next.draft)
-      setPreview(null)
     } catch (caught) {
+      if (requestId !== loadRequestRef.current || abortController.signal.aborted) return
       setError(errorMessage(caught, 'Participant tools could not be loaded.'))
     } finally {
-      setPendingAction(null)
+      if (requestId === loadRequestRef.current) {
+        loadAbortControllerRef.current = null
+        setPendingAction(null)
+      }
     }
+  }, [])
+
+  useEffect(() => () => {
+    loadRequestRef.current += 1
+    loadAbortControllerRef.current?.abort()
   }, [])
 
   useEffect(() => {
@@ -80,8 +113,7 @@ export function CohortExperienceStudio({
   function chooseCohort(value: number) {
     if (value === selectedCohortId) return
     if (dirty && !window.confirm('Discard the unsaved participant-tool changes and open another cohort?')) return
-    setSelectedCohortId(value)
-    setNotice(null)
+    prepareCohortSelection(value)
   }
 
   function toggleModule(key: 'cfo_filter' | 'optionality') {
@@ -188,7 +220,7 @@ export function CohortExperienceStudio({
         </div>
         <label>
           <span>Cohort</span>
-          <select value={selectedCohortId ?? ''} onChange={(event) => chooseCohort(Number(event.target.value))}>
+          <select value={selectedCohortId ?? ''} disabled={pendingAction !== null && pendingAction !== 'load'} onChange={(event) => chooseCohort(Number(event.target.value))}>
             {cohorts.map((cohort) => <option key={cohort.id} value={cohort.id}>{cohort.name} · {cohort.status}</option>)}
           </select>
         </label>

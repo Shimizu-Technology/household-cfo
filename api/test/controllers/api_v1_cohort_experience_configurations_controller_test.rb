@@ -92,6 +92,45 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     assert_response :unprocessable_entity
   end
 
+  test "workspace capabilities use only participant-role cohort membership" do
+    admin = create_user("admin")
+    staff = create_user("coach")
+    participant_cohort = Cohort.create!(
+      name: "Participant policy #{SecureRandom.hex(3)}",
+      status: "active",
+      starts_on: Date.new(2026, 8, 1),
+      created_by_user: admin
+    )
+    coached_cohort = Cohort.create!(
+      name: "Coach policy #{SecureRandom.hex(3)}",
+      status: "active",
+      starts_on: Date.new(2027, 1, 1),
+      created_by_user: admin
+    )
+    participant_membership = participant_cohort.cohort_memberships.create!(user: staff, role: "participant")
+    coached_cohort.cohort_memberships.create!(user: staff, role: "coach")
+    publish_configuration(participant_cohort.cohort_experience_configuration, admin, cfo_filter: false, optionality: true)
+
+    get "/api/v1/workspace", headers: auth_headers(staff)
+
+    assert_response :success
+    capabilities = response.parsed_body.dig("workspace", "capabilities")
+    assert_equal participant_cohort.id, capabilities.fetch("cohort_id")
+    assert_equal "published_cohort", capabilities.fetch("source")
+    modules = capabilities.fetch("modules").index_by { |item| item.fetch("id") }
+    refute modules.fetch("cfo_filter").fetch("enabled")
+    assert modules.fetch("optionality").fetch("enabled")
+
+    participant_membership.destroy!
+    get "/api/v1/workspace", headers: auth_headers(staff)
+
+    assert_response :success
+    capabilities = response.parsed_body.dig("workspace", "capabilities")
+    assert_nil capabilities.fetch("cohort_id")
+    assert_equal "standalone_default", capabilities.fetch("source")
+    assert capabilities.fetch("modules").all? { |item| item.fetch("enabled") }
+  end
+
   private
 
   def endpoint(cohort)
@@ -110,5 +149,22 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def publish_configuration(configuration, actor, cfo_filter:, optionality:)
+    configuration.update!(
+      draft_config: {
+        "schema_version" => 1,
+        "optional_modules" => { "cfo_filter" => cfo_filter, "optionality" => optionality }
+      },
+      last_edited_by_user: actor
+    )
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: actor)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    publisher.publish!(
+      expected_preview_digest: digest,
+      expected_draft_revision: configuration.draft_revision,
+      expected_current_version_id: nil
+    )
   end
 end

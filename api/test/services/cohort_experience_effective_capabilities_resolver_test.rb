@@ -64,6 +64,43 @@ class CohortExperienceEffectiveCapabilitiesResolverTest < ActiveSupport::TestCas
     refute capabilities.fetch(:modules).reject { |item| item.fetch(:core) }.any? { |item| item.fetch(:enabled) }
   end
 
+  test "published version from another configuration fails closed" do
+    coach = create_user("coach")
+    participant = create_user("participant")
+    cohort = Cohort.create!(name: "Cross linked #{SecureRandom.hex(3)}", status: "active", created_by_user: coach)
+    other_cohort = Cohort.create!(name: "Other config #{SecureRandom.hex(3)}", status: "active", created_by_user: coach)
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    other_configuration = other_cohort.cohort_experience_configuration
+    other_configuration.update!(draft_config: CohortExperience::Schema::LEGACY_CONFIG, last_edited_by_user: coach)
+    publisher = CohortExperience::Publisher.new(configuration: other_configuration, actor: coach)
+    digest = publisher.preview!(expected_draft_revision: other_configuration.draft_revision)
+    other_version = publisher.publish!(expected_preview_digest: digest, expected_draft_revision: other_configuration.draft_revision, expected_current_version_id: nil)
+    cohort.cohort_experience_configuration.update_column(:current_published_version_id, other_version.id)
+
+    capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: membership).call
+
+    assert_equal "safe_default", capabilities.fetch(:source)
+    refute capabilities.fetch(:modules).reject { |item| item.fetch(:core) }.any? { |item| item.fetch(:enabled) }
+  end
+
+  test "published version with a mismatched canonical digest fails closed" do
+    coach = create_user("coach")
+    participant = create_user("participant")
+    cohort = Cohort.create!(name: "Bad digest #{SecureRandom.hex(3)}", status: "active", created_by_user: coach)
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    configuration = cohort.cohort_experience_configuration
+    configuration.update!(draft_config: CohortExperience::Schema::LEGACY_CONFIG, last_edited_by_user: coach)
+    publisher = CohortExperience::Publisher.new(configuration: configuration, actor: coach)
+    digest = publisher.preview!(expected_draft_revision: configuration.draft_revision)
+    version = publisher.publish!(expected_preview_digest: digest, expected_draft_revision: configuration.draft_revision, expected_current_version_id: nil)
+    version.update_column(:config_digest, "0" * 64)
+
+    capabilities = CohortExperience::EffectiveCapabilitiesResolver.new(cohort_membership: membership).call
+
+    assert_equal "safe_default", capabilities.fetch(:source)
+    refute capabilities.fetch(:modules).reject { |item| item.fetch(:core) }.any? { |item| item.fetch(:enabled) }
+  end
+
   private
 
   def create_user(role)

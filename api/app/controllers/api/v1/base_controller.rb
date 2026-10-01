@@ -26,7 +26,16 @@ module Api
 
       def current_experience_capabilities
         @current_experience_capabilities ||= CohortExperience::EffectiveCapabilitiesResolver.new(
-          cohort_membership: current_cohort_membership
+          cohort_membership: current_participant_cohort_membership
+        ).call
+      end
+
+      def current_participant_cohort_membership
+        return @current_participant_cohort_membership if defined?(@current_participant_cohort_membership)
+
+        @current_participant_cohort_membership = ::Mia::EffectiveCohortResolver.new(
+          user: current_user,
+          role: "participant"
         ).call
       end
 

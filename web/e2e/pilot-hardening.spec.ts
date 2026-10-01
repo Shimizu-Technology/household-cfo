@@ -3044,6 +3044,98 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio ignores a delayed participant-tool response after switching cohorts', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'request ordering regression')
+  const secondCohort = {
+    id: 43, name: 'Second active cohort', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null,
+  }
+  let releaseSecondLoad: (() => void) | undefined
+  const secondLoadGate = new Promise<void>((resolve) => { releaseSecondLoad = resolve })
+  const savePaths: string[] = []
+
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => route.fulfill({
+    status: 200,
+    json: { cohorts: [
+      { id: 41, name: 'Household CFO pilot', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null },
+      secondCohort,
+    ] },
+  }))
+  await page.route('http://api.test/api/v1/admin/cohorts/43/experience_configuration', async (route) => {
+    await secondLoadGate
+    return route.fulfill({
+      status: 200,
+      json: {
+        experience_configuration: {
+          cohort: { id: 43, name: secondCohort.name, status: 'active', participant_count: 4 },
+          draft: { schema_version: 1, optional_modules: { cfo_filter: false, optionality: false } },
+          draft_revision: 1,
+          preview_required: true,
+          preview: null,
+          published_version: null,
+          versions: [],
+          permissions: { edit: true, publish: true, rollback: true },
+        },
+      },
+    })
+  })
+  page.on('request', (request) => {
+    if (request.method() === 'PATCH' && request.url().includes('/experience_configuration')) savePaths.push(new URL(request.url()).pathname)
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+  const cohortSelect = page.getByLabel('Cohort')
+  await expect(cohortSelect).toHaveValue('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+
+  await cohortSelect.selectOption('43')
+  await expect(page.getByText('Loading participant tools…')).toBeVisible()
+  await expect(page.getByLabel('Include CFO Filter')).toHaveCount(0)
+  await cohortSelect.selectOption('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+
+  releaseSecondLoad?.()
+  await page.waitForTimeout(100)
+  await expect(cohortSelect).toHaveValue('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+
+  await page.getByLabel('Include Optionality').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status')).toContainText('draft saved')
+  expect(savePaths).toEqual(['/api/v1/admin/cohorts/41/experience_configuration'])
+})
+
+test('Coach Studio clears the prior cohort after a participant-tool load fails', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'failed selection regression')
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => route.fulfill({
+    status: 200,
+    json: { cohorts: [
+      { id: 41, name: 'Household CFO pilot', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null },
+      { id: 43, name: 'Unavailable cohort', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null },
+    ] },
+  }))
+  await page.route('http://api.test/api/v1/admin/cohorts/43/experience_configuration', (route) => route.fulfill({
+    status: 503,
+    json: { error: 'Participant tools are temporarily unavailable.' },
+  }))
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+  const cohortSelect = page.getByLabel('Cohort')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+
+  await cohortSelect.selectOption('43')
+
+  await expect(page.getByRole('alert')).toContainText('temporarily unavailable')
+  await expect(cohortSelect).toHaveValue('43')
+  await expect(page.getByLabel('Include CFO Filter')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Save draft' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Publish to cohort' })).toHaveCount(0)
+
+  await cohortSelect.selectOption('41')
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+})
+
 test('participant navigation remains available when a saved optional-tool link is disabled', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.workspace.capabilities = experienceCapabilities({ cfo_filter: false, optionality: true })
@@ -3068,6 +3160,49 @@ test('participant navigation remains available when a saved optional-tool link i
   await page.getByRole('link', { name: 'Optionality', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Can I leave my job?' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('participant navigation keeps a disabled deep link canonical after capabilities refresh', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'capability refresh state regression')
+  const disabledWorkspace = realWorkspaceData(true)
+  disabledWorkspace.workspace.capabilities = experienceCapabilities({ cfo_filter: false, optionality: true })
+  delete disabledWorkspace.cfoFilter
+  const enabledWorkspace = realWorkspaceData(true)
+  let workspaceRequests = 0
+  let releaseRefresh: (() => void) | undefined
+  const refreshGate = new Promise<void>((resolve) => { releaseRefresh = resolve })
+
+  await page.route('http://api.test/api/v1/workspace', async (route) => {
+    workspaceRequests += 1
+    if (workspaceRequests === 1) return route.fulfill({ status: 200, json: disabledWorkspace })
+    await refreshGate
+    return route.fulfill({ status: 200, json: enabledWorkspace })
+  })
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({
+    status: 200,
+    json: {
+      document_imports: [{
+        id: 990, household_id: 77, document_kind: 'receipt', status: 'needs_review', filename: 'refresh-trigger.png',
+        content_type: 'image/png', byte_size: 20, document_date: null, period_start_on: null, period_end_on: null,
+        extracted_summary: null, extraction_error: null, processed_at: null, applied_at: null, source_deleted_at: null,
+        updated_at: '2026-10-01T00:00:00Z', source_available: true, details_included: false, uploaded_by: null,
+        applied_by: null, source_deleted_by: null, metadata: {}, items: [], attempts: [],
+        transaction_drafts: [{ id: 991, status: 'pending', amount_cents: 2_000, amount: 20 }],
+      }],
+    },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#CFO%20Filter')
+
+  await expect(page).toHaveURL(/#Home$/)
+  await expect(page.getByRole('status').filter({ hasText: 'CFO Filter is not included' })).toBeFocused()
+  await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
+  releaseRefresh?.()
+  await page.getByRole('button', { name: 'Tools', exact: true }).click()
+  await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toBeVisible()
+  await expect(page).toHaveURL(/#Home$/)
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+  await expect(page.locator('.cfo-screen')).toHaveCount(0)
 })
 
 test('Coach Studio protects unsaved work across mobile back and section navigation', async ({ page }) => {

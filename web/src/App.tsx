@@ -1072,7 +1072,10 @@ function App() {
       replacedStaleOAuthLocation = true
     }
 
-    if (targetSection === activeSection) return true
+    if (targetSection === activeSection) {
+      if (active !== targetSection) setActive(targetSection)
+      return true
+    }
 
     if (options.source !== 'history') lastHandledLocationRef.current = ''
 
@@ -1105,7 +1108,7 @@ function App() {
       )
     }
     return true
-  }, [activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedCoachChanges, visibleSections])
+  }, [active, activeSection, canResumePlaidOAuthReturn, data, hasUnsavedBudgetChanges, hasUnsavedCoachChanges, visibleSections])
 
   useEffect(() => {
     const previousScrollRestoration = window.history.scrollRestoration
@@ -1146,7 +1149,10 @@ function App() {
         )
         lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
       }
-      if (targetSection === activeSection) return
+      if (targetSection === activeSection) {
+        if (active !== targetSection) setActive(targetSection)
+        return
+      }
 
       const changed = switchSection(targetSection, {
         historyMode: 'none',
@@ -1167,7 +1173,7 @@ function App() {
       window.removeEventListener('popstate', followBrowserLocation)
       window.removeEventListener('hashchange', followBrowserLocation)
     }
-  }, [activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
+  }, [active, activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
 
   useEffect(() => {
     if (activeSection !== 'Home' || !unavailableModuleNotice) return
