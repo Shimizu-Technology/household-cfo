@@ -1383,15 +1383,19 @@ test('Mia falls back to plain content when read-only presentation metadata is ma
   await expect(answer.getByRole('listitem')).toHaveText(['Keep minimums current', 'Protect runway'])
 })
 
-test('chat-first Mia reviews household, income, and budget writes without bypassing approval', async ({ page }) => {
+test('chat-first Mia preserves legacy reviews without structured before and after fields', async ({ page }) => {
   const baseWorkspace = realWorkspaceData(true)
+  const malformedIncomeDraft = {
+    ...miaIncomeDraft,
+    items: miaIncomeDraft.items.map((item) => ({ ...item, review_fields: [null, { unexpected: 'shape' }] })),
+  }
   const workspace = {
     ...baseWorkspace,
     budget: {
       ...baseWorkspace.budget,
       annual_plan: {
         ...baseWorkspace.budget.annual_plan,
-        pending_mia_action_drafts: [miaHouseholdDraft, miaIncomeDraft, miaBudgetDraft],
+        pending_mia_action_drafts: [miaHouseholdDraft, malformedIncomeDraft, miaBudgetDraft],
       },
     },
   }
@@ -1413,6 +1417,7 @@ test('chat-first Mia reviews household, income, and budget writes without bypass
   const householdCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Update an approved household number' })
   const incomeCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Schedule an income change' })
   const budgetCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
+  await expect(page.getByRole('heading', { name: 'This screen hit an unexpected problem.' })).toHaveCount(0)
   await expect(householdCard).toContainText('Household numbers')
   await expect(householdCard).toContainText('$5,000.00 → $8,500.00')
   await expect(incomeCard).toContainText('Income timeline')
@@ -1421,6 +1426,7 @@ test('chat-first Mia reviews household, income, and budget writes without bypass
   await expect(budgetCard).toContainText('leave actual spending untouched')
 
   for (const card of [householdCard, incomeCard, budgetCard]) {
+    await expect(card.locator('.mia-action-before-after')).toHaveCount(0)
     await expect(card.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
     await expect(card.getByRole('button', { name: 'Cancel draft' })).toBeEnabled()
     await expect(card.getByRole('button', { name: 'Open manual controls' })).toBeEnabled()

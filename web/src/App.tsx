@@ -6622,23 +6622,27 @@ function MiaActionDraftReviewCard({
         <p>{draft.summary}</p>
         {draft.rationale && <p>{draft.rationale}</p>}
         <div className="mia-action-item-list">
-          {draft.items.map((item) => (
-            <div className="mia-action-item" key={item.id}>
-              <strong>{item.label}</strong>
-              {item.description && <span>{item.description}</span>}
-              {item.review_fields.length > 0 && (
-                <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
-                  {item.review_fields.map((field) => (
-                    <div key={field.label}>
-                      <dt>{field.label}</dt>
-                      <dd><span><b>Before</b>{field.before}</span><span><b>After</b>{field.after}</span></dd>
-                    </div>
-                  ))}
-                </dl>
-              )}
-              {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
-            </div>
-          ))}
+          {draft.items.map((item) => {
+            const reviewFields = miaActionItemReviewFields(item)
+
+            return (
+              <div className="mia-action-item" key={item.id}>
+                <strong>{item.label}</strong>
+                {item.description && <span>{item.description}</span>}
+                {reviewFields.length > 0 && (
+                  <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
+                    {reviewFields.map((field) => (
+                      <div key={field.label}>
+                        <dt>{field.label}</dt>
+                        <dd><span><b>Before</b>{field.before}</span><span><b>After</b>{field.after}</span></dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
+              </div>
+            )
+          })}
         </div>
         {setupCoverage && (
           <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
@@ -6675,6 +6679,19 @@ function MiaActionDraftReviewCard({
       )}
     </article>
   )
+}
+
+function miaActionItemReviewFields(item: MiaActionItem): NonNullable<MiaActionItem['review_fields']> {
+  const reviewFields: unknown = item.review_fields
+  if (!Array.isArray(reviewFields)) return []
+
+  const isValid = reviewFields.every((field) => (
+    typeof field === 'object' && field !== null &&
+    typeof field.label === 'string' &&
+    typeof field.before === 'string' &&
+    typeof field.after === 'string'
+  ))
+  return isValid ? reviewFields : []
 }
 
 function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impact']> }) {

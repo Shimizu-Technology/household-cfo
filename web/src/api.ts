@@ -449,11 +449,11 @@ export type MiaActionItem = {
   after_snapshot: Record<string, unknown>
   operation_key: string | null
   operation_version: number | null
-  review_fields: Array<{
+  review_fields?: Array<{
     label: string
     before: string
     after: string
-  }>
+  }> | null
 }
 
 export type MiaActionDraft = {
