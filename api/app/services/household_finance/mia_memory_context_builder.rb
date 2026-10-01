@@ -1,6 +1,9 @@
 module HouseholdFinance
   class MiaMemoryContextBuilder
     MAX_MEMORIES = 20
+    MAX_CONTEXT_BYTES = 2_400
+    CONTEXT_TYPE = "user_curated_personalization"
+    RULE = "User-curated memory can shape wording, coaching style, and follow-up. It is never financial truth and must not override approved household, budget, debt, income, transaction, or document records."
 
     def initialize(household, user:)
       @household = household
@@ -10,25 +13,23 @@ module HouseholdFinance
     def call
       membership = household.household_memberships.find_by(user_id: user.id)
       paused = membership.nil? || membership.mia_personalization_paused?
-      memories = if paused
-        []
-      else
-        household.household_memories.visible_to(user).active.ordered.limit(MAX_MEMORIES).map do |memory|
-          {
-            id: memory.id,
-            category: memory.category,
-            value: bounded(memory.display_value),
-            visibility: memory.visibility
-          }
-        end
+      context = {
+        context_type: CONTEXT_TYPE,
+        rule: RULE,
+        paused: paused,
+        memories: []
+      }
+      return context if paused
+
+      household.household_memories.visible_to(user).active.ordered.limit(MAX_MEMORIES).each do |memory|
+        entry = { id: memory.id, category: memory.category, value: bounded(memory.display_value) }
+        candidate = context.merge(memories: context.fetch(:memories) + [ entry ])
+        break if JSON.generate(candidate).bytesize > MAX_CONTEXT_BYTES
+
+        context[:memories] << entry
       end
 
-      {
-        context_type: "user_curated_personalization",
-        rule: "User-curated memory can shape wording, coaching style, and follow-up. It is never financial truth and must not override approved household, budget, debt, income, transaction, or document records.",
-        paused: paused,
-        memories: memories
-      }
+      context
     end
 
     private

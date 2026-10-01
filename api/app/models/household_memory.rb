@@ -2,7 +2,7 @@ class HouseholdMemory < ApplicationRecord
   CATEGORIES = %w[goal preference constraint habit coaching_style follow_up].freeze
   STATUSES = %w[pending_confirmation user_confirmed rejected expired].freeze
   SENSITIVITIES = %w[ordinary sensitive].freeze
-  VISIBILITIES = %w[private household].freeze
+  VISIBILITIES = %w[private].freeze
   SOURCE_KINDS = %w[manual_profile mia_command].freeze
   MAX_DISPLAY_LENGTH = 500
   MAX_ACTIVE_CONTEXT = 20
@@ -27,7 +27,7 @@ class HouseholdMemory < ApplicationRecord
   validate :owner_belongs_to_household
   validate :source_message_belongs_to_owner_session
 
-  scope :visible_to, ->(user) { where("visibility = 'household' OR owner_user_id = ?", user.id) }
+  scope :visible_to, ->(user) { where(owner_user_id: user.id, visibility: "private") }
   scope :active, -> { where(status: "user_confirmed").where("expires_at IS NULL OR expires_at > ?", Time.current) }
   scope :ordered, -> { order(Arel.sql("CASE category WHEN 'coaching_style' THEN 0 WHEN 'constraint' THEN 1 WHEN 'goal' THEN 2 WHEN 'follow_up' THEN 3 ELSE 4 END"), updated_at: :desc, id: :desc) }
 

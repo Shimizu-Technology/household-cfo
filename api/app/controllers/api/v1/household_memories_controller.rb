@@ -14,6 +14,7 @@ module Api
 
       def create
         attributes = memory_params.to_h.symbolize_keys
+        attributes[:visibility] ||= "private"
         request_key = attributes.delete(:request_key).presence
         if request_key && (existing = current_household.household_memories.find_by(owner_user: current_user, request_key: request_key))
           unless idempotent_create_matches?(existing, attributes)
@@ -45,6 +46,7 @@ module Api
         return render_not_owner unless @memory.owner_user_id == current_user.id
 
         attributes = memory_params.to_h.symbolize_keys.except(:request_key, :confirmed)
+        attributes[:visibility] ||= "private"
         @memory.assign_attributes(attributes)
         material_change = @memory.will_save_change_to_display_value? || @memory.will_save_change_to_category? ||
           @memory.will_save_change_to_sensitivity? || @memory.will_save_change_to_visibility?
@@ -148,7 +150,7 @@ module Api
           memories: current_household.household_memories.visible_to(current_user).includes(:owner_user).ordered.limit(HouseholdMemory::MAX_VISIBLE_LIST).map { |memory| memory.as_api_json(viewer: current_user) },
           personalization: personalization_payload,
           policy: {
-            source: "Only memories you or a household participant explicitly saved appear here.",
+            source: "Only memories you explicitly saved appear here. Each household participant has a private memory list.",
             financial_truth: "Mia uses approved household records for financial facts. Memories can only personalize coaching and follow-up.",
             coach_visibility: false
           }

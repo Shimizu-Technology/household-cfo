@@ -26,6 +26,7 @@ module HouseholdFinance
         spending_report_summary: spending_report_summary,
         transaction_draft: transaction_draft_packet,
         budget_action: budget_action_packet,
+        personalization_memory: personalization_memory,
         conversation_state: conversation_state,
         guardrails: guardrails
       }.compact
@@ -180,11 +181,15 @@ module HouseholdFinance
     def conversation_state
       context = conversation_context.respond_to?(:deep_symbolize_keys) ? conversation_context.deep_symbolize_keys : {}
       {
-        personalization_memory: context[:personalization_memory],
         active_thread: context[:active_topic],
         open_threads: Array(context[:open_topics]).first(4),
         older_summary: context[:rolling_summary]
       }.compact
+    end
+
+    def personalization_memory
+      context = conversation_context.respond_to?(:deep_symbolize_keys) ? conversation_context.deep_symbolize_keys : {}
+      context[:personalization_memory]
     end
 
     def guardrails

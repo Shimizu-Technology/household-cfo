@@ -644,7 +644,7 @@ export type HouseholdMemory = {
   category: HouseholdMemoryCategory
   status: HouseholdMemoryStatus
   sensitivity: 'ordinary' | 'sensitive'
-  visibility: 'private' | 'household'
+  visibility: 'private'
   display_value: string
   structured_value: Record<string, unknown>
   owned_by_current_user: boolean
@@ -664,7 +664,6 @@ export type HouseholdMemoryInput = {
   category: HouseholdMemoryCategory
   display_value: string
   sensitivity: 'ordinary' | 'sensitive'
-  visibility: 'private' | 'household'
   confirmed?: boolean
   request_key?: string
 }

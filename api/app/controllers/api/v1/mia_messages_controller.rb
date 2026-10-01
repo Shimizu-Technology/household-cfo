@@ -45,7 +45,13 @@ module Api
         @active_mia_message_request = message_request
 
         if attached_imports.empty? && (memory_command = mia_memory_command(content))
-          return render_mia_memory_command(session, content, memory_command, message_request: message_request)
+          return render_mia_memory_command(
+            session,
+            content,
+            memory_command,
+            message_request: message_request,
+            retire_prior_document_evidence: document_evidence_topic_present?(session)
+          )
         end
 
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
@@ -61,10 +67,6 @@ module Api
           session,
           household: current_household,
           persona_context_id: current_persona.continuity_id
-        ).call
-        conversation_context[:personalization_memory] = HouseholdFinance::MiaMemoryContextBuilder.new(
-          current_household,
-          user: current_user
         ).call
         prior_evidence = prior_document_evidence(conversation_context)
         prior_evidence_imports = prior_evidence.fetch(:document_imports)
@@ -151,6 +153,10 @@ module Api
         )
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
+        response_conversation_context[:personalization_memory] = HouseholdFinance::MiaMemoryContextBuilder.new(
+          current_household,
+          user: current_user
+        ).call
 
         assistant_content = assistant_content_for(
           content,
@@ -256,7 +262,7 @@ module Api
         { type: :create, value: value }
       end
 
-      def render_mia_memory_command(session, content, command, message_request:)
+      def render_mia_memory_command(session, content, command, message_request:, retire_prior_document_evidence:)
         case command.fetch(:type)
         when :list
           assistant_content = mia_memory_list_answer
@@ -287,6 +293,7 @@ module Api
           spending_report: nil,
           memory: memory&.as_api_json(viewer: current_user)
         }
+        retire_document_evidence_state(session) if retire_prior_document_evidence
         complete_message_request(message_request, response_payload)
         record_mia_operation("mia.request.completed", assistant_message: assistant_message)
         render json: response_payload, status: :created
@@ -332,7 +339,7 @@ module Api
         return "Personalization is paused. I still keep the choices shown under My Profile → What Mia remembers, but I am not using them in replies." if membership.mia_personalization_paused?
         return "I do not have any active saved memories for you. I do not mine chat history. Say “Remember that…” or add one under My Profile → What Mia remembers." if memories.empty?
 
-        lines = memories.map.with_index { |memory, index| "#{index + 1}. #{memory.display_value} (#{memory.category.humanize.downcase}, #{memory.visibility})" }
+        lines = memories.map.with_index { |memory, index| "#{index + 1}. #{memory.display_value} (#{memory.category.humanize.downcase}, only me)" }
         "Here is what I actively remember for personalization:\n#{lines.join("\n")}\nThese are coaching context, not financial truth. You can edit or forget them under My Profile."
       end
 

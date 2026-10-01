@@ -29,7 +29,6 @@ module HouseholdFinance
         approved_household_setup: approved_household_setup,
         setup_status: SetupStatus.new(household).as_json,
         income_sources: income_sources,
-        personalization_memory: conversation_context[:personalization_memory],
         conversation: {
           active_thread: validated_active_thread,
           open_threads: validated_open_threads,

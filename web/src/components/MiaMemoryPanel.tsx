@@ -25,14 +25,12 @@ type MemoryForm = {
   category: HouseholdMemoryCategory
   display_value: string
   sensitivity: 'ordinary' | 'sensitive'
-  visibility: 'private' | 'household'
 }
 
 const initialForm: MemoryForm = {
   category: 'preference',
   display_value: '',
   sensitivity: 'ordinary',
-  visibility: 'private',
 }
 
 export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
@@ -121,7 +119,6 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
       category: memory.category,
       display_value: memory.display_value,
       sensitivity: memory.sensitivity,
-      visibility: memory.visibility,
     })
     setNotice(null)
     setError(null)
@@ -138,9 +135,11 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
 
   const paused = data?.personalization.paused ?? false
   const memories = data?.memories ?? []
+  const loading = data === null && error === null
+  const controlsUnavailable = loading || Boolean(error)
 
   return (
-    <article id="mia-memory" className="panel mia-memory-panel" aria-labelledby="mia-memory-title">
+    <article id="mia-memory" className="panel mia-memory-panel" aria-labelledby="mia-memory-title" aria-busy={loading}>
       <div className="mia-memory-heading">
         <div>
           <span className="eyebrow">Personalization you control</span>
@@ -150,7 +149,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
         <button
           type="button"
           className="secondary-button"
-          disabled={Boolean(busy)}
+          disabled={controlsUnavailable || Boolean(busy)}
           aria-pressed={paused}
           onClick={() => void act('pause', () => setMiaPersonalizationPaused(!paused), paused ? 'Personalization resumed.' : 'Personalization paused. Saved memories remain here but Mia will not use them.')}
         >
@@ -158,8 +157,9 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
         </button>
       </div>
 
+      {loading && <div className="mia-memory-loading" role="status" aria-live="polite">Loading Mia’s memories…</div>}
       {paused && <div className="mia-memory-paused" role="status"><strong>Personalization is paused.</strong> Financial facts and manual tools still work. Mia will not use or add memories until you resume.</div>}
-      {error && <p className="form-error" role="alert">{error}</p>}
+      {error && <div className="form-error" role="alert"><p>{error}</p><button type="button" className="secondary-button" onClick={() => { setError(null); void load() }}>Try again</button></div>}
       {notice && <p className="form-success" role="status">{notice}</p>}
 
       <form className="mia-memory-form" onSubmit={submit}>
@@ -170,20 +170,20 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
             value={form.display_value}
             maxLength={500}
             rows={3}
-            disabled={paused || Boolean(busy)}
+            disabled={controlsUnavailable || paused || Boolean(busy)}
             placeholder="For example: Ask one question at a time, and check in on our emergency fund goal each month."
             onChange={(event) => setForm((current) => ({ ...current, display_value: event.target.value }))}
           />
           <small>{form.display_value.length}/500</small>
         </label>
         <div className="mia-memory-form-grid">
-          <label><span>Type</span><select aria-label="Memory type" value={form.category} disabled={paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as HouseholdMemoryCategory }))}>{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
-          <label><span>Who can use it?</span><select aria-label="Memory visibility" value={form.visibility} disabled={paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, visibility: event.target.value as 'private' | 'household' }))}><option value="private">Only me</option><option value="household">People in my household</option></select></label>
+          <label><span>Type</span><select aria-label="Memory type" value={form.category} disabled={controlsUnavailable || paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as HouseholdMemoryCategory }))}>{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <div className="mia-memory-private-note"><strong>Private to you</strong><span>Other household participants and coaches cannot see or use these memories.</span></div>
         </div>
-        <label className="mia-memory-sensitive"><input type="checkbox" checked={form.sensitivity === 'sensitive'} disabled={paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, sensitivity: event.target.checked ? 'sensitive' : 'ordinary' }))} /><span>This feels sensitive. Save it for a separate confirmation before Mia can use it.</span></label>
+        <label className="mia-memory-sensitive"><input type="checkbox" checked={form.sensitivity === 'sensitive'} disabled={controlsUnavailable || paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, sensitivity: event.target.checked ? 'sensitive' : 'ordinary' }))} /><span>This feels sensitive. Save it for a separate confirmation before Mia can use it.</span></label>
         <div className="mia-memory-form-actions">
-          <button type="submit" disabled={paused || Boolean(busy) || !form.display_value.trim()}>{busy === 'create' || busy?.startsWith('edit-') ? 'Saving…' : editing ? 'Save changes' : 'Remember this'}</button>
-          {editing && <button type="button" className="secondary-button" onClick={() => { setEditing(null); setForm(initialForm) }}>Cancel edit</button>}
+          <button type="submit" disabled={controlsUnavailable || paused || Boolean(busy) || !form.display_value.trim()}>{busy === 'create' || busy?.startsWith('edit-') ? 'Saving…' : editing ? 'Save changes' : 'Remember this'}</button>
+          {editing && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { setEditing(null); setForm(initialForm) }}>Cancel edit</button>}
         </div>
       </form>
 
@@ -192,20 +192,19 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
         {memories.map((memory) => (
           <section className={`mia-memory-item status-${memory.status}`} key={memory.id} aria-label={`${categoryLabels[memory.category]} memory`}>
             <div className="mia-memory-item-copy">
-              <div className="mia-memory-badges"><span>{categoryLabels[memory.category]}</span><span>{memory.visibility === 'private' ? 'Only me' : 'Household'}</span>{memory.sensitivity === 'sensitive' && <span>Sensitive</span>}<span>{memory.status === 'user_confirmed' ? 'Active' : memory.status.replaceAll('_', ' ')}</span></div>
+              <div className="mia-memory-badges"><span>{categoryLabels[memory.category]}</span><span>Only me</span>{memory.sensitivity === 'sensitive' && <span>Sensitive</span>}<span>{memory.status === 'user_confirmed' ? 'Active' : memory.status.replaceAll('_', ' ')}</span></div>
               <p>{memory.display_value}</p>
-              {!memory.owned_by_current_user && <small>Saved by {memory.owner_name}. Only they can change or forget it.</small>}
             </div>
-            {memory.owned_by_current_user && <div className="mia-memory-item-actions">
-              {memory.status === 'pending_confirmation' && <button type="button" disabled={Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id), 'Memory confirmed. Mia can use it now.')}>Confirm</button>}
-              {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={Boolean(busy)} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), 'Memory rejected. Mia will not use it.')}>Reject</button>}
-              <button type="button" className="secondary-button" disabled={Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
-              <button type="button" className="danger-button" disabled={Boolean(busy)} onClick={() => { if (window.confirm('Forget this memory? Mia will stop using it immediately.')) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>
-            </div>}
+            <div className="mia-memory-item-actions">
+              {memory.status === 'pending_confirmation' && <button type="button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id), 'Memory confirmed. Mia can use it now.')}>Confirm</button>}
+              {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), 'Memory rejected. Mia will not use it.')}>Reject</button>}
+              <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
+              <button type="button" className="danger-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { if (window.confirm('Forget this memory? Mia will stop using it immediately.')) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>
+            </div>
           </section>
         ))}
       </div>
-      <p className="mia-memory-policy"><strong>Privacy:</strong> Coaches cannot see this list. Clearing chat does not erase these choices; use Forget here when you want Mia to stop using one.</p>
+      <p className="mia-memory-policy"><strong>Privacy:</strong> This list is private to you. Other household participants and coaches cannot see it. Clearing chat does not erase these choices; use Forget here when you want Mia to stop using one.</p>
     </article>
   )
 }

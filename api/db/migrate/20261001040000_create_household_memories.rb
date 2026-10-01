@@ -31,7 +31,7 @@ class CreateHouseholdMemories < ActiveRecord::Migration[8.0]
       "sensitivity IN ('ordinary', 'sensitive')",
       name: "household_memories_sensitivity_valid"
     add_check_constraint :household_memories,
-      "visibility IN ('private', 'household')",
+      "visibility = 'private'",
       name: "household_memories_visibility_valid"
     add_check_constraint :household_memories,
       "source_kind IN ('manual_profile', 'mia_command')",

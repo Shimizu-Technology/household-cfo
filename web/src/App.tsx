@@ -2375,7 +2375,7 @@ function App() {
                   <p>Talk it through or update the plan while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
-                  {(!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
+                  {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
                     setIsChatExpanded(false)
                     switchSection('My Profile')
                     window.setTimeout(() => document.getElementById('mia-memory')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)

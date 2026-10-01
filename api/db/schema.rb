@@ -426,7 +426,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_040100) do
     t.check_constraint "sensitivity::text = ANY (ARRAY['ordinary'::character varying::text, 'sensitive'::character varying::text])", name: "household_memories_sensitivity_valid"
     t.check_constraint "source_kind::text = ANY (ARRAY['manual_profile'::character varying::text, 'mia_command'::character varying::text])", name: "household_memories_source_kind_valid"
     t.check_constraint "status::text = ANY (ARRAY['pending_confirmation'::character varying::text, 'user_confirmed'::character varying::text, 'rejected'::character varying::text, 'expired'::character varying::text])", name: "household_memories_status_valid"
-    t.check_constraint "visibility::text = ANY (ARRAY['private'::character varying::text, 'household'::character varying::text])", name: "household_memories_visibility_valid"
+    t.check_constraint "visibility::text = 'private'::text", name: "household_memories_visibility_valid"
   end
 
   create_table "household_profiles", force: :cascade do |t|

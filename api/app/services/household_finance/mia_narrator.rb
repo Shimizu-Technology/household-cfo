@@ -144,6 +144,21 @@ module HouseholdFinance
       json = JSON.generate(packet)
       return json if json.bytesize <= MAX_PACKET_BYTES
 
+      bounded_packet = packet.deep_dup
+      memory = bounded_packet[:personalization_memory]
+      if memory.is_a?(Hash)
+        memories = Array(memory[:memories]).dup
+        while memories.any?
+          memories.pop
+          memory[:memories] = memories
+          json = JSON.generate(bounded_packet)
+          return json if json.bytesize <= MAX_PACKET_BYTES
+        end
+        bounded_packet.delete(:personalization_memory)
+        json = JSON.generate(bounded_packet)
+        return json if json.bytesize <= MAX_PACKET_BYTES
+      end
+
       JSON.generate(packet.slice(:kind, :basis, :write_state, :verified_reference_answer, :guardrails))
     end
 

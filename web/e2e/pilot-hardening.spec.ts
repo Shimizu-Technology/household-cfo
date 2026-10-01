@@ -366,7 +366,7 @@ async function mockDemoApi(page: Page) {
     memories,
     personalization: { paused: memoryPaused, paused_at: memoryPaused ? '2026-10-01T01:00:00Z' : null },
     policy: {
-      source: 'Only memories you or a household participant explicitly saved appear here.',
+      source: 'Only memories you explicitly saved appear here. Each household participant has a private memory list.',
       financial_truth: 'Mia uses approved household records for financial facts.',
       coach_visibility: false,
     },
@@ -415,7 +415,7 @@ async function mockDemoApi(page: Page) {
       const input = route.request().postDataJSON().memory
       const memory = {
         id: nextMemoryId++, category: input.category, status: input.sensitivity === 'sensitive' ? 'pending_confirmation' : 'user_confirmed',
-        sensitivity: input.sensitivity, visibility: input.visibility, display_value: input.display_value, structured_value: {},
+        sensitivity: input.sensitivity, visibility: 'private', display_value: input.display_value, structured_value: {},
         owned_by_current_user: true, owner_name: 'You', source_kind: 'manual_profile',
         confirmed_at: input.sensitivity === 'sensitive' ? null : '2026-10-01T01:00:00Z', expires_at: null,
         created_at: '2026-10-01T01:00:00Z', updated_at: '2026-10-01T01:00:00Z',
@@ -575,7 +575,7 @@ test('Mia memory stays explicit, reversible, and usable on mobile and desktop', 
   const input = page.getByRole('textbox', { name: 'Memory for Mia' })
   await input.fill('Check in on our emergency fund goal each month.')
   await page.getByRole('combobox', { name: 'Memory type' }).selectOption('follow_up')
-  await page.getByRole('combobox', { name: 'Memory visibility' }).selectOption('household')
+  await expect(page.getByText('Other household participants and coaches cannot see or use these memories.')).toBeVisible()
   await page.getByRole('button', { name: 'Remember this' }).click()
   await expect(page.getByText('Check in on our emergency fund goal each month.')).toBeVisible()
   await expect(page.getByText('Saved. Mia can use this on your next message.')).toBeVisible()
@@ -592,6 +592,38 @@ test('Mia memory stays explicit, reversible, and usable on mobile and desktop', 
   await expect(page.getByRole('status').filter({ hasText: 'Personalization is paused.' })).toBeVisible()
   await expect(input).toBeDisabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('Mia memory shows a real initial loading state and keeps controls disabled', async ({ page }) => {
+  let releaseMemory: (() => void) | undefined
+  const memoryGate = new Promise<void>((resolve) => { releaseMemory = resolve })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/household_memories', async (route) => {
+    await memoryGate
+    return route.fulfill({
+      status: 200,
+      json: {
+        memories: [],
+        personalization: { paused: false, paused_at: null },
+        policy: {
+          source: 'Only memories you explicitly saved appear here.',
+          financial_truth: 'Mia uses approved household records for financial facts.',
+          coach_visibility: false,
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('button', { name: 'Memory', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Loading Mia’s memories…' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Memory for Mia' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Pause personalization' })).toBeDisabled()
+
+  releaseMemory?.()
+  await expect(page.getByText('Nothing saved yet.')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Memory for Mia' })).toBeEnabled()
 })
 
 test('an initial workspace loading failure offers a real retry and restores the participant app', async ({ page }) => {
@@ -2467,6 +2499,7 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Feedback', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Memory', exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Read the 3-minute guide' }).click()
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()

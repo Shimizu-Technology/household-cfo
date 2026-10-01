@@ -531,6 +531,22 @@
   background: rgba(255, 244, 218, 0.72);
 }
 
+.mia-memory-loading,
+.mia-memory-private-note {
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--paper-deep);
+}
+
+.mia-memory-private-note {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+}
+
+.mia-memory-private-note strong { color: var(--ink); }
+
 .mia-memory-form {
   display: grid;
   gap: 14px;
