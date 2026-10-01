@@ -3413,6 +3413,105 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio protects unsaved assistant source selections across tabs and global navigation', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'source-selection navigation regression')
+  const publishedVersion: MockContentPackVersion = {
+    id: 931,
+    pack_id: 921,
+    name: 'Mrs. Mel Guam context',
+    description: 'Reviewed Guam family context for participant-led conversations.',
+    scope: 'coach',
+    pack_kind: 'voice_culture',
+    version: 1,
+    digest: 'pack-digest',
+    published_at: '2026-10-01T01:04:00Z',
+    items: [],
+  }
+  const pack: MockContentPack = {
+    id: 921,
+    name: publishedVersion.name,
+    description: publishedVersion.description,
+    scope: 'coach',
+    pack_kind: 'voice_culture',
+    item_version_ids: [],
+    draft_revision: 1,
+    draft_manifest_digest: 'pack-draft-1',
+    archived: false,
+    editable: true,
+    draft_items: [],
+    current_published_version: publishedVersion,
+    versions: [publishedVersion],
+    has_unpublished_changes: false,
+    item_updates_available: false,
+    update_available: false,
+    updated_at: '2026-10-01T01:04:00Z',
+  }
+
+  await page.route('http://api.test/api/v1/admin/content_packs', (route) => route.fulfill({ status: 200, json: { packs: [pack] } }))
+  await page.route('http://api.test/api/v1/admin/personas/81/content_packs', (route) => {
+    const ids = route.request().postDataJSON().content_packs.pack_version_ids as number[]
+    return route.fulfill({
+      status: 200,
+      json: {
+        persona: {
+          ...personaDetailFixture(),
+          draft_revision: 2,
+          content_packs: ids.includes(publishedVersion.id) ? [publishedVersion] : [],
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  const sourceCheckbox = page.getByLabel(/Mrs. Mel Guam context/)
+  await sourceCheckbox.check()
+
+  for (const target of [/Coaching Library/, /Participant tools/]) {
+    page.once('dialog', async (dialog) => {
+      expect(dialog.message()).toContain('Discard unsaved Coach Studio changes')
+      await dialog.dismiss()
+    })
+    await page.getByRole('tab', { name: target }).click()
+    await expect(page.getByRole('tab', { name: /Assistant voice/ })).toHaveAttribute('aria-selected', 'true')
+    await expect(sourceCheckbox).toBeChecked()
+  }
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard your unsaved Coach Studio changes')
+    await dialog.dismiss()
+  })
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expect(page).toHaveURL(/#Coach%20Studio$/)
+  await expect(sourceCheckbox).toBeChecked()
+
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await expect(page.getByLabel(/Mrs. Mel Guam context/)).not.toBeChecked()
+
+  await page.getByLabel(/Mrs. Mel Guam context/).check()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await expect(page).toHaveURL(/#Home$/)
+  await openSection(page, 'Coach Studio')
+  await expect(page.getByLabel(/Mrs. Mel Guam context/)).not.toBeChecked()
+
+  await page.getByLabel(/Mrs. Mel Guam context/).check()
+  await page.getByRole('button', { name: 'Save source selection' }).click()
+  await expect(page.getByRole('status')).toContainText('fresh preview')
+  let promptedAfterSave = false
+  const acceptUnexpectedPrompt = async (dialog: import('@playwright/test').Dialog) => {
+    promptedAfterSave = true
+    await dialog.accept()
+  }
+  page.on('dialog', acceptUnexpectedPrompt)
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+  await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
+  page.off('dialog', acceptUnexpectedPrompt)
+  expect(promptedAfterSave).toBe(false)
+})
+
 test('Coach Studio protects unsaved work across mobile back and section navigation', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')

@@ -77,6 +77,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [experienceDirty, setExperienceDirty] = useState(false)
   const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
   const [libraryDirty, setLibraryDirty] = useState(false)
+  const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const selectedIdRef = useRef<number | null>(null)
   const loadPersonaRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
@@ -88,7 +89,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty || libraryDirty
+  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -116,6 +117,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setConflict(null)
       setPendingSelectionId(null)
       setPendingLibraryReturn(false)
+      setPersonaSourcesDirty(false)
       setPersonas((current) => replacePersonaSummary(current, persona))
       if (focusEditorAfterLoadRef.current) {
         focusEditorAfterLoadRef.current = false
@@ -194,6 +196,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     }
     setExperienceDirty(false)
     setLibraryDirty(false)
+    setPersonaSourcesDirty(false)
     setStudioSection(next)
   }
 
@@ -211,7 +214,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   function requestSelection(personaId: number) {
     if (personaId === selectedPersona?.id) return
-    if (dirty) {
+    if (dirty || personaSourcesDirty) {
       setPendingSelectionId(personaId)
       setConflict('You have unsaved changes. Save this draft or discard the changes before opening another assistant.')
       return
@@ -221,7 +224,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   function requestLibraryReturn() {
-    if (dirty) {
+    if (dirty || personaSourcesDirty) {
       setPendingLibraryReturn(true)
       setConflict('You have unsaved changes. Save this draft or discard the changes before returning to the assistant library.')
       return
@@ -234,6 +237,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     selectedIdRef.current = null
     setSelectedPersona(null)
     setDraft(null)
+    setPersonaSourcesDirty(false)
     setPendingLibraryReturn(false)
     setConflict(null)
     window.requestAnimationFrame(() => libraryHeadingRef.current?.focus())
@@ -659,7 +663,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                   key={selectedPersona.id}
                   persona={selectedPersona}
                   dirty={dirty}
+                  onDirtyChange={setPersonaSourcesDirty}
                   onPersonaChange={(persona) => {
+                    setPersonaSourcesDirty(false)
                     acceptPersona(persona)
                     setNotice('Approved content selection saved. Run a fresh preview before publishing.')
                   }}

@@ -324,9 +324,10 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
   )
 }
 
-export function PersonaContentPacksPanel({ persona, dirty, onPersonaChange }: {
+export function PersonaContentPacksPanel({ persona, dirty, onDirtyChange, onPersonaChange }: {
   persona: AdminPersonaDetail
   dirty: boolean
+  onDirtyChange: (dirty: boolean) => void
   onPersonaChange: (persona: AdminPersonaDetail) => void
 }) {
   const [packs, setPacks] = useState<AdminContentPack[]>([])
@@ -359,6 +360,9 @@ export function PersonaContentPacksPanel({ persona, dirty, onPersonaChange }: {
   }
 
   const changed = selectedIds.join(',') !== (persona.content_packs?.map((pack) => pack.id) ?? []).join(',')
+
+  useEffect(() => onDirtyChange(changed), [changed, onDirtyChange])
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function save() {
     setBusy(true)
