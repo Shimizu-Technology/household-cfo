@@ -97,6 +97,13 @@ Rails.application.routes.draw do
         end
         resources :cohorts, only: %i[index show create update] do
           resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]
+          resource :experience_configuration, controller: "cohort_experience_configurations", only: %i[show update] do
+            post :preview
+            post :publish
+            resources :versions, controller: "cohort_experience_versions", only: :show do
+              post :rollback, on: :member
+            end
+          end
         end
         resources :pilot_feedback_reports, only: %i[index show update] do
           get :screenshot_url, on: :member

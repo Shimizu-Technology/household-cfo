@@ -2,8 +2,9 @@
 
 module Mia
   class EffectiveCohortResolver
-    def initialize(user:)
+    def initialize(user:, role: nil)
       @user = user
+      @role = role
     end
 
     def call
@@ -14,10 +15,11 @@ module Mia
 
     private
 
-    attr_reader :user
+    attr_reader :user, :role
 
     def memberships
-      user.cohort_memberships.includes(:cohort)
+      relation = user.cohort_memberships.includes(:cohort)
+      role ? relation.where(role: role) : relation
     end
 
     def membership_for_status(status)

@@ -42,6 +42,25 @@ export type WorkspaceData = {
     role: 'participant' | 'coach' | 'admin'
     status: AdminCohortStatus
   }
+  capabilities: ExperienceCapabilities
+}
+
+export type ExperienceModuleId = 'home' | 'review' | 'ask_mia' | 'budget' | 'profile' | 'wealth' | 'cfo_filter' | 'optionality'
+
+export type ExperienceCapability = {
+  id: ExperienceModuleId
+  label: string
+  enabled: boolean
+  core: boolean
+  unavailable_message?: string
+}
+
+export type ExperienceCapabilities = {
+  schema_version: 1
+  source: 'published_cohort' | 'standalone_default' | 'safe_default' | 'demo'
+  cohort_id: number | null
+  experience_version: null | { id: number; number: number }
+  modules: ExperienceCapability[]
 }
 
 export type DebtType = 'credit_card' | 'student_loan' | 'auto_loan' | 'mortgage' | 'personal_loan' | 'medical' | 'other'
@@ -1002,6 +1021,47 @@ export type AdminCohort = {
   }>
 }
 
+export type CohortExperienceDraft = {
+  schema_version: 1
+  optional_modules: {
+    cfo_filter: boolean
+    optionality: boolean
+  }
+}
+
+export type CohortExperienceVersion = {
+  id: number
+  number: number
+  digest: string
+  published_at: string
+  published_by: { id: number; full_name: string }
+  config?: CohortExperienceDraft
+  restored_from_version?: null | { id: number; number: number }
+}
+
+export type CohortExperienceConfiguration = {
+  cohort: {
+    id: number
+    name: string
+    status: AdminCohortStatus
+    participant_count: number
+  }
+  draft: CohortExperienceDraft
+  draft_revision: number
+  preview_required: boolean
+  preview: null | { digest: string; draft_revision: number; generated_at: string }
+  published_version: CohortExperienceVersion | null
+  versions: CohortExperienceVersion[]
+  permissions: { edit: boolean; publish: boolean; rollback: boolean }
+}
+
+export type CohortExperiencePreview = {
+  digest: string
+  draft_revision: number
+  generated_at: string
+  modules: ExperienceCapability[]
+}
+
 export type AdminInviteEmailStatus = 'not_sent' | 'skipped' | 'sent' | 'failed'
 
 export type AdminUser = CurrentUser & {
@@ -1114,8 +1174,8 @@ export type AppData = {
   dashboard: DashboardData
   budget: BudgetData
   wealth: WealthData
-  optionality: OptionalityData
-  cfoFilter: CfoFilterData
+  optionality?: OptionalityData
+  cfoFilter?: CfoFilterData
   mia: MiaMessagesData
 }
 
@@ -1443,6 +1503,51 @@ export async function fetchAdminCohorts(): Promise<AdminCohort[]> {
   return payload.cohorts
 }
 
+export async function fetchCohortExperienceConfiguration(cohortId: number, signal?: AbortSignal): Promise<CohortExperienceConfiguration> {
+  const payload = await fetchJson<{ experience_configuration: CohortExperienceConfiguration }>(
+    `/api/v1/admin/cohorts/${cohortId}/experience_configuration`,
+    { signal },
+  )
+  return payload.experience_configuration
+}
+
+export async function updateCohortExperienceConfiguration(
+  cohortId: number,
+  draftRevision: number,
+  draftConfig: CohortExperienceDraft,
+): Promise<CohortExperienceConfiguration> {
+  const payload = await fetchJson<{ experience_configuration: CohortExperienceConfiguration }>(`/api/v1/admin/cohorts/${cohortId}/experience_configuration`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ experience_configuration: { draft_revision: draftRevision, draft_config: draftConfig } }),
+  })
+  return payload.experience_configuration
+}
+
+export async function previewCohortExperienceConfiguration(
+  cohortId: number,
+  draftRevision: number,
+): Promise<{ preview: CohortExperiencePreview; experience_configuration: CohortExperienceConfiguration }> {
+  return postJson(`/api/v1/admin/cohorts/${cohortId}/experience_configuration/preview`, {
+    experience_configuration: { draft_revision: draftRevision },
+  })
+}
+
+export async function publishCohortExperienceConfiguration(
+  cohortId: number,
+  values: { draft_revision: number; preview_digest: string; expected_published_version_id: number | null },
+): Promise<{ experience_configuration: CohortExperienceConfiguration; published_version: CohortExperienceVersion }> {
+  return postJson(`/api/v1/admin/cohorts/${cohortId}/experience_configuration/publish`, { experience_configuration: values })
+}
+
+export async function rollbackCohortExperienceConfiguration(
+  cohortId: number,
+  versionId: number,
+  values: { draft_revision: number; expected_published_version_id: number | null },
+): Promise<{ experience_configuration: CohortExperienceConfiguration; published_version: CohortExperienceVersion }> {
+  return postJson(`/api/v1/admin/cohorts/${cohortId}/experience_configuration/versions/${versionId}/rollback`, { experience_configuration: values })
+}
+
 export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
   const payload = await fetchJson<{ personas: AdminPersonaSummary[] }>('/api/v1/admin/personas')
   return payload.personas
@@ -1766,6 +1871,16 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
       debts: [],
       cohort: null,
+      capabilities: {
+        schema_version: 1,
+        source: 'demo',
+        cohort_id: null,
+        experience_version: null,
+        modules: [
+          ['home', 'Home'], ['review', 'Review'], ['ask_mia', 'Ask Mia'], ['budget', 'Budget'],
+          ['profile', 'My Profile'], ['wealth', 'Wealth'], ['cfo_filter', 'CFO Filter'], ['optionality', 'Optionality'],
+        ].map(([id, label]) => ({ id: id as ExperienceModuleId, label, enabled: true, core: !['cfo_filter', 'optionality'].includes(id) })),
+      },
     },
     profile,
     dashboard,

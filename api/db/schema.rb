@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_040100) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -130,7 +130,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_040100) do
     t.index ["coach_persona_id"], name: "index_coach_persona_publication_events_on_coach_persona_id"
     t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_4ab8b00110"
     t.index ["source_version_id"], name: "index_coach_persona_publication_events_on_source_version_id"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "coach_persona_publication_events_type_valid"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "coach_persona_publication_events_type_valid"
   end
 
   create_table "coach_persona_versions", force: :cascade do |t|
@@ -177,6 +177,61 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_040100) do
     t.check_constraint "octet_length(draft_config::text) <= 36864", name: "coach_personas_draft_config_bytes"
     t.check_constraint "preview_digest IS NULL AND previewed_at IS NULL AND previewed_draft_revision IS NULL OR preview_digest IS NOT NULL AND previewed_at IS NOT NULL AND previewed_draft_revision IS NOT NULL", name: "coach_personas_preview_fields_complete"
     t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_personas_preview_digest_sha256"
+  end
+
+  create_table "cohort_experience_configurations", force: :cascade do |t|
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "current_published_version_id"
+    t.jsonb "draft_config", default: {}, null: false
+    t.integer "draft_revision", default: 1, null: false
+    t.bigint "last_edited_by_user_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "preview_digest"
+    t.datetime "previewed_at"
+    t.integer "previewed_draft_revision"
+    t.datetime "updated_at", null: false
+    t.index ["cohort_id"], name: "index_cohort_experience_configurations_on_cohort_id", unique: true
+    t.index ["current_published_version_id"], name: "idx_on_current_published_version_id_c3dd196ade"
+    t.index ["last_edited_by_user_id"], name: "idx_on_last_edited_by_user_id_f58c8a3820"
+    t.check_constraint "draft_revision > 0", name: "cohort_experience_configurations_positive_revision"
+    t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "cohort_experience_configurations_draft_object"
+    t.check_constraint "octet_length(draft_config::text) <= 4096", name: "cohort_experience_configurations_draft_bytes"
+    t.check_constraint "preview_digest IS NULL AND previewed_draft_revision IS NULL AND previewed_at IS NULL OR preview_digest IS NOT NULL AND previewed_draft_revision IS NOT NULL AND previewed_at IS NOT NULL", name: "cohort_experience_configurations_preview_complete"
+    t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_experience_configurations_preview_digest"
+  end
+
+  create_table "cohort_experience_publication_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "cohort_experience_configuration_id", null: false
+    t.bigint "cohort_experience_version_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.bigint "source_version_id"
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_cohort_experience_publication_events_on_actor_user_id"
+    t.index ["cohort_experience_configuration_id"], name: "index_cohort_experience_events_on_configuration"
+    t.index ["cohort_experience_version_id"], name: "index_cohort_experience_events_on_version"
+    t.index ["source_version_id"], name: "idx_on_source_version_id_eaa4a993fe"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "cohort_experience_publication_events_type"
+  end
+
+  create_table "cohort_experience_versions", force: :cascade do |t|
+    t.bigint "cohort_experience_configuration_id", null: false
+    t.jsonb "config", null: false
+    t.string "config_digest", null: false
+    t.datetime "created_at", null: false
+    t.bigint "published_by_user_id", null: false
+    t.bigint "source_version_id"
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["cohort_experience_configuration_id", "version_number"], name: "index_cohort_experience_versions_on_config_and_number", unique: true
+    t.index ["published_by_user_id"], name: "index_cohort_experience_versions_on_published_by_user_id"
+    t.index ["source_version_id"], name: "index_cohort_experience_versions_on_source_version_id"
+    t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_experience_versions_digest"
+    t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "cohort_experience_versions_config_object"
+    t.check_constraint "octet_length(config::text) <= 4096", name: "cohort_experience_versions_config_bytes"
+    t.check_constraint "version_number > 0", name: "cohort_experience_versions_positive_number"
   end
 
   create_table "cohort_memberships", force: :cascade do |t|
@@ -973,6 +1028,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_040100) do
   add_foreign_key "coach_persona_versions", "users", column: "published_by_user_id"
   add_foreign_key "coach_personas", "coach_persona_versions", column: "current_published_version_id"
   add_foreign_key "coach_personas", "users", column: "created_by_user_id"
+  add_foreign_key "cohort_experience_configurations", "cohort_experience_versions", column: "current_published_version_id"
+  add_foreign_key "cohort_experience_configurations", "cohorts"
+  add_foreign_key "cohort_experience_configurations", "users", column: "last_edited_by_user_id"
+  add_foreign_key "cohort_experience_publication_events", "cohort_experience_configurations"
+  add_foreign_key "cohort_experience_publication_events", "cohort_experience_versions"
+  add_foreign_key "cohort_experience_publication_events", "cohort_experience_versions", column: "source_version_id"
+  add_foreign_key "cohort_experience_publication_events", "users", column: "actor_user_id"
+  add_foreign_key "cohort_experience_versions", "cohort_experience_configurations"
+  add_foreign_key "cohort_experience_versions", "cohort_experience_versions", column: "source_version_id"
+  add_foreign_key "cohort_experience_versions", "users", column: "published_by_user_id"
   add_foreign_key "cohort_memberships", "cohorts"
   add_foreign_key "cohort_memberships", "users"
   add_foreign_key "cohort_persona_assignments", "coach_persona_versions"

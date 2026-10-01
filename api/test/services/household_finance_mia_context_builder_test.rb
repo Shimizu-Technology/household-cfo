@@ -1,6 +1,24 @@
 require "test_helper"
 
 class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
+  test "tells Mia which cohort product modules are available" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "context-modules@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Module context household")
+    capabilities = {
+      modules: [
+        { id: "home", enabled: true },
+        { id: "cfo_filter", enabled: false },
+        { id: "optionality", enabled: true }
+      ]
+    }
+
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household, experience_capabilities: capabilities).call)
+
+    assert_equal %w[home optionality], payload.dig("available_product_modules", "enabled")
+    assert_equal [ "cfo_filter" ], payload.dig("available_product_modules", "disabled")
+    assert_includes payload.dig("available_product_modules", "safety_note"), "enabled modules"
+  end
+
   test "serializes user-controlled household text as bounded untrusted JSON data" do
     user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",

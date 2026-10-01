@@ -2,6 +2,8 @@ module Api
   module V1
     class HouseholdsController < BaseController
       before_action :authenticate_user!
+      before_action -> { require_experience_module!("optionality") }, only: :optionality
+      before_action -> { require_experience_module!("cfo_filter") }, only: :cfo_filter
 
       def profile
         render json: presenter.profile

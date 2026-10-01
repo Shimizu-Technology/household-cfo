@@ -33,6 +33,7 @@ import {
   replaceListItem as replaceAt,
 } from '../lib/personaDraft'
 import { Button } from './Button'
+import { CohortExperienceStudio } from './CohortExperienceStudio'
 import './CoachStudio.css'
 
 const guidedSteps = [
@@ -47,6 +48,7 @@ type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
+type StudioView = 'assistants' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
@@ -71,6 +73,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [createDescription, setCreateDescription] = useState('')
   const [pendingSelectionId, setPendingSelectionId] = useState<number | null>(null)
   const [pendingLibraryReturn, setPendingLibraryReturn] = useState(false)
+  const [studioView, setStudioView] = useState<StudioView>('assistants')
+  const [experienceDirty, setExperienceDirty] = useState(false)
   const selectedIdRef = useRef<number | null>(null)
   const loadPersonaRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
@@ -82,6 +86,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
+  const studioDirty = dirty || experienceDirty
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -163,20 +168,31 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }, [createOpen])
 
   useEffect(() => {
-    onDirtyChange(dirty)
-  }, [dirty, onDirtyChange])
+    onDirtyChange(studioDirty)
+  }, [studioDirty, onDirtyChange])
 
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   useEffect(() => {
-    if (!dirty) return
+    if (!studioDirty) return
     const protectUnsavedDraft = (event: BeforeUnloadEvent) => {
       event.preventDefault()
       event.returnValue = ''
     }
     window.addEventListener('beforeunload', protectUnsavedDraft)
     return () => window.removeEventListener('beforeunload', protectUnsavedDraft)
-  }, [dirty])
+  }, [studioDirty])
+
+  function chooseStudioView(next: StudioView) {
+    if (next === studioView) return
+    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return
+    if (dirty && selectedPersona) {
+      setDraft(selectedPersona.draft ?? null)
+      setDescription(selectedPersona.description)
+    }
+    setExperienceDirty(false)
+    setStudioView(next)
+  }
 
   function replaceDraft(next: PersonaConfiguration) {
     setDraft(next)
@@ -487,7 +503,18 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </div>
       )}
 
-      <div className={`coach-studio-layout${selectedPersona ? ' has-selection' : ''}`}>
+      <div className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
+        <button type="button" role="tab" aria-selected={studioView === 'assistants'} onClick={() => chooseStudioView('assistants')}>
+          <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
+        </button>
+        <button type="button" role="tab" aria-selected={studioView === 'participant_tools'} onClick={() => chooseStudioView('participant_tools')}>
+          <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
+        </button>
+      </div>
+
+      {studioView === 'participant_tools' ? (
+        <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
+      ) : <div className={`coach-studio-layout${selectedPersona ? ' has-selection' : ''}`}>
         <aside className="coach-library panel" aria-label="Coaching assistants">
           <div className="coach-library-heading">
             <div>
@@ -643,7 +670,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             </>
           )}
         </div>
-      </div>
+      </div>}
     </section>
   )
 }

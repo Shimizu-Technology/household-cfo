@@ -34,6 +34,17 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     assert_nil Mia::EffectiveCohortResolver.new(user: @participant).call
   end
 
+  test "role filtering preserves effective cohort precedence within that role" do
+    participant_cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
+    coaching_cohort = create_cohort(status: "active", starts_on: Date.new(2027, 1, 1))
+    participant_membership = participant_cohort.cohort_memberships.create!(user: @coach, role: "participant")
+    coaching_membership = coaching_cohort.cohort_memberships.create!(user: @coach, role: "coach")
+
+    assert_equal coaching_membership, Mia::EffectiveCohortResolver.new(user: @coach).call
+    assert_equal participant_membership, Mia::EffectiveCohortResolver.new(user: @coach, role: "participant").call
+    assert_nil Mia::EffectiveCohortResolver.new(user: @participant, role: "coach").call
+  end
+
   test "persona resolver returns the effective cohort published runtime persona" do
     persona, version = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
     cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))

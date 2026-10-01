@@ -759,6 +759,44 @@ textarea:focus-visible {
   border: 0;
 }
 
+.module-unavailable-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid color-mix(in srgb, var(--gold) 55%, var(--line));
+  border-radius: 1rem;
+  background: color-mix(in srgb, var(--paper) 90%, var(--gold));
+}
+
+.module-unavailable-notice strong,
+.module-unavailable-notice p {
+  margin: 0;
+}
+
+.module-unavailable-notice div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.module-unavailable-notice button {
+  min-height: 2.75rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--ink);
+  background: var(--paper);
+  font-weight: 800;
+}
+
+@media (max-width: 480px) {
+  .module-unavailable-notice {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}
+
 .loading-state {
   min-height: 100vh;
   display: grid;

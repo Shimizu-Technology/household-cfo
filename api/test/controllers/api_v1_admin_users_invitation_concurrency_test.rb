@@ -78,6 +78,7 @@ class ApiV1AdminUsersInvitationConcurrencyTest < ActiveSupport::TestCase
     2.times { release << true } if defined?(release)
     threads&.each { |thread| thread.join(1) }
     CohortMembership.where(user_id: participant&.id).delete_all
+    CohortExperienceConfiguration.where(cohort_id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
     Cohort.where(id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
     User.where(id: [ participant&.id, admin&.id ].compact).delete_all
   end
