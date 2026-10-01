@@ -3104,6 +3104,71 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
 })
 
+test('confirmed import history does not project the same draft into budget impact twice', async ({ page }) => {
+  const confirmedDraft = {
+    id: 406,
+    occurred_on: `${currentYear}-08-05`,
+    merchant: 'Confirmed market purchase',
+    amount: 56.25,
+    amount_cents: 5_625,
+    status: 'confirmed',
+    source_type: 'receipt',
+    financial_document_import_id: 407,
+    category_id: 2,
+    category_name: 'Dining out',
+    confirmed_transaction_id: 408,
+    splits: [{
+      id: 409,
+      budget_category_id: 2,
+      category_name: 'Dining out',
+      stack_key: 'discretionary',
+      stack_label: 'Discretionary',
+      amount: 56.25,
+      amount_cents: 5_625,
+      notes: null,
+      confidence: 0.9,
+      metadata: {},
+    }],
+    matches: [],
+  }
+  const confirmedImport = {
+    id: 407,
+    household_id: 77,
+    document_kind: 'receipt',
+    status: 'applied',
+    filename: 'confirmed-receipt.pdf',
+    content_type: 'application/pdf',
+    byte_size: 2_048,
+    document_date: confirmedDraft.occurred_on,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'One confirmed transaction.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: `${currentYear}-08-16T01:05:00Z`,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:05:00Z`,
+    source_available: false,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [confirmedDraft],
+    attempts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [confirmedImport] } }))
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+
+  const card = page.locator('.transaction-draft-card').filter({ hasText: confirmedDraft.merchant })
+  await expect(card).toContainText('Receipt')
+  await expect(card).toContainText('Confirmed. Actuals were updated.')
+  await expect(card.getByRole('region', { name: /Budget impact if approved/ })).toHaveCount(0)
+})
+
 test('PDF document preview keeps keyboard focus inside accessible controls', async ({ page }) => {
   const pdfImport = {
     id: 606,

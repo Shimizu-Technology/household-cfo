@@ -7402,7 +7402,7 @@ function TransactionDraftReviewCard({
             }}>Review categories</button>}
           </section>
         )}
-        {plan && budgetImpacts.length > 0 && (
+        {isPending && plan && budgetImpacts.length > 0 && (
           <TransactionDraftBudgetImpactPanel occurredOn={impactDraft.occurred_on} impacts={budgetImpacts} editing={editing} />
         )}
         {proposedMatches.length > 0 && (
