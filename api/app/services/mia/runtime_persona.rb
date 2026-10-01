@@ -61,7 +61,9 @@ module Mia
 
     def initialize(version, config: nil, identifier: nil, persona_id: nil)
       @version = version
-      runtime_config = config || PersonaRuntimeCompatibility.call(version)
+      raise ArgumentError, "published persona config must come from its sealed version" if version && config
+
+      runtime_config = version ? PersonaRuntimeCompatibility.call(version) : config
       @config = PersonaSchema.validate!(runtime_config)
       @identifier = identifier
       @persona_id = persona_id

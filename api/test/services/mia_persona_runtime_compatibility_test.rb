@@ -37,19 +37,19 @@ class MiaPersonaRuntimeCompatibilityTest < ActiveSupport::TestCase
     other_participant = persona_user(role: "participant")
     persona = create_persona(creator: coach, name: "Legacy participant wording")
     version = publish_persona(persona, actor: coach)
-    legacy = persona.draft_config.deep_dup
-    legacy["phrases"] = [
+    legacy = legacy_configuration(persona.draft_config)
+    legacy["phrases"] = [ persona_phrase_artifact(
       {
-        "provenance" => "participant_supplied",
-        "source_user_id" => source_participant.id,
         "text" => "My storm-fund check",
         "meaning" => "The participant's own name for reviewing storm savings.",
         "allowed_contexts" => [ "routine" ],
         "prohibited_contexts" => [ "crisis" ],
         "frequency" => "rare",
         "caution" => "Use only for the participant who supplied it."
-      }
-    ]
+      },
+      source_user_id: source_participant.id,
+      provenance: "participant_supplied"
+    ) ]
     persist_legacy_config(version, legacy)
     cohort = Cohort.create!(name: "Legacy phrase cohort", status: "active", created_by_user: coach)
     source_membership = cohort.cohort_memberships.create!(user: source_participant, role: "participant")
@@ -65,6 +65,84 @@ class MiaPersonaRuntimeCompatibilityTest < ActiveSupport::TestCase
     refute_includes audience_less.system_prompt, "My storm-fund check"
     assert_equal "participant_supplied", source_runtime.cultural_phrases.sole.fetch("provenance")
     assert_equal source_participant.id, source_runtime.cultural_phrases.sole.fetch("source_user_id")
+  end
+
+  test "partial provenance never defaults participant wording to coach authored" do
+    coach = persona_user(role: "coach")
+    participant = persona_user(role: "participant")
+    persona = create_persona(creator: coach, name: "Ambiguous legacy wording")
+    version = publish_persona(persona, actor: coach)
+    ambiguous = legacy_configuration(persona.draft_config)
+    ambiguous["phrases"] = [
+      {
+        "source_user_id" => participant.id,
+        "text" => "My private savings name",
+        "meaning" => "A participant-supplied name.",
+        "allowed_contexts" => [ "routine" ],
+        "prohibited_contexts" => [ "crisis" ],
+        "frequency" => "rare",
+        "caution" => "Use only for the participant who supplied it."
+      }
+    ]
+    persist_legacy_config(version, ambiguous)
+    _cohort, membership = assigned_cohort(persona, coach:, participant:)
+
+    error = assert_raises(Mia::PersonaSchema::InvalidConfiguration) do
+      Mia::RuntimePersona.new(version.reload)
+    end
+    assert_includes error.message, "artifact_id is required"
+
+    resolved = Mia::PersonaResolver.new(user: participant, cohort_membership: membership).call
+    assert_instance_of Mia::Persona, resolved
+    assert_equal Mia::Persona::NEUTRAL_ID, resolved.id
+  end
+
+  test "schema valid published config tampering fails closed before runtime use" do
+    coach = persona_user(role: "coach")
+    participant = persona_user(role: "participant")
+    persona = create_persona(creator: coach, name: "Tamper check")
+    version = publish_persona(persona, actor: coach)
+    _cohort, membership = assigned_cohort(persona, coach:, participant:)
+    tampered = version.config.deep_dup
+    tampered["identity"]["assistant_name"] = "Tampered Mia"
+
+    assert_raises(ArgumentError) do
+      Mia::RuntimePersona.new(version, config: tampered)
+    end
+
+    version.update_columns(config: tampered)
+
+    error = assert_raises(Mia::PersonaSchema::InvalidConfiguration) do
+      Mia::RuntimePersona.new(version.reload)
+    end
+    assert_includes error.message, "digest does not match"
+
+    resolved = Mia::PersonaResolver.new(user: participant, cohort_membership: membership).call
+    assert_instance_of Mia::Persona, resolved
+    assert_equal Mia::Persona::NEUTRAL_ID, resolved.id
+  end
+
+  test "legacy phrase normalization is stable when the persona owner role changes" do
+    coach = persona_user(role: "coach")
+    persona = create_persona(creator: coach, name: "Stable legacy provenance")
+    version = publish_persona(persona, actor: coach)
+    legacy = legacy_configuration(persona.draft_config)
+    persist_legacy_config(version, legacy)
+    stored_snapshot = published_snapshot(version)
+
+    before = Mia::RuntimePersona.new(version.reload)
+    before_artifact = before.all_cultural_phrases.sole.deep_dup
+    before_prompt = before.system_prompt
+
+    coach.update!(role: "admin")
+    after = Mia::RuntimePersona.new(version.reload)
+
+    assert_equal before_artifact, after.all_cultural_phrases.sole
+    assert_equal before_prompt, after.system_prompt
+    assert_equal "coach_authored", after.all_cultural_phrases.sole.fetch("provenance")
+    assert_equal "coach", after.all_cultural_phrases.sole.fetch("source_role_at_capture")
+    assert_equal coach.id, after.all_cultural_phrases.sole.fetch("source_user_id")
+    assert_equal stored_snapshot, published_snapshot(version.reload)
   end
 
   test "legacy compatibility never repairs a digest mismatch or unsafe cultural wording" do

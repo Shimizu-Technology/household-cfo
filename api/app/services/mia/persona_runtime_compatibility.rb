@@ -6,12 +6,15 @@ require "json"
 module Mia
   class PersonaRuntimeCompatibility
     LEGACY_CONFIG_VERSION = 1
+    LEGACY_COACH_CAPTURE_ROLE = "coach"
     PHRASE_AUTHORING_KEYS = %w[text meaning allowed_contexts prohibited_contexts frequency caution].freeze
     PHRASE_PROVENANCE_KEYS = %w[artifact_id provenance source_user_id source_role_at_capture fingerprint].freeze
+    SEALED_PHRASE_KEYS = (PHRASE_AUTHORING_KEYS + PHRASE_PROVENANCE_KEYS).freeze
 
     class << self
       def call(version)
         raw_config = PersonaSchema.normalize(version.config)
+        verify_published_digest!(version, raw_config)
         return raw_config unless compatible_legacy_version?(version, raw_config)
 
         config = normalize_voice(raw_config.deep_dup)
@@ -25,10 +28,17 @@ module Mia
       private
 
       def compatible_legacy_version?(version, config)
-        return false unless version.persisted? && config["version"] == LEGACY_CONFIG_VERSION
-        return false unless version.config_digest.to_s.match?(/\A[0-9a-f]{64}\z/)
+        version.persisted? && config["version"] == LEGACY_CONFIG_VERSION
+      end
 
-        ActiveSupport::SecurityUtils.secure_compare(version.config_digest, legacy_digest(config))
+      def verify_published_digest!(version, config)
+        return unless version.persisted?
+
+        valid = version.config_digest.to_s.match?(/\A[0-9a-f]{64}\z/) &&
+          ActiveSupport::SecurityUtils.secure_compare(version.config_digest, legacy_digest(config))
+        return if valid
+
+        raise PersonaSchema::InvalidConfiguration.new([ "published persona config digest does not match stored configuration" ])
       end
 
       def seal_phrases(config, version:)
@@ -36,34 +46,37 @@ module Mia
         return config unless phrases.is_a?(Array)
 
         owner_id = version.coach_persona.created_by_user_id
-        owner_role = User.where(id: owner_id).pick(:role).presence_in(%w[admin coach]) || "coach"
         config["phrases"] = phrases.each_with_index.map do |raw_phrase, index|
-          seal_phrase(raw_phrase, version:, index:, owner_id:, owner_role:)
+          seal_phrase(raw_phrase, version:, index:, owner_id:)
         end
         config
       end
 
-      def seal_phrase(raw_phrase, version:, index:, owner_id:, owner_role:)
+      def seal_phrase(raw_phrase, version:, index:, owner_id:)
         return raw_phrase unless raw_phrase.is_a?(Hash)
 
         phrase = raw_phrase.deep_stringify_keys
-        return phrase if sealed_phrase?(phrase)
-        return phrase unless (phrase.keys - PHRASE_AUTHORING_KEYS - PHRASE_PROVENANCE_KEYS).empty?
+        return phrase if exact_sealed_phrase?(phrase)
+        return phrase unless exact_legacy_phrase?(phrase)
 
-        provenance = phrase["provenance"].presence || "coach_authored"
         artifact = phrase.slice(*PHRASE_AUTHORING_KEYS).merge(
-          "artifact_id" => phrase["artifact_id"].presence || deterministic_artifact_id(version, index),
-          "provenance" => provenance,
-          "source_user_id" => phrase["source_user_id"].presence || owner_id,
-          "source_role_at_capture" => phrase["source_role_at_capture"].presence ||
-            (provenance == "participant_supplied" ? "participant" : owner_role)
+          "artifact_id" => deterministic_artifact_id(version, index),
+          "provenance" => "coach_authored",
+          "source_user_id" => owner_id,
+          # The legacy authoring format was available only in Coach Studio. Use a
+          # stable historical capture value rather than the owner's mutable role.
+          "source_role_at_capture" => LEGACY_COACH_CAPTURE_ROLE
         )
         artifact["fingerprint"] = PersonaSchema.artifact_fingerprint(artifact)
         artifact
       end
 
-      def sealed_phrase?(phrase)
-        PHRASE_PROVENANCE_KEYS.all? { |key| phrase[key].present? }
+      def exact_sealed_phrase?(phrase)
+        phrase.keys.sort == SEALED_PHRASE_KEYS.sort
+      end
+
+      def exact_legacy_phrase?(phrase)
+        phrase.keys.sort == PHRASE_AUTHORING_KEYS.sort
       end
 
       def deterministic_artifact_id(version, index)
