@@ -34,6 +34,7 @@ import {
 } from '../lib/personaDraft'
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
+import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import './CoachStudio.css'
 
 const guidedSteps = [
@@ -48,7 +49,7 @@ type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
-type StudioView = 'assistants' | 'participant_tools'
+type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
@@ -73,8 +74,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [createDescription, setCreateDescription] = useState('')
   const [pendingSelectionId, setPendingSelectionId] = useState<number | null>(null)
   const [pendingLibraryReturn, setPendingLibraryReturn] = useState(false)
-  const [studioView, setStudioView] = useState<StudioView>('assistants')
   const [experienceDirty, setExperienceDirty] = useState(false)
+  const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
+  const [libraryDirty, setLibraryDirty] = useState(false)
+  const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const selectedIdRef = useRef<number | null>(null)
   const loadPersonaRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
@@ -86,7 +89,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty
+  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -114,6 +117,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setConflict(null)
       setPendingSelectionId(null)
       setPendingLibraryReturn(false)
+      setPersonaSourcesDirty(false)
       setPersonas((current) => replacePersonaSummary(current, persona))
       if (focusEditorAfterLoadRef.current) {
         focusEditorAfterLoadRef.current = false
@@ -183,15 +187,34 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     return () => window.removeEventListener('beforeunload', protectUnsavedDraft)
   }, [studioDirty])
 
-  function chooseStudioView(next: StudioView) {
-    if (next === studioView) return
-    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return
+  function chooseStudioSection(next: StudioSection): boolean {
+    if (next === studioSection) return true
+    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return false
     if (dirty && selectedPersona) {
       setDraft(selectedPersona.draft ?? null)
       setDescription(selectedPersona.description)
     }
     setExperienceDirty(false)
-    setStudioView(next)
+    setLibraryDirty(false)
+    setPersonaSourcesDirty(false)
+    setStudioSection(next)
+    return true
+  }
+
+  function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const tabs = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+    const currentIndex = tabs.indexOf(event.currentTarget)
+    let nextIndex: number
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % tabs.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = tabs.length - 1
+    else return
+
+    event.preventDefault()
+    const nextTab = tabs[nextIndex]
+    const nextSection = nextTab?.dataset.studioSection as StudioSection | undefined
+    if (nextTab && nextSection && chooseStudioSection(nextSection)) nextTab.focus()
   }
 
   function replaceDraft(next: PersonaConfiguration) {
@@ -208,7 +231,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   function requestSelection(personaId: number) {
     if (personaId === selectedPersona?.id) return
-    if (dirty) {
+    if (dirty || personaSourcesDirty) {
       setPendingSelectionId(personaId)
       setConflict('You have unsaved changes. Save this draft or discard the changes before opening another assistant.')
       return
@@ -218,7 +241,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   function requestLibraryReturn() {
-    if (dirty) {
+    if (dirty || personaSourcesDirty) {
       setPendingLibraryReturn(true)
       setConflict('You have unsaved changes. Save this draft or discard the changes before returning to the assistant library.')
       return
@@ -231,6 +254,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     selectedIdRef.current = null
     setSelectedPersona(null)
     setDraft(null)
+    setPersonaSourcesDirty(false)
     setPendingLibraryReturn(false)
     setConflict(null)
     window.requestAnimationFrame(() => libraryHeadingRef.current?.focus())
@@ -489,6 +513,28 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         <small>Signed in as {currentUser.full_name}</small>
       </div>
 
+      <nav className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
+        <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
+          <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
+        </button>
+        <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
+          <strong>Coaching Library</strong><small>Approve and publish reusable coaching sources</small>
+        </button>
+        <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
+          <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
+        </button>
+      </nav>
+
+      {studioSection === 'library' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
+          <CoachContentLibrary currentUser={currentUser} onDirtyChange={setLibraryDirty} />
+        </div>
+      ) : studioSection === 'participant_tools' ? (
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
+          <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
+        </div>
+      ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
+
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {conflict && (
@@ -503,18 +549,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </div>
       )}
 
-      <div className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
-        <button type="button" role="tab" aria-selected={studioView === 'assistants'} onClick={() => chooseStudioView('assistants')}>
-          <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
-        </button>
-        <button type="button" role="tab" aria-selected={studioView === 'participant_tools'} onClick={() => chooseStudioView('participant_tools')}>
-          <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
-        </button>
-      </div>
-
-      {studioView === 'participant_tools' ? (
-        <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
-      ) : <div className={`coach-studio-layout${selectedPersona ? ' has-selection' : ''}`}>
+      <div className={`coach-studio-layout${selectedPersona ? ' has-selection' : ''}`}>
         <aside className="coach-library panel" aria-label="Coaching assistants">
           <div className="coach-library-heading">
             <div>
@@ -644,6 +679,20 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 )}
               </article>
 
+              {selectedPersona.draft && (
+                <PersonaContentPacksPanel
+                  key={selectedPersona.id}
+                  persona={selectedPersona}
+                  dirty={dirty}
+                  onDirtyChange={setPersonaSourcesDirty}
+                  onPersonaChange={(persona) => {
+                    setPersonaSourcesDirty(false)
+                    acceptPersona(persona)
+                    setNotice('Approved content selection saved. Run a fresh preview before publishing.')
+                  }}
+                />
+              )}
+
               <LifecyclePanel
                 persona={selectedPersona}
                 preview={preview}
@@ -670,6 +719,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             </>
           )}
         </div>
+      </div>
       </div>}
     </section>
   )

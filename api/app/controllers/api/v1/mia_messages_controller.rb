@@ -158,6 +158,7 @@ module Api
           current_household,
           user: current_user
         ).call
+        @approved_coach_content = ::Mia::ApprovedContentRetriever.new(persona: current_persona, query: content).call
 
         assistant_content = assistant_content_for(
           content,
@@ -186,6 +187,7 @@ module Api
         mia_action_draft = action_result&.existing_draft || persist_mia_action_draft(action_result, user_message, assistant_message)
         if action_result&.proposal && mia_action_draft.nil?
           assistant_message.update!(content: action_draft_persistence_failure_message)
+          assistant_message.coach_content_citations.delete_all
           assistant_message.reload
         end
         annual_plan = HouseholdFinance::AnnualBudgetManager.new(current_household, year: mia_action_draft.year).plan_data if mia_action_draft
@@ -528,6 +530,7 @@ module Api
             "Mia attachment action draft could not be persisted: #{draft_persistence_error.class}: #{draft_persistence_error.message}"
           )
           combined_content = [ evidence_content, action_draft_persistence_failure_message ].compact_blank.join(" ")
+          @used_coach_content = []
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
         elsif no_draft_result
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
@@ -883,6 +886,7 @@ module Api
             assistant_message.presentation = {}
           end
           assistant_message.save!
+          persist_content_citations(assistant_message)
           [ user_message, assistant_message ]
         end
       end
@@ -894,6 +898,17 @@ module Api
       rescue StandardError => e
         Rails.logger.error("Mia action draft could not be persisted chat_message_id=#{assistant_message&.id}: #{e.class}: #{e.message}")
         nil
+      end
+
+      def persist_content_citations(assistant_message)
+        Array(@used_coach_content).each do |entry|
+          assistant_message.coach_content_citations.create!(
+            coach_content_item_version: entry.fetch(:item_version),
+            coach_content_pack_version: entry.fetch(:pack_version),
+            rank: entry.fetch(:rank),
+            reason: entry.fetch(:reason)
+          )
+        end
       end
 
       def action_draft_persistence_failure_message
@@ -1608,13 +1623,16 @@ module Api
           experience_capabilities: current_experience_capabilities
         ).call
         response_history = conversation_resolution&.dig(:intent) == "recall" ? [] : history
-        ::Demo::MiaResponder.new(persona: current_persona).call(
+        responder = ::Demo::MiaResponder.new(persona: current_persona, approved_content: @approved_coach_content)
+        response = responder.call(
           content,
           history: response_history,
           context: context,
           draft_capable: false,
           conversation_resolution: conversation_resolution
         )
+        @used_coach_content = responder.respond_to?(:supplied_content_context) ? responder.supplied_content_context : []
+        response
       end
 
       def apply_persona_capability_boundary(content, direct_answer:, presentation:)
@@ -1655,12 +1673,16 @@ module Api
           mia_action_result: mia_action_result
         ).call
 
-        HouseholdFinance::MiaNarrator.new(
+        narrator = HouseholdFinance::MiaNarrator.new(
           user_message: content,
           history: history,
           answer_packet: answer_packet,
-          persona: current_persona
-        ).call
+          persona: current_persona,
+          approved_content: @approved_coach_content
+        )
+        response = narrator.call
+        @used_coach_content = narrator.respond_to?(:supplied_content_context) ? narrator.supplied_content_context : []
+        response
       end
 
       def assistant_message_writer(session)

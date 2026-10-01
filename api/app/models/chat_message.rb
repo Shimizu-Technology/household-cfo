@@ -6,6 +6,7 @@ class ChatMessage < ApplicationRecord
 
   belongs_to :chat_session
   belongs_to :coach_persona_version, optional: true, inverse_of: :chat_messages
+  has_many :coach_content_citations, -> { order(:rank) }, dependent: :delete_all
 
   normalizes :assistant_author, with: ->(value) { value.to_s.strip.presence }
 
@@ -20,6 +21,12 @@ class ChatMessage < ApplicationRecord
   before_validation :set_global_assistant_author, on: :create
 
   def as_api_json(author: nil)
+    citations = if association(:coach_content_citations).loaded?
+      coach_content_citations.target.sort_by(&:rank)
+    else
+      coach_content_citations.includes(:coach_content_pack_version, coach_content_item_version: :coach_content_item).to_a
+    end
+
     {
       id: id,
       role: role,
@@ -27,6 +34,17 @@ class ChatMessage < ApplicationRecord
       content: content,
       attachments: attachments,
       presentation: presentation,
+      citations: citations.map do |citation|
+        item_version = citation.coach_content_item_version
+        {
+          title: item_version.title,
+          kind: item_version.kind,
+          item_version: item_version.version_number,
+          pack_name: citation.coach_content_pack_version.name,
+          pack_version: citation.coach_content_pack_version.version_number,
+          reason: citation.reason
+        }
+      end,
       created_at: created_at&.iso8601
     }
   end

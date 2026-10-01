@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 class CoachPersona < ApplicationRecord
+  class DraftConflict < StandardError; end
+  class ContentPackSelectionError < ArgumentError; end
+
   LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
 
   scope :active, -> { where(archived_at: nil) }
@@ -17,6 +20,12 @@ class CoachPersona < ApplicationRecord
   has_many :publication_events, class_name: "CoachPersonaPublicationEvent", dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohort_persona_assignments, dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohorts, through: :cohort_persona_assignments
+  has_many :draft_content_pack_links,
+    -> { order(:position) },
+    class_name: "CoachPersonaDraftContentPack",
+    dependent: :destroy,
+    inverse_of: :coach_persona
+  has_many :draft_content_pack_versions, through: :draft_content_pack_links, source: :coach_content_pack_version
 
   normalizes :name, with: ->(name) { name.to_s.strip }
 
@@ -61,6 +70,54 @@ class CoachPersona < ApplicationRecord
     update!(draft_config: version.config.deep_dup, current_published_version: version)
   ensure
     @force_draft_revision_and_preview_reset = false
+  end
+
+  def replace_draft_content_pack_versions!(versions, actor:, expected_draft_revision: draft_revision)
+    raise ContentPackSelectionError, "Not authorized to edit this persona" unless actor&.admin? || created_by_user_id == actor&.id
+    raise ContentPackSelectionError, "Archived personas are read-only" if archived?
+
+    normalized = Array(versions).uniq(&:id)
+    raise ContentPackSelectionError, "A persona can use at most 12 content packs" if normalized.length > 12
+    normalized.each do |version|
+      raise ContentPackSelectionError, "Content pack version is not a valid sealed publication" unless version.manifest_valid?
+
+      pack = version.coach_content_pack
+      next if pack.scope == "platform" || pack.created_by_user_id == created_by_user_id
+
+      raise ContentPackSelectionError, "Content packs from another coach cannot be attached"
+    end
+
+    with_lock do
+      unless Integer(expected_draft_revision, exception: false) == draft_revision
+        raise DraftConflict, "The persona draft changed; reload it before changing content packs"
+      end
+      return if draft_content_pack_links.order(:position).pluck(:coach_content_pack_version_id) == normalized.map(&:id)
+
+      draft_content_pack_links.delete_all
+      normalized.each_with_index { |version, position| draft_content_pack_links.create!(coach_content_pack_version: version, position: position) }
+      update_columns(
+        draft_revision: draft_revision + 1,
+        preview_digest: nil,
+        previewed_at: nil,
+        previewed_draft_revision: nil,
+        updated_at: Time.current,
+        lock_version: lock_version + 1
+      )
+    end
+  end
+
+  def draft_content_pack_versions_ordered
+    draft_content_pack_links.includes(coach_content_pack_version: { entries: :coach_content_item_version }).order(:position).map(&:coach_content_pack_version)
+  end
+
+  def draft_content_manifest_digest
+    CoachPersonaVersion.content_manifest_digest_for(draft_content_pack_versions_ordered)
+  end
+
+  def draft_content_manifest_entries
+    draft_content_pack_versions_ordered.each_with_index.map do |version, position|
+      CoachPersonaVersion.content_manifest_entry(version, position: position)
+    end
   end
 
   private

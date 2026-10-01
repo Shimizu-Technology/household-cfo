@@ -2,6 +2,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   ApiRequestError,
   archiveAdminPersona,
+  approveAdminContentItem,
+  createAdminContentItem,
+  createAdminContentPack,
   createAdminPersona,
   deleteAdminCohortPersonaAssignment,
   fetchAppData,
@@ -10,14 +13,20 @@ import {
   fetchAdminPersonaAssignableCohorts,
   fetchAdminPersonas,
   fetchAdminPersonaVersion,
+  fetchAdminContentItems,
+  fetchAdminContentPacks,
   previewAdminPersona,
   publishAdminPersona,
+  publishAdminContentPack,
   restoreAdminPersona,
   rollbackAdminPersonaVersion,
   sendMiaMessage,
   setAuthTokenGetter,
   updateAdminCohortPersonaAssignment,
   updateAdminPersona,
+  updateAdminContentItem,
+  updateAdminContentPack,
+  updateAdminPersonaContentPacks,
   uploadDocumentImport,
 } from './api'
 
@@ -40,6 +49,54 @@ function jsonResponse(payload: unknown, status = 200) {
 }
 
 describe('Persona Studio API contract', () => {
+  it('uses explicit approval, publication, and exact persona source-link envelopes', async () => {
+    const item = { id: 4, title: 'One clear question' }
+    const pack = { id: 8, name: 'Coach method' }
+    const persona = { id: 17, name: 'Coach Lani' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ items: [item] }))
+      .mockResolvedValueOnce(jsonResponse({ item }, 201))
+      .mockResolvedValueOnce(jsonResponse({ item }))
+      .mockResolvedValueOnce(jsonResponse({ item, approved_version: { id: 12 } }))
+      .mockResolvedValueOnce(jsonResponse({ packs: [pack] }))
+      .mockResolvedValueOnce(jsonResponse({ pack }, 201))
+      .mockResolvedValueOnce(jsonResponse({ pack }))
+      .mockResolvedValueOnce(jsonResponse({ pack, published_version: { id: 21 } }))
+      .mockResolvedValueOnce(jsonResponse({ persona }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchAdminContentItems()).toEqual([item])
+    await createAdminContentItem({ title: 'One clear question', scope: 'coach', kind: 'guidance', draft_content: 'Ask one question.', always_on: false })
+    await updateAdminContentItem(4, { title: 'One clear question', kind: 'guidance', draft_content: 'Ask one direct question.', always_on: false, draft_revision: 1 })
+    await approveAdminContentItem(4, 2, 'item-draft-digest')
+    expect(await fetchAdminContentPacks()).toEqual([pack])
+    await createAdminContentPack({ name: 'Coach method', description: '', scope: 'coach', pack_kind: 'coaching_method', item_version_ids: [12] })
+    await updateAdminContentPack(8, { name: 'Coach method', description: '', pack_kind: 'coaching_method', item_version_ids: [12], draft_revision: 2 })
+    await publishAdminContentPack(8, { draft_revision: 2, draft_manifest_digest: 'pack-draft-digest', expected_published_version_id: null })
+    await updateAdminPersonaContentPacks(17, 3, [21])
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/content_items',
+      '/api/v1/admin/content_items',
+      '/api/v1/admin/content_items/4',
+      '/api/v1/admin/content_items/4/approve',
+      '/api/v1/admin/content_packs',
+      '/api/v1/admin/content_packs',
+      '/api/v1/admin/content_packs/8',
+      '/api/v1/admin/content_packs/8/publish',
+      '/api/v1/admin/personas/17/content_packs',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[8][1] as RequestInit).body))).toEqual({
+      content_packs: { draft_revision: 3, pack_version_ids: [21] },
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+      item: { draft_revision: 2, draft_digest: 'item-draft-digest' },
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[7][1] as RequestInit).body))).toEqual({
+      pack: { draft_revision: 2, draft_manifest_digest: 'pack-draft-digest', expected_published_version_id: null },
+    })
+  })
+
   it('uses the versioned draft lifecycle endpoints and request envelopes', async () => {
     const persona = { id: 17, name: 'Coach Lani' }
     const preview = { digest: 'preview-digest' }

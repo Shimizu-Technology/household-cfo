@@ -21,14 +21,24 @@ module Mia
           raise RollbackError, "The published persona changed; reload it before rolling back"
         end
         raise RollbackError, "Rollback target must belong to this persona" unless target_version.coach_persona_id == persona.id
+        raise RollbackError, "Rollback target content manifest is invalid" unless target_version.content_manifest_valid?
 
         version = persona.versions.create!(
           version_number: persona.versions.maximum(:version_number).to_i + 1,
           config: target_version.config.deep_dup,
           config_digest: target_version.config_digest,
+          content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
           published_by_user: actor,
           source_version: target_version
         )
+        target_version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
+          version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
+        end
+        version.seal_content_manifest!
+        persona.draft_content_pack_links.delete_all
+        version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
+          persona.draft_content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
+        end
         persona.apply_rollback_version!(version)
         persona.cohort_persona_assignments.update_all(
           coach_persona_version_id: version.id,
