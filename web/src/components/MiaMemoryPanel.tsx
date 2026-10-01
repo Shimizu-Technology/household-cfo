@@ -196,7 +196,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
               <p>{memory.display_value}</p>
             </div>
             <div className="mia-memory-item-actions">
-              {memory.status === 'pending_confirmation' && <button type="button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id), 'Memory confirmed. Mia can use it now.')}>Confirm</button>}
+              {memory.status === 'pending_confirmation' && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id), 'Memory confirmed. Mia can use it now.')}>Confirm</button>}
               {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), 'Memory rejected. Mia will not use it.')}>Reject</button>}
               <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
               <button type="button" className="danger-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { if (window.confirm('Forget this memory? Mia will stop using it immediately.')) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>

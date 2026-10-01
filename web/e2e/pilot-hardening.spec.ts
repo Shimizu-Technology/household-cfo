@@ -588,9 +588,18 @@ test('Mia memory stays explicit, reversible, and usable on mobile and desktop', 
   await sensitiveMemory.getByRole('button', { name: 'Confirm' }).click()
   await expect(sensitiveMemory.getByText('Active')).toBeVisible()
 
+  await input.fill('A second sensitive coaching constraint.')
+  await page.getByRole('checkbox', { name: /This feels sensitive/ }).check()
+  await page.getByRole('button', { name: 'Remember this' }).click()
+  const pendingWhilePaused = page.locator('.mia-memory-item').filter({ hasText: 'A second sensitive coaching constraint.' })
+  await expect(pendingWhilePaused.getByText('pending confirmation')).toBeVisible()
+
   await page.getByRole('button', { name: 'Pause personalization' }).click()
   await expect(page.getByRole('status').filter({ hasText: 'Personalization is paused.' })).toBeVisible()
   await expect(input).toBeDisabled()
+  await expect(pendingWhilePaused.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  await expect(pendingWhilePaused.getByRole('button', { name: 'Reject' })).toBeEnabled()
+  await expect(pendingWhilePaused.getByRole('button', { name: 'Forget' })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
 })
 
