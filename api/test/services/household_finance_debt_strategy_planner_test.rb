@@ -163,6 +163,19 @@ class HouseholdFinanceDebtStrategyPlannerTest < ActiveSupport::TestCase
     assert_includes answer, "$300 temporary monthly income drop for two months"
   end
 
+  test "does not calculate a temporary-drop surplus while a debt minimum is unknown" do
+    @household.debts.find_by!(label: "Card B").update!(minimum_payment_cents: 0, minimum_payment_known: false)
+
+    answer = HouseholdFinance::DebtStrategyPlanner.new(
+      @household,
+      "My pay is down $300 for two months. Give me a concrete debt plan."
+    ).call
+
+    assert_includes answer, "$300 temporary monthly income drop for two months"
+    assert_includes answer, "verified surplus is unavailable"
+    refute_includes answer, "modeled monthly surplus becomes"
+  end
+
   test "recognizes a direct plan request after recent debt context" do
     answer = HouseholdFinance::DebtStrategyPlanner.new(
       @household,

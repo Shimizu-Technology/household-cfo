@@ -377,6 +377,50 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 300_000, planned_amount_for_month(fixed, 7)
   end
 
+  test "model resolved debt intent creates a review card and changes debt only after apply" do
+    user = create_user(email: "mia-model-debt-action@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "debt_action",
+      confidence: 0.98,
+      continuation: false,
+      resolved_message: "Add my Visa with a $4,200 balance, $125 minimum, and 24.99% APR",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "debt_plan", title: "Add Visa", subject: "Visa" },
+      action: {
+        type: "create_debt", debt_id: 0, debt_name: "Visa", new_name: "",
+        debt_type: "credit_card", amount: "4200.00", minimum_payment: "125.00",
+        interest_rate_percent: "24.99", debt_tracking_mode: ""
+      },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages",
+        params: { message: "Add my Visa with a $4,200 balance, $125 minimum, and 24.99% APR" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    draft_payload = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "debt_plan", draft_payload.fetch("draft_type")
+    assert_equal "create_debt", draft_payload.fetch("items").sole.fetch("action_type")
+    assert_empty household.debts
+
+    post "/api/v1/mia_action_drafts/#{draft_payload.fetch('id')}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    debt = household.debts.find_by!(label: "Visa")
+    assert_equal 420_000, debt.balance_cents
+    assert_equal 12_500, debt.minimum_payment_cents
+    assert_equal BigDecimal("24.99"), debt.interest_rate_percent
+    assert_equal "mia", debt.source_type
+  end
+
   test "model general question still routes recognized readiness language through approved coaching facts" do
     user = create_user(email: "mia-model-readiness-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -387,6 +431,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     household.update!(
       primary_goal: "Build runway",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_known: true,
+      debt_summary_minimum_payment_known: true
     )
     intent = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "general",
@@ -448,6 +496,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     household.update!(
       primary_goal: "Protect the household plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_known: true,
+      debt_summary_minimum_payment_known: true
     )
     intent = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "coaching",

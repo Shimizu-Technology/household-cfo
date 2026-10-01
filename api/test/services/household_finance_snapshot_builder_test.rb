@@ -137,6 +137,11 @@ class HouseholdFinanceSnapshotBuilderTest < ActiveSupport::TestCase
       primary_goal: "Build runway",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 0,
+      debt_summary_minimum_payment_cents: 0,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
     household
   end
 end

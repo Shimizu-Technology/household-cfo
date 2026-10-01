@@ -34,6 +34,7 @@ export function MonthPlanSummary({
   safeToSpend,
   baselineSurplus,
   debtMinimums = 0,
+  debtMinimumsKnown = true,
 }: {
   label: string
   income: number
@@ -43,6 +44,7 @@ export function MonthPlanSummary({
   safeToSpend?: number
   baselineSurplus?: number
   debtMinimums?: number
+  debtMinimumsKnown?: boolean
 }) {
   const remaining = subtractMoney(planned, actual)
   const projected = addMoney(actual, pending)
@@ -81,27 +83,27 @@ export function MonthPlanSummary({
           {safeToSpend !== undefined && (
             <div>
               <span>Safe to spend</span>
-              <strong>{currency.format(safeToSpend)}</strong>
+              <strong>{debtMinimumsKnown ? currency.format(safeToSpend) : 'Not available'}</strong>
               <small>Pilot guardrail: 40% of positive baseline surplus in Yellow or Green—not ordinary budget remaining.</small>
             </div>
           )}
           {baselineSurplus !== undefined && (
             <div>
               <span>Baseline left</span>
-              <strong>{currency.format(baselineSurplus)}</strong>
+              <strong>{debtMinimumsKnown ? currency.format(baselineSurplus) : 'Not available'}</strong>
               <small>Expected income less category plans and required debt minimums.</small>
             </div>
           )}
         </div>
       )}
 
-      {debtMinimums > 0 && (
+      {(debtMinimums > 0 || !debtMinimumsKnown) && (
         <div className="money-out-reconciliation" role="group" aria-label="Monthly money out breakdown">
           <div><span>Category plan</span><strong>{currency.format(planned)}</strong></div>
           <i aria-hidden="true">+</i>
-          <div><span>Debt minimums</span><strong>{currency.format(debtMinimums)}</strong></div>
+          <div><span>Debt minimums</span><strong>{debtMinimumsKnown ? currency.format(debtMinimums) : 'Not entered'}</strong></div>
           <i aria-hidden="true">=</i>
-          <div className="total"><span>Total money out</span><strong>{currency.format(totalPlannedOutflow)}</strong></div>
+          <div className="total"><span>Total money out</span><strong>{debtMinimumsKnown ? currency.format(totalPlannedOutflow) : 'Not available'}</strong></div>
         </div>
       )}
     </section>

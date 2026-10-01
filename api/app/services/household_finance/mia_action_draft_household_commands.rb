@@ -2,7 +2,7 @@ module HouseholdFinance
   module MiaActionDraftHouseholdCommands
     SETUP_MONEY_KEYS = %i[
       primary_income business_income fixed_expenses flexible_spend expected_sinking_fund
-      unexpected_sinking_fund emergency_fund other_assets credit_card_debt debt_payment
+      unexpected_sinking_fund emergency_fund other_assets
     ].freeze
     SETUP_TEXT_KEYS = %i[household_name primary_goal].freeze
     SETUP_KEYS = (SETUP_TEXT_KEYS + SETUP_MONEY_KEYS + [ :target_runway_months ]).freeze
@@ -17,8 +17,6 @@ module HouseholdFinance
       unexpected_sinking_fund: "Unexpected sinking fund",
       emergency_fund: "Emergency fund",
       other_assets: "Other assets",
-      credit_card_debt: "Credit card debt",
-      debt_payment: "Monthly debt minimum",
       target_runway_months: "Runway target"
     }.freeze
 
@@ -331,7 +329,10 @@ module HouseholdFinance
     end
 
     def setup_money_total(values, *keys)
-      Money.dollars(keys.sum { |key| Money.cents(values.fetch(key, 0)) })
+      amounts = keys.map { |key| values.fetch(key, 0) }
+      return if amounts.any?(&:nil?)
+
+      Money.dollars(amounts.sum { |value| Money.cents(value) })
     end
 
     def structured_income_source
@@ -398,6 +399,8 @@ module HouseholdFinance
     end
 
     def money_difference(minuend, subtrahend)
+      return if minuend.nil? || subtrahend.nil?
+
       Money.dollars(Money.cents(minuend) - Money.cents(subtrahend))
     end
   end

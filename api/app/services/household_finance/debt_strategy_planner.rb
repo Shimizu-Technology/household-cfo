@@ -29,7 +29,13 @@ module HouseholdFinance
     def call
       return unless self.class.question?(message) || debt_plan_followup?
 
-      approved_debts = household.debts.order(:id).to_a
+      portfolio = DebtPortfolio.new(household)
+      if portfolio.mode == "summary" && parsed_scenario_debts.empty?
+        balance = portfolio.balance_known? ? money(portfolio.total_balance_cents) : "an unconfirmed total balance"
+        minimum = portfolio.minimum_payment_known? ? money(portfolio.monthly_minimum_cents) : "an unconfirmed monthly minimum"
+        return "Your approved debt summary shows #{balance} and #{minimum}. Individual debt details are not canonical in summary mode. Add each balance and APR, then explicitly switch to individual tracking before I rank saved lenders; I will not guess which lender should come first. No payment is made automatically."
+      end
+      approved_debts = portfolio.mode == "individual" ? household.debts.active.order(:id).to_a : []
       scenario_debts = parsed_scenario_debts
       approved_keys = approved_debts.index_by { |debt| debt_identity(debt_label(debt)) }
       scenario_only_debts = scenario_debts.reject { |debt| approved_keys.key?(debt_identity(debt_label(debt))) }
@@ -38,14 +44,15 @@ module HouseholdFinance
 
       avalanche = debts.select { |debt| debt_value(debt, :interest_rate_percent).present? }
         .max_by { |debt| [ debt_value(debt, :interest_rate_percent).to_d, debt_value(debt, :balance_cents).to_i ] }
-      snowball = debts.select { |debt| debt_value(debt, :balance_cents).to_i.positive? }
+      snowball = debts.select { |debt| debt_value_known?(debt, :balance) && debt_value(debt, :balance_cents).to_i.positive? }
         .min_by { |debt| [ debt_value(debt, :balance_cents).to_i, -debt_value(debt, :interest_rate_percent).to_d ] }
-      minimums = debts.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
+      minimums = debts.select { |debt| debt_value_known?(debt, :minimum_payment) }.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
       snapshot = SnapshotBuilder.new(household, ensure_plan: ensure_plan).call
       temporary_drop = temporary_income_drop_cents
       scenario_minimums = scenario_only_debts.sum { |debt| debt_value(debt, :minimum_payment_cents).to_i }
       adjusted_surplus = snapshot.fetch(:baseline_surplus_cents) - temporary_drop - scenario_minimums
       extra_amount = decision_amount_cents
+      cash_flow_known = portfolio.minimum_payment_known?
 
       lines = []
       lines << source_line(approved_debts, scenario_debts, scenario_only_debts, debts)
@@ -54,9 +61,17 @@ module HouseholdFinance
       lines << "Snowball: #{strategy_target(snowball, include_apr: false)}" if snowball
       minimum_label = debts.length == 2 ? "Keep both minimums current first" : "Keep every required minimum current first"
       lines << "#{minimum_label} (#{money(minimums)} total across the debts listed)."
-      lines << temporary_income_line(temporary_drop, adjusted_surplus) if temporary_drop.positive?
-      lines << extra_money_line(extra_amount, avalanche, snowball, snapshot) if extra_amount.positive?
-      lines << numbered_plan(avalanche, snowball, adjusted_surplus)
+      lines << "At least one monthly minimum is not entered, so that total is incomplete." unless debts.all? { |debt| debt_value_known?(debt, :minimum_payment) }
+      if temporary_drop.positive?
+        lines << if cash_flow_known
+          temporary_income_line(temporary_drop, adjusted_surplus)
+        else
+          temporary_income_without_surplus_line(temporary_drop)
+        end
+      end
+      lines << "The household's canonical monthly debt minimum is not fully entered, so I cannot calculate available extra principal from cash flow yet." unless cash_flow_known
+      lines << extra_money_line(extra_amount, avalanche, snowball, snapshot) if extra_amount.positive? && cash_flow_known
+      lines << numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known: cash_flow_known)
       lines << missing_apr_line(debts)
       lines.compact_blank.join(" ")
     end
@@ -69,7 +84,9 @@ module HouseholdFinance
       source = approved_debts.any? ? "approved debt records" : "the participant-stated scenario"
       details = debts.map do |debt|
         origin = scenario_only_debts.include?(debt) ? "scenario only, not saved" : "saved"
-        "#{debt_label(debt)} (#{origin}): #{money(debt_value(debt, :balance_cents))} balance and #{money(debt_value(debt, :minimum_payment_cents))} monthly minimum"
+        balance = debt_value_known?(debt, :balance) ? "#{money(debt_value(debt, :balance_cents))} balance" : "balance not entered"
+        minimum = debt_value_known?(debt, :minimum_payment) ? "#{money(debt_value(debt, :minimum_payment_cents))} monthly minimum" : "monthly minimum not entered"
+        "#{debt_label(debt)} (#{origin}): #{balance} and #{minimum}"
       end
       scenario_note = if scenario_debts.any? && approved_debts.any?
         " The participant-stated scenario adds debts that do not match a saved label only for this comparison; matching statements do not overwrite saved records."
@@ -82,16 +99,20 @@ module HouseholdFinance
     def strategy_target(debt, include_apr:)
       return "not available until at least one balance is entered." unless debt
 
-      details = [ "#{debt_label(debt)} first", "#{money(debt_value(debt, :balance_cents))} balance" ]
+      balance = debt_value_known?(debt, :balance) ? "#{money(debt_value(debt, :balance_cents))} balance" : "balance not entered"
+      details = [ "#{debt_label(debt)} first", balance ]
       apr = debt_value(debt, :interest_rate_percent)
       details << "#{number(apr)}% APR" if include_apr && apr.present?
       "#{details.join(', ')}."
     end
 
-    def numbered_plan(avalanche, snowball, adjusted_surplus)
+    def numbered_plan(avalanche, snowball, adjusted_surplus, cash_flow_known:)
       target = avalanche || snowball
       extra = [ adjusted_surplus, 0 ].max
       target_line = target ? "#{debt_label(target)}" : "the selected target debt"
+      unless cash_flow_known
+        return "1. Enter every required monthly minimum. 2. Protect essential bills and emergency runway. 3. After the baseline is complete, choose avalanche or snowball and set an extra payment that fits the verified surplus. No payment is made automatically."
+      end
       if extra.positive?
         "1. Protect essential bills and every debt minimum. 2. Hold emergency runway and known near-term expenses aside. 3. Send a fixed amount of up to #{money(extra)} from the current monthly surplus to #{target_line}; choose avalanche for lower interest cost or snowball for the fastest closed balance. No payment is made automatically."
       else
@@ -103,6 +124,12 @@ module HouseholdFinance
       duration = temporary_income_months
       duration_text = duration ? " for #{duration == 1 ? 'one month' : "#{duration_in_words(duration)} months"}" : ""
       "With the #{money(drop_cents)} temporary monthly income drop#{duration_text}, the modeled monthly surplus becomes #{money(adjusted_surplus)}."
+    end
+
+    def temporary_income_without_surplus_line(drop_cents)
+      duration = temporary_income_months
+      duration_text = duration ? " for #{duration == 1 ? 'one month' : "#{duration_in_words(duration)} months"}" : ""
+      "The plan accounts for the #{money(drop_cents)} temporary monthly income drop#{duration_text}, but a verified surplus is unavailable until every required debt minimum is entered."
     end
 
     def extra_money_line(amount, avalanche, snowball, snapshot)
@@ -209,6 +236,13 @@ module HouseholdFinance
 
     def debt_value(debt, key)
       debt.respond_to?(key) ? debt.public_send(key) : debt[key]
+    end
+
+    def debt_value_known?(debt, field)
+      predicate = "#{field}_known?"
+      return debt.public_send(predicate) if debt.respond_to?(predicate)
+
+      true
     end
 
     def debt_label(debt)

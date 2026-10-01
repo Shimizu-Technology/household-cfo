@@ -578,5 +578,14 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       primary_goal: "Protect the household plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
+    if household.debts.active.exists?
+      household.household_profile.update!(debt_tracking_mode: "individual")
+    else
+      household.household_profile.update!(
+        debt_tracking_mode: "summary", debt_summary_balance_cents: 0,
+        debt_summary_minimum_payment_cents: 0,
+        debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+      )
+    end
   end
 end

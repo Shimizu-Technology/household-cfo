@@ -67,6 +67,12 @@ module HouseholdFinance
         income_source_review_fields(before.fetch("source", {}), after.fetch("source", {}))
       when "income.schedule.create", "income.schedule.update", "income.schedule.delete"
         income_schedule_review_fields(item, before, after)
+      when "debt.record.create"
+        debt_create_review_fields(after.fetch("debt", {}))
+      when "debt.record.update", "debt.record.archive", "debt.record.restore"
+        debt_review_fields(before.fetch("debt", {}), after.fetch("debt", {}))
+      when "debt.tracking_mode.update"
+        debt_tracking_review_fields(before, after)
       when "budget.allocation.set"
         before_rows = Array(before["allocations"]).index_by { |row| row["id"] }
         Array(after["allocations"]).map do |row|
@@ -102,6 +108,81 @@ module HouseholdFinance
 
     def money_from_cents(value)
       ActiveSupport::NumberHelper.number_to_currency(Money.dollars(value.to_i), precision: 2)
+    end
+
+    def debt_create_review_fields(debt)
+      [
+        { label: "Debt", before: "Does not exist", after: debt["label"].to_s },
+        { label: "Type", before: "—", after: debt["debt_type"].to_s.humanize },
+        { label: "Balance", before: "—", after: debt_money_value(debt, "balance") },
+        { label: "Monthly minimum", before: "—", after: debt_money_value(debt, "minimum_payment") },
+        { label: "APR", before: "—", after: debt_apr_value(debt["interest_rate_percent"]) }
+      ]
+    end
+
+    def debt_review_fields(before, after)
+      labels = {
+        "label" => "Debt", "debt_type" => "Type", "balance_cents" => "Balance",
+        "balance_known" => "Balance", "minimum_payment_cents" => "Monthly minimum",
+        "minimum_payment_known" => "Monthly minimum", "interest_rate_percent" => "APR",
+        "active" => "Planning status"
+      }
+      handled = []
+      labels.filter_map do |key, label|
+        next if handled.include?(label)
+        next if key.end_with?("_cents") && before[key] == after[key] && before[key.sub("_cents", "_known")] == after[key.sub("_cents", "_known")]
+        next if key.end_with?("_known")
+        next if !key.end_with?("_cents") && before[key] == after[key]
+        handled << label
+        { label: label, before: debt_review_value(key, before), after: debt_review_value(key, after) }
+      end
+    end
+
+    def debt_tracking_review_fields(before_snapshot, after_snapshot)
+      before = before_snapshot.fetch("profile", {})
+      after = after_snapshot.fetch("profile", {})
+      fields = []
+      if before["debt_tracking_mode"] != after["debt_tracking_mode"]
+        fields << { label: "Tracking mode", before: before["debt_tracking_mode"].to_s.humanize, after: after["debt_tracking_mode"].to_s.humanize }
+        before_portfolio = before_snapshot.fetch("portfolio", {})
+        after_portfolio = after_snapshot.fetch("portfolio", {})
+        fields << { label: "Planning balance", before: portfolio_debt_money(before_portfolio, "balance"), after: portfolio_debt_money(after_portfolio, "balance") }
+        fields << { label: "Planning monthly minimum", before: portfolio_debt_money(before_portfolio, "minimum_payment"), after: portfolio_debt_money(after_portfolio, "minimum_payment") }
+        fields << { label: "Active individual records", before: before_portfolio.fetch("active_count", 0).to_s, after: after_portfolio.fetch("active_count", 0).to_s }
+      end
+      if after["debt_tracking_mode"] == "summary"
+        fields << { label: "Summary balance", before: summary_debt_money(before, "balance"), after: summary_debt_money(after, "balance") } if summary_debt_money(before, "balance") != summary_debt_money(after, "balance")
+        fields << { label: "Summary monthly minimum", before: summary_debt_money(before, "minimum_payment"), after: summary_debt_money(after, "minimum_payment") } if summary_debt_money(before, "minimum_payment") != summary_debt_money(after, "minimum_payment")
+      end
+      fields
+    end
+
+    def portfolio_debt_money(portfolio, prefix)
+      return "Not entered" unless portfolio["#{prefix}_known"]
+
+      money_from_cents(portfolio["#{prefix}_cents"])
+    end
+
+    def debt_review_value(key, debt)
+      return debt_money_value(debt, "balance") if key == "balance_cents"
+      return debt_money_value(debt, "minimum_payment") if key == "minimum_payment_cents"
+      return debt_apr_value(debt[key]) if key == "interest_rate_percent"
+      return debt[key] ? "Active" : "Archived" if key == "active"
+      debt[key].to_s.humanize
+    end
+
+    def debt_money_value(debt, prefix)
+      return "Not entered" unless debt["#{prefix}_known"]
+      money_from_cents(debt["#{prefix}_cents"])
+    end
+
+    def summary_debt_money(profile, prefix)
+      return "Not entered" unless profile["debt_summary_#{prefix}_known"]
+      money_from_cents(profile["debt_summary_#{prefix}_cents"])
+    end
+
+    def debt_apr_value(value)
+      value.nil? ? "Not entered" : "#{value.to_d.to_s("F").sub(/\.0+\z/, "")}%"
     end
 
     def income_source_review_fields(before, after)

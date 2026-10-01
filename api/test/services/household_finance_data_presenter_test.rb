@@ -7,16 +7,17 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "blank workspace does not invent debt or CFO filter amounts" do
     household, user = create_household
+    household.household_profile.update!(
+      debt_tracking_mode: "individual",
+      debt_summary_balance_known: false,
+      debt_summary_minimum_payment_known: false
+    )
 
     payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
     debt_milestone = debt_milestone(payload)
     decisions = decision_map(payload)
 
-    assert_equal 0, debt_milestone.fetch(:current)
-    assert_equal 0, debt_milestone.fetch(:target)
-    assert_equal "Add debt balances to track payoff", debt_milestone.fetch(:unit)
-    assert_equal "status", debt_milestone.fetch(:kind)
-    assert_equal "yellow", debt_milestone.fetch(:status)
+    assert_nil debt_milestone
     assert_equal [ 0, 0, 0 ], decisions.values.map { |decision| decision.fetch(:amount) }
     assert_equal [ "Wait", "Wait", "Wait" ], decisions.values.map { |decision| decision.fetch(:recommendation) }
     assert_equal false, payload.dig(:dashboard, :readiness_path, :yellow, :reached)
@@ -57,6 +58,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
 
   test "debt milestone reports the known remaining balance without inventing payoff progress" do
     household, user = create_household
+    household.household_profile.update!(debt_tracking_mode: "individual")
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
     household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 540_000, minimum_payment_cents: 20_000)
 
@@ -150,6 +152,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       household.income_sources.create!(label: "Business", source_type: "business", amount_cents: 120_000, cadence: "monthly")
       household.income_sources.create!(label: "Old rental", source_type: "rental", amount_cents: 500_000, cadence: "monthly", active: false)
       household.expense_items.create!(label: "Monthly categories", stack_key: "non_discretionary", amount_cents: 692_500, cadence: "monthly")
+      household.household_profile.update!(debt_tracking_mode: "individual")
       household.debts.create!(label: "Credit card", debt_type: "credit_card", balance_cents: 735_000, minimum_payment_cents: 92_000)
 
       optionality = HouseholdFinance::DataPresenter.new(household, user: user).optionality
@@ -309,6 +312,37 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     end
   end
 
+  test "blank legacy setup debt values remain unknown in presenter output" do
+    household, user = create_household
+
+    HouseholdFinance::SetupUpdater.new(household, credit_card_debt: "", debt_payment: nil).call
+
+    profile = household.household_profile.reload
+    refute profile.debt_summary_balance_known?
+    refute profile.debt_summary_minimum_payment_known?
+    setup_values = HouseholdFinance::DataPresenter.new(household.reload, user: user).setup_values
+    assert_nil setup_values.fetch(:credit_card_debt)
+    assert_nil setup_values.fetch(:debt_payment)
+    refute HouseholdFinance::DataPresenter.new(household, user: user).app_data.dig(:dashboard, :summary, :readiness_available)
+  end
+
+  test "blank legacy setup debt values leave individual records unchanged" do
+    household, = create_household
+    household.household_profile.update!(debt_tracking_mode: "individual")
+    debt = household.debts.create!(
+      label: "Visa", debt_type: "credit_card", balance_cents: 310_000,
+      minimum_payment_cents: 17_500, balance_known: true, minimum_payment_known: true
+    )
+
+    HouseholdFinance::SetupUpdater.new(household, credit_card_debt: "", debt_payment: nil).call
+
+    assert_equal "individual", household.household_profile.reload.debt_tracking_mode
+    assert_equal 310_000, debt.reload.balance_cents
+    assert_equal 17_500, debt.minimum_payment_cents
+    assert debt.balance_known?
+    assert debt.minimum_payment_known?
+  end
+
   test "deficit household does not show a negative non-essential purchase amount" do
     household, user = create_household
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 200_000, cadence: "monthly")
@@ -329,6 +363,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 710_000, cadence: "monthly")
     household.expense_items.create!(label: "Monthly outflow", stack_key: "non_discretionary", amount_cents: 690_000, cadence: "monthly")
     household.expense_items.create!(label: "Flexible spending", stack_key: "discretionary", amount_cents: 0, cadence: "monthly")
+    household.household_profile.update!(debt_tracking_mode: "individual")
     household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 10_000)
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 4_200_000)
 
@@ -548,6 +583,11 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       primary_goal: "Build a clear monthly money rhythm."
     )
     household.household_memberships.create!(user: user, role: "owner")
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 0,
+      debt_summary_minimum_payment_cents: 0,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
 
     [ household, user ]
   end

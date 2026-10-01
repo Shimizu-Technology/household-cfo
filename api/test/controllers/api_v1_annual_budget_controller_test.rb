@@ -2255,9 +2255,15 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   end
 
   def confirm_setup_for_test(user)
-    HouseholdFinance::WorkspaceResolver.new(user).household.update!(
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.update!(
       primary_goal: "Build a stable plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
+    )
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 200_000,
+      debt_summary_minimum_payment_cents: 15_000,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
     )
   end
 

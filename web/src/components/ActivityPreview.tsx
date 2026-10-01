@@ -37,6 +37,7 @@ export function ActivityPreview({ plan, monthIndex, onOpenBudget, onAskMia }: Ac
         pending={0}
         baselineSurplus={baselineSurplus}
         debtMinimums={plan.monthly_debt_minimums}
+        debtMinimumsKnown={plan.monthly_debt_minimums_known !== false}
       />
 
       <CategoryPressureList

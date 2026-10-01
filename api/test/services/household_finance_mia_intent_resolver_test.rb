@@ -1,6 +1,157 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "resolves an approved debt update to an exact active record" do
+    context = intent_context.deep_dup
+    context[:active_debts] = [ { id: 77, label: "Visa", debt_type: "credit_card", balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9 } ]
+    context[:archived_debts] = []
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Update Visa to a $2,900 balance, $160 minimum, and 27.5% APR",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: false,
+          resolved_message: "Update Visa debt details",
+          topic: { type: "debt_plan", title: "Visa update", subject: "Visa" },
+          action: default_action.merge(type: "update_debt", debt_id: 77, debt_name: "Visa", amount: "2900", minimum_payment: "160", interest_rate_percent: "27.5")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "debt_action", result.intent
+    assert_equal "update_debt", result.action.fetch(:type)
+    assert_equal 77, result.action.fetch(:debt_id)
+    assert_equal "160", result.action.fetch(:minimum_payment)
+  end
+
+  test "rejects a provider invented debt APR" do
+    context = intent_context.deep_dup
+    context[:active_debts] = [ { id: 77, label: "Visa", debt_type: "credit_card", balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9 } ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Update Visa to 19.9% APR",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: false,
+          resolved_message: "Update Visa APR",
+          topic: { type: "debt_plan", title: "Visa update", subject: "Visa" },
+          action: default_action.merge(type: "update_debt", debt_id: 77, debt_name: "Visa", interest_rate_percent: "29.9")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
+  test "strips an unrequested unknown minimum from a grounded balance update" do
+    context = intent_context.deep_dup
+    context[:active_debts] = [ { id: 77, label: "Visa", debt_type: "credit_card", balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9 } ]
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Update Visa balance to $2,900",
+      context: context, api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: false,
+          resolved_message: "Update Visa balance",
+          topic: { type: "debt_plan", title: "Visa update", subject: "Visa" },
+          action: default_action.merge(type: "update_debt", debt_id: 77, debt_name: "Visa", amount: "2900", minimum_payment: "unknown")
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "2900", result.action.fetch(:amount)
+    assert_equal "", result.action.fetch(:minimum_payment)
+  end
+
+  test "strips an unrequested unknown balance from a grounded minimum update" do
+    context = intent_context.deep_dup
+    context[:active_debts] = [ { id: 77, label: "Visa", debt_type: "credit_card", balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9 } ]
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Update Visa minimum payment to $160",
+      context: context, api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: false,
+          resolved_message: "Update Visa minimum payment",
+          topic: { type: "debt_plan", title: "Visa update", subject: "Visa" },
+          action: default_action.merge(type: "update_debt", debt_id: 77, debt_name: "Visa", amount: "unknown", minimum_payment: "160")
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "", result.action.fetch(:amount)
+    assert_equal "160", result.action.fetch(:minimum_payment)
+  end
+
+  test "asks for summary totals when a provider invents unknown tracking values" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Switch debt tracking to a household summary",
+      context: intent_context, api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: false,
+          resolved_message: "Switch to summary debt tracking",
+          topic: { type: "debt_plan", title: "Debt tracking", subject: "Household summary" },
+          action: default_action.merge(
+            type: "update_debt_tracking", debt_tracking_mode: "summary",
+            amount: "unknown", minimum_payment: "unknown"
+          )
+        )
+      end
+    ).call
+
+    assert result.clarification?
+    assert_equal "", result.action.fetch(:amount)
+    assert_equal "", result.action.fetch(:minimum_payment)
+  end
+
+  test "keeps a prior debt minimum when clarification supplies the debt type" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "debt_plan",
+        title: "Add Navy Federal",
+        subject: "Navy Federal",
+        status: "needs_clarification",
+        action: {
+          type: "create_debt", debt_name: "Navy Federal", debt_type: "",
+          amount: "4200", minimum_payment: "125", interest_rate_percent: ""
+        }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "It is a credit card.",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: true,
+          resolved_message: "Add Navy Federal as a credit card with a $4,200 balance and $125 minimum",
+          topic: { type: "debt_plan", title: "Add Navy Federal", subject: "Navy Federal" },
+          action: default_action.merge(type: "create_debt", debt_name: "Navy Federal", debt_type: "credit_card")
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "create_debt", result.action.fetch(:type)
+    assert_equal "credit_card", result.action.fetch(:debt_type)
+    assert_equal "4200", result.action.fetch(:amount)
+    assert_equal "125", result.action.fetch(:minimum_payment)
+  end
+
   test "returns no model resolution when provider capacity is full" do
     with_mia_provider_capacity_rejected do
       resolver = HouseholdFinance::MiaIntentResolver.new(
@@ -162,8 +313,6 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       unexpected_sinking_fund: [ "Unexpected sinking fund is $7,106.", "7106" ],
       emergency_fund: [ "Emergency fund is $7,107.", "7107" ],
       other_assets: [ "Other assets are $7,108.", "7108" ],
-      credit_card_debt: [ "Credit card debt is $7,109.", "7109" ],
-      debt_payment: [ "Debt minimum is $7,110.", "7110" ],
       target_runway_months: [ "Runway target is 6 months.", "6" ]
     }
 
@@ -2835,7 +2984,13 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       retained_after_transition: false,
       entry_type: "",
       effective_on: "",
-      schedule_label: ""
+      schedule_label: "",
+      debt_id: 0,
+      debt_name: "",
+      debt_type: "",
+      minimum_payment: "",
+      interest_rate_percent: "",
+      debt_tracking_mode: ""
     }
   end
 

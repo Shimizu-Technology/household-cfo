@@ -236,6 +236,7 @@ function realWorkspaceData(setupComplete = false) {
       },
       income_sources: structuredClone(budget.annual_plan.income_sources),
       debts: [],
+      debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
       capabilities: experienceCapabilities(),
       setup_values: {
@@ -1493,8 +1494,10 @@ test('profile summary edits focus the matching manual field', async ({ page }) =
   await expect(page.getByLabel('Fixed essentials')).toBeEnabled()
 
   await savingsCard.getByRole('button', { name: 'Edit', exact: true }).click()
-  await expect(page.getByLabel('Total credit card debt')).toBeFocused()
-  await expect(page.locator('.setup-optional-fields')).toHaveAttribute('open', '')
+  const debtManager = page.locator('.debt-manager')
+  await expect(debtManager).toBeVisible()
+  await expect(debtManager).toBeInViewport()
+  await expect(debtManager.getByRole('button', { name: 'Add a debt' })).toBeFocused()
 })
 
 test('first-session review states what it completes and what Mia still needs', async ({ page }) => {
@@ -2269,6 +2272,109 @@ test('My Profile manages explicit income sources with stable keys on desktop and
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 })
     await expect(page.getByRole('heading', { name: 'Keep each source clear and editable.' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  }
+})
+
+test('My Profile keeps debt summary and individual tracking explicit on desktop and mobile', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  type DebtFixture = typeof workspace.workspace.debts[number]
+  workspace.workspace.debts = [
+    { id: 11, label: 'Visa', debt_type: 'credit_card', balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9, active: true, archived_at: null, source_type: 'document_import', source_metadata: { document_import_id: 9 } },
+    { id: 12, label: 'Old loan', debt_type: 'personal_loan', balance: 900, minimum_payment: 75, interest_rate_percent: null, active: false, archived_at: '2026-09-01T00:00:00Z', source_type: 'manual_ui', source_metadata: {} },
+  ] as DebtFixture[]
+  workspace.workspace.debt_portfolio = { mode: 'individual', total_balance: 3_100, monthly_minimum: 175, balance_known: true, minimum_payment_known: true, active_count: 1, archived_count: 1 }
+  const requests: Array<{ method: string; path: string; key: string | null; body: Record<string, unknown> }> = []
+  let nextId = 20
+
+  const recalculate = () => {
+    const active = workspace.workspace.debts.filter((debt) => debt.active)
+    if (workspace.workspace.debt_portfolio.mode === 'individual') {
+      workspace.workspace.debt_portfolio = {
+        ...workspace.workspace.debt_portfolio,
+        total_balance: active.reduce((sum, debt) => sum + (debt.balance ?? 0), 0),
+        monthly_minimum: active.reduce((sum, debt) => sum + (debt.minimum_payment ?? 0), 0),
+        balance_known: active.every((debt) => debt.balance !== null),
+        minimum_payment_known: active.every((debt) => debt.minimum_payment !== null),
+        active_count: active.length,
+        archived_count: workspace.workspace.debts.length - active.length,
+      }
+    }
+  }
+
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/debts**', (route) => {
+    const request = route.request()
+    const url = new URL(request.url())
+    const body = (request.postDataJSON() ?? {}) as Record<string, unknown>
+    requests.push({ method: request.method(), path: url.pathname, key: request.headers()['idempotency-key'] ?? null, body })
+    if (url.pathname.endsWith('/tracking')) {
+      const input = body.debt_tracking as { mode: 'summary' | 'individual'; summary_balance?: number | null; summary_minimum_payment?: number | null }
+      workspace.workspace.debt_portfolio = input.mode === 'summary'
+        ? { ...workspace.workspace.debt_portfolio, mode: 'summary', total_balance: input.summary_balance ?? 0, monthly_minimum: input.summary_minimum_payment ?? 0, balance_known: input.summary_balance !== null, minimum_payment_known: input.summary_minimum_payment !== null }
+        : { ...workspace.workspace.debt_portfolio, mode: 'individual' }
+      recalculate()
+      return route.fulfill({ status: 200, json: { debt_portfolio: workspace.workspace.debt_portfolio } })
+    }
+    const idMatch = url.pathname.match(/\/debts\/(\d+)/)
+    const id = idMatch ? Number(idMatch[1]) : null
+    if (request.method() === 'POST' && url.pathname.endsWith('/restore') && id) {
+      workspace.workspace.debts = workspace.workspace.debts.map((debt) => debt.id === id ? { ...debt, active: true, archived_at: null } : debt)
+    } else if (request.method() === 'POST') {
+      const input = body.debt as Omit<DebtFixture, 'id' | 'active' | 'archived_at' | 'source_type' | 'source_metadata'>
+      workspace.workspace.debts.push({ ...input, id: nextId++, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} } as DebtFixture)
+    } else if (request.method() === 'PATCH' && id) {
+      const input = body.debt as Partial<DebtFixture>
+      workspace.workspace.debts = workspace.workspace.debts.map((debt) => debt.id === id ? { ...debt, ...input } : debt)
+    } else if (request.method() === 'DELETE' && id) {
+      workspace.workspace.debts = workspace.workspace.debts.map((debt) => debt.id === id ? { ...debt, active: false, archived_at: '2026-10-02T00:00:00Z' } : debt)
+    }
+    recalculate()
+    const debt = workspace.workspace.debts.find((candidate) => candidate.id === id) ?? workspace.workspace.debts.at(-1)
+    return route.fulfill({ status: request.method() === 'POST' && !url.pathname.endsWith('/restore') ? 201 : 200, json: { debt, debt_portfolio: workspace.workspace.debt_portfolio } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'My Profile')
+  await expect(page.getByRole('heading', { name: 'Choose the amount of detail that works for your household.' })).toBeVisible()
+  await expect(page.getByText('Approved import')).toBeVisible()
+  await expect(page.getByLabel('Canonical debt totals').getByText('$3,100.00')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Add a debt' }).click()
+  const debtForm = page.locator('.debt-form')
+  await debtForm.getByRole('textbox', { name: 'Debt name' }).fill('Auto loan')
+  await debtForm.getByLabel('Debt type').selectOption('auto_loan')
+  await debtForm.getByLabel('Current balance').fill('12000')
+  await debtForm.getByLabel('Monthly minimum').fill('315')
+  await debtForm.getByRole('spinbutton', { name: /APR/ }).fill('6.5')
+  await debtForm.getByRole('button', { name: 'Add debt' }).click()
+  await expect(page.getByText('Auto loan', { exact: true })).toBeVisible()
+  expect(requests[0].key).toBeTruthy()
+  expect(requests[0].body).toMatchObject({ debt: { label: 'Auto loan', debt_type: 'auto_loan', balance: 12000, minimum_payment: 315, interest_rate_percent: 6.5 } })
+
+  const autoRow = page.locator('.debt-row').filter({ hasText: 'Auto loan' })
+  await autoRow.getByRole('button', { name: 'Archive' }).click()
+  await expect(autoRow.getByRole('button', { name: 'Confirm archive' })).toBeVisible()
+  await autoRow.getByRole('button', { name: 'Confirm archive' }).click()
+  await page.getByText(/Archived debts \(2\)/).click()
+  const archivedAuto = page.locator('.debt-archive .debt-row').filter({ hasText: 'Auto loan' })
+  await expect(archivedAuto).toBeVisible()
+  await archivedAuto.getByRole('button', { name: 'Restore' }).click()
+  await expect(page.locator('.debt-list .debt-row').filter({ hasText: 'Auto loan' })).toBeVisible()
+
+  await page.getByRole('radio', { name: /One household summary/ }).check()
+  await page.getByLabel('Total debt balance').fill('15000')
+  await page.getByLabel('Total monthly minimums').fill('500')
+  await page.getByRole('button', { name: 'Save tracking choice' }).click()
+  await expect(page.getByText('Mia is using the approved household summary.')).toBeVisible()
+  await expect(page.getByLabel('Canonical debt totals').getByText('$15,000.00')).toBeVisible()
+  await expect(page.locator('.debt-empty')).toContainText('Individual records are preserved below for review and editing')
+  expect(requests.at(-1)?.body).toMatchObject({ debt_tracking: { mode: 'summary', summary_balance: 15000, summary_minimum_payment: 500 } })
+  expect(requests.every((request) => Boolean(request.key))).toBe(true)
+
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: width === 390 ? 844 : 568 })
+    await expect(page.getByRole('heading', { name: 'Choose the amount of detail that works for your household.' })).toBeVisible()
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
   }
 })
@@ -4425,30 +4531,55 @@ test('Coach Studio stays private from participant navigation and direct URLs', a
   await expect(page.getByRole('link', { name: 'Coach Studio', exact: true })).toHaveCount(0)
 })
 
-test('participant can add edit and explicitly remove individual debt records', async ({ page }) => {
-  let debts: Array<{ id: number; label: string; debt_type: string; balance: number; minimum_payment: number; interest_rate_percent: number | null }> = []
-  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({
-    status: 200,
-    json: { ...realWorkspaceData(true), workspace: { ...realWorkspaceData(true).workspace, debts } },
-  }))
+test('participant can add edit archive and restore individual debt records', async ({ page }) => {
+  let debts: Array<{ id: number; label: string; debt_type: string; balance: number | null; minimum_payment: number | null; interest_rate_percent: number | null; balance_known: boolean; minimum_payment_known: boolean; active: boolean; archived_at: string | null; source_type: string; source_metadata: Record<string, never> }> = []
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    const activeDebts = debts.filter((debt) => debt.active)
+    const totalBalance = activeDebts.reduce((sum, debt) => sum + (debt.balance ?? 0), 0)
+    const monthlyMinimum = activeDebts.reduce((sum, debt) => sum + (debt.minimum_payment ?? 0), 0)
+    const workspace = realWorkspaceData(true)
+    return route.fulfill({
+      status: 200,
+      json: {
+        ...workspace,
+        workspace: {
+          ...workspace.workspace,
+          debts,
+          debt_portfolio: {
+            mode: 'individual', total_balance: totalBalance, monthly_minimum: monthlyMinimum,
+            balance_known: activeDebts.length > 0 && activeDebts.every((debt) => debt.balance_known),
+            minimum_payment_known: activeDebts.length > 0 && activeDebts.every((debt) => debt.minimum_payment_known),
+            active_count: activeDebts.length, archived_count: debts.length - activeDebts.length,
+          },
+        },
+      },
+    })
+  })
   await page.route('http://api.test/api/v1/debts**', async (route) => {
     const request = route.request()
     const path = new URL(request.url()).pathname
+    if (request.method() === 'POST' && path.endsWith('/88/restore')) {
+      debts = debts.map((debt) => debt.id === 88 ? { ...debt, active: true, archived_at: null } : debt)
+      return route.fulfill({ status: 200, json: { debt: debts.find((debt) => debt.id === 88) } })
+    }
     if (request.method() === 'POST') {
       const input = request.postDataJSON().debt
-      const debt = { id: 88, ...input }
+      const debt = {
+        id: 88, ...input, balance_known: input.balance !== null, minimum_payment_known: input.minimum_payment !== null,
+        active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {},
+      }
       debts = [debt]
       return route.fulfill({ status: 201, json: { debt } })
     }
     if (request.method() === 'PATCH' && path.endsWith('/88')) {
       const input = request.postDataJSON().debt
-      const debt = { id: 88, ...input }
+      const debt = { ...debts[0], ...input }
       debts = [debt]
       return route.fulfill({ status: 200, json: { debt } })
     }
     if (request.method() === 'DELETE' && path.endsWith('/88')) {
-      debts = []
-      return route.fulfill({ status: 204, body: '' })
+      debts = debts.map((debt) => debt.id === 88 ? { ...debt, active: false, archived_at: '2026-10-02T04:00:00Z' } : debt)
+      return route.fulfill({ status: 200, json: { debt: debts[0] } })
     }
     return route.fulfill({ status: 404, json: { error: 'Unexpected debt request' } })
   })
@@ -4461,21 +4592,25 @@ test('participant can add edit and explicitly remove individual debt records', a
   await debtPanel.getByLabel('Debt name').fill('Visa Gold')
   await debtPanel.getByLabel('Current balance').fill('4200.50')
   await debtPanel.getByLabel('Monthly minimum').fill('125')
-  await debtPanel.getByLabel('APR').fill('24.99')
+  await debtPanel.getByRole('spinbutton', { name: /^APR/ }).fill('24.99')
   await debtPanel.getByRole('button', { name: 'Add debt' }).click()
   await expect(debtPanel).toContainText('Visa Gold')
   await expect(debtPanel).toContainText('24.99% APR')
   await expect(debtPanel).toContainText('$4,200.50')
 
   await debtPanel.getByRole('button', { name: 'Edit' }).click()
-  await debtPanel.getByLabel('APR').fill('19.75')
+  await debtPanel.getByRole('spinbutton', { name: /^APR/ }).fill('19.75')
   await debtPanel.getByRole('button', { name: 'Save debt' }).click()
   await expect(debtPanel).toContainText('19.75% APR')
 
-  await debtPanel.getByRole('button', { name: 'Remove' }).click()
-  await expect(debtPanel.getByRole('button', { name: 'Confirm remove' })).toBeVisible()
-  await debtPanel.getByRole('button', { name: 'Confirm remove' }).click()
-  await expect(debtPanel).toContainText('No individual debts entered yet.')
+  await debtPanel.getByRole('button', { name: 'Archive' }).click()
+  await expect(debtPanel.getByRole('button', { name: 'Confirm archive' })).toBeVisible()
+  await debtPanel.getByRole('button', { name: 'Confirm archive' }).click()
+  await expect(debtPanel).toContainText('No active debts entered yet.')
+  await debtPanel.getByText('Archived debts (1)').click()
+  await debtPanel.getByRole('button', { name: 'Restore' }).click()
+  await expect(debtPanel).toContainText('Visa Gold')
+  await expect(debtPanel).toContainText('Active debts')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

@@ -9,8 +9,8 @@ export type WorkspaceSetupValues = {
   unexpected_sinking_fund: number
   emergency_fund: number
   other_assets: number
-  credit_card_debt: number
-  debt_payment: number
+  credit_card_debt: number | null
+  debt_payment: number | null
   target_runway_months: number
 }
 
@@ -37,6 +37,7 @@ export type WorkspaceData = {
   setup_values: WorkspaceSetupValues
   income_sources: IncomeTimelineSource[]
   debts: DebtRecord[]
+  debt_portfolio: DebtPortfolio
   cohort: null | {
     id: number
     name: string
@@ -70,12 +71,26 @@ export type DebtRecord = {
   id: number
   label: string
   debt_type: DebtType
-  balance: number
-  minimum_payment: number
+  balance: number | null
+  minimum_payment: number | null
   interest_rate_percent: number | null
+  active: boolean
+  archived_at: string | null
+  source_type: 'manual_ui' | 'mia' | 'document_import' | 'setup'
+  source_metadata: Record<string, unknown>
 }
 
-export type DebtInput = Omit<DebtRecord, 'id'>
+export type DebtInput = Pick<DebtRecord, 'label' | 'debt_type' | 'balance' | 'minimum_payment' | 'interest_rate_percent'>
+
+export type DebtPortfolio = {
+  mode: 'summary' | 'individual'
+  total_balance: number
+  monthly_minimum: number
+  balance_known: boolean
+  minimum_payment_known: boolean
+  active_count: number
+  archived_count: number
+}
 
 export type ProfileSection = {
   label: string
@@ -256,8 +271,8 @@ export type DocumentImportItemInput = Partial<Pick<
   'target_type' | 'label' | 'cadence' | 'source_type' | 'stack_key' | 'account_type' | 'debt_type' | 'confidence' | 'evidence' | 'selected' | 'ignored'
 >> & {
   amount?: string | number
-  balance?: string | number
-  payment?: string | number
+  balance?: string | number | null
+  payment?: string | number | null
   interest_rate_percent?: string | number | null
 }
 
@@ -321,10 +336,12 @@ export type DashboardData = {
     body: string
   }
   readiness_path: {
-    current_runway_months: number
+    available?: boolean
+    unavailable_reason?: string
+    current_runway_months: number | null
     target_runway_months: number
     protected_liquid_amount: number
-    monthly_surplus: number
+    monthly_surplus: number | null
     yellow: ReadinessMilestone
     green: ReadinessMilestone
   }
@@ -448,6 +465,11 @@ export type MiaActionItem = {
     | 'create_income_schedule_entry'
     | 'update_income_schedule_entry'
     | 'delete_income_schedule_entry'
+    | 'create_debt'
+    | 'update_debt'
+    | 'archive_debt'
+    | 'restore_debt'
+    | 'update_debt_tracking'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -467,7 +489,7 @@ export type MiaActionItem = {
 export type MiaActionDraft = {
   id: number
   status: 'pending' | 'applied' | 'canceled'
-  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule'
+  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan'
   year: number
   title: string
   summary: string
@@ -495,6 +517,7 @@ export type AnnualBudgetPlan = {
   rows: BudgetCategoryRow[]
   monthly_income: Record<number, number>
   monthly_debt_minimums: number
+  monthly_debt_minimums_known?: boolean
   income_sources: IncomeTimelineSource[]
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
@@ -591,10 +614,13 @@ export type BudgetData = {
 
 export type WealthData = {
   summary: {
-    net_worth: number
-    liquid_net_worth: number
-    ten_year_surplus_capacity?: number
-    monthly_surplus_available?: number
+    net_worth: number | null
+    liquid_net_worth: number | null
+    liquid_net_worth_available?: boolean
+    debt_balance_known?: boolean
+    debt_minimums_known?: boolean
+    ten_year_surplus_capacity?: number | null
+    monthly_surplus_available?: number | null
     retirement_projection?: number
     monthly_wealth_building?: number
   }
@@ -610,11 +636,13 @@ export type WealthData = {
 }
 
 export type OptionalityData = {
+  available?: boolean
+  unavailable_reason?: string
   scenario: string
   question: string
   target_runway_months: number
-  current_runway_months: number
-  monthly_gap: number
+  current_runway_months: number | null
+  monthly_gap: number | null
   choices: Array<{
     label: string
     fit_label: string
@@ -2214,6 +2242,7 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
       income_sources: budget.annual_plan?.income_sources ?? [],
       debts: [],
+      debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
       cohort: null,
       capabilities: {
         schema_version: 1,
@@ -2244,22 +2273,33 @@ export async function saveWorkspaceSetup(values: Partial<WorkspaceSetupValues>):
   })
 }
 
-export async function createDebt(values: DebtInput): Promise<DebtRecord> {
-  const payload = await postJson<{ debt: DebtRecord }>('/api/v1/debts', { debt: values })
+export async function createDebt(values: DebtInput, idempotencyKey: string): Promise<DebtRecord> {
+  const payload = await fetchJson<{ debt: DebtRecord }>('/api/v1/debts', { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ debt: values }) })
   return payload.debt
 }
 
-export async function updateDebt(id: number, values: DebtInput): Promise<DebtRecord> {
+export async function updateDebt(id: number, values: DebtInput, idempotencyKey: string): Promise<DebtRecord> {
   const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ debt: values }),
   })
   return payload.debt
 }
 
-export async function deleteDebt(id: number): Promise<void> {
-  return fetchJson<void>(`/api/v1/debts/${id}`, { method: 'DELETE' })
+export async function archiveDebt(id: number, idempotencyKey: string): Promise<DebtRecord> {
+  const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}`, { method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey } })
+  return payload.debt
+}
+
+export async function restoreDebt(id: number, idempotencyKey: string): Promise<DebtRecord> {
+  const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({}) })
+  return payload.debt
+}
+
+export async function updateDebtTracking(values: { mode: 'summary' | 'individual'; summary_balance?: number | null; summary_minimum_payment?: number | null }, idempotencyKey: string): Promise<DebtPortfolio> {
+  const payload = await fetchJson<{ debt_portfolio: DebtPortfolio }>('/api/v1/debts/tracking', { method: 'PATCH', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ debt_tracking: values }) })
+  return payload.debt_portfolio
 }
 
 export async function fetchBudget(year?: number): Promise<BudgetData> {
@@ -2729,7 +2769,7 @@ function demoWorkspaceSetupValues(profile: ProfileData, dashboard: DashboardData
     expected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Expected')?.amount ?? 0,
     unexpected_sinking_fund: budget.stacks.find((stack) => stack.label === 'Sinking Fund — Unexpected')?.amount ?? 0,
     emergency_fund: dashboard.accounts.find((account) => account.name === 'Emergency Fund')?.balance ?? 0,
-    other_assets: wealth.summary.net_worth,
+    other_assets: wealth.summary.net_worth ?? 0,
     credit_card_debt: Math.abs(dashboard.accounts.find((account) => account.type === 'debt')?.balance ?? 0),
     debt_payment: dashboard.summary.debt_payments,
     target_runway_months: 6,

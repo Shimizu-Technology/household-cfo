@@ -956,6 +956,86 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 19.75, JSON.parse(response.body).dig("item", "interest_rate_percent")
   end
 
+  test "item correction marks previously unknown applied debt amounts as known" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Medical bill", debt_type: "medical", balance_cents: 0,
+      minimum_payment_cents: 0, balance_known: false, minimum_payment_known: false,
+      source_type: "document_import"
+    )
+    item = document_import.items.create!(
+      target_type: "debt", label: "Medical bill", balance_cents: 0,
+      payment_cents: nil, debt_type: "medical", confidence: "low",
+      applied_at: Time.current, applied_by_user: @user, applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { balance: "1800", payment: "75" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    debt.reload
+    assert_equal 1_800_00, debt.balance_cents
+    assert_equal 75_00, debt.minimum_payment_cents
+    assert debt.balance_known?
+    assert debt.minimum_payment_known?
+  end
+
+  test "label-only correction preserves an unknown applied debt balance" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Medical bill", debt_type: "medical", balance_cents: 0,
+      minimum_payment_cents: 75_00, balance_known: false, minimum_payment_known: true,
+      source_type: "document_import"
+    )
+    item = document_import.items.create!(
+      target_type: "debt", label: "Medical bill", balance_cents: nil,
+      payment_cents: 75_00, debt_type: "medical", confidence: "low",
+      applied_at: Time.current, applied_by_user: @user, applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { label: "Hospital bill" } },
+      headers: auth_headers(@user)
+
+    assert_response :success
+    debt.reload
+    assert_equal "Hospital bill", debt.label
+    assert_not debt.balance_known?
+    assert debt.minimum_payment_known?
+  end
+
+  test "applied debt correction can clear one known amount without silently clearing the last financial value" do
+    document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
+    debt = @household.debts.create!(
+      label: "Medical bill", debt_type: "medical", balance_cents: 1_800_00,
+      minimum_payment_cents: 75_00, balance_known: true, minimum_payment_known: true,
+      source_type: "document_import"
+    )
+    item = document_import.items.create!(
+      target_type: "debt", label: "Medical bill", balance_cents: 1_800_00,
+      payment_cents: 75_00, debt_type: "medical", confidence: "low",
+      applied_at: Time.current, applied_by_user: @user, applied_record: debt
+    )
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { balance: nil } }, headers: auth_headers(@user), as: :json
+
+    assert_response :success
+    debt.reload
+    assert_not debt.balance_known?
+    assert_equal 0, debt.balance_cents
+    assert debt.minimum_payment_known?
+    assert_nil item.reload.balance_cents
+
+    patch "/api/v1/document_imports/#{document_import.id}/items/#{item.id}",
+      params: { item: { payment: nil } }, headers: auth_headers(@user), as: :json
+
+    assert_response :unprocessable_entity
+    assert debt.reload.minimum_payment_known?
+    assert_equal 75_00, debt.minimum_payment_cents
+  end
+
   test "item update without APR preserves a newer APR on the applied saved debt" do
     document_import = create_import!(status: "applied", applied_at: Time.current, applied_by_user: @user)
     debt = @household.debts.create!(

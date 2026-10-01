@@ -52,7 +52,8 @@ module HouseholdFinance
         category_payload(category, periods, allocations_by_category_and_period, actuals)
       end
       monthly_income = monthly_income_by_period(periods)
-      monthly_debt_minimums = Money.dollars(household.debts.sum(:minimum_payment_cents))
+      debt_portfolio = DebtPortfolio.new(household)
+      monthly_debt_minimums = Money.dollars(debt_portfolio.monthly_minimum_cents)
 
       {
         year: budget_year.year,
@@ -60,6 +61,7 @@ module HouseholdFinance
         rows: rows,
         monthly_income: monthly_income,
         monthly_debt_minimums: monthly_debt_minimums,
+        monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
         annual_outlook: annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
@@ -274,12 +276,14 @@ module HouseholdFinance
         }
       end
 
+      debt_portfolio = DebtPortfolio.new(household)
       {
         year: year,
         months: months,
         rows: rows,
         monthly_income: monthly_income,
-        monthly_debt_minimums: Money.dollars(household.debts.sum(:minimum_payment_cents)),
+        monthly_debt_minimums: Money.dollars(debt_portfolio.monthly_minimum_cents),
+        monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
         annual_outlook: { typical_monthly_outflow: 0, months: [], upcoming_spikes: [], next_irregular_month: nil },
         pending_transaction_drafts: [],
@@ -545,7 +549,7 @@ module HouseholdFinance
 
     def pending_mia_action_drafts_payload(budget_year)
       household.mia_action_drafts.pending.includes(:mia_action_items)
-        .where("draft_type = :household_setup OR year = :year", household_setup: "household_setup", year: budget_year.year)
+        .where("draft_type IN (:timeless) OR year = :year", timeless: %w[household_setup debt_plan], year: budget_year.year)
         .recent_first
         .limit(10)
         .map { |draft| MiaActionDraftPresenter.new(draft).call }

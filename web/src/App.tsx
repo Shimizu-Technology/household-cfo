@@ -24,13 +24,14 @@ import {
   type TransactionDraftBudgetImpact,
 } from './lib/budgetPosition'
 import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
-import { changedInterestRateInput } from './lib/documentItemUpdate'
+import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
+  archiveDebt,
   archiveBudgetCategory,
   archiveIncomeSource,
   bulkConfirmTransactionDrafts,
@@ -47,7 +48,6 @@ import {
   createTransactionDraft,
   deleteDocumentImport,
   deleteDocumentImportSource,
-  deleteDebt,
   deleteIncomeScheduleEntry,
   fetchAdminCohorts,
   fetchAdminPlaidHealth,
@@ -66,6 +66,7 @@ import {
   reopenTransactionDraft,
   resendAdminUserInvitation,
   restoreBudgetCategory,
+  restoreDebt,
   restoreIncomeSource,
   saveWorkspaceSetup,
   sendMiaMessage,
@@ -75,6 +76,7 @@ import {
   updateAdminCohort,
   updateBudgetCategory,
   updateDebt,
+  updateDebtTracking,
   updateAdminUser,
   updateDocumentImportItem,
   updateIncomeSource,
@@ -101,6 +103,7 @@ import type {
   DocumentImportItemInput,
   DocumentImportKind,
   DebtInput,
+  DebtPortfolio,
   DebtRecord,
   DebtType,
   DocumentSourcePreview as DocumentSourcePreviewData,
@@ -340,16 +343,21 @@ function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: Wo
   const draft = { ...values } as unknown as WorkspaceSetupDraft
   const confirmedFields = new Set(status?.confirmed_fields ?? [])
   workspaceSetupMoneyKeys.forEach((key) => {
-    draft[key] = values[key] === 0 && !confirmedFields.has(key) ? '' : String(values[key])
+    draft[key] = values[key] === null || (values[key] === 0 && !confirmedFields.has(key)) ? '' : String(values[key])
   })
   return draft
 }
 
 function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
   const values = { ...draft } as unknown as WorkspaceSetupValues
+  const moneyValues = values as unknown as Record<WorkspaceSetupMoneyKey, number | null>
   workspaceSetupMoneyKeys.forEach((key) => {
+    if ((key === 'credit_card_debt' || key === 'debt_payment') && draft[key].trim() === '') {
+      moneyValues[key] = null
+      return
+    }
     const parsed = Number(draft[key])
-    values[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+    moneyValues[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
   })
   return values
 }
@@ -419,6 +427,7 @@ function App() {
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
+  const debtManagerRef = useRef<HTMLElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -1244,7 +1253,13 @@ function App() {
   }
 
   function openManualControls(draft: MiaActionDraft) {
-    switchSection(draft.draft_type === 'household_setup' ? 'My Profile' : 'Budget')
+    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' ? 'My Profile' : 'Budget')
+    if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
+  }
+
+  function focusDebtManager() {
+    debtManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    debtManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function startManualFirstSession() {
@@ -2254,7 +2269,11 @@ function App() {
       setData(response.workspace)
       setSetupDraft(response.workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(response.workspace.workspace.setup_values, response.workspace.workspace.setup_status) : setupDraft)
       replaceMiaHistory(response.workspace.mia)
-      setDocumentsNotice(`${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
+      const savedDebtInSummaryMode = documentImport.items.some((item) => itemIds.includes(item.id) && item.target_type === 'debt')
+        && response.workspace.workspace?.debt_portfolio?.mode === 'summary'
+      setDocumentsNotice(savedDebtInSummaryMode
+        ? `${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Individual debt records were saved for review; the approved household summary still drives planning until you switch modes in Debt plan under My Profile.`
+        : `${response.applied_count} approved value${response.applied_count === 1 ? '' : 's'} applied. Dashboard and Mia context are refreshed.`)
       captureAnalyticsEvent('document_import_applied', {
         document_kind: documentImport.document_kind,
         applied_count: response.applied_count,
@@ -2355,9 +2374,10 @@ function App() {
     setSetupError(null)
     try {
       const setupValues = workspaceSetupValuesFromDraft(setupDraft)
-      const payload = await saveWorkspaceSetup(wasSetupComplete
-        ? Object.fromEntries(Object.entries(setupValues).filter(([key]) => !['primary_income', 'business_income'].includes(key)))
-        : setupValues)
+      const excludedSetupKeys = wasSetupComplete
+        ? ['primary_income', 'business_income', 'credit_card_debt', 'debt_payment']
+        : ['credit_card_debt', 'debt_payment']
+      const payload = await saveWorkspaceSetup(Object.fromEntries(Object.entries(setupValues).filter(([key]) => !excludedSetupKeys.includes(key))))
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
@@ -2419,6 +2439,11 @@ function App() {
       return
     }
 
+    if (sectionLabel.toLowerCase().includes('debt')) {
+      requestAnimationFrame(focusDebtManager)
+      return
+    }
+
     const fieldName = setupFocusFieldForSection(sectionLabel)
     setIsProfileEditing(true)
     requestAnimationFrame(() => {
@@ -2477,6 +2502,8 @@ function App() {
     ?? 0
   const tenYearSurplusCapacity = data.wealth.summary.ten_year_surplus_capacity
     ?? monthlySurplusAvailable * 12 * 10
+  const debtBalanceKnown = data.wealth.summary.debt_balance_known !== false
+  const debtMinimumsKnown = data.wealth.summary.debt_minimums_known !== false
 
   return (
     <main className="app">
@@ -2972,7 +2999,10 @@ function App() {
 
           {isRealWorkspace && !isFirstSessionSetup && (
             <DebtManager
+              sectionRef={debtManagerRef}
+              key={`${data.workspace?.debt_portfolio?.mode}:${data.workspace?.debt_portfolio?.total_balance}:${data.workspace?.debt_portfolio?.monthly_minimum}:${data.workspace?.debt_portfolio?.balance_known}:${data.workspace?.debt_portfolio?.minimum_payment_known}:${data.workspace?.debt_portfolio?.active_count}:${data.workspace?.debt_portfolio?.archived_count}`}
               debts={data.workspace?.debts ?? []}
+              portfolio={data.workspace?.debt_portfolio ?? { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }}
               onChanged={refreshWorkspaceAfterDebtChange}
             />
           )}
@@ -3062,10 +3092,10 @@ function App() {
             </div>
             <div className="metric-row">
               <Metric label="Income" value={currency.format(selectedBudgetOutlookMonth?.income ?? data.budget.monthly_income)} />
-              <Metric label="Planned outflow" value={currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? data.budget.total_monthly_outflow)} />
+              <Metric label="Planned outflow" value={debtMinimumsKnown ? currency.format(selectedBudgetOutlookMonth?.planned_outflow ?? data.budget.total_monthly_outflow) : 'Not available'} />
               <Metric
-                label={(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
-                value={currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus))}
+                label={debtMinimumsKnown && (selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus) < 0 ? 'Baseline shortfall' : 'Baseline surplus'}
+                value={debtMinimumsKnown ? currency.format(Math.abs(selectedBudgetOutlookMonth?.baseline_surplus ?? data.budget.baseline_surplus)) : 'Not available'}
               />
             </div>
           </div>
@@ -3125,18 +3155,18 @@ function App() {
           />
 
           <div className="metric-row">
-            <Metric label="Net worth" value={currency.format(data.wealth.summary.net_worth)} />
-            <Metric label="Liquid net worth" value={currency.format(data.wealth.summary.liquid_net_worth)} />
+            <Metric label="Net worth" value={debtBalanceKnown && data.wealth.summary.net_worth !== null ? currency.format(data.wealth.summary.net_worth) : 'Not available'} />
+            <Metric label="Liquid net worth" value={debtBalanceKnown && data.wealth.summary.liquid_net_worth !== null ? currency.format(data.wealth.summary.liquid_net_worth) : 'Not available'} />
             <Metric
               className="wealth-explainer-metric"
               label="10-year surplus capacity"
-              value={currency.format(tenYearSurplusCapacity)}
+              value={debtMinimumsKnown ? currency.format(tenYearSurplusCapacity) : 'Not available'}
               detail="Today’s positive monthly baseline surplus × 120. This is planning capacity—not confirmed savings, an investment contribution, or a forecast."
             />
             <Metric
               className="wealth-explainer-metric"
               label="Monthly surplus available"
-              value={currency.format(monthlySurplusAvailable)}
+              value={debtMinimumsKnown ? currency.format(monthlySurplusAvailable) : 'Not available'}
               detail="Income left after the current category plan and debt minimums. It is not treated as saved until you assign or transfer it."
             />
           </div>
@@ -3192,7 +3222,7 @@ function App() {
           <ScreenHeading
             eyebrow="Optionality"
             title={data.optionality.question}
-            copy={`Current runway: ${data.optionality.current_runway_months} months. Target runway: ${data.optionality.target_runway_months} months.`}
+            copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
           <div className="lever-row">
@@ -5272,8 +5302,7 @@ function documentItemUpdatePayload(draft: EditableDocumentItemDraft, item: Docum
   if (draft.target_type === 'debt') {
     return {
       ...payload,
-      balance: draft.balance,
-      payment: draft.payment,
+      ...changedDebtMoneyInputs(item.balance, item.payment, draft.balance, draft.payment),
       debt_type: draft.debt_type,
       ...changedInterestRateInput(item.interest_rate_percent, draft.interest_rate_percent),
     }
@@ -6447,7 +6476,7 @@ function WorkspaceSetupForm({
       </fieldset>
 
       {!firstSession && <details className="setup-optional-fields">
-        <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, debt, and runway target</small></summary>
+        <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, and runway target</small></summary>
         <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
         <div className="setup-field-grid">
           <MoneyInput disabled name="business_income" label="Business income total (calculated)" value={values.business_income} help="Edit individual income sources below. This total is calculated from the saved business records." onChange={(value) => onChange('business_income', value)} />
@@ -6455,8 +6484,6 @@ function WorkspaceSetupForm({
           <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
           <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
           <MoneyInput disabled={!editing} name="other_assets" label="Other assets" value={values.other_assets} help="Other savings or investment balances you want included in net worth. Skip home value unless you want it tracked." onChange={(value) => onChange('other_assets', value)} />
-          <MoneyInput disabled={!editing} name="credit_card_debt" label="Total credit card debt" value={values.credit_card_debt} help="Quick total across your credit cards. Use the debt plan below to add each card and APR." onChange={(value) => onChange('credit_card_debt', value)} />
-          <MoneyInput disabled={!editing} name="debt_payment" label="Total debt minimums" value={values.debt_payment} help="Quick total of monthly credit-card minimums. Individual debt records below give Mia a stronger plan." onChange={(value) => onChange('debt_payment', value)} />
           <label className="setup-field" title="How many months of expenses you want protected in cash runway.">
             <span>Target runway months</span>
             <input type="number" inputMode="decimal" min="0" step="0.5" name="target_runway_months" placeholder="0" value={!editing && values.target_runway_months === '' ? '0' : values.target_runway_months} disabled={!editing} onChange={(event) => onChange('target_runway_months', event.target.value)} />
@@ -6492,172 +6519,202 @@ type DebtDraft = {
 }
 
 const emptyDebtDraft: DebtDraft = {
-  label: '',
-  debt_type: 'credit_card',
-  balance: '',
-  minimum_payment: '',
-  interest_rate_percent: '',
+  label: '', debt_type: 'credit_card', balance: '', minimum_payment: '', interest_rate_percent: '',
 }
 
 function debtDraftFor(debt: DebtRecord): DebtDraft {
   return {
     label: debt.label,
     debt_type: debt.debt_type,
-    balance: String(debt.balance),
-    minimum_payment: String(debt.minimum_payment),
+    balance: debt.balance === null ? '' : String(debt.balance),
+    minimum_payment: debt.minimum_payment === null ? '' : String(debt.minimum_payment),
     interest_rate_percent: debt.interest_rate_percent === null ? '' : String(debt.interest_rate_percent),
   }
 }
 
-function DebtManager({ debts, onChanged }: { debts: DebtRecord[]; onChanged: () => Promise<void> }) {
+function debtSourceLabel(source: DebtRecord['source_type']) {
+  return { manual_ui: 'Added manually', mia: 'Prepared by Mia', document_import: 'Approved import', setup: 'Household setup' }[source]
+}
+
+function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?: Ref<HTMLElement>; debts: DebtRecord[]; portfolio: DebtPortfolio; onChanged: () => Promise<void> }) {
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
   const [draft, setDraft] = useState<DebtDraft>(emptyDebtDraft)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [deletingId, setDeletingId] = useState<number | null>(null)
-  const totalBalance = sumMoney(debts.map((debt) => debt.balance))
-  const totalMinimum = sumMoney(debts.map((debt) => debt.minimum_payment))
+  const [archiveId, setArchiveId] = useState<number | null>(null)
+  const [modeDraft, setModeDraft] = useState(portfolio.mode)
+  const [summaryBalance, setSummaryBalance] = useState(portfolio.balance_known ? String(portfolio.total_balance) : '')
+  const [summaryMinimum, setSummaryMinimum] = useState(portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : '')
+  const operationKeys = useRef(new OperationIdempotencyKeys())
+  const activeDebts = debts.filter((debt) => debt.active)
+  const archivedDebts = debts.filter((debt) => !debt.active)
 
   function beginCreate() {
-    setDraft(emptyDebtDraft)
-    setEditingId('new')
-    setDeletingId(null)
-    setError(null)
+    setDraft(emptyDebtDraft); setEditingId('new'); setArchiveId(null); setError(null)
   }
 
   function beginEdit(debt: DebtRecord) {
-    setDraft(debtDraftFor(debt))
-    setEditingId(debt.id)
-    setDeletingId(null)
-    setError(null)
+    setDraft(debtDraftFor(debt)); setEditingId(debt.id); setArchiveId(null); setError(null)
   }
 
   function cancelEdit() {
-    setEditingId(null)
-    setDeletingId(null)
-    setError(null)
+    setEditingId(null); setArchiveId(null); setError(null)
   }
 
   async function saveDebt(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (saving) return
     const label = draft.label.trim()
-    const balance = Number(draft.balance)
-    const minimumPayment = Number(draft.minimum_payment)
+    const balance = draft.balance.trim() === '' ? null : Number(draft.balance)
+    const minimumPayment = draft.minimum_payment.trim() === '' ? null : Number(draft.minimum_payment)
     const apr = draft.interest_rate_percent.trim() === '' ? null : Number(draft.interest_rate_percent)
-    if (!label) {
-      setError('Give this debt a short name, such as Visa or Auto loan.')
-      return
+    if (!label) return setError('Give this debt a short name, such as Visa or Auto loan.')
+    if ((balance !== null && (!Number.isFinite(balance) || balance < 0)) || (minimumPayment !== null && (!Number.isFinite(minimumPayment) || minimumPayment < 0)) || (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 999.99))) {
+      return setError('Use non-negative numbers, or leave a field blank when it is not known yet.')
     }
-    if (![balance, minimumPayment].every((value) => Number.isFinite(value) && value >= 0) || (apr !== null && (!Number.isFinite(apr) || apr < 0 || apr > 999.99))) {
-      setError('Enter non-negative numbers for the balance, minimum, and APR.')
-      return
-    }
-
-    const values: DebtInput = {
-      label,
-      debt_type: draft.debt_type,
-      balance,
-      minimum_payment: minimumPayment,
-      interest_rate_percent: apr,
-    }
-    setSaving(true)
-    setError(null)
+    const values: DebtInput = { label, debt_type: draft.debt_type, balance, minimum_payment: minimumPayment, interest_rate_percent: apr }
+    const signature = `${editingId === 'new' ? 'create' : `update:${editingId}`}:${JSON.stringify(values)}`
+    const key = operationKeys.current.keyFor(signature)
+    setSaving(true); setError(null)
     try {
-      if (editingId === 'new') await createDebt(values)
-      else if (typeof editingId === 'number') await updateDebt(editingId, values)
+      if (editingId === 'new') await createDebt(values, key)
+      else if (typeof editingId === 'number') await updateDebt(editingId, values, key)
+      await onChanged()
+      operationKeys.current.complete(signature)
       setEditingId(null)
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'This debt could not be saved. Try again.')
-      setSaving(false)
-      return
-    }
-    try {
-      await onChanged()
-    } catch (caught) {
-      setError(caught instanceof Error ? `The debt was saved, but the latest workspace could not be loaded: ${caught.message}` : 'The debt was saved, but the latest workspace could not be loaded. Refresh the page.')
     } finally {
       setSaving(false)
     }
   }
 
-  async function removeDebt(debt: DebtRecord) {
-    if (deletingId !== debt.id) {
-      setDeletingId(debt.id)
-      setError(null)
-      return
-    }
-    setSaving(true)
+  async function archiveRecord(debt: DebtRecord) {
+    if (archiveId !== debt.id) { setArchiveId(debt.id); setError(null); return }
+    const signature = `archive:${debt.id}`
+    const key = operationKeys.current.keyFor(signature)
+    setSaving(true); setError(null)
     try {
-      await deleteDebt(debt.id)
+      await archiveDebt(debt.id, key)
+      await onChanged()
+      operationKeys.current.complete(signature)
       cancelEdit()
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'This debt could not be removed. Try again.')
-      setSaving(false)
-      return
-    }
-    try {
-      await onChanged()
-    } catch (caught) {
-      setError(caught instanceof Error ? `The debt was removed, but the latest workspace could not be loaded: ${caught.message}` : 'The debt was removed, but the latest workspace could not be loaded. Refresh the page.')
-    } finally {
-      setSaving(false)
-    }
+      setError(caught instanceof Error ? caught.message : 'This debt could not be archived. Try again.')
+    } finally { setSaving(false) }
   }
 
+  async function restoreRecord(debt: DebtRecord) {
+    const signature = `restore:${debt.id}`
+    const key = operationKeys.current.keyFor(signature)
+    setSaving(true); setError(null)
+    try {
+      await restoreDebt(debt.id, key)
+      await onChanged()
+      operationKeys.current.complete(signature)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'This debt could not be restored. Try again.')
+    } finally { setSaving(false) }
+  }
+
+  async function saveTrackingMode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (saving) return
+    const nextSummaryBalance = summaryBalance.trim() === '' ? null : Number(summaryBalance)
+    const nextSummaryMinimum = summaryMinimum.trim() === '' ? null : Number(summaryMinimum)
+    if (modeDraft === 'summary' && ((nextSummaryBalance !== null && (!Number.isFinite(nextSummaryBalance) || nextSummaryBalance < 0)) || (nextSummaryMinimum !== null && (!Number.isFinite(nextSummaryMinimum) || nextSummaryMinimum < 0)))) return setError('Enter non-negative summary amounts, or leave a field blank when it is unknown.')
+    const values = modeDraft === 'summary'
+      ? { mode: modeDraft, summary_balance: nextSummaryBalance, summary_minimum_payment: nextSummaryMinimum }
+      : { mode: modeDraft }
+    const signature = `tracking:${JSON.stringify(values)}`
+    const key = operationKeys.current.keyFor(signature)
+    setSaving(true); setError(null)
+    try {
+      await updateDebtTracking(values, key)
+      await onChanged()
+      operationKeys.current.complete(signature)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'Debt tracking could not be updated. Try again.')
+    } finally { setSaving(false) }
+  }
+
+  async function confirmNoDebt() {
+    if (saving) return
+    const values = { mode: 'summary' as const, summary_balance: 0, summary_minimum_payment: 0 }
+    const signature = `tracking:${JSON.stringify(values)}`
+    const key = operationKeys.current.keyFor(signature)
+    setSaving(true); setError(null)
+    try {
+      await updateDebtTracking(values, key)
+      await onChanged()
+      operationKeys.current.complete(signature)
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : 'No-debt confirmation could not be saved. Try again.')
+    } finally { setSaving(false) }
+  }
+
+  const formatKnownMoney = (value: number, known: boolean) => known ? currency.format(value) : 'Not entered'
+  const recordMoney = (value: number | null) => value === null ? 'Not entered' : currency.format(value)
+  const initialSummaryBalance = portfolio.balance_known ? String(portfolio.total_balance) : ''
+  const initialSummaryMinimum = portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : ''
+  const trackingDirty = modeDraft !== portfolio.mode || (modeDraft === 'summary' && (summaryBalance !== initialSummaryBalance || summaryMinimum !== initialSummaryMinimum))
+
   return (
-    <article className="panel debt-manager">
+    <article ref={sectionRef} className="panel debt-manager">
       <div className="row-between debt-manager-heading">
         <div>
           <p className="eyebrow">Debt plan</p>
-          <h3>Give Mia the details that change the strategy.</h3>
-          <p>Add each balance, minimum, and APR. Mia can then compare avalanche and snowball without guessing.</p>
+          <h3>Choose the amount of detail that works for your household.</h3>
+          <p>Use one approved summary for a quick starting picture, or track each debt so Mia can compare payoff strategies without guessing.</p>
         </div>
-        {editingId === null && <button type="button" onClick={beginCreate}>Add a debt</button>}
+        {editingId === null && <button type="button" onClick={beginCreate}>{portfolio.mode === 'summary' ? 'Add preserved record' : 'Add a debt'}</button>}
       </div>
 
-      <div className="debt-summary" aria-label="Debt totals">
-        <span><small>Total balance</small><strong>{currency.format(totalBalance)}</strong></span>
-        <span><small>Monthly minimums</small><strong>{currency.format(totalMinimum)}</strong></span>
-        <span><small>Debts entered</small><strong>{debts.length}</strong></span>
+      <form className="debt-tracking" onSubmit={saveTrackingMode}>
+        <fieldset disabled={saving}>
+          <legend>How should Household CFO track debt?</legend>
+          <label className={modeDraft === 'summary' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="summary" checked={modeDraft === 'summary'} onChange={() => setModeDraft('summary')} /><span><strong>One household summary</strong><small>Best when you know the totals but do not want to enter every lender yet.</small></span></label>
+          <label className={modeDraft === 'individual' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="individual" checked={modeDraft === 'individual'} onChange={() => setModeDraft('individual')} /><span><strong>Individual debts</strong><small>Best for APR comparisons, snowball, and avalanche planning.</small></span></label>
+        </fieldset>
+        {modeDraft === 'summary' && <div className="debt-summary-inputs">
+          <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
+          <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
+        </div>}
+        <div className="debt-form-actions"><button type="submit" disabled={saving || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
+      </form>
+
+      <div className="debt-summary" aria-label="Canonical debt totals">
+        <span><small>Total balance</small><strong>{formatKnownMoney(portfolio.total_balance, portfolio.balance_known)}</strong></span>
+        <span><small>Monthly minimums</small><strong>{formatKnownMoney(portfolio.monthly_minimum, portfolio.minimum_payment_known)}</strong></span>
+        <span><small>Active debts</small><strong>{portfolio.mode === 'individual' ? portfolio.active_count : 'Summary'}</strong></span>
       </div>
 
-      {debts.length === 0 && editingId === null && (
-        <div className="debt-empty"><strong>No individual debts entered yet.</strong><p>Add the first one now, or upload a budget and review Mia's draft before applying it.</p></div>
-      )}
+      {portfolio.mode === 'summary' && <div className="debt-empty"><strong>Mia is using the approved household summary.</strong><p>Individual records are preserved below for review and editing, but do not affect totals until you switch to individual tracking.</p></div>}
 
-      {debts.length > 0 && (
-        <div className="debt-list">
-          {debts.map((debt) => (
-            <div className="debt-row" key={debt.id}>
-              <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)}{debt.interest_rate_percent === null ? ' · APR needed' : ` · ${debt.interest_rate_percent}% APR`}</span></div>
-              <div><strong>{currency.format(debt.balance)}</strong><span>{currency.format(debt.minimum_payment)} minimum</span></div>
-              <div className="debt-row-actions">
-                <button type="button" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button>
-                <button type="button" className={deletingId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void removeDebt(debt)}>
-                  {deletingId === debt.id ? 'Confirm remove' : 'Remove'}
-                </button>
-              </div>
-            </div>
-          ))}
+      {portfolio.mode === 'individual' && activeDebts.length === 0 && editingId === null && <div className="debt-empty"><strong>No active debts entered yet.</strong><p>Add the first debt, or explicitly confirm that the household has no debt. Blank details stay marked as unknown.</p><button type="button" className="secondary-button" disabled={saving} onClick={() => void confirmNoDebt()}>{saving ? 'Saving' : 'Confirm no debt ($0)'}</button></div>}
+      {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
+        {activeDebts.map((debt) => <div className="debt-row" key={debt.id}>
+          <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type)}</span></div>
+          <div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div>
+          <div className="debt-row-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button></div>
+        </div>)}
+      </div></>}
+
+      {editingId !== null && <form className="debt-form" onSubmit={saveDebt}>
+        <div className="debt-form-grid">
+          <label className="setup-field text-wide"><span>Debt name</span><input autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
+          <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps Mia explain tradeoffs clearly.</small></label>
+          <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
+          <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
+          <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Unknown" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
         </div>
-      )}
+        {error && <p className="setup-error" role="alert">{error}</p>}
+        <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
+      </form>}
 
-      {editingId !== null && (
-        <form className="debt-form" onSubmit={saveDebt}>
-          <div className="debt-form-grid">
-            <label className="setup-field text-wide"><span>Debt name</span><input autoFocus value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
-            <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps Mia explain the tradeoffs clearly.</small></label>
-            <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="0.00" /></span><small>Use the latest statement balance.</small></label>
-            <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="0.00" /></span><small>The amount required to stay current.</small></label>
-            <label className="setup-field"><span>APR</span><span className="percent-input-shell"><input type="number" inputMode="decimal" min="0" max="999.99" step="0.01" value={draft.interest_rate_percent} onChange={(event) => setDraft((current) => ({ ...current, interest_rate_percent: event.target.value }))} placeholder="Optional" /><span aria-hidden="true">%</span></span><small>Find this on the latest lender statement.</small></label>
-          </div>
-          {error && <p className="setup-error" role="alert">{error}</p>}
-          <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
-        </form>
-      )}
+      {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
       {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
-      <p className="debt-privacy-note">Household CFO uses these approved records for education and planning. It does not move money, contact lenders, or make payments.</p>
+      <p className="debt-privacy-note">Household CFO uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
     </article>
   )
 }
@@ -6900,6 +6957,7 @@ function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impac
 function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
   if (draftType === 'household_setup') return 'Household numbers'
   if (draftType === 'income_schedule') return 'Income timeline'
+  if (draftType === 'debt_plan') return 'Debt plan'
   return 'Budget plan'
 }
 
@@ -8476,6 +8534,10 @@ function AnnualOutlookPanel({ plan, selectedMonthIndex }: { plan: AnnualBudgetPl
   const outlook = plan.annual_outlook
   const nextIrregular = outlook.next_irregular_month
 
+  if (plan.monthly_debt_minimums_known === false) {
+    return <section className="annual-outlook" aria-labelledby="annual-outlook-title"><div className="annual-income-heading"><div><p className="eyebrow">Look ahead</p><h4 id="annual-outlook-title">Complete debt minimums to unlock the annual outlook.</h4><p>Planned outflow and surplus stay unavailable until every required monthly debt minimum is entered.</p></div></div></section>
+  }
+
   return (
     <section className="annual-outlook" aria-labelledby="annual-outlook-title">
       <div className="annual-income-heading">
@@ -8576,6 +8638,7 @@ function AnnualBudgetPlanner({
   const currentMonth = plan.months[currentMonthIndex]
   const currentMonthIncome = currentMonth ? plan.monthly_income[currentMonth.id] ?? 0 : 0
   const annualCategoryPlan = sumMoney(plan.rows.map((row) => row.planned_total))
+  const planDebtMinimumsKnown = plan.monthly_debt_minimums_known !== false
   const annualDebtMinimums = multiplyMoney(plan.monthly_debt_minimums, plan.months.length)
   const annualPlannedOutflow = addMoney(annualCategoryPlan, annualDebtMinimums)
   const currentPlanned = sumMoney(plan.rows.map((row) => row.months[currentMonthIndex]?.planned ?? 0))
@@ -8911,9 +8974,9 @@ function AnnualBudgetPlanner({
 
       <div className="annual-budget-summary" aria-label="Annual money out breakdown">
         <span><small>Annual category plan</small><strong>{currency.format(annualCategoryPlan)}</strong></span>
-        <span><small>Annual debt minimums</small><strong>{currency.format(annualDebtMinimums)}</strong></span>
-        <span><small>Total annual money out</small><strong>{currency.format(annualPlannedOutflow)}</strong></span>
-        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{currency.format(addMoney(currentPlanned, plan.monthly_debt_minimums))}</strong></span>
+        <span><small>Annual debt minimums</small><strong>{planDebtMinimumsKnown ? currency.format(annualDebtMinimums) : 'Not entered'}</strong></span>
+        <span><small>Total annual money out</small><strong>{planDebtMinimumsKnown ? currency.format(annualPlannedOutflow) : 'Not available'}</strong></span>
+        <span><small>{currentMonth?.label ?? 'Month'} money out</small><strong>{planDebtMinimumsKnown ? currency.format(addMoney(currentPlanned, plan.monthly_debt_minimums)) : 'Not available'}</strong></span>
       </div>
 
       <div className="budget-operating-cockpit">
@@ -8924,6 +8987,7 @@ function AnnualBudgetPlanner({
           actual={currentPositionTotals.actual}
           pending={currentPositionTotals.pending}
           debtMinimums={plan.monthly_debt_minimums}
+          debtMinimumsKnown={planDebtMinimumsKnown}
         />
         <ExpenseStackOverview positions={currentPositions} />
       </div>

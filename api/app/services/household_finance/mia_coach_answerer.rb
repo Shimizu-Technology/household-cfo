@@ -63,7 +63,7 @@ module HouseholdFinance
     end
 
     def guardrail_answer
-      capability_answer || incomplete_setup_answer
+      capability_answer || incomplete_setup_answer || incomplete_debt_minimums_answer
     end
 
     private
@@ -83,6 +83,14 @@ module HouseholdFinance
 
       missing = status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
       "I cannot give a readiness, safe-to-spend, or purchase verdict until your starting picture is confirmed. I still need #{missing}. No financial decision was made and no numbers changed. Next step: tell me those details here for review, or finish them in Manual setup; enter 0 when an amount does not apply."
+    end
+
+    def incomplete_debt_minimums_answer
+      return unless setup_status.complete?
+      return unless setup_dependent_coaching_request?
+      return if DebtPortfolio.new(household).minimum_payment_known?
+
+      "I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because at least one required monthly debt minimum is not entered. I will not treat a missing minimum as $0. Next step: add every minimum under My Profile, or use a confirmed $0 household summary when none are due. No financial decision was made and no numbers changed."
     end
 
     def setup_dependent_coaching_request?
@@ -274,13 +282,16 @@ module HouseholdFinance
         return "Do not make skipping a debt minimum the plan until you have checked every baseline option. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)} and baseline surplus is #{money(snapshot.fetch(:baseline_surplus_cents))}, so debt minimums stay in the protected baseline with roof, food, and utilities. I still need the payment amount, due date, current cash, and late consequences before saying what to do as a fact. Next CFO move: list those four numbers and contact the issuer before the due date if the minimum is at risk."
       end
 
-      saved_debts = household.debts.order(balance_cents: :desc, id: :asc).limit(12)
+      portfolio = DebtPortfolio.new(household)
+      saved_debts = portfolio.mode == "individual" ? household.debts.active.order(balance_cents: :desc, id: :asc).limit(12) : household.debts.none
       details = saved_debts.map do |debt|
         apr = debt.interest_rate_percent.present? ? " at #{debt.interest_rate_percent.to_d.to_s('F').sub(/\.0+\z/, '')}% APR" : "; APR not entered"
-        "#{debt.label}: #{money(debt.balance_cents)} balance and #{money(debt.minimum_payment_cents)} monthly minimum#{apr}"
+        balance = debt.balance_known? ? "#{money(debt.balance_cents)} balance" : "balance not entered"
+        minimum = debt.minimum_payment_known? ? "#{money(debt.minimum_payment_cents)} monthly minimum" : "monthly minimum not entered"
+        "#{debt.label}: #{balance} and #{minimum}#{apr}"
       end
-      approved_details = details.any? ? " Approved debt details: #{details.join('; ')}." : " No individual debt balances or minimum payments have been saved yet."
-      if normalized_message.match?(/smallest balance/i) && (smallest = household.debts.order(balance_cents: :asc, id: :asc).first)
+      approved_details = details.any? ? " Approved debt details: #{details.join('; ')}." : " No individual debt details, balances, or minimum payments have been saved yet."
+      if portfolio.mode == "individual" && normalized_message.match?(/smallest balance/i) && (smallest = household.debts.active.where(balance_known: true).order(balance_cents: :asc, id: :asc).first)
         approved_details += " The smallest saved balance is #{smallest.label} at #{money(smallest.balance_cents)}."
       end
 
@@ -289,7 +300,9 @@ module HouseholdFinance
       else
         "Some APRs, plus fees, due dates, and exact payoff amounts, are not stored"
       end
-      "Your approved household numbers show #{money(snapshot.fetch(:total_debt_cents))} debt entered, readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months.#{approved_details} #{detail_limits}, so I will not invent them. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: verify missing details against each lender statement, then compare them without stealing from protected runway."
+      total = portfolio.balance_known? ? "#{money(portfolio.total_balance_cents)} debt entered" : "an unconfirmed total debt balance"
+      cash_flow = portfolio.minimum_payment_known? ? "readiness is #{snapshot.fetch(:readiness_label)}, and runway is #{snapshot.fetch(:runway_months)} months" : "readiness and available cash are not reliable until every monthly minimum is entered"
+      "Your approved household numbers show #{total}; #{cash_flow}.#{approved_details} #{detail_limits}, so I will not invent them. I cannot give licensed credit advice or promise a credit-score outcome. Next CFO move: verify missing details against each lender statement, then compare them without stealing from protected runway."
     end
 
     def car_repair_answer

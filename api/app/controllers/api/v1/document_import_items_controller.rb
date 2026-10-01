@@ -74,8 +74,8 @@ module Api
           :ignored
         )
         attributes[:amount_cents] = parsed_money(raw_attributes[:amount], "Amount") if raw_attributes.key?(:amount)
-        attributes[:balance_cents] = parsed_money(raw_attributes[:balance], "Balance") if raw_attributes.key?(:balance)
-        attributes[:payment_cents] = parsed_money(raw_attributes[:payment], "Payment") if raw_attributes.key?(:payment)
+        attributes[:balance_cents] = parsed_optional_money(raw_attributes[:balance], "Balance") if raw_attributes.key?(:balance)
+        attributes[:payment_cents] = parsed_optional_money(raw_attributes[:payment], "Payment") if raw_attributes.key?(:payment)
         attributes[:interest_rate_percent] = parsed_percentage(raw_attributes[:interest_rate_percent]) if raw_attributes.key?(:interest_rate_percent)
         attributes[:label] = bounded_text(attributes[:label], 120) if attributes.key?(:label)
         attributes[:evidence] = bounded_text(attributes[:evidence], 1000) if attributes.key?(:evidence)
@@ -85,6 +85,12 @@ module Api
 
       def parsed_money(value, label)
         HouseholdFinance::Money.cents!(value, message: "#{label} must be a number with no more than two decimal places")
+      end
+
+      def parsed_optional_money(value, label)
+        return nil if value.blank?
+
+        parsed_money(value, label)
       end
 
       def parsed_percentage(value)

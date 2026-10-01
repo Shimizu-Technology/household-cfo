@@ -50,6 +50,16 @@ module HouseholdFinance
         structured_income_schedule_update_proposal
       when "delete_income_schedule_entry"
         structured_income_schedule_delete_proposal
+      when "create_debt"
+        structured_debt_create_proposal
+      when "update_debt"
+        structured_debt_update_proposal
+      when "archive_debt"
+        structured_debt_status_proposal(archive: true)
+      when "restore_debt"
+        structured_debt_status_proposal(archive: false)
+      when "update_debt_tracking"
+        structured_debt_tracking_proposal
       else
         validation_result("I could not safely resolve that change. Nothing changed. Tell me the value and when it should take effect.")
       end
