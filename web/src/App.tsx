@@ -145,6 +145,7 @@ const sectionCapabilityIds: Record<string, string> = {
 const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
+type UnavailableModuleNotice = { moduleId: string; message: string }
 const allSections = [...sections, COACH_STUDIO_SECTION, ADMIN_SECTION]
 const MIA_CHAT_STORAGE_PREFIX = 'household-cfo:mia-chat:v1'
 const MIA_MESSAGE_MAX_LENGTH = 8_000
@@ -358,7 +359,7 @@ function App() {
     return sectionFromLocation()
   })
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
-  const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<string | null>(null)
+  const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<UnavailableModuleNotice | null>(null)
   const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
   const sectionScrollPositionsRef = useRef(new Map<string, number>())
   const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
@@ -1044,7 +1045,7 @@ function App() {
     const unavailableCapability = data?.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[section] && !module.enabled)
     if (unavailableCapability) {
       const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
-      setUnavailableModuleNotice(message)
+      setUnavailableModuleNotice({ moduleId: unavailableCapability.id, message })
       setRouteAnnouncement(message)
     } else if (options.source !== 'history') {
       setUnavailableModuleNotice(null)
@@ -1136,7 +1137,7 @@ function App() {
       const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
       if (unavailableCapability) {
         const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
-        setUnavailableModuleNotice(message)
+        setUnavailableModuleNotice({ moduleId: unavailableCapability.id, message })
         setRouteAnnouncement(message)
       }
       const targetSection = visibleSections.includes(requestedSection) ? requestedSection : sections[0]
@@ -1174,6 +1175,17 @@ function App() {
       window.removeEventListener('hashchange', followBrowserLocation)
     }
   }, [active, activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
+
+  useEffect(() => {
+    if (!data || !unavailableModuleNotice) return
+    const capability = data.workspace.capabilities.modules.find((module) => module.id === unavailableModuleNotice.moduleId)
+    if (!capability?.enabled) return
+
+    queueMicrotask(() => {
+      setUnavailableModuleNotice((current) => current?.moduleId === capability.id ? null : current)
+      setRouteAnnouncement(`${capability.label} is available now. Home remains open.`)
+    })
+  }, [data, unavailableModuleNotice])
 
   useEffect(() => {
     if (activeSection !== 'Home' || !unavailableModuleNotice) return
@@ -2331,7 +2343,7 @@ function App() {
         <>
           {unavailableModuleNotice && (
             <div className="module-unavailable-notice" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
-              <div><strong>That tool is not included right now.</strong><p>{unavailableModuleNotice}</p></div>
+              <div><strong>That tool is not included right now.</strong><p>{unavailableModuleNotice.message}</p></div>
               <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
             </div>
           )}

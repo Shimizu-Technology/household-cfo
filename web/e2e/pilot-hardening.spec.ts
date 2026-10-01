@@ -3198,6 +3198,7 @@ test('participant navigation keeps a disabled deep link canonical after capabili
   await expect(page.getByRole('status').filter({ hasText: 'CFO Filter is not included' })).toBeFocused()
   await expect.poll(() => workspaceRequests).toBeGreaterThan(1)
   releaseRefresh?.()
+  await expect(page.getByRole('status').filter({ hasText: 'CFO Filter is not included' })).toHaveCount(0)
   await page.getByRole('button', { name: 'Tools', exact: true }).click()
   await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toBeVisible()
   await expect(page).toHaveURL(/#Home$/)
