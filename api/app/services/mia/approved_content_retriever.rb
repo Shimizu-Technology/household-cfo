@@ -7,6 +7,18 @@ module Mia
     MAX_ITEMS = 6
     MAX_BYTES = 6_000
     TOKEN_PATTERN = /[[:alnum:]]{3,}/
+    STOP_WORDS = Set.new(%w[
+      about after again against all also and any are aren because been before being below between both but
+      can cannot could couldn did does doesn doing don down during each either even ever every few for from
+      further had hadn has hasn have haven having here how into isn its itself just make made many may might
+      more most much must need neither never nor not now off once only other our ours ourselves out over own
+      perhaps per plan planning question questions really same shall should shouldn some such than that the
+      their theirs them themselves then there these they thing things this those through too under until use
+      used using very via want was wasn were weren what when where which while who whom why will with won
+      would wouldn you your yours yourself
+      yourselves answer coach coaching content decision decisions explain guidance help household participant
+      participants
+    ]).freeze
 
     def initialize(persona:, query:, pack_versions: nil)
       @persona = persona
@@ -83,7 +95,7 @@ module Mia
     end
 
     def tokens(value)
-      value.to_s.downcase.scan(TOKEN_PATTERN).uniq
+      value.to_s.downcase.scan(TOKEN_PATTERN).reject { |token| STOP_WORDS.include?(token) }.uniq
     end
 
     def utf8_prefix(value, max_bytes)

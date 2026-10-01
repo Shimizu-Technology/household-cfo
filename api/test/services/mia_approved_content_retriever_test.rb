@@ -56,6 +56,52 @@ class MiaApprovedContentRetrieverTest < ActiveSupport::TestCase
     assert_equal "Always-on coach-approved context", result.first.fetch(:reason)
   end
 
+  test "common coaching words alone do not make content relevant" do
+    coach = persona_user
+    common_only = approved_content_item(
+      owner: coach,
+      title: "General coaching note",
+      content: "This guidance explains how the participant should make a household decision."
+    )
+    pack = published_content_pack(owner: coach, items: [ common_only ])
+    persona = create_persona(creator: coach)
+    persona.replace_draft_content_pack_versions!([ pack.current_published_version ], actor: coach)
+    runtime = Mia::RuntimePersona.new(publish_persona(persona, actor: coach))
+
+    result = Mia::ApprovedContentRetriever.new(
+      persona: runtime,
+      query: "How should the participant make this household decision?"
+    ).call
+
+    assert_empty result
+  end
+
+  test "a meaningful title term is deterministic and always-on content remains supplied" do
+    coach = persona_user
+    relevant = approved_content_item(
+      owner: coach,
+      title: "Mortgage amortization",
+      content: "Compare principal and interest across the payoff schedule."
+    )
+    always_on = approved_content_item(
+      owner: coach,
+      title: "Participant control",
+      content: "Keep the participant in control.",
+      always_on: true
+    )
+    pack = published_content_pack(owner: coach, items: [ relevant, always_on ])
+    persona = create_persona(creator: coach)
+    persona.replace_draft_content_pack_versions!([ pack.current_published_version ], actor: coach)
+    runtime = Mia::RuntimePersona.new(publish_persona(persona, actor: coach))
+
+    first = Mia::ApprovedContentRetriever.new(persona: runtime, query: "How does amortization affect payoff?").call
+    second = Mia::ApprovedContentRetriever.new(persona: runtime, query: "How does amortization affect payoff?").call
+
+    assert_equal first.map { |entry| entry.fetch(:item_version).id }, second.map { |entry| entry.fetch(:item_version).id }
+    assert_equal [ relevant.current_approved_version_id, always_on.current_approved_version_id ], first.map { |entry| entry.fetch(:item_version).id }
+    assert_equal "Context supplied for: amortization, payoff", first.first.fetch(:reason)
+  end
+
   test "coach packs precede platform references and exact versions remain stable" do
     admin = persona_user(role: "admin")
     coach = persona_user

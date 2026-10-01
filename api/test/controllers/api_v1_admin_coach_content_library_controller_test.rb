@@ -107,6 +107,33 @@ class ApiV1AdminCoachContentLibraryControllerTest < ActionDispatch::IntegrationT
     assert_empty persona.reload.draft_content_pack_versions
   end
 
+  test "tampered selected content returns a recoverable publication error without promotion" do
+    coach = persona_user
+    original_item = approved_content_item(owner: coach, title: "Published original")
+    pack = published_content_pack(owner: coach, items: [ original_item ])
+    original_version = pack.current_published_version
+    selected_item = approved_content_item(owner: coach, title: "Tampered selection", content: "Approved wording")
+    pack.replace_draft_item_versions!([ selected_item.current_approved_version ], actor: coach)
+    revision = pack.draft_revision
+    manifest = pack.draft_manifest_digest
+    selected_item.current_approved_version.update_column(:content, "Changed outside the approval lifecycle")
+
+    assert_no_difference -> { pack.versions.count } do
+      post "/api/v1/admin/content_packs/#{pack.id}/publish", params: {
+        pack: {
+          draft_revision: revision,
+          draft_manifest_digest: manifest,
+          expected_published_version_id: original_version.id
+        }
+      }, headers: auth_headers(coach), as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "content_pack_invalid", response.parsed_body.fetch("code")
+    assert_includes response.parsed_body.fetch("error"), "integrity validation"
+    assert_equal original_version.id, pack.reload.current_published_version_id
+  end
+
   test "administrator cannot cross-link one coach pack to another coach persona" do
     admin = persona_user(role: "admin")
     pack_owner = persona_user(email: "pack-owner@example.com")

@@ -66,6 +66,9 @@ class CoachContentPackVersion < ApplicationRecord
 
   def seal!
     raise ArgumentError, "Published content pack version is already sealed" if sealed?
+    unless entries.includes(:coach_content_item_version).all? { |entry| entry.coach_content_item_version.content_digest_valid? }
+      raise ArgumentError, "Content pack versions cannot seal invalid approved item versions"
+    end
 
     digest = self.class.content_digest_for(self)
     update_columns(content_digest: digest, sealed_at: Time.current, updated_at: Time.current)

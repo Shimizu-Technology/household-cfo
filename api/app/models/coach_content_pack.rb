@@ -2,6 +2,7 @@
 
 class CoachContentPack < ApplicationRecord
   class PublicationConflict < StandardError; end
+  class PublicationIntegrityError < ArgumentError; end
 
   SCOPES = CoachContentItem::SCOPES
   KINDS = %w[voice_culture coaching_method finance_reference].freeze
@@ -50,6 +51,10 @@ class CoachContentPack < ApplicationRecord
 
       entries = draft_entries.includes(:coach_content_item_version).order(:position).to_a
       raise ArgumentError, "Add at least one approved item before publishing" if entries.empty?
+      item_versions = CoachContentItemVersion.where(id: entries.map(&:coach_content_item_version_id)).order(:id).lock.index_by(&:id)
+      unless item_versions.length == entries.length && item_versions.values.all?(&:content_digest_valid?)
+        raise PublicationIntegrityError, "One or more selected approved item versions failed integrity validation"
+      end
 
       manifest_digest = CoachContentPackVersion.draft_manifest_digest_for(self, entries)
       unless Integer(expected_draft_revision, exception: false) == draft_revision &&
@@ -75,6 +80,9 @@ class CoachContentPack < ApplicationRecord
         version.entries.create!(coach_content_item_version: entry.coach_content_item_version, position: entry.position)
       end
       version.seal!
+      unless version.manifest_valid?
+        raise PublicationIntegrityError, "The sealed content pack failed integrity validation"
+      end
       update_columns(current_published_version_id: version.id, updated_at: Time.current, lock_version: lock_version + 1)
       version
     end

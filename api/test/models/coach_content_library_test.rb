@@ -133,6 +133,58 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     refute_equal first_manifest, second_manifest
   end
 
+  test "pack publication fails atomically when a selected approved item was tampered" do
+    coach = persona_user
+    original_item = approved_content_item(owner: coach, title: "Original valid item")
+    pack = published_content_pack(owner: coach, items: [ original_item ])
+    original_version = pack.current_published_version
+    selected_item = approved_content_item(owner: coach, title: "Selected item", content: "Approved exact wording")
+    pack.replace_draft_item_versions!([ selected_item.current_approved_version ], actor: coach)
+    expected_revision = pack.draft_revision
+    expected_manifest = pack.draft_manifest_digest
+    selected_item.current_approved_version.update_column(:content, "Tampered wording")
+
+    assert_no_difference -> { pack.versions.count } do
+      error = assert_raises(CoachContentPack::PublicationIntegrityError) do
+        pack.publish!(
+          actor: coach,
+          expected_draft_revision: expected_revision,
+          expected_draft_manifest_digest: expected_manifest,
+          expected_current_version_id: original_version.id
+        )
+      end
+      assert_includes error.message, "integrity validation"
+    end
+
+    assert_equal original_version.id, pack.reload.current_published_version_id
+    assert_equal expected_revision, pack.draft_revision
+    assert_equal [ selected_item.current_approved_version_id ], pack.draft_item_version_ids
+  end
+
+  test "pack version sealing rejects an invalid approved item before setting the seal" do
+    coach = persona_user
+    pack = CoachContentPack.create!(name: "Construction integrity", scope: "coach", pack_kind: "coaching_method", created_by_user: coach)
+    item = approved_content_item(owner: coach, title: "Construction item", content: "Approved wording")
+    version = pack.versions.create!(
+      version_number: 1,
+      name: pack.name,
+      description: "",
+      scope: pack.scope,
+      pack_kind: pack.pack_kind,
+      content_digest: "0" * 64,
+      published_by_user: coach
+    )
+    version.entries.create!(coach_content_item_version: item.current_approved_version, position: 0)
+    item.current_approved_version.update_column(:content, "Tampered wording")
+
+    error = assert_raises(ArgumentError) { version.seal! }
+
+    assert_includes error.message, "cannot seal invalid approved item versions"
+    assert_nil version.reload.sealed_at
+    assert_equal "0" * 64, version.content_digest
+    assert_nil pack.reload.current_published_version_id
+  end
+
   test "changing exact source links invalidates preview" do
     coach = persona_user
     persona = create_persona(creator: coach)
