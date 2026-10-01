@@ -24,13 +24,13 @@ module HouseholdFinance
       { amount: match[1].delete(","), merchant: merchant }
     end
 
-    def initialize(household, message, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, user: nil, idempotency_key: nil)
+    def initialize(household, message, user:, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, idempotency_key: nil)
       @household = household
       @message = message.to_s.squish
       @raw_input = raw_input.to_s.squish.presence || @message
       @draft_text = current_follow_up_text.presence || @raw_input
       @explicit_purchase = self.class.explicit_purchase_details(@raw_input) if self.class.non_expense_movement?(@raw_input)
-      @user = user || household.household_memberships.includes(:user).order(:id).first&.user
+      @user = user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
 

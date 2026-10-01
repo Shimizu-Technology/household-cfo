@@ -21,11 +21,29 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       checked += run_budget_cases(plan)
       checked += run_pending_cases(household)
       checked += run_followup_cases
-      checked += run_transaction_draft_cases(household, manager)
+      checked += run_transaction_draft_cases(user, household, manager)
       checked += run_long_controller_sequence(user)
 
       assert_operator checked, :>=, 120
     end
+  end
+
+  test "legacy transaction draft creation requires an explicit actor" do
+    user, household = create_user_and_household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+
+    error = assert_raises(ArgumentError) do
+      HouseholdFinance::TransactionDraftBuilder.new(
+        household,
+        "I spent $12 at Village Cafe",
+        annual_budget_manager: manager
+      )
+    end
+
+    assert_includes error.message, "missing keyword: :user"
+    assert_empty household.transaction_drafts
+    assert_empty household.household_operation_executions
+    assert_equal user, household.household_memberships.sole.user
   end
 
   test "structured scenario recall omits unrelated prompt text and gives a usable next move" do
@@ -322,7 +340,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
     followups.length + recalls.length + empty_recalls.length + new_topics.length + conditional_income_topics.length + acknowledgments.length + 2
   end
 
-  def run_transaction_draft_cases(household, manager)
+  def run_transaction_draft_cases(user, household, manager)
     cases = [
       [ "I spent $7 at No Dollar Cafe for Dining Out today", "No Dollar Cafe", 700 ],
       [ "I spent 7 at No Dollar Cafe for Dining Out today", "No Dollar Cafe", 700 ],
@@ -339,7 +357,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
     ]
 
     cases.each do |message, merchant, cents|
-      draft = HouseholdFinance::TransactionDraftBuilder.new(household, message, annual_budget_manager: manager).call
+      draft = HouseholdFinance::TransactionDraftBuilder.new(household, message, user: user, annual_budget_manager: manager).call
       if merchant
         assert draft, message
         assert_equal merchant, draft.merchant
@@ -359,7 +377,13 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       }
     }
     routed = HouseholdFinance::ConversationFollowupResolver.new("Also $4.25 for tip", conversation_context: followup_context).call.message
-    followup_draft = HouseholdFinance::TransactionDraftBuilder.new(household, routed, annual_budget_manager: manager, raw_input: "Also $4.25 for tip").call
+    followup_draft = HouseholdFinance::TransactionDraftBuilder.new(
+      household,
+      routed,
+      user: user,
+      annual_budget_manager: manager,
+      raw_input: "Also $4.25 for tip"
+    ).call
     assert followup_draft
     assert_equal "Penny Cafe", followup_draft.merchant
     assert_equal 425, followup_draft.total_amount_cents
