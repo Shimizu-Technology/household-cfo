@@ -2118,6 +2118,7 @@ test('My Profile manages explicit income sources with stable keys on desktop and
     starts_on: `${currentYear}-01-01`,
     ends_on: null,
     active: true,
+    current_monthly_amount: 15_000.01,
   }
   const currentBudget = structuredClone(workspace.budget)
   const futureSource = {
@@ -2216,6 +2217,7 @@ test('My Profile manages explicit income sources with stable keys on desktop and
   await openSection(page, 'My Profile')
   await expect(page.getByRole('spinbutton', { name: 'Job income total (calculated)' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: 'Keep each source clear and editable.' })).toBeVisible()
+  await expect(page.locator('.income-source-manager-heading')).toContainText('$15,000.01 current monthly')
   await expect(page.locator('.income-source-manager-card').filter({ hasText: 'Future contract' })).toContainText(`Starts Feb ${currentYear + 1}`)
   await expect(page.locator('.income-source-manager-card').filter({ hasText: 'Archived side work' })).toContainText('Archived')
   await expect(page.locator('.income-source-form').getByLabel('Starting month')).toHaveValue(`${currentYear}-10`)
@@ -2229,7 +2231,7 @@ test('My Profile manages explicit income sources with stable keys on desktop and
   await expect(consulting).toContainText('$1,200.00')
   await expect(consulting).toContainText('Current')
   await expect(consulting).toContainText(`Dec ${currentYear} · $1,500.00`)
-  await expect(page.locator('.income-source-manager-heading')).toContainText('$16,200.00 current monthly')
+  await expect(page.locator('.income-source-manager-heading')).toContainText('$16,200.01 current monthly')
   await page.getByText('Add details for a stronger CFO read').click()
   await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('1200')
   expect(requests[0].key).toBeTruthy()

@@ -33,6 +33,7 @@ module HouseholdFinance
     READ_ONLY_INTENTS = %w[budget_question spending_report transaction_lookup pending_drafts coaching recall general].freeze
     HYPOTHETICAL_PATTERN = /\b(?:what if|suppose|imagine|hypothetical|scenario)\b|\bif (?:i|we)\s+(?:buy|spend|purchase|get|receive|earn|owe|pay|have)\b/i.freeze
     PURCHASE_SCENARIO_PATTERN = /\b(?:(?:(?:tell me|show me|check|see)\s+(?:whether|if)\s+(?:i|we)|(?:i|we))\s+(?:can|could|should|would)|(?:can|could|should|would)\s+(?:i|we))\s+(?:(?:safely|comfortably|reasonably|really|actually)\s+)?(?:buy|purchase|get|afford|spend)\b/i.freeze
+    DETERMINISTIC_SETUP_READ_ONLY_PATTERN = /\b(?:assuming|supposing|let['’]?s\s+say)\b|\bassume\s+(?:for|that|our|my|the)\b|\bsay\b(?=\s+(?:our\s+|my\s+|the\s+)?(?:monthly\s+)?(?:income|fixed\s+expenses?|flexible\s+spend(?:ing)?|budget|surplus|savings?))/i.freeze
     CORRECTION_PATTERN = /\b(?:actually|correction|change|make that|instead|keep .+ same)\b/i.freeze
     SAME_AMOUNT_PATTERN = /\b(?:(?:same|unchanged)\s+(?:amount|price|cost)|(?:amount|price|cost)\s+(?:is\s+)?(?:the\s+)?same|keep .{0,80}\b(?:amount|price|cost)\b.{0,30}\bsame)\b/i.freeze
     REJECTED_MONEY_PATTERNS = [
@@ -175,7 +176,9 @@ module HouseholdFinance
       return @deterministic_setup_result if defined?(@deterministic_setup_result)
 
       @deterministic_setup_result = begin
-        unless normalized_user_message.match?(HYPOTHETICAL_PATTERN) || normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN)
+        unless normalized_user_message.match?(HYPOTHETICAL_PATTERN) ||
+            normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN) ||
+            normalized_user_message.match?(DETERMINISTIC_SETUP_READ_ONLY_PATTERN)
           values, conflicts = deterministic_setup_values
           if conflicts.any?
             deterministic_setup_clarification(conflicts.first)

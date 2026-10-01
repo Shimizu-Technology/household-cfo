@@ -1021,6 +1021,22 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "none", result.action.fetch(:type)
   end
 
+  test "does not turn assumed setup numbers into household writes" do
+    [
+      "Assuming our monthly income is $5,000, how much can we save?",
+      "Say monthly income is $5,000 and fixed expenses are $2,400. What is the surplus?",
+      "Let's say our flexible spending is $900. How would that affect the plan?"
+    ].each do |message|
+      result = HouseholdFinance::MiaIntentResolver.new(
+        user_message: message,
+        context: intent_context,
+        api_key: nil
+      ).call
+
+      assert_nil result, "expected read-only framing to bypass deterministic setup for: #{message}"
+    end
+  end
+
   test "discards model zero defaults that the participant did not provide" do
     message = "Call us QA Test Family. We bring home $6,200 monthly, fixed essentials are $3,000, flexible spending is $800, and our goal is a six-month emergency fund."
     resolver = HouseholdFinance::MiaIntentResolver.new(

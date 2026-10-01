@@ -196,7 +196,11 @@ module HouseholdFinance
 
     def structured_income_source_status_proposal(archive:)
       candidates = household.income_sources.to_a.select do |source|
-        archive ? source.ends_on.blank? && (source.effective_on?(Date.current) || (source.active? && source.starts_on&.future?)) : source.ends_on.present?
+        if archive
+          source.ends_on.blank? && income_source_actionable?(source)
+        else
+          source.ends_on.present? && source.ends_on >= Date.current.beginning_of_month
+        end
       end
       source = if command[:income_source_id].to_i.positive?
         candidates.find { |candidate| candidate.id == command[:income_source_id].to_i }
@@ -330,7 +334,7 @@ module HouseholdFinance
     end
 
     def structured_income_source
-      candidates = household.income_sources.to_a
+      candidates = household.income_sources.to_a.select { |source| income_source_actionable?(source) }
       id = command[:income_source_id].to_i
       return candidates.find { |source| source.id == id } if id.positive?
 
@@ -339,6 +343,10 @@ module HouseholdFinance
 
       matches = candidates.select { |source| source.label.casecmp?(name) }.first(2)
       matches.one? ? matches.first : nil
+    end
+
+    def income_source_actionable?(source)
+      source.timeline_status(on: Date.current).in?(%w[current future])
     end
 
     def parsed_effective_month(value)

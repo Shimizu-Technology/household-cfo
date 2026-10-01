@@ -7759,7 +7759,7 @@ function incomeSourceDraftFor(source: IncomeTimelineSource): IncomeSourceDraft {
 function effectiveIncomeTerms(source: IncomeTimelineSource) {
   const today = guamTodayIso()
   const latest = source.schedule_entries
-    .filter((entry) => entry.entry_type === 'recurring_change' && entry.effective_on <= today)
+    .filter((entry) => entry.active !== false && entry.entry_type === 'recurring_change' && entry.effective_on <= today)
     .sort((left, right) => right.effective_on.localeCompare(left.effective_on))[0]
   return {
     amount: latest?.amount ?? source.base_amount,
@@ -7768,6 +7768,7 @@ function effectiveIncomeTerms(source: IncomeTimelineSource) {
 }
 
 function monthlyIncomeAmount(source: IncomeTimelineSource) {
+  if (source.current_monthly_amount !== undefined) return source.current_monthly_amount
   const terms = effectiveIncomeTerms(source)
   const multipliers: Record<string, number> = { weekly: 52 / 12, biweekly: 26 / 12, semi_monthly: 2, monthly: 1, annual: 1 / 12 }
   return terms.amount * (multipliers[terms.cadence] ?? 1)

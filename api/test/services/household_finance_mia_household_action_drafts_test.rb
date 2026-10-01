@@ -267,6 +267,31 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     end
   end
 
+  test "Mia does not rewrite or offer restore reviews for income that ended in the past" do
+    travel_to Date.new(2026, 10, 15) do
+      source = @household.income_sources.find_by!(source_type: "job")
+      source.update!(active: false, ends_on: Date.new(2026, 1, 1))
+
+      update = build_command(
+        type: "update_income_source", income_source_id: source.id, income_source_name: source.label, amount: "9000"
+      )
+      schedule = build_command(
+        type: "schedule_income_change", income_source_id: source.id, income_source_name: source.label,
+        entry_type: "recurring_change", effective_on: "2025-06-01", amount: "7000"
+      )
+      restore = build_command(
+        type: "restore_income_source", income_source_id: source.id, income_source_name: source.label
+      )
+
+      [ update, schedule, restore ].each do |result|
+        assert_nil result.proposal
+        assert_includes result.response, "could not"
+      end
+      assert_equal 500_000, source.reload.amount_cents
+      assert_empty source.income_schedule_entries
+    end
+  end
+
   test "drafts one-time income without changing the recurring source amount" do
     source = @household.income_sources.find_by!(source_type: "job")
     result = build_command(
