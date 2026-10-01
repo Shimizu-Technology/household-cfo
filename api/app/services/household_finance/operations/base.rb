@@ -36,7 +36,7 @@ module HouseholdFinance
           raise StaleOperation, stale_message
         end
 
-        mutate!(subject, input)
+        mutate!(subject, input, prepared: prepared)
       end
 
       def after_snapshot(subject, prepared)

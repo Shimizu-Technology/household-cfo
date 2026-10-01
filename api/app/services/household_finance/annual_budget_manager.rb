@@ -99,17 +99,22 @@ module HouseholdFinance
       category
     end
 
-    def update_category!(category, name:, stack_key:, plan_prepared: false)
+    def update_category!(category, name:, stack_key:, plan_prepared: false, representative_planned_cents: nil)
       ensure_plan! unless plan_prepared
       raise ActiveRecord::RecordNotFound unless category.household_id == household.id
 
       household.with_lock do
-        update_category_inside_household_lock!(category, name: name, stack_key: stack_key)
+        update_category_inside_household_lock!(
+          category,
+          name: name,
+          stack_key: stack_key,
+          representative_planned_cents: representative_planned_cents
+        )
       end
       category
     end
 
-    def update_category_inside_household_lock!(category, name:, stack_key:)
+    def update_category_inside_household_lock!(category, name:, stack_key:, representative_planned_cents: nil)
       raise ActiveRecord::RecordNotFound unless category.household_id == household.id
 
       category.lock!
@@ -120,7 +125,12 @@ module HouseholdFinance
         stack_key: stack_key.presence || category.stack_key
       )
       category.save!
-      sync_expense_item_after_category_change!(category, old_name, old_stack_key)
+      sync_expense_item_after_category_change!(
+        category,
+        old_name,
+        old_stack_key,
+        representative_planned_cents: representative_planned_cents
+      )
       category
     end
 
@@ -144,23 +154,36 @@ module HouseholdFinance
       category
     end
 
-    def restore_category!(category, plan_prepared: false)
+    def restore_category!(category, plan_prepared: false, representative_planned_cents: nil)
       budget_year = plan_prepared ? household.budget_years.find_by!(year: year) : ensure_plan!
       raise ActiveRecord::RecordNotFound unless category.household_id == household.id
 
       household.with_lock do
-        restore_category_inside_household_lock!(category, budget_year: budget_year)
+        restore_category_inside_household_lock!(
+          category,
+          budget_year: budget_year,
+          representative_planned_cents: representative_planned_cents
+        )
       end
       category
     end
 
-    def restore_category_inside_household_lock!(category, budget_year: household.budget_years.find_by!(year: year))
+    def restore_category_inside_household_lock!(
+      category,
+      budget_year: household.budget_years.find_by!(year: year),
+      representative_planned_cents: nil
+    )
       raise ActiveRecord::RecordNotFound unless category.household_id == household.id
       raise ActiveRecord::RecordNotFound unless budget_year.household_id == household.id && budget_year.year == year
 
       category.lock!
       category.update!(active: true, sort_order: category.sort_order.to_i.positive? ? category.sort_order : next_sort_order)
-      sync_expense_item_after_category_change!(category, category.name, category.stack_key)
+      sync_expense_item_after_category_change!(
+        category,
+        category.name,
+        category.stack_key,
+        representative_planned_cents: representative_planned_cents
+      )
       budget_year.budget_periods.find_each do |period|
         BudgetAllocation.find_or_create_by!(budget_period: period, budget_category: category) do |allocation|
           allocation.planned_amount_cents = 0
@@ -186,6 +209,10 @@ module HouseholdFinance
       raise ArgumentError, "Budget year is outside supported range" unless self.class.supported_year?(date.year)
 
       period_for_year(date.year, date.month)
+    end
+
+    def canonical_category_name(value)
+      bounded_name(value)
     end
 
     private
@@ -656,13 +683,15 @@ module HouseholdFinance
       household.expense_items.where("LOWER(label) = ?", category.name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
     end
 
-    def sync_expense_item_after_category_change!(category, old_name, old_stack_key)
+    def sync_expense_item_after_category_change!(category, old_name, old_stack_key, representative_planned_cents: nil)
       expense = household.expense_items
         .where("LOWER(label) = ?", old_name.downcase)
         .where(stack_key: old_stack_key)
         .order(active: :desc, id: :asc)
         .first || synced_expense_for(category)
-      expense.amount_cents = representative_planned_cents(category) if expense.new_record?
+      if expense.new_record?
+        expense.amount_cents = representative_planned_cents.nil? ? self.representative_planned_cents(category) : representative_planned_cents
+      end
       expense.update!(label: category.name, stack_key: category.stack_key, cadence: "monthly", active: category.active?)
       household.expense_items.where("LOWER(label) = ?", old_name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)
       household.expense_items.where("LOWER(label) = ?", category.name.downcase).where.not(id: expense.id).update_all(active: false, updated_at: Time.current)

@@ -2314,34 +2314,38 @@ function yearQuery(year?: number) {
   return year ? `?year=${encodeURIComponent(year)}` : ''
 }
 
-export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string }, year?: number): Promise<BudgetData> {
-  const payload = await postJson<{ budget: BudgetData }>(`/api/v1/budget_categories${yearQuery(year)}`, { category: values })
+export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string }, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories${yearQuery(year)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ category: values }),
+  })
   return payload.budget
 }
 
-export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey }, year?: number): Promise<BudgetData> {
+export async function updateBudgetCategory(id: number, values: { name: string; stack_key: BudgetStackKey }, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
   const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}${yearQuery(year)}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ category: values }),
   })
   return payload.budget
 }
 
-export async function archiveBudgetCategory(id: number, year?: number): Promise<BudgetData> {
-  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}${yearQuery(year)}`, { method: 'DELETE' })
+export async function archiveBudgetCategory(id: number, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}${yearQuery(year)}`, { method: 'DELETE', headers: { 'Idempotency-Key': idempotencyKey } })
   return payload.budget
 }
 
-export async function restoreBudgetCategory(id: number, year?: number): Promise<BudgetData> {
-  const payload = await postJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}/restore${yearQuery(year)}`, {})
+export async function restoreBudgetCategory(id: number, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories/${id}/restore${yearQuery(year)}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({}),
+  })
   return payload.budget
 }
 
-export async function updateBudgetAllocation(id: number, plannedAmount: number | string): Promise<BudgetData> {
+export async function updateBudgetAllocation(id: number, plannedAmount: number | string, idempotencyKey: string): Promise<BudgetData> {
   const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_allocations/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ allocation: { planned_amount: plannedAmount } }),
   })
   return payload.budget

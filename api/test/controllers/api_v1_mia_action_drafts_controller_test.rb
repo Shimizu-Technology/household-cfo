@@ -971,6 +971,8 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     draft = JSON.parse(response.body).fetch("mia_action_draft")
     assert_equal "create_category", draft.fetch("items").first.fetch("action_type")
+    planned_amount = draft.fetch("items").first.fetch("review_fields").find { |field| field.fetch("label") == "Planned amount" }
+    assert_equal({ "label" => "Planned amount", "before" => "$0.00", "after" => "$900.00" }, planned_amount)
     refute household.budget_categories.where(name: "Daycare").exists?
 
     post "/api/v1/mia_action_drafts/#{draft.fetch("id")}/apply",

@@ -6,6 +6,7 @@ import {
   createAdminContentItem,
   createAdminContentPack,
   createAdminPersona,
+  createBudgetCategory,
   acceptAdminContentSourceCandidate,
   deleteAdminContentSource,
   deleteAdminCohortPersonaAssignment,
@@ -37,6 +38,7 @@ import {
   updateAdminPersonaContentPacks,
   uploadDocumentImport,
   uploadAdminContentSource,
+  updateBudgetAllocation,
 } from './api'
 
 const completedPayload = {
@@ -56,6 +58,21 @@ function jsonResponse(payload: unknown, status = 200) {
     headers: { 'Content-Type': 'application/json' },
   })
 }
+
+describe('budget operation idempotency contract', () => {
+  it('sends the caller-owned stable key on category and allocation writes', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ budget: { total_monthly_outflow: 250 } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ budget: { total_monthly_outflow: 325 } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await createBudgetCategory({ name: 'Dining', stack_key: 'discretionary', monthly_amount: 250 }, 2026, 'category-attempt')
+    await updateBudgetAllocation(44, 325, 'allocation-attempt')
+
+    expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'category-attempt' })
+    expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'allocation-attempt' })
+  })
+})
 
 describe('Persona Studio API contract', () => {
   it('uses explicit approval, publication, and exact persona source-link envelopes', async () => {

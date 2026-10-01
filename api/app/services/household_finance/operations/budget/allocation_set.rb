@@ -61,7 +61,7 @@ module HouseholdFinance
           }
         end
 
-        def mutate!(_category, input)
+        def mutate!(_category, input, prepared:)
           allocations = scoped_allocations.lock.where(id: input.fetch(:changes).map { |change| change.fetch(:allocation_id) }).index_by(&:id)
           input.fetch(:changes).each do |change|
             allocation = allocations.fetch(change.fetch(:allocation_id)) { raise ActiveRecord::RecordNotFound, "Budget allocation not found" }

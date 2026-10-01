@@ -65,11 +65,11 @@ module HouseholdFinance
         end
       when "budget.category.create"
         category = after.fetch("category", {})
-        allocation = after.fetch("allocation", {})
+        normalized_input = prepared.fetch("normalized_input", {})
         [
           { label: "Category", before: "Does not exist", after: category["name"].to_s },
           { label: "Expense stack", before: "—", after: stack_label(category["stack_key"]) },
-          { label: "Planned amount", before: "$0.00", after: money_from_cents(allocation["planned_amount_cents"]) }
+          { label: "Planned amount", before: "$0.00", after: money_from_cents(normalized_input["monthly_amount_cents"]) }
         ]
       else
         category_before = before.fetch("category", {})

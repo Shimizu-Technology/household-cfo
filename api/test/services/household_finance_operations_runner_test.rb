@@ -34,6 +34,89 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
       execution.after_snapshot.fetch("allocations").map { |row| row.slice("month", "planned_amount_cents") }
   end
 
+  test "create canonicalizes blank and long names before prediction verification" do
+    runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
+    blank = runner.run(
+      operation_key: "budget.category.create",
+      input: { name: "   ", stack_key: "discretionary", monthly_amount: 25, year: 2026 },
+      idempotency_key: "blank-name"
+    )
+    long_name = "Very long category " * 8
+    long = runner.run(
+      operation_key: "budget.category.create",
+      input: { name: long_name, stack_key: "discretionary", monthly_amount: 30, year: 2026 },
+      idempotency_key: "long-name"
+    )
+
+    assert_equal "Custom category", blank.subject.name
+    assert_equal 80, long.subject.name.length
+    assert_equal long_name.squish.truncate(80, omission: "…"), long.subject.name
+  end
+
+  test "create fingerprints and audits every reused same-name expense item" do
+    first = @household.expense_items.create!(label: "Dining", stack_key: "discretionary", amount_cents: 9_000, cadence: "monthly", active: false)
+    second = @household.expense_items.create!(label: "dining", stack_key: "non_discretionary", amount_cents: 8_000, cadence: "monthly", active: false)
+    result = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: "budget.category.create",
+      input: { name: "Dining", stack_key: "discretionary", monthly_amount: 250, year: 2026 },
+      idempotency_key: "reuse-expenses"
+    )
+
+    assert_equal [ first.id, second.id ], result.execution.before_snapshot.fetch("expenses").pluck("id").sort
+    assert_equal [ first.id, second.id ], result.execution.after_snapshot.fetch("expenses").pluck("id").sort
+    assert first.reload.active?
+    refute second.reload.active?
+    assert_equal 25_000, first.amount_cents
+  end
+
+  test "update preserves legacy blank-name validation and canonicalizes long names" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 250)
+    runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
+
+    assert_raises(ActiveRecord::RecordInvalid) do
+      runner.run(
+        operation_key: "budget.category.update",
+        input: { category_id: category.id, name: "   ", stack_key: category.stack_key, year: 2026 },
+        idempotency_key: "blank-update-name"
+      )
+    end
+    assert_equal "Dining", category.reload.name
+    refute @household.household_operation_executions.exists?(idempotency_key: "blank-update-name")
+
+    long_name = "Very long renamed category " * 6
+    result = runner.run(
+      operation_key: "budget.category.update",
+      input: { category_id: category.id, name: long_name, stack_key: category.stack_key, year: 2026 },
+      idempotency_key: "long-update-name"
+    )
+    expected = long_name.squish.truncate(80, omission: "…")
+    assert_equal expected, result.subject.name
+    assert_equal expected, result.execution.normalized_input.fetch("name")
+  end
+
+  test "update predicts the same active duplicate expense selected by the budget manager" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 250)
+    original = @household.expense_items.find_by!(label: "Dining")
+    original.update!(active: false, amount_cents: 9_000)
+    active_duplicate = @household.expense_items.create!(
+      label: "dining", stack_key: "discretionary", amount_cents: 8_000, cadence: "monthly", active: true
+    )
+
+    result = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: "budget.category.update",
+      input: { category_id: category.id, name: "Restaurants", stack_key: "discretionary", year: 2026 },
+      idempotency_key: "rename-duplicate-expenses"
+    )
+
+    assert_equal "Restaurants", result.subject.name
+    assert_equal "Restaurants", active_duplicate.reload.label
+    assert active_duplicate.active?
+    refute original.reload.active?
+    assert_equal 8_000, active_duplicate.amount_cents
+  end
+
   test "reusing an idempotency key with different normalized input fails closed" do
     runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
     runner.run(
@@ -98,9 +181,15 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
   test "restore snapshots and verifies missing dependent allocations and expense item" do
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     category = manager.create_category!(name: "Travel", stack_key: "sinking_expected", monthly_amount: 100)
+    HouseholdFinance::AnnualBudgetManager.new(@household, year: 2025).ensure_plan!
     manager.archive_category!(category)
     category.budget_allocations.order(:id).first.delete
     @household.expense_items.where("LOWER(label) = ?", "travel").delete_all
+    representative = category.budget_allocations.joins(budget_period: :budget_year)
+      .where(budget_years: { year: 2026 }).order(:id).last
+    representative.update!(planned_amount_cents: 37_500, updated_at: 1.minute.from_now)
+    category.budget_allocations.joins(budget_period: :budget_year).where(budget_years: { year: 2025 })
+      .order(:id).last.update!(planned_amount_cents: 99_900, updated_at: 2.minutes.from_now)
 
     result = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
       operation_key: "budget.category.restore",
@@ -109,8 +198,9 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
     )
 
     assert result.subject.reload.active?
-    assert_equal 12, category.budget_allocations.count
+    assert_equal 12, category.budget_allocations.joins(budget_period: :budget_year).where(budget_years: { year: 2026 }).count
     assert_equal 1, @household.expense_items.where(label: "Travel", active: true).count
+    assert_equal 37_500, @household.expense_items.find_by!(label: "Travel", active: true).amount_cents
     assert_equal 12, result.after_snapshot.fetch("allocations").length
   end
 
