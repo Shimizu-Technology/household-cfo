@@ -135,8 +135,8 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
       ).call
       sources = context.fetch(:income_sources).index_by { |source| source.fetch(:id) }
 
-      assert_equal [ ended.id, current.id, future.id ].sort, sources.keys.sort
-      assert_equal "ended", sources.fetch(ended.id).fetch(:timeline_status)
+      assert_equal [ current.id, future.id ].sort, sources.keys.sort
+      refute sources.key?(ended.id)
       assert_equal "current", sources.fetch(current.id).fetch(:timeline_status)
       assert_equal "future", sources.fetch(future.id).fetch(:timeline_status)
       assert_equal [ ended.id ], context.fetch(:archived_income_sources).pluck(:id)

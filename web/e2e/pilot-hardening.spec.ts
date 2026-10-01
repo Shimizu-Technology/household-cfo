@@ -2244,6 +2244,7 @@ test('My Profile manages explicit income sources with stable keys on desktop and
 
   await consulting.getByRole('button', { name: 'End Side consulting' }).click()
   await expect(consulting.getByLabel('First $0 month')).toBeFocused()
+  await expect(consulting.getByLabel('First $0 month')).toHaveAttribute('min', '2000-01')
   await consulting.getByLabel('First $0 month').fill(`${currentYear}-10`)
   await consulting.getByRole('button', { name: 'Confirm stop for Side consulting' }).click()
   await expect(consulting).toBeFocused()

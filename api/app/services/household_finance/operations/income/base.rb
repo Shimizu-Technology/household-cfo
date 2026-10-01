@@ -93,6 +93,7 @@ module HouseholdFinance
             .where(source_type: source_type)
             .where("LOWER(label) = ?", label.to_s.squish.downcase)
             .where("active = TRUE OR ends_on IS NOT NULL")
+            .where.not("active = FALSE AND starts_on IS NOT NULL AND ends_on = starts_on")
           scope = scope.where.not(id: exclude_id) if exclude_id.present?
           scope = scope.where("starts_on IS NULL OR starts_on < ?", end_date) if end_date
           scope = scope.where("ends_on IS NULL OR ends_on > ?", start_date) if start_date

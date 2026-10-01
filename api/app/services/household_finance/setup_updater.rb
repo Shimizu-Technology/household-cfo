@@ -219,13 +219,6 @@ module HouseholdFinance
       end
     end
 
-    def distribute_current_income_total!(records, monthly_total_cents)
-      allocations = allocate_cents(monthly_total_cents, records.map { |record| current_income_cents(record) })
-      records.each_with_index do |record, index|
-        set_current_income_amount!(record, allocations.fetch(index))
-      end
-    end
-
     def set_current_income_amount!(record, monthly_cents)
       entry = record.income_schedule_entries.find_or_initialize_by(
         entry_type: "recurring_change",

@@ -387,6 +387,25 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_equal "pending", draft.reload.status
   end
 
+  test "returns validation instead of crashing when a scheduled income update has an invalid month" do
+    source = @household.income_sources.find_by!(source_type: "job")
+    entry = source.income_schedule_entries.create!(
+      entry_type: "recurring_change", amount_cents: 550_000, cadence: "monthly", effective_on: Date.new(2026, 10, 1)
+    )
+
+    result = build_command(
+      type: "update_income_schedule_entry",
+      income_schedule_entry_id: entry.id,
+      effective_on: "not-a-month",
+      amount: "6000",
+      cadence: "monthly"
+    )
+
+    assert_nil result.proposal
+    assert_includes result.response, "valid month"
+    assert_equal 550_000, entry.reload.amount_cents
+  end
+
   private
 
   def build_command(command)

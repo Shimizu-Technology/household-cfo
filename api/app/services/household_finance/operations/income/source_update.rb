@@ -43,6 +43,9 @@ module HouseholdFinance
         end
 
         def validate_execution!(subject, input, prepared:, source:)
+          unless subject.timeline_status(on: Date.current).in?(%w[current future])
+            raise ArgumentError, "This income source is already closed. Add a new source to preserve its history. Nothing changed."
+          end
           target_type = input[:source_type].presence || subject.source_type
           if target_type != "job" && subject.income_schedule_entries.any?(&:retained_after_transition?)
             raise ArgumentError, "Clear continuing transition income before changing this source from job income. Nothing changed."

@@ -86,6 +86,39 @@ class HouseholdFinanceIncomeOperationsTest < ActiveSupport::TestCase
     end
   end
 
+  test "source edits correct starting terms without replacing scheduled changes and closed sources stay protected" do
+    travel_to Date.new(2026, 10, 15) do
+      source = @household.income_sources.create!(
+        label: "Salary", source_type: "job", amount_cents: 500_000, cadence: "monthly", starts_on: Date.new(2026, 1, 1)
+      )
+      change = source.income_schedule_entries.create!(
+        entry_type: "recurring_change", amount_cents: 550_000, cadence: "monthly", effective_on: Date.new(2026, 7, 1)
+      )
+
+      @runner.run(
+        operation_key: "income.source.update",
+        input: { source_id: source.id, amount: 4_800, cadence: "monthly", starts_on: "2026-01-01", year: 2026 },
+        idempotency_key: "correct-starting-terms"
+      )
+
+      assert_equal 480_000, source.reload.amount_cents
+      assert_equal 480_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 6, 1))
+      assert_equal 550_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.new(2026, 10, 1))
+      assert_equal [ change.id ], source.income_schedule_entries.pluck(:id)
+
+      source.update!(active: false, ends_on: Date.new(2026, 9, 1))
+      error = assert_raises(ArgumentError) do
+        @runner.run(
+          operation_key: "income.source.update",
+          input: { source_id: source.id, amount: 9_000, year: 2026 },
+          idempotency_key: "rewrite-closed-source"
+        )
+      end
+      assert_includes error.message, "already closed"
+      assert_equal 480_000, source.reload.amount_cents
+    end
+  end
+
   test "a closed source name can be reused while restore protects an active replacement" do
     travel_to Date.new(2026, 11, 2) do
       archived = @household.income_sources.create!(
@@ -182,6 +215,93 @@ class HouseholdFinanceIncomeOperationsTest < ActiveSupport::TestCase
       assert source.reload.active?
       assert_nil source.ends_on
       assert_equal "future", source.timeline_status(on: Date.current)
+    end
+  end
+
+  test "canceled future sources do not block a replacement or another canceled source restore" do
+    travel_to Date.new(2026, 10, 15) do
+      canceled = @household.income_sources.create!(
+        label: "New contract", source_type: "business", amount_cents: 200_000, cadence: "monthly",
+        starts_on: Date.new(2027, 2, 1), ends_on: Date.new(2027, 2, 1), active: false
+      )
+
+      replacement = @runner.run(
+        operation_key: "income.source.create",
+        input: { label: "NEW CONTRACT", source_type: "business", amount: 1_500, cadence: "monthly", starts_on: "2026-11-01", year: 2026 },
+        idempotency_key: "replacement-after-cancel"
+      ).subject
+
+      assert replacement.active?
+      assert_equal Date.new(2026, 11, 1), replacement.starts_on
+      refute canceled.reload.active?
+
+      replacement.update!(active: false, ends_on: replacement.starts_on)
+      restored = @runner.run(
+        operation_key: "income.source.restore",
+        input: { source_id: canceled.id, year: 2027 },
+        idempotency_key: "restore-among-canceled"
+      ).subject
+      assert restored.reload.active?
+      assert_nil restored.ends_on
+    end
+  end
+
+  test "archive rejects legacy archived and already-ended sources but allows an open-source history correction" do
+    travel_to Date.new(2026, 10, 15) do
+      legacy = @household.income_sources.create!(label: "Legacy", source_type: "other", amount_cents: 100_000, cadence: "monthly", active: false)
+      ended = @household.income_sources.create!(
+        label: "Ended", source_type: "other", amount_cents: 100_000, cadence: "monthly",
+        starts_on: Date.new(2026, 1, 1), ends_on: Date.new(2026, 5, 1), active: false
+      )
+      open = @household.income_sources.create!(
+        label: "Open", source_type: "other", amount_cents: 100_000, cadence: "monthly", starts_on: Date.new(2026, 1, 1)
+      )
+
+      legacy_error = assert_raises(ArgumentError) do
+        @runner.run(operation_key: "income.source.archive", input: { source_id: legacy.id, ends_on: "2026-06-01", year: 2026 }, idempotency_key: "legacy-rearchive")
+      end
+      assert_includes legacy_error.message, "already archived"
+      assert_nil legacy.reload.ends_on
+
+      ended_error = assert_raises(ArgumentError) do
+        @runner.run(operation_key: "income.source.archive", input: { source_id: ended.id, ends_on: "2026-08-01", year: 2026 }, idempotency_key: "ended-rearchive")
+      end
+      assert_includes ended_error.message, "already closed"
+      assert_equal Date.new(2026, 5, 1), ended.reload.ends_on
+
+      @runner.run(
+        operation_key: "income.source.archive",
+        input: { source_id: open.id, ends_on: "2026-05-01", year: 2026 },
+        idempotency_key: "historical-end-correction"
+      )
+      assert_equal Date.new(2026, 5, 1), open.reload.ends_on
+      refute open.active?
+    end
+  end
+
+  test "a future end can move earlier but archive cannot silently extend it" do
+    travel_to Date.new(2026, 10, 15) do
+      source = @household.income_sources.create!(
+        label: "Contract", source_type: "business", amount_cents: 200_000, cadence: "monthly",
+        starts_on: Date.new(2026, 1, 1), ends_on: Date.new(2027, 2, 1), active: false
+      )
+
+      error = assert_raises(ArgumentError) do
+        @runner.run(
+          operation_key: "income.source.archive",
+          input: { source_id: source.id, ends_on: "2027-03-01", year: 2027 },
+          idempotency_key: "extend-future-end"
+        )
+      end
+      assert_includes error.message, "Restore this income source"
+      assert_equal Date.new(2027, 2, 1), source.reload.ends_on
+
+      @runner.run(
+        operation_key: "income.source.archive",
+        input: { source_id: source.id, ends_on: "2026-12-01", year: 2026 },
+        idempotency_key: "move-future-end-earlier"
+      )
+      assert_equal Date.new(2026, 12, 1), source.reload.ends_on
     end
   end
 

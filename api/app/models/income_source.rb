@@ -62,6 +62,7 @@ class IncomeSource < ApplicationRecord
       .where(household_id: household_id, source_type: source_type)
       .where("LOWER(label) = ?", label.downcase)
       .where("active = TRUE OR ends_on IS NOT NULL")
+      .where.not("active = FALSE AND starts_on IS NOT NULL AND ends_on = starts_on")
     scope = scope.where.not(id: id) if persisted?
     scope = scope.where("starts_on IS NULL OR starts_on < ?", ends_on) if ends_on.present?
     scope = scope.where("ends_on IS NULL OR ends_on > ?", starts_on) if starts_on.present?

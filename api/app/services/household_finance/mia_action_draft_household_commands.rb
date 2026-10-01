@@ -234,6 +234,7 @@ module HouseholdFinance
       return validation_result("I could not safely match that scheduled income entry. Nothing changed.") unless entry
       source = entry.income_source
       effective_on = parsed_effective_month(command[:effective_on].presence || entry.effective_on.iso8601)
+      return validation_result("Tell me a valid month for this scheduled income. Nothing changed.") unless effective_on
       type = command[:entry_type].to_s.presence_in(IncomeScheduleEntry::ENTRY_TYPES) || entry.entry_type
       amount_cents = command[:amount].present? ? Money.cents!(command[:amount], message: "Income amount must be a number") : entry.amount_cents
       cadence = type == "one_time" ? "one_time" : command[:cadence].to_s.presence_in(IncomeSource::CADENCES - [ "one_time" ]) || entry.cadence

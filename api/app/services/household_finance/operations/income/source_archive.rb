@@ -34,6 +34,16 @@ module HouseholdFinance
 
         def validate_execution!(subject, input, prepared:, source:)
           ending = Date.iso8601(input.fetch(:ends_on))
+          current_month = Date.current.beginning_of_month
+          if !subject.active? && subject.ends_on.blank?
+            raise ArgumentError, "This income source is already archived. Create a new source for resumed income. Nothing changed."
+          end
+          if subject.ends_on && subject.ends_on <= current_month
+            raise ArgumentError, "This income source is already closed. Create a new source for resumed income. Nothing changed."
+          end
+          if subject.ends_on && ending > subject.ends_on
+            raise ArgumentError, "Restore this income source before moving its end month later. Nothing changed."
+          end
           if subject.starts_on && ending < subject.starts_on
             raise ArgumentError, "Income end date must be after its starting month. Nothing changed."
           end

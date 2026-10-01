@@ -237,6 +237,38 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_equal draft_count_before, household.mia_action_drafts.count
   end
 
+  test "models conditional income surplus break-even and zero without treating purchase prices as income scenarios" do
+    household = create_yellow_household
+    HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
+
+    surplus = HouseholdFinance::MiaCoachAnswerer.new(household, "If our monthly income is $9,000, how much can we save?").call
+    assert_includes surplus, "a $1,155 monthly surplus"
+    assert_includes surplus, "approved recurring monthly income remains $8,500"
+
+    break_even = HouseholdFinance::MiaCoachAnswerer.new(household, "Suppose our take-home pay is $7,845. What is left over?").call
+    assert_includes break_even, "monthly break-even with a $0 surplus"
+
+    zero = HouseholdFinance::MiaCoachAnswerer.new(household, "Given our monthly income is $0, what is our surplus?").call
+    assert_includes zero, "a $7,845 monthly shortfall"
+    assert_includes zero, "Assumption only"
+
+    purchase = HouseholdFinance::MiaCoachAnswerer.new(household, "If our monthly income is $5,000, can I buy a $900 laptop?").call
+    assert purchase.present?
+    refute_includes purchase, "Assumption only"
+  end
+
+  test "blocks conditional income modeling until setup is confirmed" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "conditional-incomplete-#{SecureRandom.hex(6)}@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Incomplete conditional household")
+    household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "If our monthly income is $9,000, how much can we save?").call
+
+    assert_includes answer, "cannot give a readiness, safe-to-spend, or purchase verdict"
+    refute_includes answer, "Assumption only"
+    refute_includes answer, "approved monthly outflow"
+  end
+
   test "still treats a priced school item as a planned purchase follow-up" do
     household = create_yellow_household
 

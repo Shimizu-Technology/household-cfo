@@ -135,7 +135,7 @@ module HouseholdFinance
     end
 
     def income_sources
-      serialize_income_sources(household.income_sources)
+      serialize_income_sources(household.income_sources.select { |source| source.timeline_status(on: Date.current).in?(%w[current future]) })
     end
 
     def archived_income_sources

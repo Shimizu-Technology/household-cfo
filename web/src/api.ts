@@ -441,6 +441,13 @@ export type MiaActionItem = {
     | 'restore_category'
     | 'update_setup_value'
     | 'upsert_income_schedule_entry'
+    | 'create_income_source'
+    | 'update_income_source'
+    | 'archive_income_source'
+    | 'restore_income_source'
+    | 'create_income_schedule_entry'
+    | 'update_income_schedule_entry'
+    | 'delete_income_schedule_entry'
   target_record_type: string | null
   target_record_id: number | null
   label: string
