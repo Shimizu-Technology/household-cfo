@@ -19,6 +19,8 @@ module Api
           render json: { candidate: serializer.candidate(@candidate.reload) }
         rescue CoachContentSourceCandidate::ReviewConflict => error
           conflict(error.message)
+        rescue Mia::ContentSafetyValidator::UnsafeContent => error
+          render json: { error: error.message, code: error.code, candidate: serializer.candidate(@candidate.reload) }, status: :unprocessable_entity
         rescue ActiveRecord::RecordInvalid, ArgumentError => error
           invalid(error.respond_to?(:record) ? error.record.errors.full_messages.first : error.message)
         end

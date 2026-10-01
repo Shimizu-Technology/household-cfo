@@ -14,7 +14,8 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          sources = policy.visible_sources.includes(:current_attempt).recent_first.limit(100)
+          sources = policy.visible_sources.where.not(status: "source_deleted").includes(:current_attempt)
+            .order(Arel.sql("CASE WHEN status = 'upload_cleanup_failed' THEN 0 ELSE 1 END ASC"), created_at: :desc).limit(100)
           render json: { sources: sources.map { |source| serializer.source(source, include_candidates: false) } }
         end
 
@@ -96,6 +97,27 @@ module Api
         rescue ActiveRecord::RecordInvalid => error
           claim_upload_cleanup!(upload_intent_source(metadata)) if defined?(metadata) && metadata
           render json: { error: error.record.errors.full_messages.first, code: "content_source_invalid" }, status: :unprocessable_entity
+        end
+
+        def retry_upload_cleanups
+          unless current_user.admin?
+            return render json: { error: "Only administrators can retry private upload cleanup.", code: "admin_required" }, status: :forbidden
+          end
+
+          retried_count = 0
+          CoachContentSource.where(status: "upload_cleanup_failed").order(:id).limit(100).find_each do |source|
+            source.with_lock do
+              next unless source.status == "upload_cleanup_failed"
+
+              job = CoachContentSourceUploadExpiryJob.perform_later(source.id, admin_retry: true)
+              raise ActiveJob::EnqueueError, "Private upload cleanup retry could not be queued." unless job
+
+              retried_count += 1
+            end
+          end
+          render json: { retried_count: retried_count }
+        rescue ActiveJob::EnqueueError
+          render json: { error: "Private upload cleanup could not be queued. Try again shortly.", code: "upload_cleanup_retry_unavailable" }, status: :service_unavailable
         end
 
         def reprocess

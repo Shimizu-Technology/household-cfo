@@ -67,24 +67,35 @@ class CoachContentSourceTest < ActiveSupport::TestCase
     assert version_provenance.integrity_valid?
   end
 
-  test "acceptance rescans edited content and preserves the proposed candidate on a safety failure" do
+  test "candidate edits are rechecked and persist a recoverable safety state" do
     coach = persona_user
     _source, _attempt, candidate = source_candidate(owner: coach)
-    candidate.update_review!(
-      { title: "Private", kind: "guidance", content: "Contact jane@example.com for help.", topics: [] },
-      actor: coach,
-      expected_revision: candidate.revision,
-      expected_digest: candidate.content_digest
-    )
-
     error = assert_raises(Mia::ContentSafetyValidator::UnsafeContent) do
-      candidate.accept!(actor: coach, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
+      candidate.update_review!(
+        { title: "Private", kind: "guidance", content: "Contact jane@example.com for help.", topics: [] },
+        actor: coach,
+        expected_revision: candidate.revision,
+        expected_digest: candidate.content_digest
+      )
     end
 
     assert_equal "personal_information", error.code
     assert_equal "proposed", candidate.reload.status
     assert_equal "personal_information", candidate.safety_code
+    assert_equal "Contact jane@example.com for help.", candidate.content
     assert_nil candidate.accepted_content_item
+
+    assert_raises(Mia::ContentSafetyValidator::UnsafeContent) do
+      candidate.accept!(actor: coach, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
+    end
+
+    candidate.update_review!(
+      { title: "Private", kind: "guidance", content: "Review the general guidance together.", topics: [] },
+      actor: coach,
+      expected_revision: candidate.revision,
+      expected_digest: candidate.content_digest
+    )
+    assert_nil candidate.reload.safety_code
   end
 
   test "source canary stays outside runtime until the exact persona is published" do
@@ -208,6 +219,20 @@ class CoachContentSourceTest < ActiveSupport::TestCase
       item.approve!(actor: coach, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest)
     end
     assert_nil item.reload.current_approved_version
+  end
+
+  test "ordinary manual budget and IRS guidance remains approvable" do
+    coach = persona_user
+    item = CoachContentItem.create!(
+      title: "Routine references", scope: "coach", kind: "guidance",
+      draft_content: "Update your household budget after reviewing the bill. Review current IRS guidance with a qualified professional.",
+      draft_always_on: false, created_by_user: coach
+    )
+
+    version = item.approve!(actor: coach, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest)
+
+    assert_equal item.id, version.coach_content_item_id
+    assert version.integrity_valid?
   end
 
   test "queued reprocessing makes prior generation candidates unreviewable" do

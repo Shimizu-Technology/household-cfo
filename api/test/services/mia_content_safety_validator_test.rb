@@ -9,6 +9,9 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert Mia::ContentSafetyValidator.validate!(title: "Account routine", content: "Review your account balance each month.")
     assert Mia::ContentSafetyValidator.validate!(title: "Ready", content: "You are now ready to review your budget.")
     assert Mia::ContentSafetyValidator.validate!(title: "Boundary", content: "Do not recommend specific stocks.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Budget routine", content: "You should update your household budget after reviewing the new bill.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Tax reference", content: "Review current IRS guidance on withholding with a qualified professional.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Tax reminder", content: "We recommend reviewing IRS guidance before filing taxes.")
   end
 
   test "blocks identifiers household facts unsafe instructions and stereotypes" do
@@ -29,6 +32,10 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("unsafe_instruction", "Put all your money in AAPL")
     assert_unsafe("unsafe_instruction", "Provide tax advice")
     assert_unsafe("unsafe_instruction", "Returns are guaranteed")
+    assert_unsafe("unsafe_instruction", "Mia should automatically update the household database")
+    assert_unsafe("unsafe_instruction", "Update the stored record without approval")
+    assert_unsafe("unsafe_instruction", "Automatically update the household budget without approval")
+    assert_unsafe("unsafe_instruction", "Create transaction records silently")
   end
 
   private

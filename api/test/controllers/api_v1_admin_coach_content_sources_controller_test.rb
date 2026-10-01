@@ -225,6 +225,37 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     assert_equal "accepted", response.parsed_body.dig("candidate", "status")
   end
 
+  test "candidate edit safety failures return the persisted candidate for correction" do
+    coach = persona_user
+    source, candidate = reviewable_candidate(owner: coach)
+
+    patch "/api/v1/admin/content_sources/#{source.id}/candidates/#{candidate.id}", params: {
+      candidate: {
+        title: "Private instruction", kind: "guidance", content: "Contact jane@example.com for help.", topics: [],
+        revision: candidate.revision, digest: candidate.content_digest
+      }
+    }, headers: auth_headers(coach), as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "personal_information", response.parsed_body.fetch("code")
+    returned = response.parsed_body.fetch("candidate")
+    assert_equal "personal_information", returned.fetch("safety_code")
+    assert_equal "Contact jane@example.com for help.", returned.fetch("content")
+    assert_equal candidate.revision + 1, returned.fetch("revision")
+  end
+
+  test "source index omits deleted history so active sources are not crowded out" do
+    coach = persona_user
+    active = content_source(owner: coach)
+    deleted = content_source(owner: coach)
+    deleted.update_columns(status: "source_deleted", source_deleted_at: Time.current, s3_key: nil)
+
+    get "/api/v1/admin/content_sources", headers: auth_headers(coach)
+
+    assert_response :success
+    assert_equal [ active.id ], response.parsed_body.fetch("sources").map { |source| source.fetch("id") }
+  end
+
   test "a transient storage error keeps the bound intent verifiable on the same-token retry" do
     coach = persona_user
     content = "guide"
@@ -329,6 +360,62 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
 
     get "/api/v1/admin/content_sources/#{source.id}/source_url", headers: auth_headers(coach)
     assert_response :gone
+  end
+
+  test "only administrators see and sweep terminal upload cleanup failures" do
+    coach = persona_user
+    admin = persona_user(role: "admin")
+    source = upload_intent(owner: coach, key: "test/opaque/terminal-cleanup")
+    source.update!(status: "upload_cleanup_failed", error_code: "upload_cleanup_failed", error_message: "Private storage cleanup needs an administrator to retry it.")
+
+    get "/api/v1/admin/content_sources", headers: auth_headers(coach)
+    assert_response :success
+    assert_empty response.parsed_body.fetch("sources")
+
+    get "/api/v1/admin/content_sources", headers: auth_headers(admin)
+    assert_response :success
+    assert_equal [ source.id ], response.parsed_body.fetch("sources").map { |entry| entry.fetch("id") }
+
+    post "/api/v1/admin/content_sources/retry_upload_cleanups", headers: auth_headers(coach), as: :json
+    assert_response :forbidden
+    assert_equal "upload_cleanup_failed", source.reload.status
+
+    assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ source.id, { admin_retry: true } ]) do
+      post "/api/v1/admin/content_sources/retry_upload_cleanups", headers: auth_headers(admin), as: :json
+    end
+    assert_response :success
+    assert_equal 1, response.parsed_body.fetch("retried_count")
+    assert_equal "upload_cleanup_failed", source.reload.status
+  end
+
+  test "failed upload cleanup stays durable when retry enqueue fails" do
+    admin = persona_user(role: "admin")
+    source = upload_intent(owner: admin, key: "test/opaque/enqueue-failure", scope: "platform")
+    source.update!(status: "upload_cleanup_failed", error_code: "upload_cleanup_failed", error_message: "Cleanup needs retry.")
+
+    with_singleton_method(CoachContentSourceUploadExpiryJob, :perform_later, ->(*) { raise ActiveJob::EnqueueError, "adapter unavailable" }) do
+      post "/api/v1/admin/content_sources/retry_upload_cleanups", headers: auth_headers(admin), as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_equal "upload_cleanup_retry_unavailable", response.parsed_body.fetch("code")
+    assert_equal "upload_cleanup_failed", source.reload.status
+    assert source.s3_key.present?
+  end
+
+  test "old terminal upload cleanup remains visible ahead of one hundred newer sources" do
+    admin = persona_user(role: "admin")
+    failed = upload_intent(owner: admin, key: "test/opaque/old-terminal", scope: "platform")
+    failed.update!(status: "upload_cleanup_failed", error_code: "upload_cleanup_failed", error_message: "Cleanup needs retry.")
+    failed.update_column(:created_at, 2.days.ago)
+    100.times { content_source(owner: admin) }
+
+    get "/api/v1/admin/content_sources", headers: auth_headers(admin)
+
+    assert_response :success
+    listed_ids = response.parsed_body.fetch("sources").map { |entry| entry.fetch("id") }
+    assert_equal 100, listed_ids.length
+    assert_includes listed_ids, failed.id
   end
 
   private

@@ -106,6 +106,7 @@ Rails.application.routes.draw do
           collection do
             post :presign
             post :complete
+            post :retry_upload_cleanups
           end
           member do
             post :reprocess

@@ -129,7 +129,7 @@ class CoachContentSourceJobsTest < ActiveSupport::TestCase
     assert source.s3_key.present?
   end
 
-  test "upload cleanup stops automatic retries after the fifth failed deletion" do
+  test "upload cleanup becomes durably recoverable after the fifth failed deletion" do
     source = queued_source
     source.update!(status: "upload_cleanup")
     service_error = Aws::S3::Errors::ServiceError.new(nil, "still unavailable")
@@ -139,12 +139,38 @@ class CoachContentSourceJobsTest < ActiveSupport::TestCase
 
     with_singleton_method(S3Service, :delete!, ->(_key) { raise service_error }) do
       assert_no_enqueued_jobs do
-        assert_raises(Aws::S3::Errors::ServiceError) { job.perform_now }
+        job.perform_now
       end
     end
 
-    assert_equal "upload_cleanup", source.reload.status
+    assert_equal "upload_cleanup_failed", source.reload.status
+    assert_equal "upload_cleanup_failed", source.error_code
+    refute_includes source.error_message, service_error.message
     assert source.s3_key.present?
+  end
+
+  test "an administrator retry can recover a terminal upload cleanup" do
+    source = queued_source
+    source.update!(status: "upload_cleanup_failed", error_code: "upload_cleanup_failed", error_message: "Cleanup needs retry.")
+
+    with_singleton_method(S3Service, :delete!, ->(_key) { true }) do
+      assert_difference -> { CoachContentSource.count }, -1 do
+        CoachContentSourceUploadExpiryJob.perform_now(source.id, admin_retry: true)
+      end
+    end
+  end
+
+  test "a late ordinary upload expiry cannot revive terminal cleanup failure" do
+    source = queued_source
+    source.update!(status: "upload_cleanup_failed", error_code: "upload_cleanup_failed", error_message: "Cleanup needs retry.")
+    deleted = []
+
+    with_singleton_method(S3Service, :delete!, ->(key) { deleted << key; true }) do
+      CoachContentSourceUploadExpiryJob.perform_now(source.id)
+    end
+
+    assert_equal "upload_cleanup_failed", source.reload.status
+    assert_empty deleted
   end
 
   test "upload expiry cannot delete a source that completed before cleanup claimed it" do

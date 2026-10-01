@@ -3448,12 +3448,29 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
     source_deleted_at: null, created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
     current_attempt: { id: 702, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates,
   })
+  const uploadedSource = {
+    id: 720, scope: 'coach', filename: 'new-guide.txt', content_type: 'text/plain', byte_size: 32,
+    checksum_sha256: 'e'.repeat(64), status: 'queued', generation: 0, source_available: true, error: null, error_code: null,
+    source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
+    created_at: '2026-10-01T01:02:00Z', updated_at: '2026-10-01T01:02:00Z', current_attempt: null, candidates: [],
+  }
 
-  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()] } }))
+  let releaseSourceList!: () => void
+  const sourceListGate = new Promise<void>((resolve) => { releaseSourceList = resolve })
+  await page.route('http://api.test/api/v1/admin/content_sources', async (route) => {
+    await sourceListGate
+    return route.fulfill({ status: 200, json: { sources: [source()] } })
+  })
   await page.route('http://api.test/api/v1/admin/content_sources/701', async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: { source: source() } })
     return route.fallback()
   })
+  await page.route('http://api.test/api/v1/admin/content_sources/presign', (route) => route.fulfill({
+    status: 200,
+    json: { upload_url: 'http://storage.test/new-guide', upload_headers: { 'x-amz-server-side-encryption': 'AES256' }, upload_token: 'new-guide-token' },
+  }))
+  await page.route('http://storage.test/new-guide', (route) => route.fulfill({ status: 200, body: '' }))
+  await page.route('http://api.test/api/v1/admin/content_sources/complete', (route) => route.fulfill({ status: 201, json: { source: uploadedSource } }))
   await page.route(/http:\/\/api\.test\/api\/v1\/admin\/content_sources\/701\/candidates\/\d+(?:\/accept)?$/, async (route) => {
     const id = Number(new URL(route.request().url()).pathname.match(/candidates\/(\d+)/)?.[1])
     const index = candidates.findIndex((candidate) => candidate.id === id)
@@ -3474,6 +3491,9 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await expect(page.getByRole('heading', { name: 'Turn private material into reviewable drafts' })).toBeVisible()
+  await expect(page.getByLabel('Private source file')).toBeDisabled()
+  releaseSourceList()
+  await expect(page.getByLabel('Private source file')).toBeEnabled()
   await expect(page.getByText(/no-data-collection routing setting/i)).toBeVisible()
   await expect(page.getByText('Private source → Review candidates')).toHaveCount(0)
   await expect(page.locator('.coach-source-trust li')).toHaveCount(6)
@@ -3483,18 +3503,131 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   const editor = page.locator('.coach-candidate-editor')
   await expect(editor.getByText('<script>quoted source text stays inert</script>', { exact: true })).toBeVisible()
   await editor.getByLabel('Draft wording').fill('Choose one calm, practical next step and review it together.')
+  await page.getByLabel('Private source file').setInputFiles({ name: 'new-guide.txt', mimeType: 'text/plain', buffer: Buffer.from('A separate private coaching source.') })
+  await page.getByRole('button', { name: 'Upload and read' }).click()
+  await expect(page.getByRole('status')).toContainText('Private upload complete')
+  await expect(page.getByRole('button', { name: /new-guide.txt/ })).toBeVisible()
+  await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
+  await expect(page.getByRole('button', { name: /One calm next step/ })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: /Protect the baseline/ }).click()
   await expect(page.getByRole('alert')).toContainText('unsaved candidate edits')
   await page.getByRole('button', { name: 'Keep editing' }).click()
   await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
 
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await itemPanel.getByRole('button', { name: 'New item' }).click()
+  await itemPanel.getByLabel('Title').fill('Unsaved manual lesson')
+  await itemPanel.getByLabel('Draft wording').fill('Keep this exact unsaved manual wording.')
+
   await editor.getByRole('button', { name: 'Save and create draft' }).click()
   await expect(page.getByRole('status')).toContainText('not available to Mia yet')
   await page.getByRole('button', { name: 'Review content draft' }).click()
-  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await expect(page.getByRole('alert')).toContainText('unsaved content item edits')
+  await page.getByRole('button', { name: 'Keep editing' }).click()
+  await expect(itemPanel.getByLabel('Title')).toHaveValue('Unsaved manual lesson')
+  await expect(itemPanel.getByLabel('Draft wording')).toHaveValue('Keep this exact unsaved manual wording.')
+  await page.getByRole('button', { name: 'Review content draft' }).click()
+  await page.getByRole('button', { name: 'Discard and review draft' }).click()
+  await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
+  await expect(itemPanel.getByLabel('Title')).toBeFocused()
+  await itemPanel.getByLabel('Title').fill('Unsaved same-item title')
+  await page.getByRole('button', { name: 'Review content draft' }).click()
+  await page.getByRole('button', { name: 'Keep editing' }).click()
+  await expect(itemPanel.getByLabel('Title')).toHaveValue('Unsaved same-item title')
+  await expect(itemPanel.getByLabel('Title')).toBeFocused()
+  await page.getByRole('button', { name: 'Review content draft' }).click()
+  await page.getByRole('button', { name: 'Discard and review draft' }).click()
   await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
   await expect(itemPanel.getByLabel('Title')).toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio preserves candidate edits through conflicts and server safety rechecks', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'candidate conflict and safety regression')
+  let candidate = {
+    id: 731, source_id: 730, position: 0, status: 'proposed', title: 'Original candidate', kind: 'guidance',
+    content: 'Choose one practical step.', topics: [], safety_code: null as string | null, accepted_content_item_id: null,
+    reviewed_at: null, updated_at: '2026-10-01T01:00:00Z', revision: 1, digest: 'candidate-initial',
+    evidence_excerpt: 'Choose one practical step.', evidence_locator: { type: 'text', segment: 1, line_start: 1, line_end: 1, excerpt_digest: 'a'.repeat(64) },
+  }
+  const source = () => ({
+    id: 730, scope: 'coach', filename: 'review-guide.txt', content_type: 'text/plain', byte_size: 30,
+    checksum_sha256: 'f'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
+    source_delete_error_code: null, processing_metadata: {}, processed_at: '2026-10-01T01:00:00Z', source_deleted_at: null,
+    created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
+    current_attempt: { id: 729, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates: [candidate],
+  })
+  let conflictOnce = true
+  let lastReviewInput: Record<string, unknown> = {}
+
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources/730', (route) => route.fulfill({ status: 200, json: { source: source() } }))
+  await page.route('http://api.test/api/v1/admin/content_sources/730/candidates/731', (route) => {
+    const input = route.request().postDataJSON().candidate
+    lastReviewInput = input
+    if (conflictOnce) {
+      conflictOnce = false
+      candidate = { ...candidate, title: 'Server revision', revision: 2, digest: 'candidate-server' }
+      return route.fulfill({ status: 409, json: { error: 'This candidate changed; reload it before continuing.', code: 'content_candidate_conflict', candidate } })
+    }
+    const unsafe = String(input.content).includes('jane@example.com')
+    candidate = { ...candidate, ...input, revision: candidate.revision + 1, digest: `candidate-${candidate.revision + 1}`, safety_code: unsafe ? 'personal_information' : null }
+    return route.fulfill({
+      status: unsafe ? 422 : 200,
+      json: unsafe
+        ? { error: 'Personal or identifying information must be removed.', code: 'personal_information', candidate }
+        : { candidate },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: /review-guide.txt/ }).click()
+  const editor = page.locator('.coach-candidate-editor')
+  await editor.getByLabel('Candidate title').fill('Exact local title')
+  await editor.getByRole('button', { name: 'Save edits' }).click()
+  await expect(page.getByRole('alert')).toContainText('Your edits are still here')
+  await expect(editor.getByLabel('Candidate title')).toHaveValue('Exact local title')
+  await page.getByRole('button', { name: 'Keep editing' }).click()
+  await expect(editor.getByLabel('Candidate title')).toHaveValue('Exact local title')
+  await expect(editor.getByLabel('Draft wording')).toBeFocused()
+  await editor.getByRole('button', { name: 'Save edits' }).click()
+  expect(lastReviewInput).toMatchObject({ revision: 2, digest: 'candidate-server', title: 'Exact local title' })
+  await expect(editor.getByLabel('Candidate title')).toHaveValue('Exact local title')
+
+  await editor.getByLabel('Draft wording').fill('Contact jane@example.com for help.')
+  await editor.getByRole('button', { name: 'Save edits' }).click()
+  await expect(editor.getByText(/personal or identifying information was found/i)).toBeVisible()
+  await expect(editor.getByLabel('Draft wording')).toHaveValue('Contact jane@example.com for help.')
+  await expect(editor.getByRole('button', { name: 'Create content draft' })).toBeDisabled()
+
+  await editor.getByLabel('Draft wording').fill('Review the general guidance together.')
+  await editor.getByRole('button', { name: 'Save edits' }).click()
+  await expect(editor.getByText(/personal or identifying information was found/i)).toHaveCount(0)
+  await expect(editor.getByRole('button', { name: 'Create content draft' })).toBeEnabled()
+})
+
+test('administrators can see and retry terminal private upload cleanup', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'admin cleanup recovery regression')
+  let failed = true
+  const source = {
+    id: 799, scope: 'coach', filename: 'uploaded-source.txt', content_type: 'text/plain', byte_size: 20,
+    checksum_sha256: 'd'.repeat(64), status: 'upload_cleanup_failed', generation: 0, source_available: false,
+    error: 'Private storage cleanup needs an administrator to retry it.', error_code: 'upload_cleanup_failed',
+    source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:01:00Z', current_attempt: null, candidates: [],
+  }
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: failed ? [source] : [] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources/retry_upload_cleanups', (route) => {
+    failed = false
+    return route.fulfill({ status: 200, json: { retried_count: 1 } })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await expect(page.getByText('Upload cleanup needs admin retry')).toBeVisible()
+  await page.getByRole('button', { name: 'Retry failed cleanup' }).click()
+  await expect(page.getByRole('status')).toContainText('queued to retry')
 })
 
 test('Coach Studio keeps failed library drafts and read-only sources do not trigger dirty guards', async ({ page }, testInfo) => {

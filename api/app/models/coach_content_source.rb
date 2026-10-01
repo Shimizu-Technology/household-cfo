@@ -8,7 +8,7 @@ class CoachContentSource < ApplicationRecord
   UPLOAD_WINDOW = 15.minutes
 
   SCOPES = CoachContentItem::SCOPES
-  STATUSES = %w[uploading verifying upload_cleanup queued processing needs_review failed deletion_pending deletion_failed source_deleted].freeze
+  STATUSES = %w[uploading verifying upload_cleanup upload_cleanup_failed queued processing needs_review failed deletion_pending deletion_failed source_deleted].freeze
 
   belongs_to :created_by_user, class_name: "User"
   belongs_to :source_deleted_by_user, class_name: "User", optional: true
@@ -34,7 +34,7 @@ class CoachContentSource < ApplicationRecord
 
   def source_available?
     s3_key.present? && source_deleted_at.blank? && deletion_requested_at.blank? &&
-      !status.in?(%w[uploading verifying upload_cleanup deletion_pending deletion_failed source_deleted])
+      !status.in?(%w[uploading verifying upload_cleanup upload_cleanup_failed deletion_pending deletion_failed source_deleted])
   end
 
   def active_for_processing?

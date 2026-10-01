@@ -76,6 +76,18 @@ class ContentSourcesParserTest < ActiveSupport::TestCase
     assert_error_code("docx_archive_unsafe") { ContentSources::Parser.new.send(:validate_xml_safety!, "\xFF\xFE".b + utf16_doctype.b) }
   end
 
+  test "rejects a ten-megabyte many-entry DOCX before RubyZip materializes its directory" do
+    eocd = [ 0x06054b50, 0, 0, 60_000, 60_000, 0, 0, 0 ].pack("VvvvvVVv")
+    bytes = "PK\x03\x04".b + ("\0".b * (ContentSources::UploadValidator::DOCX_MAX_BYTES - eocd.bytesize - 4)) + eocd
+
+    with_file(".docx", bytes) do |path|
+      assert_equal ContentSources::UploadValidator::DOCX_MAX_BYTES, File.size(path)
+      assert_error_code("docx_too_many_entries") do
+        ContentSources::Parser.new.call(path: path, filename: "hostile.docx")
+      end
+    end
+  end
+
   test "rejects blank scanned PDFs and files over the page cap" do
     with_pdf_pages(1) do |path|
       assert_error_code("pdf_no_readable_text") { ContentSources::Parser.new.call(path: path, filename: "scan.pdf") }

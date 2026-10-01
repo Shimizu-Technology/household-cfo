@@ -51,6 +51,7 @@ class CoachContentSourceCandidate < ApplicationRecord
   end
 
   def update_review!(attributes, actor:, expected_revision:, expected_digest:)
+    violation = nil
     source = coach_content_source
     source.with_lock do
       with_lock do
@@ -63,10 +64,18 @@ class CoachContentSourceCandidate < ApplicationRecord
         self.topics = normalize_topics(topics)
         self.content_digest = review_digest
         self.revision += 1
-        self.safety_code = nil
+        begin
+          Mia::ContentSafetyValidator.validate!(title: title, content: content, topics: topics)
+          self.safety_code = nil
+        rescue Mia::ContentSafetyValidator::UnsafeContent => error
+          self.safety_code = error.code
+          violation = error
+        end
         save!
       end
     end
+    raise violation if violation
+
     self
   end
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_072000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_073000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -411,7 +411,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_072000) do
     t.check_constraint "checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_sources_checksum_sha256"
     t.check_constraint "generation >= 0", name: "coach_content_sources_generation_nonnegative"
     t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_sources_scope_valid"
-    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying::text, 'verifying'::character varying::text, 'upload_cleanup'::character varying::text, 'queued'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'failed'::character varying::text, 'deletion_pending'::character varying::text, 'deletion_failed'::character varying::text, 'source_deleted'::character varying::text])", name: "coach_content_sources_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying, 'verifying'::character varying, 'upload_cleanup'::character varying, 'queued'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'failed'::character varying, 'deletion_pending'::character varying, 'deletion_failed'::character varying, 'source_deleted'::character varying, 'upload_cleanup_failed'::character varying]::text[])", name: "coach_content_sources_status_valid"
   end
 
   create_table "coach_persona_draft_content_packs", force: :cascade do |t|

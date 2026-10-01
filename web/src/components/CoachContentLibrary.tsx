@@ -40,6 +40,8 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   const [packDirty, setPackDirty] = useState(false)
   const [sourceDirty, setSourceDirty] = useState(false)
   const [itemReviewRequest, setItemReviewRequest] = useState(0)
+  const [itemFocusRequest, setItemFocusRequest] = useState(0)
+  const [pendingReviewItemId, setPendingReviewItemId] = useState<number | null>(null)
 
   useEffect(() => onDirtyChange?.(itemDirty || packDirty || sourceDirty), [itemDirty, onDirtyChange, packDirty, sourceDirty])
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
@@ -80,6 +82,20 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   const selectedItem = items.find((item) => item.id === selectedItemId) ?? null
   const selectedPack = packs.find((pack) => pack.id === selectedPackId) ?? null
 
+  function openAcceptedItem(itemId: number) {
+    setPendingReviewItemId(null)
+    setSelectedItemId(itemId)
+    setItemReviewRequest((value) => value + 1)
+  }
+
+  function requestAcceptedItem(itemId: number) {
+    if (itemDirty) {
+      setPendingReviewItemId(itemId)
+      return
+    }
+    openAcceptedItem(itemId)
+  }
+
   return (
     <section className="coach-content-library" aria-busy={busy}>
       {error && <div className="coach-content-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => void load()}>Retry</button></div>}
@@ -104,8 +120,10 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
         onItemAccepted={(item) => {
           setItems((current) => [item, ...current.filter((value) => value.id !== item.id)])
         }}
-        onReviewItem={(itemId) => { setSelectedItemId(itemId); setItemReviewRequest((value) => value + 1) }}
+        onReviewItem={requestAcceptedItem}
       />
+
+      {pendingReviewItemId !== null && <div className="coach-content-alert is-error" role="alert"><span>You have unsaved content item edits.</span><button type="button" onClick={() => { setPendingReviewItemId(null); setItemFocusRequest((value) => value + 1) }}>Keep editing</button><button type="button" onClick={() => openAcceptedItem(pendingReviewItemId)}>Discard and review draft</button></div>}
 
       <div className="coach-content-grid">
         <ContentItemsPanel
@@ -113,6 +131,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
           items={items}
           selected={selectedItem}
           reviewRequest={itemReviewRequest}
+          focusRequest={itemFocusRequest}
           busy={busy}
           onDirtyChange={setItemDirty}
           onSelect={setSelectedItemId}
@@ -137,11 +156,12 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   )
 }
 
-function ContentItemsPanel({ currentUser, items, selected, reviewRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
+function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
   items: AdminContentItem[]
   selected: AdminContentItem | null
   reviewRequest: number
+  focusRequest: number
   busy: boolean
   onDirtyChange: (dirty: boolean) => void
   onSelect: (id: number | null) => void
@@ -179,9 +199,24 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, busy, 
   }, [selected])
   useEffect(() => {
     if (reviewRequest === 0 || !selected) return
-    titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
-    titleInputRef.current?.focus()
+    lastSelectedId.current = selected.id
+    queueMicrotask(() => {
+      setCreating(false)
+      setTitle(selected.title)
+      setContent(selected.editable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
+      setKind(selected.kind)
+      setScope(selected.scope)
+      setAlwaysOn(selected.always_on)
+      queueMicrotask(() => {
+        titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        titleInputRef.current?.focus()
+      })
+    })
   }, [reviewRequest, selected])
+  useEffect(() => {
+    if (focusRequest === 0) return
+    queueMicrotask(() => titleInputRef.current?.focus())
+  }, [focusRequest])
 
   function startCreate() {
     lastSelectedId.current = null

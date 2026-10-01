@@ -783,7 +783,7 @@ export type AdminPersonaVersion = {
 export type AdminContentItemKind = 'guidance' | 'script' | 'example' | 'phrase' | 'culture' | 'finance_reference'
 export type AdminContentPackKind = 'voice_culture' | 'coaching_method' | 'finance_reference'
 export type AdminContentScope = 'coach' | 'platform'
-export type AdminContentSourceStatus = 'queued' | 'processing' | 'needs_review' | 'failed' | 'deletion_pending' | 'deletion_failed' | 'source_deleted'
+export type AdminContentSourceStatus = 'upload_cleanup_failed' | 'queued' | 'processing' | 'needs_review' | 'failed' | 'deletion_pending' | 'deletion_failed' | 'source_deleted'
 
 export type AdminContentSourceCandidate = {
   id: number
@@ -1332,6 +1332,7 @@ export class ApiRequestError extends Error {
   readonly code: string | null
   readonly errors: string[]
   readonly conflicts: ApiErrorConflict[]
+  readonly payload: Record<string, unknown>
 
   constructor(
     message: string,
@@ -1340,6 +1341,7 @@ export class ApiRequestError extends Error {
       code?: string | null
       errors?: string[]
       conflicts?: ApiErrorConflict[]
+      payload?: Record<string, unknown>
     },
   ) {
     super(message)
@@ -1348,6 +1350,7 @@ export class ApiRequestError extends Error {
     this.code = options.code ?? null
     this.errors = options.errors ?? []
     this.conflicts = options.conflicts ?? []
+    this.payload = options.payload ?? {}
   }
 }
 
@@ -1563,6 +1566,7 @@ async function apiRequestError(response: Response, fallback: string) {
     code: typeof payload.code === 'string' ? payload.code : null,
     errors,
     conflicts,
+    payload,
   })
 }
 
@@ -1732,6 +1736,11 @@ export async function reprocessAdminContentSource(id: number): Promise<AdminCont
 export async function deleteAdminContentSource(id: number): Promise<AdminContentSource> {
   const payload = await fetchJson<{ source: AdminContentSource }>(`/api/v1/admin/content_sources/${id}/source`, { method: 'DELETE' })
   return payload.source
+}
+
+export async function retryAdminContentSourceCleanups(): Promise<number> {
+  const payload = await postJson<{ retried_count: number }>('/api/v1/admin/content_sources/retry_upload_cleanups', {})
+  return payload.retried_count
 }
 
 export async function updateAdminContentSourceCandidate(sourceId: number, candidate: AdminContentSourceCandidate, values: Pick<AdminContentSourceCandidate, 'title' | 'kind' | 'content' | 'topics'>): Promise<AdminContentSourceCandidate> {

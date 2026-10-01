@@ -15,6 +15,9 @@ module ContentSources
     MAX_DOCX_UNCOMPRESSED_BYTES = 25 * 1024 * 1024
     MAX_DOCX_XML_BYTES = 5 * 1024 * 1024
     MAX_DOCX_PARAGRAPHS = 2_000
+    MAX_DOCX_CENTRAL_DIRECTORY_BYTES = 2 * 1024 * 1024
+    ZIP_EOCD_MIN_BYTES = 22
+    ZIP_MAX_COMMENT_BYTES = 65_535
     MAX_ZIP_COMPRESSION_RATIO = 100
     MAX_SUBTITLE_CUES = 5_000
 
@@ -63,6 +66,7 @@ module ContentSources
     end
 
     def docx_pieces(path)
+      preflight_docx_archive!(path)
       paragraphs = nil
       Zip::File.open(path) do |zip|
         entries = zip.entries
@@ -91,6 +95,97 @@ module ContentSources
       raise Error, "docx_invalid" if paragraphs.blank?
 
       [ paragraphs, { format: "docx", paragraph_count: paragraphs.length } ]
+    end
+
+    def preflight_docx_archive!(path)
+      file_size = File.size(path)
+      raise Error, "file_too_large" if file_size > UploadValidator::DOCX_MAX_BYTES
+      raise Error, "docx_invalid" if file_size < ZIP_EOCD_MIN_BYTES
+
+      File.open(path, "rb") do |file|
+        tail_size = [ file_size, ZIP_EOCD_MIN_BYTES + ZIP_MAX_COMMENT_BYTES ].min
+        file.seek(-tail_size, IO::SEEK_END)
+        tail = file.read(tail_size)
+        eocd_offset = tail.rindex("PK\x05\x06".b)
+        raise Error, "docx_invalid" unless eocd_offset
+
+        eocd = tail.byteslice(eocd_offset, ZIP_EOCD_MIN_BYTES)
+        raise Error, "docx_invalid" unless eocd&.bytesize == ZIP_EOCD_MIN_BYTES
+        signature, disk_number, directory_disk, disk_entries, total_entries, directory_size, directory_offset, comment_size = eocd.unpack("VvvvvVVv")
+        raise Error, "docx_invalid" unless signature == 0x06054b50 && eocd_offset + ZIP_EOCD_MIN_BYTES + comment_size == tail.bytesize
+        raise Error, "docx_archive_unsafe" unless disk_number.zero? && directory_disk.zero? && disk_entries == total_entries
+        raise Error, "docx_archive_unsafe" if [ total_entries, disk_entries ].include?(0xffff) || [ directory_size, directory_offset ].include?(0xffffffff)
+        raise Error, "docx_too_many_entries" if total_entries > MAX_DOCX_ENTRIES
+        raise Error, "docx_archive_unsafe" if directory_size > MAX_DOCX_CENTRAL_DIRECTORY_BYTES || directory_offset + directory_size > file_size
+
+        file.seek(directory_offset, IO::SEEK_SET)
+        directory = file.read(directory_size)
+        raise Error, "docx_invalid" unless directory&.bytesize == directory_size
+        validate_central_directory!(directory, total_entries)
+      end
+    rescue Errno::ENOENT, Errno::EINVAL
+      raise Error, "docx_invalid"
+    end
+
+    def validate_central_directory!(directory, expected_entries)
+      offset = 0
+      total_uncompressed = 0
+      expected_entries.times do
+        header = directory.byteslice(offset, 46)
+        raise Error, "docx_invalid" unless header&.bytesize == 46 && header.unpack1("V") == 0x02014b50
+
+        flags = header.byteslice(8, 2).unpack1("v")
+        compressed_size = header.byteslice(20, 4).unpack1("V")
+        uncompressed_size = header.byteslice(24, 4).unpack1("V")
+        name_size = header.byteslice(28, 2).unpack1("v")
+        extra_size = header.byteslice(30, 2).unpack1("v")
+        comment_size = header.byteslice(32, 2).unpack1("v")
+        entry_size = 46 + name_size + extra_size + comment_size
+        raise Error, "docx_invalid" if offset + entry_size > directory.bytesize
+        name = directory.byteslice(offset + 46, name_size).to_s.force_encoding(Encoding::UTF_8).scrub
+        extra = directory.byteslice(offset + 46 + name_size, extra_size).to_s
+        uncompressed_size, compressed_size = zip64_entry_sizes(
+          extra, uncompressed_size: uncompressed_size, compressed_size: compressed_size
+        )
+        raise Error, "docx_archive_unsafe" if (flags & 0x1).positive?
+        unsafe_name = name.start_with?("/", "\\") || name.split(/[\\\/]/).include?("..") || name.include?("\0")
+        raise Error, "docx_archive_unsafe" if unsafe_name
+
+        total_uncompressed += uncompressed_size
+        raise Error, "docx_too_large_uncompressed" if total_uncompressed > MAX_DOCX_UNCOMPRESSED_BYTES
+        if uncompressed_size.positive? && (compressed_size.zero? || uncompressed_size.to_f / compressed_size > MAX_ZIP_COMPRESSION_RATIO)
+          raise Error, "docx_archive_unsafe"
+        end
+        offset += entry_size
+      end
+      raise Error, "docx_invalid" unless offset == directory.bytesize
+    end
+
+    def zip64_entry_sizes(extra, uncompressed_size:, compressed_size:)
+      return [ uncompressed_size, compressed_size ] unless [ uncompressed_size, compressed_size ].include?(0xffffffff)
+
+      cursor = 0
+      payload = nil
+      while cursor + 4 <= extra.bytesize
+        field_id, field_size = extra.byteslice(cursor, 4).unpack("vv")
+        cursor += 4
+        raise Error, "docx_invalid" if cursor + field_size > extra.bytesize
+        payload = extra.byteslice(cursor, field_size) if field_id == 0x0001
+        cursor += field_size
+      end
+      raise Error, "docx_archive_unsafe" unless payload
+
+      value_cursor = 0
+      if uncompressed_size == 0xffffffff
+        raise Error, "docx_archive_unsafe" if value_cursor + 8 > payload.bytesize
+        uncompressed_size = payload.byteslice(value_cursor, 8).unpack1("Q<")
+        value_cursor += 8
+      end
+      if compressed_size == 0xffffffff
+        raise Error, "docx_archive_unsafe" if value_cursor + 8 > payload.bytesize
+        compressed_size = payload.byteslice(value_cursor, 8).unpack1("Q<")
+      end
+      [ uncompressed_size, compressed_size ]
     end
 
     def validate_zip_entries!(entries)
