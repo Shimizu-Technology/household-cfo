@@ -101,28 +101,65 @@ module Mia
         Digest::SHA256.hexdigest(canonical_json(configuration).b)
       end
 
-      def prepare_draft_artifacts(configuration, source_user_id:, existing_configuration: nil)
+      def prepare_draft_artifacts(configuration, source_user_id:, existing_configuration: nil, allow_coach_artifact_edits: true)
         config = normalize(configuration).deep_dup
-        trusted_participant_artifacts = Array(normalize(existing_configuration).to_h["phrases"]).index_by do |phrase|
-          phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["provenance"] == "participant_supplied"
+        existing_artifacts = Array(normalize(existing_configuration).to_h["phrases"]).index_by do |phrase|
+          phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["artifact_id"].present?
         end.compact
+        unless allow_coach_artifact_edits
+          submitted_ids = Array(config["phrases"]).filter_map do |phrase|
+            phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["artifact_id"].present?
+          end
+          unless submitted_ids == existing_artifacts.keys
+            raise InvalidConfiguration,
+              [ "$.phrases artifact collection can be changed only by the persona owner" ]
+          end
+        end
         config["phrases"] = Array(config["phrases"]).each_with_index.map do |phrase, index|
           next phrase unless phrase.is_a?(Hash)
-          if phrase["provenance"] == "participant_supplied"
-            trusted = trusted_participant_artifacts[phrase["artifact_id"]]
-            unless trusted.present? && ActiveSupport::SecurityUtils.secure_compare(
-              JSON.generate(canonicalize(phrase)),
-              JSON.generate(canonicalize(trusted))
-            )
+
+          existing = existing_artifacts[phrase["artifact_id"]]
+          if existing.present?
+            unless phrase["provenance"] == existing["provenance"]
               raise InvalidConfiguration,
-                [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+                [ "$.phrases[#{index}] provenance cannot change for an existing phrase artifact" ]
             end
-            next phrase
+
+            if existing["provenance"] == "participant_supplied"
+              unless artifacts_match?(phrase, existing)
+                raise InvalidConfiguration,
+                  [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+              end
+              next existing
+            end
+
+            next existing if artifacts_match?(phrase, existing)
+
+            unless allow_coach_artifact_edits
+              raise InvalidConfiguration,
+                [ "$.phrases[#{index}] coach-authored artifact can be edited only by the persona owner" ]
+            end
+
+            next build_phrase_artifact(
+              phrase,
+              artifact_id: existing.fetch("artifact_id"),
+              provenance: "coach_authored",
+              source_user_id: source_user_id
+            )
+          end
+
+          if phrase["provenance"] == "participant_supplied"
+            raise InvalidConfiguration,
+              [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+          end
+          unless allow_coach_artifact_edits
+            raise InvalidConfiguration,
+              [ "$.phrases[#{index}] coach-authored artifact can be added only by the persona owner" ]
           end
 
           build_phrase_artifact(
             phrase,
-            artifact_id: phrase["artifact_id"].presence || SecureRandom.uuid,
+            artifact_id: SecureRandom.uuid,
             provenance: "coach_authored",
             source_user_id: source_user_id
           )
@@ -164,6 +201,12 @@ module Mia
       end
 
       private
+
+      def artifacts_match?(left, right)
+        left_json = JSON.generate(canonicalize(left))
+        right_json = JSON.generate(canonicalize(right))
+        ActiveSupport::SecurityUtils.secure_compare(left_json, right_json)
+      end
 
       def canonicalize(value)
         case value

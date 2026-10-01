@@ -57,8 +57,9 @@ module Api
             if attributes[:draft_config]
               attributes[:draft_config] = Mia::PersonaSchema.prepare_draft_artifacts(
                 attributes[:draft_config],
-                source_user_id: current_user.id,
-                existing_configuration: persona.draft_config
+                source_user_id: persona.created_by_user_id,
+                existing_configuration: persona.draft_config,
+                allow_coach_artifact_edits: current_user.id == persona.created_by_user_id
               )
             end
             persona.update!(attributes)

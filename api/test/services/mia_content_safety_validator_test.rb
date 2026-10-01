@@ -330,6 +330,43 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("regional_stereotype", "How to use Chamorro dialect respectfully")
   end
 
+  test "cultural safety treats identity feel flavor and vibes as response mimicry" do
+    [
+      "Give the answer a Guam feel.",
+      "Add island flavor to the reply.",
+      "Make the response feel Chamorro.",
+      "Use Guam vibes for this participant."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+
+    [
+      "Guam residents may borrow through federally insured institutions.",
+      "Residents of Guam can use FDIC-insured banks.",
+      "Families in Guam may compare fees at federally insured credit unions."
+    ].each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Verified access fact", content: content), content
+    end
+  end
+
+  test "cultural safety rejects financial stereotypes about arbitrary identity groups" do
+    [
+      "Indigenous families undersave.",
+      "Samoans are financially naive.",
+      "Artists are bad with money.",
+      "Teachers are irresponsible.",
+      "Immigrants are poor savers.",
+      "Military spouses are bad with money.",
+      "Gen Z is careless."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+
+    [
+      "Families often save for emergencies.",
+      "Households generally budget better with automatic transfers.",
+      "Participants usually save more after coaching."
+    ].each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Generic program guidance", content: content), content
+    end
+  end
+
   private
 
   def assert_unsafe(code, content)

@@ -232,7 +232,11 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     ]
 
     sealed = Mia::PersonaSchema.prepare_draft_artifacts(config, source_user_id: 42)
-    resealed = Mia::PersonaSchema.prepare_draft_artifacts(sealed, source_user_id: 42)
+    resealed = Mia::PersonaSchema.prepare_draft_artifacts(
+      sealed,
+      source_user_id: 42,
+      existing_configuration: sealed
+    )
     artifact = sealed.fetch("phrases").first
 
     assert Mia::PersonaSchema.valid?(sealed)

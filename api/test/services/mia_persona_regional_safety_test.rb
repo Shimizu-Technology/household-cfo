@@ -59,6 +59,63 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     assert_empty Mia::PersonaSchema.errors(safe)
   end
 
+  test "structured prohibitions reject semantic reversals and identity style still fails closed" do
+    [
+      "Do not avoid making Mia sound like Guam locals.",
+      "Never refuse to talk like someone from Guam."
+    ].each do |instruction|
+      config = persona_configuration(assistant_name: "Reversed prohibition")
+      config["coaching"]["do_not"] = [ instruction ]
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.coaching.do_not[0] cannot infer dialect, slang, or cultural traits from a location or identity label"
+    end
+
+    safe = persona_configuration(assistant_name: "Simple prohibition")
+    safe["coaching"]["do_not"] = [ "Do not make Mia sound like Guam locals." ]
+    assert_empty Mia::PersonaSchema.errors(safe)
+  end
+
+  test "direct persona drafts reject broad identity mimicry and group financial claims" do
+    probes = [
+      [ "Give the answer a Guam feel.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Add island flavor to the reply.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Make the response feel Chamorro.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Use Guam vibes for this participant.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ]
+    ]
+    probes.each do |instruction, expected|
+      config = persona_configuration(assistant_name: "Identity style probe")
+      config["voice"]["language_style"] = [ instruction ]
+      assert_includes Mia::PersonaSchema.errors(config), expected
+    end
+
+    [
+      "Indigenous families undersave.",
+      "Artists are bad with money.",
+      "Teachers are irresponsible.",
+      "Immigrants are poor savers.",
+      "Military spouses are bad with money.",
+      "Gen Z is careless."
+    ].each do |claim|
+      config = persona_configuration(assistant_name: "Group claim probe")
+      config["culture"]["context"] = claim
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.culture.context contains a regional or cultural stereotype"
+    end
+  end
+
+  test "direct persona drafts preserve verified regional banking access facts" do
+    [
+      "Guam residents may borrow through federally insured institutions.",
+      "Residents of Guam can use FDIC-insured banks."
+    ].each do |fact|
+      config = persona_configuration(assistant_name: "Verified access fact")
+      config["culture"]["locale_label"] = "Guam"
+      config["culture"]["local_realities"] = [ fact ]
+      assert_empty Mia::PersonaSchema.errors(config), fact
+    end
+  end
+
   test "persona models bind phrase provenance to a real coach or participant" do
     coach = persona_user
     other_coach = persona_user
