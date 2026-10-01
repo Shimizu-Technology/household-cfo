@@ -739,7 +739,11 @@ module HouseholdFinance
     end
 
     def amount_from_message_cents
-      match = message.match(AMOUNT_PATTERN)
+      conditional_income = message.match(ConversationFollowupResolver::CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN)
+      match = message.to_enum(:scan, AMOUNT_PATTERN).filter_map do
+        amount_match = Regexp.last_match
+        amount_match unless conditional_income && amount_match.begin(1) == conditional_income.begin(1)
+      end.first
       return unless match
 
       Money.cents(match[1].delete(","))

@@ -253,7 +253,8 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes zero, "Assumption only"
 
     purchase = HouseholdFinance::MiaCoachAnswerer.new(household, "If our monthly income is $5,000, can I buy a $900 laptop?").call
-    assert purchase.present?
+    assert_includes purchase, "purchase is $900"
+    refute_includes purchase, "purchase is $5,000"
     refute_includes purchase, "Assumption only"
   end
 
