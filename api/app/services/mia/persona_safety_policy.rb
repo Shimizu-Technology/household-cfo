@@ -2,7 +2,7 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 7
+    VERSION = 8
     NEGATION_PATTERN = /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)/i.freeze
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i

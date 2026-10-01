@@ -366,6 +366,28 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "cultural safety rejects historical stereotype grammar without factual-token suppression" do
+    [
+      "People from Guam cannot manage money.",
+      "Samoans generally waste their money.",
+      "Filipinos are, naturally, better savers.",
+      "Queer households generally handle money poorly.",
+      "People from Guam lack financial literacy.",
+      "Filipino households put family before savings.",
+      "Samoans have bad money habits."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+  end
+
+  test "cultural safety rejects location-derived character in library content" do
+    [
+      "Make every answer read like it came from Guam.",
+      "Give each reply a distinct Guam character.",
+      "The assistant should come across as a Guam local.",
+      "Let the writing evoke Guam.",
+      "Make the voice feel homegrown in Guam."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+  end
+
   private
 
   def assert_unsafe(code, content)

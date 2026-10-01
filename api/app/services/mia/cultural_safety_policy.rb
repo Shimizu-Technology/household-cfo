@@ -9,7 +9,7 @@ module Mia
 
     HUMAN_GROUP_PATTERN = /(?:
       people|persons?|families|women|men|households|communities|residents|citizens|locals|
-      mothers|fathers|parents|children|elders|workers|students|couples
+      mothers|fathers|parents|children|youth|elders|workers|students|couples|spouses
     )/ix.freeze
     PLACE_PATTERN = /(?:the\s+)?[[:alpha:]][[:alpha:].'’\-]*(?:\s+[[:alpha:]][[:alpha:].'’\-]*){0,3}/i.freeze
     DEMOGRAPHIC_TERM_PATTERN = /(?!(?:human|individual|participant|client|user)\b)[[:alpha:]'’\-]{3,}(?:ians?|eans?|icans?|inos?|ese|ish|anders?|landers?|orros?|ans?|erners?|inx)/i.freeze
@@ -23,8 +23,8 @@ module Mia
 
     RESPONSE_STYLE_PATTERN = /\b(?:
       voice|tone|style|accent|dialect|slang|vernacular|language|phrasing|expressions?|idioms?|lingo|
-      cadence|drawl|speech|speech\s+patterns?|colloquialisms?|rhythm|sound|speak|talk|write|
-      respond|reply|answer|wording|feel|flavou?r|vibes?|aesthetic|sensibility|spirit|energy|aura|communication\s+style|
+      cadence|drawl|speech|speech\s+patterns?|colloquialisms?|rhythm|sound|speak|talk|write|writing|read|
+      respond|reply|answer|wording|character|come\s+across|evoke|homegrown|feel|flavou?r|vibes?|aesthetic|sensibility|spirit|energy|aura|communication\s+style|
       traditions?|values?|customs?|cultural\s+identity|cultural\s+traits?
     )\b/ix.freeze
     IDENTITY_BASIS_PATTERNS = [
@@ -36,7 +36,12 @@ module Mia
       /\b(?:southern|northern|eastern|western)\b/i,
       /\b#{PROPER_IDENTITY_PATTERN}[\s-]*(?:style|#{RESPONSE_STYLE_PATTERN})\b/x,
       /\b#{RESPONSE_STYLE_PATTERN}\s+(?:of|from|for|like|based\s+on)\s+#{PLACE_PATTERN}\b/ix,
-      /\bas\s+(?:if|though)\s+(?:you(?:'re|\s+are|\s+were)?|the\s+assistant(?:\s+is|\s+were)?|mia(?:\s+is|\s+were)?)?.{0,30}\b(?:from|grew\s+up\s+in)\s+#{PLACE_PATTERN}\b/ix
+      /\bas\s+(?:if|though)\s+(?:you(?:'re|\s+are|\s+were)?|the\s+assistant(?:\s+is|\s+were)?|mia(?:\s+is|\s+were)?)?.{0,30}\b(?:from|grew\s+up\s+in)\s+#{PLACE_PATTERN}\b/ix,
+      /\bread\s+like\s+.{0,30}\b(?:came|comes)\s+from\s+#{PLACE_PATTERN}\b/ix,
+      /\b(?:distinct\s+)?#{PLACE_PATTERN}\s+character\b/ix,
+      /\bcome\s+across\s+as\s+(?:a\s+)?#{PLACE_PATTERN}\s+local\b/ix,
+      /\bevoke\s+#{PLACE_PATTERN}\b/ix,
+      /\bhomegrown\s+(?:in|from)\s+#{PLACE_PATTERN}\b/ix
     ].freeze
 
     FINANCIAL_CLAIM_PATTERN = /\b(?:
@@ -55,29 +60,20 @@ module Mia
     SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:our|all|some|these|those|the|weekly)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?|classes|workshops|support\s+groups)\z/i.freeze
     NONPERSON_SUBJECT_PATTERN = /\A(?:the\s+)?(?:budget|plan|approach|method|program|account|loan|debt|payment|cost|price|fee|rule|law|policy|institution|bank|credit\s+union|transfer|savings?|income|cash\s+flow|emergency\s+fund)\z/i.freeze
     GROUP_QUANTIFIER_PATTERN = /\A(?:a|an|every|each|all|most|many|some)\s+/i.freeze
-    CLAIM_PREDICATE_PATTERN = /(?:
-      \b(?:always|usually|often|generally|typically|as\s+a\s+rule)\b\s*(?:,\s*)?(?:they\s+)?(?=
-        (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*|avoid\s+debt|carry\s+too\s+much\s+debt|have\s+too\s+much\s+debt|prioriti[sz]\w*
-      )|
-      \b(?:tend(?:s)?\s+to)\b\s*(?=
-        (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*|avoid\s+debt|be\s+(?:irresponsible|careless|reckless|wasteful|naive)
-      )|
-      \b(?:over|under)?spend\w*\b|
-      \b(?:under)?sav(?:e|es|ed|ing)\b|
-      \bbudget\w*\b|
-      \bwast(?:e|es|ed|ing)\s+money\b|
-      \b(?:avoid(?:\s+[[:alpha:]]+){0,3}|carry|have)\s+(?:too\s+much\s+)?debt\b|
-      \bprioriti[sz]\w*\b.{0,60}\bover\b|
-      \b(?:are|is|was|were|aren['’]?t|isn['’]?t|wasn['’]?t|weren['’]?t|seem|seems|remain|remains)\s+(?:not\s+)?(?:financially\s+)?(?:irresponsible|careless|reckless|wasteful|naive|bad|good|poor)\b|
-      \b(?:are|is|was|were)\s+(?:naturally\s+)?(?:more|less)\s+disciplined\s+with\s+money\b|
-      \b(?:are|is|was|were|aren['’]?t|isn['’]?t|wasn['’]?t|weren['’]?t)\s+(?:not\s+)?(?:naturally\s+)?(?:better|worse|good|responsible)\s+with\s+money\b|
-      \b(?:have|has)\s+poor\s+financial\s+habits?\b|
-      \bhandle\w*\s+money\s+the\s+same\s+way\b|
-      \b(?:do\s+not|don['’]?t|does\s+not|doesn['’]?t)\s+know\s+how\s+to\s+budget\b|
-      \b(?:financially\s+)?(?:irresponsible|careless|reckless|wasteful|naive)\b|
-      \b(?:bad|poor)\s+(?:with\s+money|savers?|financial\s+habits?)\b
+    CLAIM_SIGNAL_PATTERN = /\b(?:
+      is|are|was|were|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|has|have|had|can|cannot|can['’]?t|could|should|would|
+      always|usually|often|generally|typically|naturally|tend(?:s)?\s+to|lack\w*|wast\w*|put|handl\w*|manag\w*|prioriti[sz]\w*|
+      (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing)(?!s)|budget\w*|borrow\w*|remit\w*|invest\w*|earn\w*|afford\w*
+    )\b/ix.freeze
+    BEHAVIOR_JUDGMENT_PATTERN = /(?:
+      \b(?:(?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*|wast\w*)\b|
+      \b(?:cannot|can['’]?t|do\s+not|don['’]?t|does\s+not|doesn['’]?t)\s+manag\w*\s+(?:their\s+)?money\b|
+      \bhandl\w*\s+(?:their\s+)?money\s+poorly\b|
+      \black\w*\s+financial\s+literacy\b|
+      \b(?:bad|poor)\s+(?:financial|money)\s+habits?\b|
+      \bput\w*\s+.{0,50}\bbefore\s+savings?\b|
+      \bprioriti[sz]\w*\s+.{0,50}\bover\s+savings?\b
     )/ix.freeze
-    TRAIT_BEHAVIOR_PATTERN = /\b(?:(?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*)\b/i.freeze
     IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN = /\A(?:i|we|you|our|your|my|do\s+not|don['’]?t|never|avoid|automatically|silently|ask|apply|buy|compare|explain|give|help|invest|keep|make|name|put|recommend|review|sell|show|tell|teach|update|use)\b/i.freeze
     SAFE_PROGRAM_OUTCOME_PATTERN = /\A(?:(?:these|those|the|weekly)\s+)?(?:classes|workshops|support\s+groups)\b.{0,60}\b(?:help|teach|support)\w*\s+(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?)\b/i.freeze
 
@@ -116,7 +112,7 @@ module Mia
       end
 
       def demographic_financial_claim?(text)
-        return false unless text.match?(CLAIM_PREDICATE_PATTERN)
+        return false unless text.match?(FINANCIAL_CLAIM_PATTERN) || text.match?(JUDGMENT_PATTERN)
 
         QUALIFIED_GROUP_PATTERNS.any? { |pattern| text.match?(pattern) } || arbitrary_group_claim?(text)
       end
@@ -124,7 +120,7 @@ module Mia
       def concrete_nonjudgmental_reality?(text)
         text.match?(CONCRETE_REALITY_PATTERN) &&
           !text.match?(JUDGMENT_PATTERN) &&
-          !text.match?(TRAIT_BEHAVIOR_PATTERN)
+          !text.match?(BEHAVIOR_JUDGMENT_PATTERN)
       end
 
       def arbitrary_group_claim?(text)
@@ -132,7 +128,7 @@ module Mia
         return false if clause.match?(IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN)
         return false if clause.match?(SAFE_PROGRAM_OUTCOME_PATTERN)
 
-        marker = clause.match(CLAIM_PREDICATE_PATTERN)
+        marker = clause.match(CLAIM_SIGNAL_PATTERN)
         return false unless marker
 
         subject = clause[0...marker.begin(0)].to_s
@@ -142,7 +138,14 @@ module Mia
 
         normalized = subject.sub(GROUP_QUANTIFIER_PATTERN, "").strip
         words = normalized.scan(/[[:alnum:]'’\-]+/)
-        words.length.between?(1, 5) && !normalized.match?(NONPERSON_SUBJECT_PATTERN)
+        return false unless words.length.between?(1, 6)
+        return false if normalized.match?(NONPERSON_SUBJECT_PATTERN)
+
+        normalized.match?(/\A(?:the|that|a|an|every|each)\b/i) ||
+          normalized.match?(/\b#{HUMAN_GROUP_PATTERN}\z/ix) ||
+          normalized.match?(/\b#{DEMOGRAPHIC_TERM_PATTERN}\z/i) ||
+          words.last.match?(/s\z/i) ||
+          normalized.match?(/\Agen\s+[[:alnum:]]+\z/i)
       end
 
       def claim_clauses(text)

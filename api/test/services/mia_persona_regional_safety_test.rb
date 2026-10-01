@@ -103,6 +103,48 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     end
   end
 
+  test "historical financial stereotypes fail closed across group wording" do
+    [
+      "People from Guam cannot manage money.",
+      "Samoans generally waste their money.",
+      "Filipinos are, naturally, better savers.",
+      "Queer households generally handle money poorly.",
+      "People from Guam lack financial literacy.",
+      "Filipino households put family before savings.",
+      "Samoans have bad money habits."
+    ].each do |claim|
+      config = persona_configuration(assistant_name: "Historical stereotype probe")
+      config["culture"]["context"] = claim
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.culture.context contains a regional or cultural stereotype",
+        claim
+    end
+  end
+
+  test "location-derived voice fails in every prompt-bearing persona section" do
+    probes = [
+      [ "Make every answer read like it came from Guam.", ->(config, value) { config["coaching"]["method"] = value }, "$.coaching.method" ],
+      [ "Give each reply a distinct Guam character.", ->(config, value) { config["coaching"]["principles"] << value }, "$.coaching.principles[2]" ],
+      [ "The assistant should come across as a Guam local.", ->(config, value) { config["coaching"]["do"] = [ value ] }, "$.coaching.do[0]" ],
+      [ "Let the writing evoke Guam.", ->(config, value) { config["culture"]["context"] = value }, "$.culture.context" ],
+      [
+        "Make the voice feel homegrown in Guam.",
+        ->(config, value) { config["curriculum"]["guidance"] = [ { "title" => "Voice", "content" => value } ] },
+        "$.curriculum.guidance[0].content"
+      ]
+    ]
+
+    probes.each do |instruction, apply, path|
+      config = persona_configuration(assistant_name: "Cross-field voice probe")
+      apply.call(config, instruction)
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "#{path} cannot infer dialect, slang, or cultural traits from a location or identity label",
+        instruction
+    end
+  end
+
   test "direct persona drafts preserve verified regional banking access facts" do
     [
       "Residents of Guam usually borrow through federally insured institutions.",
