@@ -26,6 +26,20 @@ module Api
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
         session = current_chat_session
+        return if render_preexisting_message_request(session, content, attached_imports)
+
+        invalid_evidence = invalid_prior_document_evidence(session)
+        if attached_imports.empty? && invalid_evidence && evidence_style_continuation?(
+          content,
+          invalid_evidence.fetch(:document_imports),
+          prior_query_scope: invalid_evidence[:query_scope]
+        )
+          HouseholdFinance::MiaDocumentEvidenceStateUpdater.retire(session)
+          return render json: {
+            error: "I can’t use the prior upload for this follow-up because it is no longer ready or available. Re-upload the document, then ask again.",
+            code: "mia_document_evidence_unavailable"
+          }, status: :conflict
+        end
         message_request, request_handled = reserve_message_request(session, content, attached_imports)
         return if request_handled
         @active_mia_message_request = message_request
@@ -41,8 +55,31 @@ module Api
         intent_plan = annual_budget_manager.read_only_plan_data
         conversation_context = HouseholdFinance::ConversationContextBuilder.new(
           session,
+          household: current_household,
           persona_context_id: current_persona.continuity_id
         ).call
+        prior_evidence = prior_document_evidence(conversation_context)
+        prior_evidence_imports = prior_evidence.fetch(:document_imports)
+        if attached_imports.empty? && prior_evidence_imports.any?
+          followup = HouseholdFinance::AttachedDocumentFollowupResolver.new(
+            current_household,
+            message: content,
+            document_imports: prior_evidence_imports,
+            prior_query_scope: prior_evidence[:query_scope]
+          ).call
+          if followup
+            return render_prior_document_evidence_response(
+              session,
+              content,
+              followup,
+              prior_evidence_imports,
+              message_request: message_request,
+              annual_plan: intent_plan
+            )
+          end
+        end
+        retire_prior_document_evidence = attached_imports.empty? && document_evidence_topic_present?(session)
+        conversation_context = HouseholdFinance::DocumentEvidenceContinuity.without_evidence(conversation_context) if retire_prior_document_evidence
         intent_context = HouseholdFinance::MiaIntentContextBuilder.new(
           current_household,
           annual_plan: intent_plan,
@@ -157,6 +194,7 @@ module Api
             persona_context_id: current_persona.continuity_id
           )
         end
+        retire_document_evidence_state(session) if retire_prior_document_evidence
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -238,6 +276,7 @@ module Api
         conversation_context:, annual_budget_manager:, annual_plan:)
         processed_imports = process_attached_imports(attached_imports)
         evidence_prompt = attached_document_evidence_prompt(content, intent_result)
+        evidence_scope = attached_document_query_scope(evidence_prompt, processed_imports)
         evidence_content = attached_document_message(evidence_prompt, processed_imports)
         if supported_attached_action_intent?(intent_result)
           return render_attached_action_response(
@@ -245,6 +284,7 @@ module Api
             content,
             processed_imports,
             evidence_content: evidence_content,
+            evidence_scope: evidence_scope,
             message_request: message_request,
             history: history,
             intent_result: intent_result,
@@ -262,6 +302,14 @@ module Api
             assistant_message_writer(session).create!(content: assistant_content.to_s.truncate(ChatMessage::MAX_ASSISTANT_CONTENT_LENGTH, omission: "…"))
           ]
         end
+        persist_document_evidence_state(
+          session,
+          processed_imports,
+          user_message,
+          assistant_message,
+          query_scope: evidence_scope,
+          activate: !structured_conversation_topic?(conversation_context)
+        )
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -276,7 +324,7 @@ module Api
         render json: response_payload, status: :created
       end
 
-      def render_attached_action_response(session, content, processed_imports, evidence_content:, message_request:, history:,
+      def render_attached_action_response(session, content, processed_imports, evidence_content:, evidence_scope:, message_request:, history:,
         intent_result:, conversation_context:, annual_budget_manager:, annual_plan:)
         action_result = nil
         combined_content = nil
@@ -352,6 +400,14 @@ module Api
           transaction_draft: nil,
           persona_context_id: current_persona.continuity_id
         )
+        persist_document_evidence_state(
+          session,
+          processed_imports,
+          user_message,
+          assistant_message,
+          query_scope: evidence_scope,
+          activate: false
+        )
 
         response_payload = {
           user_message: serialize_chat_message(user_message, author: "You"),
@@ -420,6 +476,133 @@ module Api
         evidence_segments.join(" ").strip.presence
       end
 
+      def prior_document_evidence(conversation_context)
+        topics = [ conversation_context[:active_topic], *Array(conversation_context[:open_topics]) ].compact
+        evidence = topics.filter_map { |topic| topic.to_h.deep_symbolize_keys[:document_evidence] }.first
+        ids = Array(evidence&.dig(:financial_document_import_ids))
+          .first(HouseholdFinance::DocumentEvidenceContinuity::MAX_IMPORTS)
+          .filter_map { |id| Integer(id, exception: false) }
+        return { document_imports: [], query_scope: nil } if ids.empty?
+
+        imports = current_household.financial_document_imports
+          .where(id: ids, status: HouseholdFinance::DocumentEvidenceContinuity::READY_STATUSES, source_deleted_at: nil)
+          .index_by(&:id)
+        return { document_imports: [], query_scope: nil } unless imports.length == ids.length
+
+        {
+          document_imports: ids.map { |id| imports.fetch(id.to_i) },
+          query_scope: evidence[:query_scope]
+        }
+      end
+
+      def invalid_prior_document_evidence(session)
+        topic = [ session.active_topic, *Array(session.open_topics) ].find do |candidate|
+          HouseholdFinance::DocumentEvidenceContinuity.topic?(candidate)
+        end
+        return unless topic
+
+        stored = topic.to_h.deep_stringify_keys.fetch("document_evidence", {})
+        ids = HouseholdFinance::DocumentEvidenceContinuity.stored_import_ids(stored)
+        imports = current_household.financial_document_imports.where(id: ids).to_a
+        ready_count = current_household.financial_document_imports
+          .where(
+            id: ids,
+            status: HouseholdFinance::DocumentEvidenceContinuity::READY_STATUSES,
+            source_deleted_at: nil
+          )
+          .count
+        return if ids.any? && ready_count == ids.length
+
+        { document_imports: imports, query_scope: stored["query_scope"] }
+      end
+
+      def evidence_style_continuation?(content, document_imports, prior_query_scope:)
+        return true if HouseholdFinance::AttachedDocumentFollowupResolver.evidence_style_reference?(content)
+        return true if HouseholdFinance::AttachedDocumentFollowupResolver.elliptical_scope_reference?(content, prior_query_scope)
+        return false if document_imports.empty?
+
+        HouseholdFinance::AttachedDocumentFollowupResolver.new(
+          current_household,
+          message: content,
+          document_imports: document_imports
+        ).call.present?
+      end
+
+      def document_evidence_topic_present?(session)
+        [ session.active_topic, *Array(session.open_topics) ].any? do |topic|
+          HouseholdFinance::DocumentEvidenceContinuity.topic?(topic)
+        end
+      end
+
+      def structured_conversation_topic?(conversation_context)
+        type = conversation_context.dig(:active_topic, :type).to_s
+        type.present? && type != "document_evidence"
+      end
+
+      def render_prior_document_evidence_response(session, content, followup, document_imports, message_request:, annual_plan:)
+        answer = HouseholdFinance::AttachedDocumentQuestionAnswerer.new(
+          current_household,
+          message: followup.prompt,
+          document_imports: document_imports
+        ).call
+        assistant_content = "Using your prior upload#{'s' if document_imports.many?}, #{answer.to_s.sub(/\A./) { |character| character.downcase }}"
+        user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        persist_document_evidence_state(
+          session,
+          document_imports,
+          user_message,
+          assistant_message,
+          query_scope: followup.query_scope,
+          activate: !structured_session_topic?(session)
+        )
+
+        response_payload = {
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message),
+          transaction_draft: nil,
+          mia_action_draft: nil,
+          budget: current_data_presenter(household: current_household.reload, annual_plan: annual_plan, ensure_plan: false).budget,
+          spending_report: nil
+        }
+        complete_message_request(message_request, response_payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message)
+        render json: response_payload, status: :created
+      end
+
+      def persist_document_evidence_state(session, document_imports, user_message, assistant_message, query_scope: nil, activate:)
+        HouseholdFinance::MiaDocumentEvidenceStateUpdater.new(
+          session,
+          document_imports: document_imports,
+          user_message: user_message,
+          assistant_message: assistant_message,
+          query_scope: query_scope,
+          activate: activate,
+          persona_context_id: current_persona.continuity_id
+        ).call
+      end
+
+      def attached_document_query_scope(message, document_imports)
+        return if message.blank?
+
+        HouseholdFinance::AttachedDocumentFollowupResolver.new(
+          current_household,
+          message: message,
+          document_imports: document_imports
+        ).query_scope
+      end
+
+      def structured_session_topic?(session)
+        type = session.reload.active_topic.to_h["type"].to_s
+        type.present? && type != "document_evidence"
+      end
+
+      def retire_document_evidence_state(session)
+        HouseholdFinance::MiaDocumentEvidenceStateUpdater.retire(
+          session,
+          persona_context_id: current_persona.continuity_id
+        )
+      end
+
       def reserve_message_request(session, content, attached_imports)
         request_key = params[:request_id].to_s.strip
         return [ nil, false ] if request_key.blank?
@@ -443,6 +626,21 @@ module Api
       rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
         message_request = session.mia_message_requests.find_by!(request_key: request_key)
         [ message_request, render_existing_message_request(message_request, fingerprint) ]
+      end
+
+      def render_preexisting_message_request(session, content, attached_imports)
+        request_key = params[:request_id].to_s.strip
+        return false if request_key.blank?
+
+        unless request_key.match?(MiaMessageRequest::REQUEST_KEY_FORMAT) && request_key.length <= 100
+          render json: { errors: [ "Mia request ID is invalid" ] }, status: :unprocessable_entity
+          return true
+        end
+
+        existing_request = session.mia_message_requests.find_by(request_key: request_key)
+        return false unless existing_request
+
+        render_existing_message_request(existing_request, message_request_fingerprint(content, attached_imports))
       end
 
       def render_existing_message_request(message_request, fingerprint)

@@ -28,8 +28,9 @@ module HouseholdFinance
       "target_runway_months" => 20
     }.freeze
 
-    def initialize(chat_session, persona_context_id: PersonaVersionedContinuity::UNFILTERED_PERSONA_VERSION)
+    def initialize(chat_session, household: nil, persona_context_id: PersonaVersionedContinuity::UNFILTERED_PERSONA_VERSION)
       @chat_session = chat_session
+      @household = household || chat_session&.household
       @persona_context_id = persona_context_id
     end
 
@@ -50,7 +51,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :chat_session, :persona_context_id
+    attr_reader :chat_session, :household, :persona_context_id
 
     def empty_context
       {
@@ -68,10 +69,14 @@ module HouseholdFinance
 
     def topic_payload(topic)
       topic = PersonaVersionedContinuity.filter_topic(topic, persona_context_id: persona_context_id)
+      topic = DocumentEvidenceContinuity.sanitize_topic(topic, household: household, require_ready: true)
       return nil if topic.blank? || topic["title"].blank?
 
       read_only_plan = read_only_plan_payload(topic["read_only_plan"]) if topic["schema_version"].to_i >= 3
-      schema_version = if read_only_plan
+      document_evidence = DocumentEvidenceContinuity.payload(topic["document_evidence"], household: household, require_ready: true) if topic["schema_version"].to_i >= 4
+      schema_version = if document_evidence
+        4
+      elsif read_only_plan
         3
       elsif topic["schema_version"].to_i >= 2
         2
@@ -94,6 +99,7 @@ module HouseholdFinance
         next_move: sanitized_text(topic["next_move"], max_length: MAX_TOPIC_TEXT_LENGTH),
         action: action_payload(topic["action"]),
         read_only_plan: read_only_plan,
+        document_evidence: document_evidence&.deep_symbolize_keys,
         mia_action_draft_id: topic["mia_action_draft_id"].presence,
         transaction_draft_id: topic["transaction_draft_id"].presence,
         updated_at: sanitized_text(topic["updated_at"], max_length: 40)
