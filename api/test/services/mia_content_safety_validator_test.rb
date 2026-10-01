@@ -259,6 +259,70 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "cultural safety covers predicate and pronoun continuations without blocking participant outcomes" do
+    stereotypes = [
+      "Samoans waste money.",
+      "Samoans carry too much debt.",
+      "People from Guam aren't responsible with money.",
+      "People from Guam have poor financial habits.",
+      "Samoans: generally, they overspend.",
+      "Filipino households? They usually prioritize remittances over savings."
+    ]
+    stereotypes.each { |content| assert_unsafe("regional_stereotype", content) }
+
+    participant_outcomes = [
+      "Participants usually save more after coaching.",
+      "Our participants usually save more after coaching.",
+      "All participants usually save more after coaching."
+    ]
+    participant_outcomes.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Program outcome", content: content), content
+    end
+  end
+
+  test "cultural safety covers regional voice assertions and approved provenance" do
+    mimicry = [
+      "Guam users should sound local.",
+      "For Guam users, make the voice local.",
+      "The reply should have a Guam accent.",
+      "Answer with island lingo.",
+      "Reply using local idioms from Guam.",
+      "Talk Guam-style.",
+      "Write warmly. Make it sound like Guam locals.",
+      "Use a southern drawl.",
+      "Channel how Guamanians speak."
+    ]
+    mimicry.each { |content| assert_unsafe("regional_stereotype", content) }
+
+    approved = [
+      "Use local expressions from the approved coach glossary.",
+      "Use coach-authorized Guam phrasing."
+    ]
+    approved.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Approved coach language", content: content), content
+    end
+  end
+
+  test "cultural safety understands explicit negation and quoted prohibition intent" do
+    safeguards = [
+      "Do not ever use local Guam phrasing.",
+      "Never under any circumstances use local Guam phrasing.",
+      "The coach wrote, 'Use Guam-style phrasing,' as an example of what Mia must not do.",
+      "The coach wrote, `Use Guam-style phrasing,` as an example of what Mia must not do."
+    ]
+    safeguards.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Prohibited voice example", content: content), content
+    end
+
+    encouraging_quotes = [
+      "The coach wrote, 'Use Guam-style phrasing,' and said it is not prohibited.",
+      "The coach wrote, 'Use Guam-style phrasing,' and said it should be followed.",
+      "The coach wrote, 'Use Guam-style phrasing,' as an example to follow.",
+      "Do not ignore the example 'Use Guam-style phrasing.'"
+    ]
+    encouraging_quotes.each { |content| assert_unsafe("regional_stereotype", content) }
+  end
+
   test "cultural safety preserves supplied language safeguards and evidence references" do
     safe_content = [
       "Use the participant's own words, including slang they explicitly supplied.",

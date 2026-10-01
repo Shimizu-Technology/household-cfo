@@ -15,21 +15,17 @@ module Mia
     PLACE_PATTERN = /(?:the\s+)?[[:alpha:]][[:alpha:].'’\-]*(?:\s+[[:alpha:]][[:alpha:].'’\-]*){0,4}/i.freeze
     LOCATED_GROUP_PATTERN = /#{HUMAN_GROUP_NOUN_PATTERN}\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}/ix.freeze
     RESIDENCE_GROUP_PATTERN = /#{HUMAN_GROUP_NOUN_PATTERN}\s+(?:(?:who|that)\s+)?(?:live|lives|living|reside|resides|residing)\s+(?:in|on)\s+#{PLACE_PATTERN}/ix.freeze
-    DESCRIBED_GROUP_PATTERN = /(?-i:[[:upper:]][[:alpha:]'’\-]+(?:\s+[[:upper:]][[:alpha:]'’\-]+){0,3})\s+#{HUMAN_GROUP_NOUN_PATTERN}/x.freeze
     IDENTITY_DESCRIPTOR_GROUP_PATTERN = /(?:(?!human\b|individual\b|specific\b|participating\b|enrolled\b)[[:alpha:]'’\-]+\s+){0,2}[[:alpha:]'’\-]*(?:ian|an|ese|ish|ino|ican|ern|orro|esian)\s+#{HUMAN_GROUP_NOUN_PATTERN}/i.freeze
-    CULTURAL_DESCRIPTOR_GROUP_PATTERN = /(?:(?!(?:human|individual|specific|participating|enrolled|some|these|those|our|their)\b)[[:alpha:]'’\-]+\s+){1,3}#{HUMAN_GROUP_NOUN_PATTERN}/i.freeze
-    DEMOGRAPHIC_TERM_PATTERN = /[[:alpha:]'’\-]{3,}(?:ians?|eans?|icans?|inos?|ese|ish|landers?|orros?|ans?)/i.freeze
-    CAPITALIZED_GROUP_PATTERN = /(?-i:[[:upper:]][[:alpha:]'’\-]{2,}(?:s|ese|ish|i))/x.freeze
-    QUANTIFIED_IDENTITY_PATTERN = /(?:a|an|every|all)\s+(?:[[:alpha:]'’\-]+\s+){0,2}[[:alpha:]'’\-]+/i.freeze
+    CULTURAL_DESCRIPTOR_GROUP_PATTERN = /(?:(?!(?:human|individual|specific|participating|enrolled|some|these|those|all|our|their)\b)[[:alpha:]'’\-]+\s+){1,3}#{HUMAN_GROUP_NOUN_PATTERN}/i.freeze
+    DEMOGRAPHIC_TERM_PATTERN = /[[:alpha:]'’\-]{3,}(?:ians?|eans?|icans?|inos?|ese|ish|anders?|landers?|orros?|ans?|erners?)/i.freeze
+    QUANTIFIED_IDENTITY_PATTERN = /(?:a|an|every|all)\s+(?:#{DEMOGRAPHIC_TERM_PATTERN}|(?-i:[[:upper:]][[:alpha:]'’\-]{2,}))/x.freeze
     GROUP_SUBJECT_PATTERN = /(?:
       #{LOCATED_GROUP_PATTERN}|
       #{RESIDENCE_GROUP_PATTERN}|
-      #{DESCRIBED_GROUP_PATTERN}|
       #{IDENTITY_DESCRIPTOR_GROUP_PATTERN}|
       #{CULTURAL_DESCRIPTOR_GROUP_PATTERN}|
       #{DEMOGRAPHIC_TERM_PATTERN}|
-      #{QUANTIFIED_IDENTITY_PATTERN}|
-      #{CAPITALIZED_GROUP_PATTERN}
+      #{QUANTIFIED_IDENTITY_PATTERN}
     )/x.freeze
 
     GENERALIZING_QUALIFIER_PATTERN = /(?:always|never|typically|usually|often|naturally|inherently|generally|as\s+a\s+rule|tend(?:s)?\s+to)/i.freeze
@@ -40,34 +36,46 @@ module Mia
       prioriti[sz]\w*\b.{0,60}\bover\b|
       (?:handle\w*|manage\w*|budget\w*)\b.{0,50}\bthe\s+same\s+way|
       (?:do(?:es)?n['’]?t|do(?:es)?\s+not)\s+know\s+how\s+to\s+budget|
-      (?:have|has)\s+too\s+much\s+debt
+      (?:have|has|carry|carries)\s+too\s+much\s+debt|
+      wast(?:e|es|ed|ing)\s+(?:their\s+)?money
     )/ix.freeze
     EVALUATIVE_TRAIT_PATTERN = /(?:
       (?:financially\s+)?(?:irresponsible|careless|reckless|wasteful|undisciplined|illiterate)|
       (?:not\s+)?(?:bad|good|better|worse)\s+(?:with\s+(?:money|finances?|debt|budgets?|budgeting)|at\s+(?:saving|budgeting)|savers?|spenders?)|
-      (?:frugal|cheap|savvy|disciplined|responsible|literate)\s+(?:with\s+(?:money|finances?|debt|budgets?|budgeting))
+      (?:frugal|cheap|savvy|disciplined|literate)\s+(?:with\s+(?:money|finances?|debt|budgets?|budgeting))|
+      (?:not\s+|aren['’]?t\s+|isn['’]?t\s+)?responsible\s+(?:with\s+(?:money|finances?|debt|budgets?|budgeting))|
+      (?:have|has)\s+(?:poor|bad|unhealthy)\s+financial\s+habits
     )/ix.freeze
     REGIONAL_GENERALIZATION_PATTERNS = [
       /\b#{GROUP_SUBJECT_PATTERN}\s*(?:,\s*)?(?:#{GENERALIZING_QUALIFIER_PATTERN}\s*,?\s*)?#{ASSUMED_BEHAVIOR_PATTERN}\b/ix,
-      /\b#{GROUP_SUBJECT_PATTERN}\s+(?:are|is)\s+(?:(?:naturally|inherently)\s+)?#{EVALUATIVE_TRAIT_PATTERN}\b/ix
+      /\b#{GROUP_SUBJECT_PATTERN}\s+(?:(?:are|is)\s+)?(?:(?:naturally|inherently)\s+)?#{EVALUATIVE_TRAIT_PATTERN}\b/ix,
+      /\b#{GROUP_SUBJECT_PATTERN}\s*[:?.!]\s*(?:they\s+)?(?:#{GENERALIZING_QUALIFIER_PATTERN}\s*,?\s*)?(?:they\s+)?#{ASSUMED_BEHAVIOR_PATTERN}\b/ix
     ].freeze
 
-    VOICE_ACTION_PATTERN = /(?:use|adopt|add|sprinkle|choose|match|mirror|copy|imitate|reflect|model|write|speak|talk|respond|sound|give|make)/i.freeze
-    SPEECH_MATERIAL_PATTERN = /(?:language|expressions?|phrasing|phrases?|voice|tone|slang|dialect|vernacular|speech(?:\s+patterns?)?|words?|accent|colloquialisms?|lingo|cadence)/i.freeze
+    VOICE_ACTION_PATTERN = /(?:use|adopt|add|sprinkle|choose|match|mirror|copy|imitate|reflect|model|write|speak|talk|respond|reply|answer|sound|give|make|channel)/i.freeze
+    SPEECH_MATERIAL_PATTERN = /(?:language|expressions?|phrasing|phrases?|voice|tone|slang|dialect|vernacular|speech(?:\s+patterns?)?|words?|accent|colloquialisms?|idioms?|lingo|cadence|drawl)/i.freeze
     REGIONAL_SPEECH_PATTERN = /(?:
       (?:local|regional|cultural|island(?:[\s-]*style)?|(?-i:[[:upper:]][[:alpha:]'’\-]+[\s-]*style))\s+#{SPEECH_MATERIAL_PATTERN}|
       (?:the\s+)?(?:way|how)\s+(?:(?-i:[[:upper:]][[:alpha:]'’\-]+)\s+)?(?:locals?|residents?|people|participants|users)\s+(?:talk|speak|write)|
       (?:the\s+)?(?:way|like)\s+locals?\s+(?:do\s+)?(?:from|in)\s+#{PLACE_PATTERN}|
       (?-i:[[:upper:]][[:alpha:]'’\-]+(?:\s+[[:upper:]][[:alpha:]'’\-]+){0,2})\s+(?:locals?|residents?|people)['’]?s?\s+#{SPEECH_MATERIAL_PATTERN}|
       (?-i:[[:upper:]][[:alpha:]'’\-]+(?:\s+[[:upper:]][[:alpha:]'’\-]+){0,2})(?:[\s-]*style)?\s+#{SPEECH_MATERIAL_PATTERN}|
+      (?:southern|northern|eastern|western|island)\s+#{SPEECH_MATERIAL_PATTERN}|
       #{SPEECH_MATERIAL_PATTERN}\s+(?:from|of)\s+#{PLACE_PATTERN}|
       sound\s+local\s+to\s+#{PLACE_PATTERN}|
       #{SPEECH_MATERIAL_PATTERN}\s+(?:based\s+on|from|according\s+to)\s+(?:a\s+)?(?:home\s+)?(?:address|location|locale|region|identity)
     )/ix.freeze
     REGIONAL_SPEECH_DIRECTIVE_PATTERN = /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,120}\b#{REGIONAL_SPEECH_PATTERN}\b/ix.freeze
     REGIONAL_SPEECH_REVERSED_PATTERN = /\b#{REGIONAL_SPEECH_PATTERN}\b.{0,100}\b#{VOICE_ACTION_PATTERN}\w*\b/ix.freeze
-    REGIONAL_PERSON_IMITATION_PATTERN = /\b(?:sound|talk|speak|write|respond)\w*\b.{0,60}\b(?:like|as)\s+(?:(?:someone|a\s+person|people|locals?)\s+(?:from|in)\s+#{PLACE_PATTERN}|an?\s+(?:#{DEMOGRAPHIC_TERM_PATTERN}|(?:north|south|east|west)erner))\b/ix.freeze
+    REGIONAL_PERSON_IMITATION_PATTERN = /\b(?:sound|talk|speak|write|respond|reply|answer|channel)\w*\b.{0,60}\b(?:like|as|how)\s+(?:(?:someone|a\s+person|people|locals?)\s+(?:from|in)\s+#{PLACE_PATTERN}|an?\s+(?:#{DEMOGRAPHIC_TERM_PATTERN}|(?:north|south|east|west)erner)|(?:#{DEMOGRAPHIC_TERM_PATTERN}|(?-i:[[:upper:]][[:alpha:]'’\-]+)\s+locals?)\s+(?:speak|talk)?)\b/ix.freeze
     SPLIT_LOCATION_VOICE_PATTERN = /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,40}\b#{SPEECH_MATERIAL_PATTERN}\b\s*[.!?;]\s*(?:base|derive|set|choose)\w*\b.{0,40}\b(?:participant['’]s\s+)?(?:[[:upper:]][[:alpha:]'’\-]+\s+)?(?:address|location|locale|region|identity)\b/i.freeze
+    SPLIT_REGIONAL_IMITATION_PATTERN = /\b#{VOICE_ACTION_PATTERN}\w*\b[^.!?;]{0,60}[.!?;]\s*(?:make|have|let)\w*\b.{0,50}\b(?:sound|talk|speak|write)\b.{0,30}\b(?:like\s+)?(?-i:[[:upper:]][[:alpha:]'’\-]+)\s+locals?\b/i.freeze
+    REGIONAL_AUDIENCE_VOICE_PATTERNS = [
+      /\b(?-i:[[:upper:]][[:alpha:]'’\-]+)\s+(?:users|participants|clients|residents)\b.{0,50}\bshould\s+(?:sound|talk|speak|write)\s+local\b/i,
+      /\bfor\s+(?-i:[[:upper:]][[:alpha:]'’\-]+)\s+(?:users|participants|clients|residents)\b.{0,60}\b#{VOICE_ACTION_PATTERN}\w*\b.{0,40}\b#{SPEECH_MATERIAL_PATTERN}\s+local\b/i,
+      /\b(?:reply|answer|response)\b.{0,30}\bshould\s+(?:have|use)\b.{0,20}\b(?-i:[[:upper:]][[:alpha:]'’\-]+)\s+#{SPEECH_MATERIAL_PATTERN}\b/i,
+      /\b(?:talk|speak|write|respond|reply|answer)\w*\b.{0,20}\b(?-i:[[:upper:]][[:alpha:]'’\-]+)[\s-]*style\b/i
+    ].freeze
     FABRICATED_LANGUAGE_PATTERN = /\b(?:imitat\w*|cop(?:y|ies|ied|ying)|fak\w*|invent\w*|generat\w*)\b.{0,60}\b(?:accent|dialect|slang|vernacular)\b/i.freeze
     LOCATION_TRAIT_INFERENCE_PATTERNS = [
       /\b(?:infer|assume|invent|generate|assign)\w*\b.{0,90}\b(?:culture|cultural\s+(?:identity|style|traits?|values?|beliefs?|customs?|traditions?)|regional\s+(?:style|traits?)|local\s+values?|values?|beliefs?|customs?|traditions?)\b/i,
@@ -79,6 +87,8 @@ module Mia
       REGIONAL_SPEECH_REVERSED_PATTERN,
       REGIONAL_PERSON_IMITATION_PATTERN,
       SPLIT_LOCATION_VOICE_PATTERN,
+      SPLIT_REGIONAL_IMITATION_PATTERN,
+      *REGIONAL_AUDIENCE_VOICE_PATTERNS,
       FABRICATED_LANGUAGE_PATTERN,
       *LOCATION_TRAIT_INFERENCE_PATTERNS
     ].freeze
@@ -87,7 +97,8 @@ module Mia
     LANGUAGE_MATERIAL_PATTERN = /(?:words?|language|phrasing|slang|dialect|expressions?|phrases?|vernacular)/i.freeze
     LANGUAGE_APPROVAL_PATTERN = /(?:explicitly\s+)?(?:supplied|used|requested|chosen|shared|provided|authored|approved)/i.freeze
     SUPPLIED_LANGUAGE_DIRECTIVE_PATTERNS = [
-      /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,20}\b(?:the\s+exact\s+)?coach[\s-]+approved\s+(?:local\s+|regional\s+|cultural\s+)?#{LANGUAGE_MATERIAL_PATTERN}\b/i,
+      /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,20}\b(?:the\s+exact\s+)?coach[\s-]+(?:approved|authorized)\s+(?:(?:local|regional|cultural|(?-i:[[:upper:]][[:alpha:]'’\-]+))\s+)?#{LANGUAGE_MATERIAL_PATTERN}\b/i,
+      /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,20}\b(?:local\s+|regional\s+|cultural\s+)?#{LANGUAGE_MATERIAL_PATTERN}\b\s+from\s+(?:the\s+)?(?:approved|authorized)\s+coach\s+(?:glossary|guide|curriculum|reference|library)\b/i,
       /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,30}\b#{LANGUAGE_SUPPLIER_PATTERN}['’]s\b.{0,20}\b(?:own\s+)?#{LANGUAGE_MATERIAL_PATTERN}\b.{0,80}\b#{LANGUAGE_APPROVAL_PATTERN}\b/i,
       /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,30}\b#{LANGUAGE_SUPPLIER_PATTERN}['’]s\b.{0,20}\b#{LANGUAGE_APPROVAL_PATTERN}\b.{0,20}\b#{LANGUAGE_MATERIAL_PATTERN}\b/i,
       /\b#{VOICE_ACTION_PATTERN}\w*\b.{0,20}\b#{LANGUAGE_MATERIAL_PATTERN}\b.{0,50}\b#{LANGUAGE_APPROVAL_PATTERN}\s+by\s+(?:the\s+)?#{LANGUAGE_SUPPLIER_PATTERN}\b/i,
@@ -151,12 +162,17 @@ module Mia
         context_finish = [ closing_index + 180, text.length ].min
         context = text[context_start...context_finish]
         descriptive = context.match?(/\b(?:example|illustration|wrote|quoted|prohibited|forbidden)\b/i)
-        prohibited = context.match?(/\b(?:prohibited|forbidden|must\s+not|should\s+not|do\s+not|don['’]t|never|avoid)\b/i)
-        descriptive && prohibited
+        prohibited = context.match?(
+          /\b(?:prohibited|forbidden|(?:must|should)\s+not\s+(?:do|use|follow|repeat|say|write|adopt|imitate)|do\s+not\s+(?:use|follow|repeat|say|write|adopt|imitate)|never\s+(?:use|follow|repeat|say|write|adopt|imitate)|avoid\s+(?:using|following|repeating|saying|writing|adopting|imitating))\b/i
+        )
+        encouraged = context.match?(
+          /\b(?:not\s+(?:prohibited|forbidden)|should\s+be\s+followed|example\s+to\s+follow|do\s+not\s+ignore)\b/i
+        )
+        descriptive && prohibited && !encouraged
       end
 
       def enclosing_quote_indexes(text, match)
-        [ [ "‘", "’" ], [ "“", "”" ], [ '"', '"' ] ].each do |opening, closing|
+        [ [ "‘", "’" ], [ "“", "”" ], [ '"', '"' ], [ "'", "'" ], [ "`", "`" ] ].each do |opening, closing|
           opening_index = text.rindex(opening, match.begin(0) - 1)
           next unless opening_index
 
@@ -168,7 +184,9 @@ module Mia
       end
 
       def negated?(prefix, related_patterns)
-        return true if prefix.match?(/\b#{NEGATION_PATTERN}\b\s*(?:(?:make|let|have)\s+(?:mia|the\s+assistant|assistant)\s+)?\z/i)
+        return true if prefix.match?(
+          /\b#{NEGATION_PATTERN}\b(?:\s+(?:ever|at\s+any\s+time|in\s+any\s+case|under\s+any\s+circumstances))*\s*(?:(?:make|let|have)\s+(?:mia|the\s+assistant|assistant)\s+)?\z/i
+        )
 
         negation = prefix.to_enum(:scan, NEGATION_PATTERN).map { Regexp.last_match }.last
         return false unless negation
