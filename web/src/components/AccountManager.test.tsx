@@ -156,6 +156,70 @@ describe('AccountManager', () => {
     expect(handled).toHaveBeenCalledOnce()
   })
 
+  it('opens archived accounts and focuses restore when Mia requests an archived edit', async () => {
+    const archived = account({ id: 7, label: 'Old checking', active: false, archived_at: '2026-09-01T00:00:00Z' })
+    const handled = vi.fn()
+
+    render(<AccountManager
+      accounts={[archived]}
+      portfolio={{ ...portfolio, active_count: 0, archived_count: 1, unknown_balance_account_ids: [] }}
+      onChanged={vi.fn()}
+      focusRequest={{ key: 2, actionType: 'update_account', accountId: 7 }}
+      onFocusRequestHandled={handled}
+    />)
+
+    const restore = await screen.findByRole('button', { name: 'Restore' })
+    await waitFor(() => expect(document.activeElement).toBe(restore))
+    expect(restore.closest('details')?.open).toBe(true)
+    expect(handled).toHaveBeenCalledOnce()
+  })
+
+  it('uses the household date when adding a bank observation', async () => {
+    const user = userEvent.setup()
+    vi.setSystemTime(new Date('2026-10-01T15:30:00Z'))
+    apiMocks.fetchPlaidOverview.mockResolvedValue({
+      configured: true,
+      environment: 'sandbox',
+      consent_policy_version: 'test',
+      items: [{
+        id: 9,
+        institution_name: 'Island Bank',
+        status: 'active',
+        environment: 'sandbox',
+        consented_at: '2026-10-01T00:00:00Z',
+        last_synced_at: '2026-10-01T15:30:00Z',
+        health: {},
+        error_message: null,
+        disconnected_at: null,
+        auto_confirm_trusted_merchants: false,
+        accounts: [{
+          id: 12,
+          name: 'Everyday',
+          official_name: null,
+          mask: '1234',
+          type: 'depository',
+          subtype: 'checking',
+          current_balance_cents: 125_00,
+          available_balance_cents: 120_00,
+          currency: 'USD',
+          active: true,
+          eligible_for_asset_tracking: true,
+          allowed_account_types: ['checking', 'savings'],
+          suggested_account_type: 'checking',
+          canonical_account_id: null,
+          canonical_balance_known: null,
+          canonical_balance_cents: null,
+          observation_newer_than_saved: true,
+        }],
+      }],
+    })
+    render(<AccountManager accounts={[]} portfolio={{ ...portfolio, active_count: 0, unknown_balance_account_ids: [] }} onChanged={vi.fn()} />)
+
+    await user.click(await screen.findByRole('button', { name: 'Review and add' }))
+
+    expect((screen.getByLabelText('Balance date') as HTMLInputElement).value).toBe('2026-10-02')
+  })
+
   it('restores focus across save, archive, and restore rerenders', async () => {
     const user = userEvent.setup()
     const original = account({ balance: 125, balance_as_of_on: '2026-10-01' })

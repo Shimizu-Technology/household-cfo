@@ -13,7 +13,11 @@ module HouseholdFinance
           values = { account_id: Integer(input.fetch(:account_id)) }
           values[:label] = normalized_label(input[:label]) if input.key?(:label)
           values[:account_type] = normalized_type(input[:account_type]) if input.key?(:account_type)
-          values.merge!(normalize_balance(input)) if input.key?(:balance) || input.key?(:balance_cents) || input.key?(:balance_state)
+          if input.key?(:balance) || input.key?(:balance_cents) || input.key?(:balance_state)
+            balance_values = normalize_balance(input)
+            balance_values.delete(:balance_as_of_on) if balance_values[:balance_known] && !input.key?(:balance_as_of_on)
+            values.merge!(balance_values)
+          end
           if input.key?(:balance_as_of_on) && !values.key?(:balance_as_of_on)
             values[:balance_as_of_on] = parsed_date(input[:balance_as_of_on])&.iso8601
           end

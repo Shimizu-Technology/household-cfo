@@ -29,6 +29,7 @@ import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/document
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
+import { guamTodayIso } from './lib/householdDate'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -6437,14 +6438,6 @@ function formatMonthYear(value: string) {
   if (!year || !month) return value
 
   return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)))
-}
-
-function guamTodayIso() {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Pacific/Guam', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date())
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return `${value.year}-${value.month}-${value.day}`
 }
 
 function guamCurrentMonthIso() {

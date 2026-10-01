@@ -46,7 +46,7 @@ module HouseholdFinance
     alias_method :nonliquid_balance_known?, :nonliquid_assets_known?
 
     def total_assets_known?
-      liquid_assets_known? && nonliquid_assets_known?
+      active_accounts.any? && active_accounts.all?(&:balance_known?)
     end
     alias_method :total_balance_known?, :total_assets_known?
 

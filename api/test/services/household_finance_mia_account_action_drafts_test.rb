@@ -32,6 +32,27 @@ class HouseholdFinanceMiaAccountActionDraftsTest < ActiveSupport::TestCase
     assert_equal [ "Not entered", "$0.00" ], field.values_at(:before, :after)
   end
 
+  test "Mia does not invent a balance date when creating an account" do
+    draft = persist(build(type: "create_account", account_name: "Emergency reserve", account_type: "emergency_fund", amount: "500").proposal)
+
+    assert HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call.success?
+    account = @household.accounts.find_by!(label: "Emergency reserve")
+    assert_equal 500_00, account.balance_cents
+    assert_nil account.balance_as_of_on
+  end
+
+  test "Mia preserves an approved balance date when changing only the balance" do
+    account = @household.accounts.create!(
+      label: "Checking", account_type: "checking", balance_cents: 100_00,
+      balance_known: true, balance_as_of_on: Date.new(2026, 10, 1)
+    )
+    draft = persist(build(type: "update_account", account_id: account.id, account_name: account.label, amount: "125").proposal)
+
+    assert HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call.success?
+    assert_equal 125_00, account.reload.balance_cents
+    assert_equal Date.new(2026, 10, 1), account.balance_as_of_on
+  end
+
   test "Mia can review and apply a balance-date-only update" do
     account = @household.accounts.create!(label: "Emergency reserve", account_type: "emergency_fund", balance_cents: 500_00, balance_known: true)
     draft = persist(build(type: "update_account", account_id: account.id, account_name: account.label, balance_as_of_on: "2026-10-01").proposal)

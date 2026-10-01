@@ -45,6 +45,39 @@ class HouseholdFinanceAccountOperationsTest < ActiveSupport::TestCase
     assert HouseholdFinance::AssetPortfolio.new(@household.reload).total_balance_known?
   end
 
+  test "total assets are known when every active account is known even if one asset group is empty" do
+    checking = @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 5_000, balance_known: true)
+    liquid_only = HouseholdFinance::AssetPortfolio.new(@household)
+
+    assert liquid_only.liquid_balance_known?
+    assert_not liquid_only.nonliquid_balance_known?
+    assert liquid_only.total_balance_known?
+
+    checking.destroy!
+    @household.accounts.create!(label: "Home", account_type: "property", balance_cents: 25_000_000, balance_known: true)
+    nonliquid_only = HouseholdFinance::AssetPortfolio.new(@household.reload)
+
+    assert_not nonliquid_only.liquid_balance_known?
+    assert nonliquid_only.nonliquid_balance_known?
+    assert nonliquid_only.total_balance_known?
+  end
+
+  test "updating a known balance without a date preserves its approved date" do
+    account = @household.accounts.create!(
+      label: "Checking", account_type: "checking", balance_cents: 100_00,
+      balance_known: true, balance_as_of_on: Date.new(2026, 10, 1)
+    )
+
+    @runner.run(
+      operation_key: "account.record.update",
+      input: { account_id: account.id, balance: 125 },
+      idempotency_key: "balance-without-date"
+    )
+
+    assert_equal 125_00, account.reload.balance_cents
+    assert_equal Date.new(2026, 10, 1), account.balance_as_of_on
+  end
+
   test "Plaid link is observation only until a reviewed reconcile accepts it" do
     observed = create_plaid_account(current_balance_cents: 123_45)
     canonical = @household.accounts.create!(label: "Everyday", account_type: "checking", balance_cents: 100_00, balance_known: true)
@@ -86,6 +119,18 @@ class HouseholdFinanceAccountOperationsTest < ActiveSupport::TestCase
       @runner.run_prepared(prepared: prepared.as_json, prepared_fingerprint: prepared.fingerprint, idempotency_key: "stale", source: "mia")
     end
     assert_equal 90_00, canonical.reload.balance_cents
+  end
+
+  test "reconciliation without a bank match fails during preparation with a useful error" do
+    canonical = @household.accounts.create!(label: "Everyday", account_type: "checking", balance_cents: 90_00, balance_known: true)
+
+    error = assert_raises(ArgumentError) do
+      HouseholdFinance::Operations::Account::PlaidReconcile.new(@household).prepare(
+        account_id: canonical.id, decision: "accept_observed"
+      )
+    end
+
+    assert_match(/Match this household account to a bank account first/, error.message)
   end
 
   test "unlinking and relinking an older observation always requires a new reconciliation" do

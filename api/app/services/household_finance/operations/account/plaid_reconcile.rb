@@ -25,6 +25,8 @@ module HouseholdFinance
 
         def predicted_after(before, input)
           observation = before.fetch("plaid_observation")
+          raise ArgumentError, "Match this household account to a bank account first" unless observation
+
           account = before.fetch("account").merge("plaid_reconciled_at" => observation.fetch("last_synced_at"))
           if input[:decision] == "accept_observed"
             account.merge!(

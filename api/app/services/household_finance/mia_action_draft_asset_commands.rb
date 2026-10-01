@@ -12,7 +12,9 @@ module HouseholdFinance
       end
       payload = { label: label, account_type: account_type, source_type: "mia" }
       add_account_balance!(payload, command[:amount])
-      payload[:balance_as_of_on] = parsed_account_date(command[:balance_as_of_on]) if payload[:balance_known]
+      if payload[:balance_known] && command[:balance_as_of_on].present?
+        payload[:balance_as_of_on] = parsed_account_date(command[:balance_as_of_on])
+      end
       item = MiaActionDraftBuilder::Item.new(
         action_type: "create_account", label: "Add #{label}", description: "Add an approved household account. A blank balance stays unknown instead of becoming $0.",
         target_record_type: "Account", target_record_id: nil, payload: payload,
@@ -31,7 +33,11 @@ module HouseholdFinance
       payload[:account_type] = command[:account_type] if command[:account_type].to_s.in?(::Account::ACCOUNT_TYPES)
       if command.key?(:amount) && command[:amount].present?
         add_account_balance!(payload, command[:amount])
-        payload[:balance_as_of_on] = payload[:balance_known] ? parsed_account_date(command[:balance_as_of_on]) : nil
+        if payload[:balance_known]
+          payload[:balance_as_of_on] = parsed_account_date(command[:balance_as_of_on]) if command[:balance_as_of_on].present?
+        else
+          payload[:balance_as_of_on] = nil
+        end
       elsif command[:balance_as_of_on].present?
         return validation_result("Enter the account balance before adding a balance date. Nothing changed.") unless account.balance_known?
         payload[:balance_as_of_on] = parsed_account_date(command[:balance_as_of_on])

@@ -5,6 +5,7 @@ import {
   type AccountInput, type AccountRecord, type AccountType, type AssetPortfolio, type PlaidAccount, type PlaidItem,
 } from '../api'
 import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
+import { guamTodayIso } from '../lib/householdDate'
 import { accountSummaryText } from './accountSummary'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -72,6 +73,10 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
         setDraft({ label: account.label, account_type: account.account_type, balance: account.balance === null ? '' : String(account.balance), balance_as_of_on: account.balance_as_of_on ?? '', plaid_account_id: '' })
         setEditing(account.id); setArchiveId(null); setError(null)
         window.requestAnimationFrame(() => labelInputRef.current?.focus())
+      } else if (focusRequest.actionType === 'update_account' && account && !account.active) {
+        const row = document.querySelector<HTMLElement>(`[data-account-id="${account.id}"]`)
+        const target = row?.querySelector<HTMLElement>('[data-account-action="restore"]') ?? addButtonRef.current
+        if (target) revealAndFocus(target)
       } else {
         const action = accountActionControl(focusRequest)
         const row = document.querySelector<HTMLElement>(`[data-account-id="${focusRequest.accountId}"]`)
@@ -99,7 +104,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
       label: observation.name,
       account_type: observation.suggested_account_type ?? 'other',
       balance: observation.current_balance_cents === null ? '' : String(observation.current_balance_cents / 100),
-      balance_as_of_on: new Date().toISOString().slice(0, 10),
+      balance_as_of_on: guamTodayIso(),
       plaid_account_id: String(observation.id),
     } : emptyDraft)
     setEditing('new'); setArchiveId(null); setError(null)

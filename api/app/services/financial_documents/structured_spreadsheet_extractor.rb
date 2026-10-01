@@ -267,9 +267,13 @@ module FinancialDocuments
       label = clean_text(cell(values, header_map, "label"), max_length: 120)
       return if label.blank? && type != "profile_note"
 
-      amount = cell(values, header_map, "amount").presence || cell(values, header_map, "balance")
-      amount_cents = money_cents(amount, negative_as_magnitude: accounting_negative_as_magnitude?(type), allow_negative: type == "account")
       category = normalized_token(cell(values, header_map, "category"))
+      amount = cell(values, header_map, "amount").presence || cell(values, header_map, "balance")
+      amount_cents = money_cents(
+        amount,
+        negative_as_magnitude: accounting_negative_as_magnitude?(type),
+        allow_negative: type == "account" && account_type(category, label).in?(Account::SIGNED_BALANCE_TYPES)
+      )
       cadence = normalized_cadence(cell(values, header_map, "cadence"))
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
       payment_cents = payment_cents_for(cell(values, header_map, "payment"), notes)
