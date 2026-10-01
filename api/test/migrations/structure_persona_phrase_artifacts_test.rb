@@ -7,7 +7,7 @@ require_relative "../support/persona_test_helper"
 class StructurePersonaPhraseArtifactsTest < ActiveSupport::TestCase
   include PersonaTestHelper
 
-  test "legacy phrases become sealed artifacts and can be rolled back" do
+  test "legacy phrases become sealed artifacts idempotently" do
     migration = StructurePersonaPhraseArtifacts.new
     legacy = persona_configuration
     legacy_phrase = {
@@ -33,10 +33,28 @@ class StructurePersonaPhraseArtifactsTest < ActiveSupport::TestCase
     unchanged, changed_again = migration.send(:seal_phrases, sealed, source_user_id: 42)
     assert_equal false, changed_again
     assert_equal sealed, unchanged
+  end
 
-    restored, reverted = migration.send(:unseal_phrases, sealed)
-    assert reverted
-    assert_equal legacy_phrase, restored.fetch("phrases").first
+  test "rollback is irreversible before drafts or storage constraints change" do
+    coach = persona_user(role: "coach")
+    persona = create_persona(creator: coach, name: "Irreversible phrase migration")
+    snapshot = persona.reload.attributes.slice(
+      "draft_config",
+      "draft_revision",
+      "preview_digest",
+      "previewed_at",
+      "previewed_draft_revision",
+      "updated_at"
+    )
+    constraint_before = phrase_storage_constraint_definition
+
+    error = assert_raises(ActiveRecord::IrreversibleMigration) do
+      StructurePersonaPhraseArtifacts.new.down
+    end
+
+    assert_includes error.message, "cannot be reconstructed faithfully"
+    assert_equal snapshot, persona.reload.attributes.slice(*snapshot.keys)
+    assert_equal constraint_before, phrase_storage_constraint_definition
   end
 
   test "near-limit legacy drafts remain storable and schema-valid after sealing" do
@@ -100,6 +118,14 @@ class StructurePersonaPhraseArtifactsTest < ActiveSupport::TestCase
   end
 
   private
+
+  def phrase_storage_constraint_definition
+    CoachPersona.connection.select_value(<<~SQL.squish)
+      SELECT pg_get_constraintdef(oid)
+      FROM pg_constraint
+      WHERE conname = 'coach_personas_draft_config_bytes'
+    SQL
+  end
 
   def near_limit_legacy_configuration(target_bytes:)
     config = persona_configuration(assistant_name: "Near-limit legacy persona")

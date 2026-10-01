@@ -61,7 +61,8 @@ module Mia
 
     def initialize(version, config: nil, identifier: nil, persona_id: nil)
       @version = version
-      @config = PersonaSchema.validate!(config || version.config)
+      runtime_config = config || PersonaRuntimeCompatibility.call(version)
+      @config = PersonaSchema.validate!(runtime_config)
       @identifier = identifier
       @persona_id = persona_id
     end

@@ -40,21 +40,8 @@ class StructurePersonaPhraseArtifacts < ActiveRecord::Migration[8.1]
   end
 
   def down
-    MigrationPersona.find_each do |persona|
-      config, changed = unseal_phrases(persona.draft_config)
-      next unless changed
-
-      persona.update_columns(
-        draft_config: config,
-        draft_revision: persona.draft_revision + 1,
-        preview_digest: nil,
-        previewed_at: nil,
-        previewed_draft_revision: nil,
-        updated_at: Time.current
-      )
-    end
-
-    replace_storage_constraints(LEGACY_STORAGE_MAX_BYTES)
+    raise ActiveRecord::IrreversibleMigration,
+      "sealed phrase provenance and draft revision history cannot be reconstructed faithfully"
   end
 
   private
@@ -77,21 +64,6 @@ class StructurePersonaPhraseArtifacts < ActiveRecord::Migration[8.1]
         )
         artifact["fingerprint"] = fingerprint(artifact)
         artifact
-      end
-    end
-    [ config, changed ]
-  end
-
-  def unseal_phrases(raw_config)
-    config = raw_config.deep_stringify_keys.deep_dup
-    changed = false
-    config["phrases"] = Array(config["phrases"]).map do |raw_phrase|
-      phrase = raw_phrase.deep_stringify_keys
-      if phrase.key?("artifact_id")
-        changed = true
-        phrase.slice("text", "meaning", "allowed_contexts", "prohibited_contexts", "frequency", "caution")
-      else
-        phrase
       end
     end
     [ config, changed ]
