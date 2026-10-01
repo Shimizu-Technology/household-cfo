@@ -268,6 +268,27 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     address_inference = persona_configuration(assistant_name: "Address inference draft")
     address_inference["coaching"]["method"] = "Match each participant cultural style based on their home address."
 
+    filipinos = persona_configuration(assistant_name: "Filipinos draft")
+    filipinos["culture"]["context"] = "Filipinos are irresponsible with money."
+
+    residents = persona_configuration(assistant_name: "Residents draft")
+    residents["culture"]["context"] = "Residents of Guam are irresponsible with money."
+
+    residence_group = persona_configuration(assistant_name: "Residence group draft")
+    residence_group["culture"]["context"] = "People who live on Guam are irresponsible with money."
+
+    islanders = persona_configuration(assistant_name: "Islanders draft")
+    islanders["culture"]["context"] = "Islanders always overspend."
+
+    residence_mirroring = persona_configuration(assistant_name: "Residence mirroring draft")
+    residence_mirroring["voice"]["language_style"] = [ "Mirror the way people speak where they live." ]
+
+    island_language = persona_configuration(assistant_name: "Island language draft")
+    island_language["voice"]["language_style"] = [ "Use island-style language for Guam participants." ]
+
+    local_expressions = persona_configuration(assistant_name: "Local expressions draft")
+    local_expressions["voice"]["language_style"] = [ "Adopt local expressions for people in Guam." ]
+
     [
       [ "Guam", guam, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
       [ "Southern", southern, "$.coaching.principles[2] contains a regional or cultural stereotype" ],
@@ -276,7 +297,14 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       [ "Filipino", filipino, "$.culture.context contains a regional or cultural stereotype" ],
       [ "irresponsible", irresponsible, "$.culture.context contains a regional or cultural stereotype" ],
       [ "local imitation", local_imitation, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
-      [ "address inference", address_inference, "$.coaching.method cannot infer dialect, slang, or cultural traits from a location or identity label" ]
+      [ "address inference", address_inference, "$.coaching.method cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Filipinos", filipinos, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "residents", residents, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "residence group", residence_group, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "islanders", islanders, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "residence mirroring", residence_mirroring, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "island language", island_language, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "local expressions", local_expressions, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ]
     ]
   end
 

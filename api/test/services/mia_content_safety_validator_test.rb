@@ -105,6 +105,51 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_equal "regional_stereotype", title_error.code
   end
 
+  test "cultural safety covers group generalizations and residence-derived voice paraphrases" do
+    group_generalizations = [
+      "Filipinos are irresponsible with money.",
+      "Residents of Guam are irresponsible with money.",
+      "People who live on Guam are irresponsible with money.",
+      "Islanders always overspend.",
+      "Japanese families typically avoid discussing debt.",
+      "Women in Puerto Rico generally prioritize family requests over savings.",
+      "Puerto Rican households are naturally better with money."
+    ]
+    inferred_voice = [
+      "Mirror the way people speak where they live.",
+      "Use island-style language for Guam participants.",
+      "Adopt local expressions for people in Guam.",
+      "Adopt local expressions for people in Guam after the participant supplied their budget.",
+      "Choose regional phrasing based on the participant's location.",
+      "Write like people from Puerto Rico.",
+      "Generate dialect from the participant's home region."
+    ]
+
+    (group_generalizations + inferred_voice).each do |content|
+      assert_unsafe("regional_stereotype", content)
+    end
+  end
+
+  test "cultural safety preserves supplied language safeguards and evidence references" do
+    safe_content = [
+      "Use the participant's own words, including slang they explicitly supplied.",
+      "Use the coach's explicitly approved local expressions for Guam participants.",
+      "Adopt the participant's local expressions they explicitly supplied for people in Guam.",
+      "Do not mirror the way people speak where they live.",
+      "Do not make Mia sound like someone from Guam based only on location.",
+      "Evidence note: residents of Guam may face added freight costs on some shipped goods.",
+      "Explain that ‘Håfa adai’ is a coach-approved greeting in this curriculum."
+    ]
+
+    safe_content.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Reviewed cultural guidance", content: content), content
+    end
+    assert Mia::ContentSafetyValidator.validate!(
+      title: "How to use Chamorro dialect respectfully",
+      content: "Explain only the exact phrases documented in the coach-approved reference."
+    )
+  end
+
   private
 
   def assert_unsafe(code, content)
