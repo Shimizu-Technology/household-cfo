@@ -2874,6 +2874,19 @@ test('compact Ask Mia header keeps its title and controls separate at 320px', as
     expect(box.height).toBeGreaterThanOrEqual(40)
     if (index > 0) expect(box.left).toBeGreaterThanOrEqual(layout.actionBoxes[index - 1].right)
   }
+
+  const promptsButton = page.getByRole('button', { name: 'Prompts', exact: true })
+  await promptsButton.click()
+  const suggestionsPanel = page.getByLabel('Mia prompts')
+  await expect(suggestionsPanel).toBeVisible()
+  const openPanel = await suggestionsPanel.evaluate((panel) => {
+    const panelBox = panel.getBoundingClientRect()
+    const headerBox = document.querySelector('.chat-shell-header')?.getBoundingClientRect()
+    return { panelTop: panelBox.top, headerBottom: headerBox?.bottom ?? Number.POSITIVE_INFINITY }
+  })
+  expect(openPanel.panelTop).toBeGreaterThanOrEqual(openPanel.headerBottom)
+  await promptsButton.click()
+  await expect(suggestionsPanel).toBeHidden()
 })
 
 test('expanded desktop Ask Mia blocks background interaction and restores its trigger', async ({ page }, testInfo) => {
