@@ -67,7 +67,14 @@ class CoachPersonaVersion < ApplicationRecord
   def content_manifest_valid?
     return false unless sealed?
 
-    versions = content_pack_links.includes(coach_content_pack_version: { entries: :coach_content_item_version }).order(:position).map(&:coach_content_pack_version)
+    versions = content_pack_links.includes(
+      coach_content_pack_version: { entries: { coach_content_item_version: { source_provenance: %i[coach_content_source coach_content_source_attempt coach_content_source_candidate] } } }
+    ).order(:position).map(&:coach_content_pack_version)
+    content_manifest_valid_with_versions?(versions)
+  end
+
+  def content_manifest_valid_with_versions?(versions)
+    return false unless sealed?
     return false unless versions.all?(&:manifest_valid?)
 
     expected = self.class.content_manifest_digest_for(versions)

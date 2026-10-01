@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   ApiRequestError,
   approveAdminContentItem,
@@ -21,6 +21,7 @@ import type {
   CurrentUser,
 } from '../api'
 import { Button } from './Button'
+import { CoachContentSources } from './CoachContentSources'
 import './CoachContentLibrary.css'
 
 const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
@@ -37,8 +38,10 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   const [notice, setNotice] = useState<string | null>(null)
   const [itemDirty, setItemDirty] = useState(false)
   const [packDirty, setPackDirty] = useState(false)
+  const [sourceDirty, setSourceDirty] = useState(false)
+  const [itemReviewRequest, setItemReviewRequest] = useState(0)
 
-  useEffect(() => onDirtyChange?.(itemDirty || packDirty), [itemDirty, onDirtyChange, packDirty])
+  useEffect(() => onDirtyChange?.(itemDirty || packDirty || sourceDirty), [itemDirty, onDirtyChange, packDirty, sourceDirty])
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const load = useCallback(async () => {
@@ -95,11 +98,21 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
         </ul>
       </div>
 
+      <CoachContentSources
+        currentUser={currentUser}
+        onDirtyChange={setSourceDirty}
+        onItemAccepted={(item) => {
+          setItems((current) => [item, ...current.filter((value) => value.id !== item.id)])
+        }}
+        onReviewItem={(itemId) => { setSelectedItemId(itemId); setItemReviewRequest((value) => value + 1) }}
+      />
+
       <div className="coach-content-grid">
         <ContentItemsPanel
           currentUser={currentUser}
           items={items}
           selected={selectedItem}
+          reviewRequest={itemReviewRequest}
           busy={busy}
           onDirtyChange={setItemDirty}
           onSelect={setSelectedItemId}
@@ -124,10 +137,11 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   )
 }
 
-function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
+function ContentItemsPanel({ currentUser, items, selected, reviewRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
   items: AdminContentItem[]
   selected: AdminContentItem | null
+  reviewRequest: number
   busy: boolean
   onDirtyChange: (dirty: boolean) => void
   onSelect: (id: number | null) => void
@@ -141,6 +155,8 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
   const [kind, setKind] = useState<AdminContentItemKind>('guidance')
   const [scope, setScope] = useState<AdminContentScope>('coach')
   const [alwaysOn, setAlwaysOn] = useState(false)
+  const lastSelectedId = useRef<number | null>(null)
+  const titleInputRef = useRef<HTMLInputElement>(null)
   const itemDirty = Boolean(selected?.editable && (
     normalizeSingleLine(title) !== selected.title ||
     content.trim() !== (selected.draft_content ?? '') ||
@@ -151,8 +167,24 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
 
   useEffect(() => onDirtyChange(itemDirty || createDirty), [createDirty, itemDirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
+  useEffect(() => {
+    if (!selected || lastSelectedId.current === selected.id) return
+    lastSelectedId.current = selected.id
+    setCreating(false)
+    setTitle(selected.title)
+    setContent(selected.editable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
+    setKind(selected.kind)
+    setScope(selected.scope)
+    setAlwaysOn(selected.always_on)
+  }, [selected])
+  useEffect(() => {
+    if (reviewRequest === 0 || !selected) return
+    titleInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    titleInputRef.current?.focus()
+  }, [reviewRequest, selected])
 
   function startCreate() {
+    lastSelectedId.current = null
     onSelect(null)
     setCreating(true)
     setTitle('')
@@ -163,6 +195,7 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
   }
 
   function selectItem(item: AdminContentItem) {
+    lastSelectedId.current = item.id
     setCreating(false)
     setTitle(item.title)
     setContent(item.editable ? item.draft_content ?? '' : item.current_approved_version?.content ?? '')
@@ -200,7 +233,7 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
       </div>
       {(creating || selected) && (
         <form className="coach-content-form" onSubmit={(event) => void submit(event)}>
-          <label><span>Title</span><input required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+          <label><span>Title</span><input ref={titleInputRef} required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Type</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
             <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>

@@ -590,6 +590,9 @@ async function mockDemoApi(page: Page) {
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { items: contentItems } })
     }
+    if (path === '/api/v1/admin/content_sources' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { sources: [] } })
+    }
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
       const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
       const item: MockContentItem = {
@@ -3418,6 +3421,79 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await sourcePanel.getByRole('button', { name: 'Save source selection' }).click()
   await expect(page.getByRole('status')).toContainText('fresh preview')
   await expect(sourcePanel).toContainText('v1')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio keeps private source candidates reviewable and mobile-safe before publication', async ({ page }) => {
+  const candidateBase = {
+    source_id: 701, status: 'proposed', kind: 'guidance', topics: ['planning'], safety_code: null,
+    accepted_content_item_id: null, reviewed_at: null, updated_at: '2026-10-01T01:00:00Z',
+  }
+  const candidates = [
+    {
+      ...candidateBase, id: 711, position: 0, title: 'One calm next step', content: 'Choose one practical next step and review it together.',
+      revision: 1, digest: 'candidate-one', evidence_excerpt: '<script>quoted source text stays inert</script>',
+      evidence_locator: { type: 'text', segment: 1, line_start: 2, line_end: 3, excerpt_digest: 'a'.repeat(64) },
+    },
+    {
+      ...candidateBase, id: 712, position: 1, title: 'Protect the baseline', content: 'Protect the household baseline before optional spending.',
+      revision: 1, digest: 'candidate-two', evidence_excerpt: 'Protect the baseline.',
+      evidence_locator: { type: 'text', segment: 1, line_start: 5, line_end: 5, excerpt_digest: 'b'.repeat(64) },
+    },
+  ]
+  const source = () => ({
+    id: 701, scope: 'coach', filename: `${'long-private-filename-'.repeat(6)}guide.txt`, content_type: 'text/plain', byte_size: 4800,
+    checksum_sha256: 'c'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
+    source_delete_error_code: null, processing_metadata: { format: 'text', candidate_count: 2 }, processed_at: '2026-10-01T01:00:00Z',
+    source_deleted_at: null, created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
+    current_attempt: { id: 702, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates,
+  })
+
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources/701', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: { source: source() } })
+    return route.fallback()
+  })
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/content_sources\/701\/candidates\/\d+(?:\/accept)?$/, async (route) => {
+    const id = Number(new URL(route.request().url()).pathname.match(/candidates\/(\d+)/)?.[1])
+    const index = candidates.findIndex((candidate) => candidate.id === id)
+    const input = route.request().postDataJSON().candidate
+    if (route.request().url().endsWith('/accept')) {
+      candidates[index] = { ...candidates[index], status: 'accepted', accepted_content_item_id: 801 }
+      const item = {
+        id: 801, title: candidates[index].title, scope: 'coach', kind: candidates[index].kind, always_on: false,
+        draft_content: candidates[index].content, draft_revision: 1, draft_digest: 'draft-item-digest', archived: false, editable: true,
+        current_approved_version: null, versions: [], has_unapproved_changes: true, updated_at: '2026-10-01T01:05:00Z',
+      }
+      return route.fulfill({ status: 200, json: { candidate: candidates[index], item } })
+    }
+    candidates[index] = { ...candidates[index], ...input, revision: candidates[index].revision + 1, digest: 'candidate-saved' }
+    return route.fulfill({ status: 200, json: { candidate: candidates[index] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await expect(page.getByRole('heading', { name: 'Turn private material into reviewable drafts' })).toBeVisible()
+  await expect(page.getByText(/no-data-collection routing setting/i)).toBeVisible()
+  await expect(page.getByText('Private source → Review candidates')).toHaveCount(0)
+  await expect(page.locator('.coach-source-trust li')).toHaveCount(6)
+  await page.getByRole('button', { name: /long-private-filename/ }).click()
+  await page.getByRole('button', { name: /One calm next step/ }).click()
+
+  const editor = page.locator('.coach-candidate-editor')
+  await expect(editor.getByText('<script>quoted source text stays inert</script>', { exact: true })).toBeVisible()
+  await editor.getByLabel('Draft wording').fill('Choose one calm, practical next step and review it together.')
+  await page.getByRole('button', { name: /Protect the baseline/ }).click()
+  await expect(page.getByRole('alert')).toContainText('unsaved candidate edits')
+  await page.getByRole('button', { name: 'Keep editing' }).click()
+  await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
+
+  await editor.getByRole('button', { name: 'Save and create draft' }).click()
+  await expect(page.getByRole('status')).toContainText('not available to Mia yet')
+  await page.getByRole('button', { name: 'Review content draft' }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
+  await expect(itemPanel.getByLabel('Title')).toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_072000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -134,6 +134,86 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
     t.check_constraint "rank > 0 AND rank <= 6", name: "coach_content_citations_rank_valid"
   end
 
+  create_table "coach_content_item_draft_provenances", force: :cascade do |t|
+    t.datetime "accepted_at", null: false
+    t.bigint "accepted_by_user_id", null: false
+    t.string "attempt_model", null: false
+    t.string "attempt_prompt_version", null: false
+    t.string "attempt_provider", null: false
+    t.string "attempt_schema_version", null: false
+    t.string "candidate_content_digest", null: false
+    t.string "candidate_original_proposal_digest", null: false
+    t.string "candidate_review_action", null: false
+    t.integer "candidate_revision", null: false
+    t.bigint "coach_content_item_id", null: false
+    t.bigint "coach_content_source_attempt_id", null: false
+    t.bigint "coach_content_source_candidate_id", null: false
+    t.bigint "coach_content_source_id", null: false
+    t.datetime "created_at", null: false
+    t.string "evidence_excerpt_digest", null: false
+    t.jsonb "evidence_locator", default: {}, null: false
+    t.string "provenance_digest", null: false
+    t.bigint "source_byte_size", null: false
+    t.string "source_checksum_sha256", null: false
+    t.string "source_content_type", null: false
+    t.string "source_filename", null: false
+    t.datetime "updated_at", null: false
+    t.index ["accepted_by_user_id"], name: "idx_on_accepted_by_user_id_332eae8c27"
+    t.index ["coach_content_item_id"], name: "idx_content_item_draft_provenance_item", unique: true
+    t.index ["coach_content_source_attempt_id"], name: "idx_on_coach_content_source_attempt_id_117748e08c"
+    t.index ["coach_content_source_candidate_id"], name: "idx_on_coach_content_source_candidate_id_c55f8aad4d"
+    t.index ["coach_content_source_id"], name: "idx_on_coach_content_source_id_16084b7d2c"
+    t.check_constraint "candidate_content_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_candidate_digest_sha256"
+    t.check_constraint "candidate_original_proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_original_digest_sha256"
+    t.check_constraint "candidate_review_action::text = 'accepted'::text", name: "coach_content_item_draft_provenances_review_action_accepted"
+    t.check_constraint "candidate_revision > 0", name: "coach_content_item_draft_provenances_candidate_revision_positiv"
+    t.check_constraint "evidence_excerpt_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_excerpt_digest_sha256"
+    t.check_constraint "provenance_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_provenance_digest_sha256"
+    t.check_constraint "source_byte_size > 0", name: "coach_content_item_draft_provenances_source_size_positive"
+    t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_source_checksum_sha256"
+  end
+
+  create_table "coach_content_item_version_provenances", force: :cascade do |t|
+    t.datetime "accepted_at", null: false
+    t.bigint "accepted_by_user_id", null: false
+    t.string "approved_content_digest", null: false
+    t.string "attempt_model", null: false
+    t.string "attempt_prompt_version", null: false
+    t.string "attempt_provider", null: false
+    t.string "attempt_schema_version", null: false
+    t.string "candidate_content_digest", null: false
+    t.string "candidate_original_proposal_digest", null: false
+    t.string "candidate_review_action", null: false
+    t.integer "candidate_revision", null: false
+    t.bigint "coach_content_item_version_id", null: false
+    t.bigint "coach_content_source_attempt_id", null: false
+    t.bigint "coach_content_source_candidate_id", null: false
+    t.bigint "coach_content_source_id", null: false
+    t.datetime "created_at", null: false
+    t.string "evidence_excerpt_digest", null: false
+    t.jsonb "evidence_locator", default: {}, null: false
+    t.string "provenance_digest", null: false
+    t.bigint "source_byte_size", null: false
+    t.string "source_checksum_sha256", null: false
+    t.string "source_content_type", null: false
+    t.string "source_filename", null: false
+    t.datetime "updated_at", null: false
+    t.index ["accepted_by_user_id"], name: "idx_on_accepted_by_user_id_34a5b728f1"
+    t.index ["coach_content_item_version_id"], name: "idx_content_item_version_provenance_version", unique: true
+    t.index ["coach_content_source_attempt_id"], name: "idx_on_coach_content_source_attempt_id_facf47babc"
+    t.index ["coach_content_source_candidate_id"], name: "idx_on_coach_content_source_candidate_id_16f47a46cb"
+    t.index ["coach_content_source_id"], name: "idx_on_coach_content_source_id_c7e8f32f58"
+    t.check_constraint "approved_content_digest::text ~ '^[0-9a-f]{64}$'::text", name: "content_item_version_provenance_approved_digest_sha256"
+    t.check_constraint "candidate_content_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_candidate_digest_sha256"
+    t.check_constraint "candidate_original_proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_original_digest_sha256"
+    t.check_constraint "candidate_review_action::text = 'accepted'::text", name: "coach_content_item_version_provenances_review_action_accepted"
+    t.check_constraint "candidate_revision > 0", name: "coach_content_item_version_provenances_candidate_revision_posit"
+    t.check_constraint "evidence_excerpt_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_excerpt_digest_sha256"
+    t.check_constraint "provenance_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_provenance_digest_sha256"
+    t.check_constraint "source_byte_size > 0", name: "coach_content_item_version_provenances_source_size_positive"
+    t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_source_checksum_sha256"
+  end
+
   create_table "coach_content_item_versions", force: :cascade do |t|
     t.boolean "always_on", default: false, null: false
     t.bigint "approved_by_user_id", null: false
@@ -171,9 +251,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
     t.index ["created_by_user_id"], name: "index_coach_content_items_on_created_by_user_id"
     t.index ["current_approved_version_id"], name: "idx_content_items_current_version"
     t.check_constraint "draft_revision > 0", name: "coach_content_items_revision_positive"
-    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying, 'script'::character varying, 'example'::character varying, 'phrase'::character varying, 'culture'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_items_kind_valid"
+    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying::text, 'script'::character varying::text, 'example'::character varying::text, 'phrase'::character varying::text, 'culture'::character varying::text, 'finance_reference'::character varying::text])", name: "coach_content_items_kind_valid"
     t.check_constraint "octet_length(draft_content) <= 12000", name: "coach_content_items_content_bytes"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_items_scope_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_items_scope_valid"
   end
 
   create_table "coach_content_pack_draft_entries", force: :cascade do |t|
@@ -237,8 +317,101 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
     t.index ["created_by_user_id"], name: "index_coach_content_packs_on_created_by_user_id"
     t.index ["current_published_version_id"], name: "idx_content_packs_current_version"
     t.check_constraint "draft_revision > 0", name: "coach_content_packs_revision_positive"
-    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying, 'coaching_method'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_packs_kind_valid"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_packs_scope_valid"
+    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying::text, 'coaching_method'::character varying::text, 'finance_reference'::character varying::text])", name: "coach_content_packs_kind_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_packs_scope_valid"
+  end
+
+  create_table "coach_content_source_attempts", force: :cascade do |t|
+    t.bigint "coach_content_source_id", null: false
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.string "error_code"
+    t.string "error_message"
+    t.integer "generation", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.string "model", null: false
+    t.string "prompt_version", null: false
+    t.string "provider", null: false
+    t.string "schema_version", null: false
+    t.datetime "started_at", null: false
+    t.string "status", default: "processing", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_source_id", "generation"], name: "idx_content_source_attempt_generation", unique: true
+    t.index ["coach_content_source_id"], name: "index_coach_content_source_attempts_on_coach_content_source_id"
+    t.check_constraint "generation > 0", name: "coach_content_source_attempt_generation_positive"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'succeeded'::character varying::text, 'failed'::character varying::text, 'superseded'::character varying::text])", name: "coach_content_source_attempt_status_valid"
+  end
+
+  create_table "coach_content_source_candidates", force: :cascade do |t|
+    t.bigint "accepted_content_item_id"
+    t.bigint "coach_content_source_attempt_id", null: false
+    t.bigint "coach_content_source_id", null: false
+    t.text "content", null: false
+    t.string "content_digest", null: false
+    t.datetime "created_at", null: false
+    t.text "evidence_excerpt", null: false
+    t.jsonb "evidence_locator", default: {}, null: false
+    t.string "kind", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "original_proposal_digest", null: false
+    t.integer "position", null: false
+    t.datetime "reviewed_at"
+    t.bigint "reviewed_by_user_id"
+    t.integer "revision", default: 1, null: false
+    t.string "safety_code"
+    t.string "status", default: "proposed", null: false
+    t.string "title", null: false
+    t.jsonb "topics", default: [], null: false
+    t.datetime "updated_at", null: false
+    t.index ["accepted_content_item_id"], name: "idx_on_accepted_content_item_id_5be5b5577b"
+    t.index ["coach_content_source_attempt_id", "position"], name: "idx_content_source_candidates_position", unique: true
+    t.index ["coach_content_source_attempt_id"], name: "idx_on_coach_content_source_attempt_id_1c75bcd22c"
+    t.index ["coach_content_source_id"], name: "idx_on_coach_content_source_id_f1dcfde3af"
+    t.index ["reviewed_by_user_id"], name: "index_coach_content_source_candidates_on_reviewed_by_user_id"
+    t.check_constraint "\"position\" >= 0 AND \"position\" < 30", name: "coach_content_source_candidates_position_valid"
+    t.check_constraint "content_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_source_candidates_digest_sha256"
+    t.check_constraint "jsonb_typeof(evidence_locator) = 'object'::text", name: "coach_content_source_candidates_locator_object"
+    t.check_constraint "jsonb_typeof(topics) = 'array'::text AND jsonb_array_length(topics) <= 12", name: "coach_content_source_candidates_topics_bounded"
+    t.check_constraint "octet_length(content) <= 12000", name: "coach_content_source_candidates_content_bytes"
+    t.check_constraint "octet_length(evidence_excerpt) <= 1200", name: "coach_content_source_candidates_excerpt_bytes"
+    t.check_constraint "original_proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_source_candidates_original_digest_sha256"
+    t.check_constraint "revision > 0", name: "coach_content_source_candidates_revision_positive"
+    t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying::text, 'accepted'::character varying::text, 'rejected'::character varying::text, 'superseded'::character varying::text])", name: "coach_content_source_candidates_status_valid"
+  end
+
+  create_table "coach_content_sources", force: :cascade do |t|
+    t.bigint "byte_size", null: false
+    t.string "checksum_sha256", null: false
+    t.string "content_type", null: false
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.bigint "current_attempt_id"
+    t.datetime "deletion_requested_at"
+    t.string "error_code"
+    t.string "error_message"
+    t.string "filename", null: false
+    t.integer "generation", default: 0, null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "processed_at"
+    t.jsonb "processing_metadata", default: {}, null: false
+    t.string "s3_key"
+    t.string "scope", default: "coach", null: false
+    t.string "source_delete_error_code"
+    t.datetime "source_deleted_at"
+    t.bigint "source_deleted_by_user_id"
+    t.string "status", default: "uploading", null: false
+    t.datetime "updated_at", null: false
+    t.string "upload_request_id", null: false
+    t.index ["created_by_user_id", "upload_request_id"], name: "idx_content_sources_owner_upload_request", unique: true
+    t.index ["created_by_user_id"], name: "index_coach_content_sources_on_created_by_user_id"
+    t.index ["current_attempt_id"], name: "index_coach_content_sources_on_current_attempt_id"
+    t.index ["s3_key"], name: "index_coach_content_sources_on_s3_key", unique: true, where: "(s3_key IS NOT NULL)"
+    t.index ["source_deleted_by_user_id"], name: "index_coach_content_sources_on_source_deleted_by_user_id"
+    t.check_constraint "byte_size > 0", name: "coach_content_sources_byte_size_positive"
+    t.check_constraint "checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_sources_checksum_sha256"
+    t.check_constraint "generation >= 0", name: "coach_content_sources_generation_nonnegative"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_sources_scope_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying::text, 'verifying'::character varying::text, 'upload_cleanup'::character varying::text, 'queued'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'failed'::character varying::text, 'deletion_pending'::character varying::text, 'deletion_failed'::character varying::text, 'source_deleted'::character varying::text])", name: "coach_content_sources_status_valid"
   end
 
   create_table "coach_persona_draft_content_packs", force: :cascade do |t|
@@ -363,7 +536,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
     t.index ["cohort_experience_configuration_id"], name: "index_cohort_experience_events_on_configuration"
     t.index ["cohort_experience_version_id"], name: "index_cohort_experience_events_on_version"
     t.index ["source_version_id"], name: "idx_on_source_version_id_eaa4a993fe"
-    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "cohort_experience_publication_events_type"
+    t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "cohort_experience_publication_events_type"
   end
 
   create_table "cohort_experience_versions", force: :cascade do |t|
@@ -1172,6 +1345,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
   add_foreign_key "coach_content_citations", "chat_messages", on_delete: :cascade
   add_foreign_key "coach_content_citations", "coach_content_item_versions"
   add_foreign_key "coach_content_citations", "coach_content_pack_versions"
+  add_foreign_key "coach_content_item_draft_provenances", "coach_content_items"
+  add_foreign_key "coach_content_item_draft_provenances", "coach_content_source_attempts"
+  add_foreign_key "coach_content_item_draft_provenances", "coach_content_source_candidates"
+  add_foreign_key "coach_content_item_draft_provenances", "coach_content_sources"
+  add_foreign_key "coach_content_item_draft_provenances", "users", column: "accepted_by_user_id"
+  add_foreign_key "coach_content_item_version_provenances", "coach_content_item_versions"
+  add_foreign_key "coach_content_item_version_provenances", "coach_content_source_attempts"
+  add_foreign_key "coach_content_item_version_provenances", "coach_content_source_candidates"
+  add_foreign_key "coach_content_item_version_provenances", "coach_content_sources"
+  add_foreign_key "coach_content_item_version_provenances", "users", column: "accepted_by_user_id"
   add_foreign_key "coach_content_item_versions", "coach_content_items"
   add_foreign_key "coach_content_item_versions", "users", column: "approved_by_user_id"
   add_foreign_key "coach_content_items", "coach_content_item_versions", column: "current_approved_version_id"
@@ -1184,6 +1367,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_060100) do
   add_foreign_key "coach_content_pack_versions", "users", column: "published_by_user_id"
   add_foreign_key "coach_content_packs", "coach_content_pack_versions", column: "current_published_version_id"
   add_foreign_key "coach_content_packs", "users", column: "created_by_user_id"
+  add_foreign_key "coach_content_source_attempts", "coach_content_sources"
+  add_foreign_key "coach_content_source_candidates", "coach_content_items", column: "accepted_content_item_id"
+  add_foreign_key "coach_content_source_candidates", "coach_content_source_attempts"
+  add_foreign_key "coach_content_source_candidates", "coach_content_sources"
+  add_foreign_key "coach_content_source_candidates", "users", column: "reviewed_by_user_id"
+  add_foreign_key "coach_content_sources", "coach_content_source_attempts", column: "current_attempt_id"
+  add_foreign_key "coach_content_sources", "users", column: "created_by_user_id"
+  add_foreign_key "coach_content_sources", "users", column: "source_deleted_by_user_id"
   add_foreign_key "coach_persona_draft_content_packs", "coach_content_pack_versions"
   add_foreign_key "coach_persona_draft_content_packs", "coach_personas"
   add_foreign_key "coach_persona_publication_events", "coach_persona_versions"

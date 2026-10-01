@@ -40,6 +40,8 @@ module Api
           render json: { item: serializer.item(item.reload), approved_version: serializer.item_version(version) }
         rescue CoachContentItem::ApprovalConflict => error
           conflict(error.message)
+        rescue Mia::ContentSafetyValidator::UnsafeContent => error
+          render json: { error: error.message, code: error.code }, status: :unprocessable_entity
         rescue ArgumentError => error
           render json: { error: error.message, code: "content_approval_invalid" }, status: :unprocessable_entity
         end

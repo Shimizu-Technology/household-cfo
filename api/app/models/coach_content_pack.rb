@@ -51,8 +51,10 @@ class CoachContentPack < ApplicationRecord
 
       entries = draft_entries.includes(:coach_content_item_version).order(:position).to_a
       raise ArgumentError, "Add at least one approved item before publishing" if entries.empty?
-      item_versions = CoachContentItemVersion.where(id: entries.map(&:coach_content_item_version_id)).order(:id).lock.index_by(&:id)
-      unless item_versions.length == entries.length && item_versions.values.all?(&:content_digest_valid?)
+      item_versions = CoachContentItemVersion.where(id: entries.map(&:coach_content_item_version_id)).includes(
+        source_provenance: %i[coach_content_source coach_content_source_attempt coach_content_source_candidate]
+      ).order(:id).lock.index_by(&:id)
+      unless item_versions.length == entries.length && item_versions.values.all?(&:integrity_valid?)
         raise PublicationIntegrityError, "One or more selected approved item versions failed integrity validation"
       end
 

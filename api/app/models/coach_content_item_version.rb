@@ -8,6 +8,8 @@ class CoachContentItemVersion < ApplicationRecord
   has_many :draft_pack_entries, class_name: "CoachContentPackDraftEntry", dependent: :restrict_with_exception
   has_many :pack_version_entries, class_name: "CoachContentPackVersionEntry", dependent: :restrict_with_exception
   has_many :coach_content_citations, dependent: :restrict_with_exception
+  has_one :source_provenance, class_name: "CoachContentItemVersionProvenance", dependent: :restrict_with_exception,
+    inverse_of: :coach_content_item_version
 
   validates :version_number, numericality: { only_integer: true, greater_than: 0 }, uniqueness: { scope: :coach_content_item_id }
   validates :title, presence: true, length: { maximum: 160 }
@@ -28,6 +30,14 @@ class CoachContentItemVersion < ApplicationRecord
   def content_digest_valid?
     expected = self.class.digest_for(title: title, kind: kind, content: content, always_on: always_on)
     content_digest.present? && ActiveSupport::SecurityUtils.secure_compare(content_digest, expected)
+  end
+
+  def integrity_valid?
+    content_digest_valid? && (source_provenance.nil? || source_provenance.integrity_valid?(content_item: coach_content_item))
+  end
+
+  def source_provenance_digest
+    source_provenance&.provenance_digest
   end
 
   private

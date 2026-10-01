@@ -102,6 +102,23 @@ Rails.application.routes.draw do
         resources :content_packs, controller: "coach_content_packs", only: %i[index create update destroy] do
           post :publish, on: :member
         end
+        resources :content_sources, controller: "coach_content_sources", only: %i[index show] do
+          collection do
+            post :presign
+            post :complete
+          end
+          member do
+            post :reprocess
+            get :source_url
+            delete :source, action: :destroy_source
+          end
+          resources :candidates, controller: "coach_content_source_candidates", only: :update do
+            member do
+              post :accept
+              post :reject
+            end
+          end
+        end
         resources :cohorts, only: %i[index show create update] do
           resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]
           resource :experience_configuration, controller: "cohort_experience_configurations", only: %i[show update] do

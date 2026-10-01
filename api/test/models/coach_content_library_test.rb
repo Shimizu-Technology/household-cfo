@@ -236,9 +236,9 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     loaded_items = Mia::ContentLibraryPolicy.new(coach).visible_items.where(id: items.map(&:id))
       .includes(:current_approved_version, :versions).to_a
     loaded_packs = Mia::ContentLibraryPolicy.new(coach).visible_packs.where(id: packs.map(&:id)).includes(
-      current_published_version: { entries: :coach_content_item_version },
-      versions: { entries: :coach_content_item_version },
-      draft_entries: { coach_content_item_version: { coach_content_item: :current_approved_version } }
+      current_published_version: { entries: { coach_content_item_version: :source_provenance } },
+      versions: { entries: { coach_content_item_version: :source_provenance } },
+      draft_entries: { coach_content_item_version: [ :source_provenance, { coach_content_item: :current_approved_version } ] }
     ).to_a
     count_content_queries = lambda do |&block|
       count = 0
