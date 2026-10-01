@@ -224,6 +224,27 @@ const miaAssetDraft = {
   }],
 }
 
+function miaAccountActionDraft({ id, title, actionType, accountId, payload }: {
+  id: number
+  title: string
+  actionType: 'archive_account' | 'restore_account' | 'link_plaid_account' | 'reconcile_plaid_account'
+  accountId: number
+  payload: Record<string, unknown>
+}) {
+  return {
+    ...miaAssetDraft,
+    id,
+    title,
+    items: [{
+      ...miaAssetDraft.items[0],
+      id: id * 10 + 1,
+      action_type: actionType,
+      target_record_id: accountId,
+      payload: { account_id: accountId, ...payload },
+    }],
+  }
+}
+
 function realWorkspaceData(setupComplete = false) {
   return {
     workspace: {
@@ -275,6 +296,39 @@ function realWorkspaceData(setupComplete = false) {
     optionality,
     cfoFilter,
     mia: { messages: chatMessages(), oldest_message_id: 1, older_message_count: 0, has_older_messages: false, quick_prompts: ['Can I buy the purse?'], disclaimer: 'Education only.' },
+  }
+}
+
+function workspaceWithAccountReview(accounts: Array<Record<string, unknown>>, draft: Record<string, unknown>) {
+  const base = realWorkspaceData(true)
+  const active = accounts.filter((account) => account.active)
+  const archived = accounts.filter((account) => !account.active)
+  const known = active.filter((account) => account.balance !== null)
+  const liquid = active.filter((account) => ['checking', 'savings', 'emergency_fund'].includes(String(account.account_type)))
+  const liquidKnown = liquid.filter((account) => account.balance !== null)
+  const nonliquid = active.filter((account) => !['checking', 'savings', 'emergency_fund'].includes(String(account.account_type)))
+  const nonliquidKnown = nonliquid.filter((account) => account.balance !== null)
+  const sum = (records: Array<Record<string, unknown>>) => records.reduce((total, account) => total + Number(account.balance ?? 0), 0)
+
+  return {
+    ...base,
+    workspace: {
+      ...base.workspace,
+      accounts,
+      asset_portfolio: {
+        liquid_balance: sum(liquidKnown), nonliquid_balance: sum(nonliquidKnown), total_balance: sum(known),
+        liquid_balance_known: liquid.length > 0 && liquidKnown.length === liquid.length,
+        nonliquid_balance_known: nonliquid.length > 0 && nonliquidKnown.length === nonliquid.length,
+        total_balance_known: active.length > 0 && known.length === active.length,
+        active_count: active.length, archived_count: archived.length,
+        liquid_known_count: liquidKnown.length, nonliquid_known_count: nonliquidKnown.length, total_known_count: known.length,
+        unknown_balance_account_ids: active.filter((account) => account.balance === null).map((account) => account.id),
+      },
+    },
+    budget: {
+      ...base.budget,
+      annual_plan: { ...base.budget.annual_plan, pending_mia_action_drafts: [draft] },
+    },
   }
 }
 
@@ -1511,6 +1565,113 @@ test('account manager routes Mia account reviews to the exact mobile-safe manual
   const archivedSummary = manager.getByText('Archived accounts (1)')
   await expect(archivedSummary).toBeVisible()
   expect((await archivedSummary.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+})
+
+test('account manager routes keep-saved reviews to Keep saved and never Accept', async ({ page }) => {
+  const account = {
+    id: 22, label: 'Emergency reserve', account_type: 'savings', balance: 1_000, balance_as_of_on: '2026-09-01',
+    active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {},
+    plaid_link: {
+      plaid_account_id: 88, institution_name: 'Island Bank', name: 'Savings', mask: '4321',
+      current_balance: 1_250, available_balance: 1_250, observed_at: '2026-10-01T00:00:00Z',
+      active: true, observation_newer_than_saved: true,
+    },
+  }
+  const draft = miaAccountActionDraft({
+    id: 75, title: 'Keep the saved emergency reserve balance', actionType: 'reconcile_plaid_account', accountId: 22,
+    payload: { decision: 'keep_saved' },
+  })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceWithAccountReview([account], draft) }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  await card.getByRole('button', { name: 'Open manual controls' }).click()
+
+  const manager = page.locator('.account-manager')
+  await expect(manager.getByRole('button', { name: 'Keep saved' })).toBeFocused()
+  await expect(manager.getByRole('button', { name: 'Accept bank balance' })).not.toBeFocused()
+})
+
+test('account manager opens archived accounts before routing a restore review', async ({ page }) => {
+  const archived = {
+    id: 23, label: 'Old brokerage', account_type: 'investment', balance: 500, balance_as_of_on: '2025-01-01',
+    active: false, archived_at: '2026-01-01T00:00:00Z', source_type: 'manual_ui', source_metadata: {}, plaid_link: null,
+  }
+  const draft = miaAccountActionDraft({ id: 76, title: 'Restore the old brokerage', actionType: 'restore_account', accountId: 23, payload: {} })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceWithAccountReview([archived], draft) }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  await card.getByRole('button', { name: 'Open manual controls' }).click()
+
+  const archive = page.locator('.account-manager details.debt-archive')
+  await expect(archive).toHaveAttribute('open', '')
+  await expect(archive.getByRole('button', { name: 'Restore' })).toBeFocused()
+})
+
+test('account manager opens the archive and focuses Restore after archiving', async ({ page }) => {
+  let isArchived = false
+  const activeAccount = {
+    id: 22, label: 'Emergency reserve', account_type: 'savings', balance: 1_000, balance_as_of_on: '2026-09-01',
+    active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null,
+  }
+  const draft = miaAccountActionDraft({ id: 77, title: 'Archive the emergency reserve', actionType: 'archive_account', accountId: 22, payload: {} })
+  const currentAccount = () => ({ ...activeAccount, active: !isArchived, archived_at: isArchived ? '2026-10-02T00:00:00Z' : null })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceWithAccountReview([currentAccount()], draft) }))
+  await page.route('http://api.test/api/v1/accounts/22', (route) => {
+    isArchived = true
+    return route.fulfill({ status: 200, json: { account: currentAccount() } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  const manager = page.locator('.account-manager')
+  await manager.getByRole('button', { name: 'Archive' }).click()
+  await manager.getByRole('button', { name: 'Confirm archive' }).click()
+
+  const archive = manager.locator('details.debt-archive')
+  await expect(archive).toHaveAttribute('open', '')
+  await expect(archive.getByRole('button', { name: 'Restore' })).toBeFocused()
+})
+
+test('account manager keeps a link review pending until Plaid observations load', async ({ page }) => {
+  const account = {
+    id: 21, label: 'Everyday checking', account_type: 'checking', balance: 500, balance_as_of_on: '2026-09-01',
+    active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null,
+  }
+  const draft = miaAccountActionDraft({
+    id: 78, title: 'Match everyday checking to Island Bank', actionType: 'link_plaid_account', accountId: 21,
+    payload: { plaid_account_id: 88 },
+  })
+  let releasePlaid!: () => void
+  const plaidGate = new Promise<void>((resolve) => { releasePlaid = resolve })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceWithAccountReview([account], draft) }))
+  await page.route('http://api.test/api/v1/plaid/items', async (route) => {
+    await plaidGate
+    return route.fulfill({
+      status: 200,
+      json: {
+        configured: true, environment: 'sandbox', consent_policy_version: '2026-08-17',
+        items: [{
+          id: 7, institution_name: 'Island Bank', status: 'active', environment: 'sandbox', consented_at: '2026-08-17T00:00:00Z',
+          last_synced_at: '2026-10-01T00:00:00Z', health: { state: 'healthy', label: 'Healthy', message: 'Current', requires_attention: false, last_successful_update_at: '2026-10-01T00:00:00Z', stale_after: '2026-10-02T00:00:00Z' },
+          error_message: null, disconnected_at: null, auto_confirm_trusted_merchants: false,
+          accounts: [{ id: 88, name: 'Checking', official_name: null, mask: '1234', type: 'depository', subtype: 'checking', current_balance_cents: 50_000, available_balance_cents: 48_000, currency: 'USD', active: true, eligible_for_asset_tracking: true, allowed_account_types: ['checking', 'savings'], suggested_account_type: 'checking', canonical_account_id: null, canonical_balance_known: null, canonical_balance_cents: null, observation_newer_than_saved: false }],
+        }],
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  const manager = page.locator('.account-manager')
+  await expect(manager).toBeVisible()
+  await expect(manager.getByLabel('Match a bank observation')).toHaveCount(0)
+
+  releasePlaid()
+  const match = manager.getByLabel('Match a bank observation')
+  await expect(match).toBeVisible()
+  await expect(match).toBeFocused()
 })
 
 test('applying an unrelated Mia draft preserves unsaved profile edits', async ({ page }) => {

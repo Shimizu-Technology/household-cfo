@@ -1264,8 +1264,11 @@ function App() {
       const accountId = accountItem?.target_record_id ?? (Number(accountItem?.payload.account_id ?? 0) || null)
       const actionType = accountItem?.action_type
       if (actionType && actionType.endsWith('_account')) {
+        const reconcileDecision = accountItem?.payload.decision === 'accept_observed' || accountItem?.payload.decision === 'keep_saved'
+          ? accountItem.payload.decision
+          : undefined
         accountFocusSequenceRef.current += 1
-        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId })
+        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId, reconcileDecision })
       } else {
         window.setTimeout(focusAccountManager, 80)
       }

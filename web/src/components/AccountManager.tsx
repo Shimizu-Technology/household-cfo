@@ -14,7 +14,8 @@ const liquidTypes: AccountType[] = ['checking', 'savings', 'emergency_fund']
 const titleize = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 
 type AccountAction = 'create_account' | 'update_account' | 'archive_account' | 'restore_account' | 'link_plaid_account' | 'reconcile_plaid_account' | 'unlink_plaid_account'
-export type AccountFocusRequest = { key: number; actionType: AccountAction; accountId: number | null }
+type ReconcileDecision = 'accept_observed' | 'keep_saved'
+export type AccountFocusRequest = { key: number; actionType: AccountAction; accountId: number | null; reconcileDecision?: ReconcileDecision }
 type Draft = { label: string; account_type: AccountType; balance: string; balance_as_of_on: string; plaid_account_id: string }
 const emptyDraft: Draft = { label: '', account_type: 'checking', balance: '', balance_as_of_on: '', plaid_account_id: '' }
 
@@ -39,12 +40,13 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
   const labelInputRef = useRef<HTMLInputElement | null>(null)
   const balanceInputRef = useRef<HTMLInputElement | null>(null)
   const returnFocusRef = useRef<HTMLElement | null>(null)
+  const handledFocusKeyRef = useRef<number | null>(null)
   const active = accounts.filter((account) => account.active)
   const archived = accounts.filter((account) => !account.active)
   const liquidCount = active.filter((account) => liquidTypes.includes(account.account_type)).length
   const nonliquidCount = active.length - liquidCount
   const observations = useMemo(() => plaidItems.flatMap((item) => item.accounts.map((account) => ({ item, account }))), [plaidItems])
-  const unlinked = observations.filter(({ account }) => account.active && account.eligible_for_asset_tracking && account.canonical_account_id === null)
+  const unlinked = useMemo(() => observations.filter(({ account }) => account.active && account.eligible_for_asset_tracking && account.canonical_account_id === null), [observations])
 
   useEffect(() => {
     let canceled = false
@@ -60,7 +62,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
   }, [accounts, plaidReload])
 
   useEffect(() => {
-    if (!focusRequest) return
+    if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
     const account = accounts.find((candidate) => candidate.id === focusRequest.accountId)
     window.requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_account') {
@@ -71,21 +73,24 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
         setEditing(account.id); setArchiveId(null); setError(null)
         window.requestAnimationFrame(() => labelInputRef.current?.focus())
       } else {
-        const action = accountActionControl(focusRequest.actionType)
+        const action = accountActionControl(focusRequest)
         const row = document.querySelector<HTMLElement>(`[data-account-id="${focusRequest.accountId}"]`)
-        row?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
-        if (action) row?.querySelector<HTMLElement>(`[data-account-action="${action}"]`)?.focus({ preventScroll: true })
+        const target = action ? row?.querySelector<HTMLElement>(`[data-account-action="${action}"]`) : null
+        if (!target) return
+        revealAndFocus(target)
       }
+      handledFocusKeyRef.current = focusRequest.key
       onFocusRequestHandled?.()
     })
-  }, [accounts, focusRequest, onFocusRequestHandled])
+  }, [accounts, focusRequest, onFocusRequestHandled, unlinked])
 
   function rememberFocus(element?: HTMLElement | null) { returnFocusRef.current = element ?? document.activeElement as HTMLElement | null }
   function focusLater(selector?: string) {
     window.requestAnimationFrame(() => {
       const target = selector ? document.querySelector<HTMLElement>(selector) : null
       const fallback = returnFocusRef.current?.isConnected ? returnFocusRef.current : addButtonRef.current
-      ;(target ?? fallback)?.focus({ preventScroll: true })
+      const focusTarget = target ?? fallback
+      if (focusTarget) revealAndFocus(focusTarget)
     })
   }
   function beginCreate(observation?: PlaidAccount, trigger?: HTMLElement | null) {
@@ -162,7 +167,7 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
       <div><strong>{account.label}</strong><span>{titleize(account.account_type)} · {account.balance_as_of_on ? `As of ${new Date(`${account.balance_as_of_on}T00:00:00`).toLocaleDateString()}` : account.balance === null ? 'Balance not entered' : 'Date not entered'}</span></div>
       <div><strong>{amount(account.balance)}</strong>{account.plaid_link ? <span>{account.plaid_link.institution_name}{account.plaid_link.mask ? ` ••${account.plaid_link.mask}` : ''}</span> : <span>Not matched to a bank</span>}</div>
       <div className="account-row-actions"><button type="button" data-account-action="edit" className="secondary-button" disabled={saving} onClick={(event) => beginEdit(account, event.currentTarget)}>Edit</button><button type="button" data-account-action="archive" className={archiveId === account.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={(event) => { rememberFocus(event.currentTarget); if (archiveId === account.id) void mutate(`archive:${account.id}`, (key) => archiveAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="restore"]`); else setArchiveId(account.id) }}>{archiveId === account.id ? 'Confirm archive' : 'Archive'}</button></div>
-      {account.plaid_link && <div className={`account-bank-review${account.plaid_link.active ? '' : ' is-inactive'}`}><span>{account.plaid_link.active ? <>Bank observed: <strong>{amount(account.plaid_link.current_balance)}</strong>{account.plaid_link.observed_at ? ` · ${new Date(account.plaid_link.observed_at).toLocaleString()}` : ''}{account.plaid_link.observation_newer_than_saved ? ' · Review available' : ' · Reviewed'}</> : <>Bank observation unavailable. Reconnect or sync this institution under Bank connections before reconciling.</>}</span><div>{account.plaid_link.active && account.plaid_link.observation_newer_than_saved && <><button type="button" data-account-action="reconcile" className="secondary-button" disabled={saving || account.plaid_link.current_balance === null} onClick={() => void mutate(`reconcile:${account.id}:accept`, (key) => reconcilePlaidAccount(account.id, 'accept_observed', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`)}>Accept bank balance</button><button type="button" className="quiet-button" disabled={saving} onClick={() => void mutate(`reconcile:${account.id}:keep`, (key) => reconcilePlaidAccount(account.id, 'keep_saved', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`)}>Keep saved</button></>}{!account.plaid_link.active && <button type="button" data-account-action="reconcile" className="secondary-button" disabled>Accept bank balance</button>}<button type="button" data-account-action="unlink" className="quiet-button" disabled={saving} onClick={() => void mutate(`unlink:${account.id}`, (key) => unlinkPlaidAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="link"]`)}>Unmatch</button></div></div>}
+      {account.plaid_link && <div className={`account-bank-review${account.plaid_link.active ? '' : ' is-inactive'}`}><span>{account.plaid_link.active ? <>Bank observed: <strong>{amount(account.plaid_link.current_balance)}</strong>{account.plaid_link.observed_at ? ` · ${new Date(account.plaid_link.observed_at).toLocaleString()}` : ''}{account.plaid_link.observation_newer_than_saved ? ' · Review available' : ' · Reviewed'}</> : <>Bank observation unavailable. Reconnect or sync this institution under Bank connections before reconciling.</>}</span><div>{account.plaid_link.active && account.plaid_link.observation_newer_than_saved && <><button type="button" data-account-action="reconcile-accept" className="secondary-button" disabled={saving || account.plaid_link.current_balance === null} onClick={() => void mutate(`reconcile:${account.id}:accept`, (key) => reconcilePlaidAccount(account.id, 'accept_observed', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`)}>Accept bank balance</button><button type="button" data-account-action="reconcile-keep" className="quiet-button" disabled={saving} onClick={() => void mutate(`reconcile:${account.id}:keep`, (key) => reconcilePlaidAccount(account.id, 'keep_saved', key), `[data-account-id="${account.id}"] [data-account-action="edit"]`)}>Keep saved</button></>}{!account.plaid_link.active && <button type="button" data-account-action="reconcile-accept" className="secondary-button" disabled>Accept bank balance</button>}<button type="button" data-account-action="unlink" className="quiet-button" disabled={saving} onClick={() => void mutate(`unlink:${account.id}`, (key) => unlinkPlaidAccount(account.id, key), `[data-account-id="${account.id}"] [data-account-action="link"]`)}>Unmatch</button></div></div>}
       {!account.plaid_link && unlinked.length > 0 && <label className="account-match"><span>Match a bank observation</span><select data-account-action="link" defaultValue="" disabled={saving} onChange={(event) => { const id = Number(event.target.value); if (id) void mutate(`link:${account.id}:${id}`, (key) => linkPlaidAccount(account.id, id, key), `[data-account-id="${account.id}"] [data-account-action="unlink"]`) }}><option value="">Choose an account</option>{unlinked.filter(({ account: item }) => item.allowed_account_types.includes(account.account_type)).map(({ item, account: observed }) => <option key={observed.id} value={observed.id}>{item.institution_name} · {observed.name}{observed.mask ? ` ••${observed.mask}` : ''}</option>)}</select></label>}
     </div>)}</div>}
 
@@ -180,13 +185,20 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
   </article>
 }
 
-function accountActionControl(actionType: AccountAction) {
-  switch (actionType) {
+function accountActionControl(request: AccountFocusRequest) {
+  switch (request.actionType) {
     case 'archive_account': return 'archive'
     case 'restore_account': return 'restore'
     case 'link_plaid_account': return 'link'
-    case 'reconcile_plaid_account': return 'reconcile'
+    case 'reconcile_plaid_account': return request.reconcileDecision === 'accept_observed' ? 'reconcile-accept' : request.reconcileDecision === 'keep_saved' ? 'reconcile-keep' : null
     case 'unlink_plaid_account': return 'unlink'
     default: return null
   }
+}
+
+function revealAndFocus(target: HTMLElement) {
+  const disclosure = target.closest('details')
+  if (disclosure) disclosure.open = true
+  target.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  target.focus({ preventScroll: true })
 }
