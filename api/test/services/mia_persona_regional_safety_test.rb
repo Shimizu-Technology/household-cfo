@@ -164,7 +164,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     end
   end
 
-  test "persona models bind phrase provenance to a real coach or participant" do
+  test "persona models bind phrase provenance to its immutable capture role" do
     coach = persona_user
     other_coach = persona_user
     participant = persona_user(role: "participant")
@@ -203,6 +203,59 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     refute wrong_coach.valid?
     assert_includes wrong_coach.errors[:draft_config], "$.phrases[0] has invalid provenance"
     assert participant_persona.valid?
+  end
+
+  test "participant phrase seals survive role change revocation deletion publish and rollback" do
+    coach = persona_user
+    participant = persona_user(role: "participant")
+    config = persona_configuration(assistant_name: "Durable participant phrase")
+    config["phrases"] = [
+      Mia::PersonaSchema.build_phrase_artifact(
+        {
+          "text" => "My family calls it the storm fund.",
+          "meaning" => "The participant's own term for emergency savings.",
+          "allowed_contexts" => [ "routine" ],
+          "prohibited_contexts" => [ "crisis" ],
+          "frequency" => "as_needed",
+          "caution" => "Use only for the participant who supplied it."
+        },
+        provenance: "participant_supplied",
+        source_user_id: participant.id,
+        source_role_at_capture: "participant"
+      )
+    ]
+    persona = CoachPersona.create!(
+      name: "Durable participant phrase",
+      draft_config: config,
+      created_by_user: coach
+    )
+    original_version = publish_persona(persona, actor: coach)
+
+    participant.update!(role: "coach", invitation_status: "revoked")
+    persona.update!(description: "The participant source was promoted and revoked after capture.")
+    assert persona.valid?
+    assert publish_persona(persona, actor: coach).valid?
+
+    participant.destroy!
+    persona.apply_rollback_version!(original_version)
+    assert persona.reload.valid?
+    assert_equal "participant", persona.draft_config.dig("phrases", 0, "source_role_at_capture")
+  end
+
+  test "direct persona drafts reject nonfinancial demographic trait generalizations" do
+    [
+      "Guam residents avoid conflict.",
+      "People in Guam love parties.",
+      "Southerners are naturally hospitable.",
+      "Filipinos are obedient."
+    ].each do |claim|
+      config = persona_configuration(assistant_name: "Trait boundary")
+      config["culture"]["context"] = claim
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.culture.context contains a regional or cultural stereotype",
+        claim
+    end
   end
 
   test "specific realities first-person coaching voice and exact approved phrases can be published" do

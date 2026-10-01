@@ -142,11 +142,14 @@ class CoachPersona < ApplicationRecord
 
   def phrase_artifact_provenance
     Array(draft_config.to_h["phrases"]).each_with_index do |phrase, index|
+      next unless phrase.is_a?(Hash)
+
       source_user_id = Integer(phrase["source_user_id"], exception: false)
+      captured_role = phrase["source_role_at_capture"]
       valid = if phrase["provenance"] == "coach_authored"
-        source_user_id == created_by_user_id
+        source_user_id == created_by_user_id && captured_role.in?(%w[admin coach])
       elsif phrase["provenance"] == "participant_supplied"
-        User.where(id: source_user_id, role: "participant").exists?
+        source_user_id.present? && captured_role == "participant"
       end
       errors.add(:draft_config, "$.phrases[#{index}] has invalid provenance") unless valid
     end

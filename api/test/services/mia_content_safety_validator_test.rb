@@ -230,6 +230,22 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "cultural safety rejects identity traits while preserving generic curriculum help" do
+    [
+      "Guam residents avoid conflict.",
+      "People in Guam love parties.",
+      "Southerners are naturally hospitable.",
+      "Filipinos are obedient."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+
+    [
+      "A budget plan can help reduce debt.",
+      "Workers can save through automatic transfers."
+    ].each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "General curriculum", content: content), content
+    end
+  end
+
   test "cultural safety covers regional mimicry grammar and preserves explicit boundaries" do
     mimicry = [
       "Sound like a Guamanian.",

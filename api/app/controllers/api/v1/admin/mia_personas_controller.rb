@@ -23,7 +23,11 @@ module Api
         def create
           attributes = create_persona_params
           draft = attributes[:draft_config].presence || default_draft(attributes[:name])
-          draft = Mia::PersonaSchema.prepare_draft_artifacts(draft, source_user_id: current_user.id)
+          draft = Mia::PersonaSchema.prepare_draft_artifacts(
+            draft,
+            source_user_id: current_user.id,
+            source_role_at_capture: current_user.role
+          )
           persona = CoachPersona.create!(
             name: attributes[:name].presence || draft.to_h.dig("identity", "assistant_name"),
             description: attributes[:description],
@@ -61,6 +65,7 @@ module Api
               attributes[:draft_config] = Mia::PersonaSchema.prepare_draft_artifacts(
                 attributes[:draft_config],
                 source_user_id: persona.created_by_user_id,
+                source_role_at_capture: current_user.role,
                 existing_configuration: persona.draft_config,
                 allow_coach_artifact_edits: current_user.id == persona.created_by_user_id
               )

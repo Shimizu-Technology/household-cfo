@@ -259,6 +259,31 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
     assert_includes errors, "$.phrases[0].allowed_contexts[0] is not supported"
   end
 
+  test "malformed phrase entries produce schema errors without crashing model validation" do
+    coach = persona_user
+    malformed = persona_configuration
+    malformed["phrases"] = [ "not an artifact" ]
+
+    persona = CoachPersona.new(
+      name: "Malformed phrase persona",
+      draft_config: malformed,
+      created_by_user: coach
+    )
+    version = CoachPersonaVersion.new(
+      coach_persona: persona,
+      version_number: 1,
+      config: malformed,
+      config_digest: "0" * 64,
+      content_manifest_digest: Digest::SHA256.hexdigest("[]"),
+      published_by_user: coach
+    )
+
+    refute persona.valid?
+    assert_includes persona.errors[:draft_config], "$.phrases[0] must be an object"
+    refute version.valid?
+    assert_includes version.errors[:config], "$.phrases[0] must be an object"
+  end
+
   test "phrase artifacts have stable IDs and content-bound fingerprints" do
     config = persona_configuration
     config["phrases"] = [
@@ -344,6 +369,57 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
       "$.phrases[0].text contains a regional or cultural stereotype"
     assert_includes Mia::PersonaSchema.errors(unsafe_meaning),
       "$.phrases[0].meaning cannot infer dialect, slang, or cultural traits from a location or identity label"
+  end
+
+  test "phrase artifacts accept exact utterances but reject response style directives" do
+    [
+      "Sound like someone from Guam.",
+      "Use Guam slang in every answer.",
+      "Write in a Southern dialect.",
+      "Talk the way Guam locals do."
+    ].each do |directive|
+      config = persona_configuration
+      config["phrases"] = [
+        persona_phrase_artifact(
+          {
+            "text" => directive,
+            "meaning" => "A submitted phrase that improperly contains a response instruction.",
+            "allowed_contexts" => [ "general" ]
+          }
+        )
+      ]
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.phrases[0].text cannot infer dialect, slang, or cultural traits from a location or identity label",
+        directive
+    end
+
+    exact_utterance = persona_configuration
+    exact_utterance["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Håfa adai",
+          "meaning" => "A Chamorro greeting meaning hello.",
+          "allowed_contexts" => [ "greeting" ]
+        }
+      )
+    ]
+    assert_empty Mia::PersonaSchema.errors(exact_utterance)
+  end
+
+  test "phrase meanings can describe an expression without authorizing regional style" do
+    config = persona_configuration
+    config["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Paso a paso",
+          "meaning" => "A Puerto Rican expression meaning one step at a time.",
+          "allowed_contexts" => [ "routine" ]
+        }
+      )
+    ]
+
+    assert_empty Mia::PersonaSchema.errors(config)
   end
 
   test "draft preparation preserves only participant artifacts already sealed in the draft" do

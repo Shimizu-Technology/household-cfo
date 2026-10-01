@@ -261,6 +261,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     refute_equal client_artifact_id, artifact.fetch("artifact_id")
     assert_equal "coach_authored", artifact.fetch("provenance")
     assert_equal coach.id, artifact.fetch("source_user_id")
+    assert_equal "coach", artifact.fetch("source_role_at_capture")
     assert_equal Mia::PersonaSchema.artifact_fingerprint(artifact), artifact.fetch("fingerprint")
 
     original_id = artifact.fetch("artifact_id")
@@ -308,6 +309,14 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_equal original, persona.reload.draft_config.fetch("phrases").first
+    access = response.parsed_body.dig("persona", "phrase_artifact_access")
+    assert_equal false, access.fetch("can_add")
+    capability = access.fetch("artifacts").sole
+    assert_equal "Coach authored", capability.fetch("source_label")
+    assert_equal false, capability.fetch("can_edit")
+    assert_equal false, capability.fetch("can_move")
+    assert_equal false, capability.fetch("can_remove")
+    assert_equal true, capability.fetch("locked")
 
     phrase_edit = persona.draft_config.deep_dup
     phrase_edit["phrases"][0]["meaning"] = "An administrator's replacement meaning."
@@ -365,6 +374,19 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :unprocessable_entity
     assert_includes response.parsed_body.fetch("errors").first, "provenance cannot change"
     assert_equal original, persona.reload.draft_config.fetch("phrases").first
+
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(coach), as: :json
+
+    assert_response :success
+    access = response.parsed_body.dig("persona", "phrase_artifact_access")
+    assert_equal true, access.fetch("can_add")
+    capability = access.fetch("artifacts").sole
+    assert_equal "Participant supplied", capability.fetch("source_label")
+    assert_equal "participant", capability.fetch("source_role_at_capture")
+    assert_equal false, capability.fetch("can_edit")
+    assert_equal true, capability.fetch("can_move")
+    assert_equal true, capability.fetch("can_remove")
+    assert_equal true, capability.fetch("locked")
   end
 
   test "persona API cannot mint participant-supplied phrase provenance" do

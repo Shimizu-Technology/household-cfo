@@ -670,6 +670,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                     {selectedPersona.permissions.edit ? (
                       <PersonaEditor
                         draft={draft}
+                        phraseArtifactAccess={selectedPersona.phrase_artifact_access}
                         description={description}
                         mode={mode}
                         guidedStep={guidedStep}
@@ -743,6 +744,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
 function PersonaEditor({
   draft,
+  phraseArtifactAccess,
   description,
   mode,
   guidedStep,
@@ -752,6 +754,7 @@ function PersonaEditor({
   mutate,
 }: {
   draft: PersonaConfiguration
+  phraseArtifactAccess: AdminPersonaDetail['phrase_artifact_access']
   description: string
   mode: EditorMode
   guidedStep: GuidedStep
@@ -799,7 +802,7 @@ function PersonaEditor({
             ))}
           </div>
           <div role="tabpanel" className="coach-step-panel" id={`coach-step-panel-${guidedStep}`} aria-labelledby={`coach-step-tab-${guidedStep}`}>
-            {renderEditorSection(guidedStep, draft, onChange, mutate, description, onDescriptionChange)}
+            {renderEditorSection(guidedStep, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess)}
           </div>
           <div className="coach-step-actions">
             <Button type="button" variant="secondary" disabled={currentIndex === 0} onClick={() => onStepChange(guidedSteps[currentIndex - 1].id)}>Previous</Button>
@@ -814,7 +817,7 @@ function PersonaEditor({
           {guidedSteps.map((step) => (
             <details key={step.id} open={step.id === 'identity'}>
               <summary>{step.label}</summary>
-              <div>{renderEditorSection(step.id, draft, onChange, mutate, description, onDescriptionChange)}</div>
+              <div>{renderEditorSection(step.id, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess)}</div>
             </details>
           ))}
         </div>
@@ -830,6 +833,7 @@ function renderEditorSection(
   mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void,
   description: string,
   onDescriptionChange: (value: string) => void,
+  phraseArtifactAccess: AdminPersonaDetail['phrase_artifact_access'],
 ) {
   if (step === 'identity') {
     return (
@@ -877,7 +881,7 @@ function renderEditorSection(
         <TextArea label="Cultural and community context" value={draft.culture.context} maxLength={1000} rows={5} onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, context: value } })} />
         <LineList label="Local realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified factual access, cost, calendar, weather, or regulatory reality per line." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
         <LineList label="Approved references" values={draft.culture.references} maxItems={16} itemMaxLength={300} help="Coach authored examples, programs, or community references." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, references: values } })} />
-        <PhraseEditor draft={draft} mutate={mutate} />
+        <PhraseEditor draft={draft} mutate={mutate} access={phraseArtifactAccess} />
       </EditorFieldset>
     )
   }
@@ -1033,23 +1037,36 @@ function AssignmentPanel({ persona, cohorts, pending, dirty, onAssign, onRemove 
   )
 }
 
-function PhraseEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
+function PhraseEditor({ draft, mutate, access }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void; access: AdminPersonaDetail['phrase_artifact_access'] }) {
   const phrases = draft.phrases
+  const capabilities = new Map((access?.artifacts ?? []).map((artifact) => [artifact.artifact_id, artifact]))
+  const canAdd = access?.can_add === true
   return (
     <section className="coach-array-editor">
-      <header><div><strong>Approved phrases</strong><small>Meaning and context are required. Crisis use should normally stay prohibited.</small></div><Button type="button" size="compact" variant="secondary" disabled={phrases.length >= PERSONA_LIST_LIMITS.phrases} onClick={() => mutate((current) => ({ ...current, phrases: appendListItem(current.phrases, { text: 'New phrase', meaning: 'Coach-approved meaning and intent.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '' }, PERSONA_LIST_LIMITS.phrases) }))}>Add phrase</Button></header>
+      <header><div><strong>Approved phrases</strong><small>Meaning and context are required. Crisis use should normally stay prohibited.</small></div><Button type="button" size="compact" variant="secondary" disabled={!canAdd || phrases.length >= PERSONA_LIST_LIMITS.phrases} onClick={() => mutate((current) => ({ ...current, phrases: appendListItem(current.phrases, { text: 'New phrase', meaning: 'Coach-approved meaning and intent.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '' }, PERSONA_LIST_LIMITS.phrases) }))}>Add phrase</Button></header>
+      {!canAdd && <p className="coach-phrase-access-note" role="note">Only the owning coach can add or change approved phrases.</p>}
       {phrases.length === 0 && <p>No phrases added. Locale alone will never create them.</p>}
-      {phrases.map((phrase, index) => (
-        <article key={index}>
-          <div className="coach-array-row-heading"><strong>Phrase {index + 1}</strong><ArrayActions label={`phrase ${index + 1}`} index={index} count={phrases.length} onMove={(direction) => mutate((current) => ({ ...current, phrases: moveItem(current.phrases, index, direction) }))} onRemove={() => mutate((current) => ({ ...current, phrases: current.phrases.filter((_, itemIndex) => itemIndex !== index) }))} /></div>
-          <TextInput label="Phrase" value={phrase.text} maxLength={100} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], text: value }) }))} />
-          <TextArea label="Meaning and intent" value={phrase.meaning} maxLength={300} rows={2} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], meaning: value }) }))} />
-          <label><span>Frequency</span><select value={phrase.frequency} onChange={(event) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], frequency: event.target.value as typeof phrase.frequency }) }))}><option value="very_rare">Very rare</option><option value="rare">Rare</option><option value="sparing">Sparing</option><option value="as_needed">As needed</option></select></label>
-          <TextArea label="Caution" value={phrase.caution} maxLength={300} rows={2} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], caution: value }) }))} />
-          <ContextChecks label="Allowed contexts" selected={phrase.allowed_contexts} onChange={(values) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], allowed_contexts: values }) }))} />
-          <ContextChecks label="Prohibited contexts" selected={phrase.prohibited_contexts} onChange={(values) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], prohibited_contexts: values }) }))} />
-        </article>
-      ))}
+      {phrases.map((phrase, index) => {
+        const capability = phrase.artifact_id ? capabilities.get(phrase.artifact_id) : undefined
+        const isNew = !phrase.artifact_id
+        const canEdit = isNew ? canAdd : capability?.can_edit === true
+        const canMove = isNew ? canAdd : capability?.can_move === true
+        const canRemove = isNew ? canAdd : capability?.can_remove === true
+        const sourceLabel = isNew ? 'New coach-authored phrase' : capability?.source_label ?? 'Sealed phrase'
+        const lockedReason = capability?.locked_reason
+        return (
+          <article key={phrase.artifact_id ?? `new-${index}`}>
+            <div className="coach-array-row-heading"><div><strong>Phrase {index + 1}</strong><p className="coach-phrase-provenance"><span>{sourceLabel}</span>{!canEdit && <span aria-label="Locked phrase">Locked</span>}</p></div><ArrayActions label={`phrase ${index + 1}`} index={index} count={phrases.length} canMove={canMove} canRemove={canRemove} onMove={(direction) => mutate((current) => ({ ...current, phrases: moveItem(current.phrases, index, direction) }))} onRemove={() => mutate((current) => ({ ...current, phrases: current.phrases.filter((_, itemIndex) => itemIndex !== index) }))} /></div>
+            {lockedReason && <p className="coach-phrase-access-note" role="note">{lockedReason}</p>}
+            <TextInput label="Phrase" value={phrase.text} maxLength={100} disabled={!canEdit} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], text: value }) }))} />
+            <TextArea label="Meaning and intent" value={phrase.meaning} maxLength={300} rows={2} disabled={!canEdit} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], meaning: value }) }))} />
+            <label><span>Frequency</span><select value={phrase.frequency} disabled={!canEdit} onChange={(event) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], frequency: event.target.value as typeof phrase.frequency }) }))}><option value="very_rare">Very rare</option><option value="rare">Rare</option><option value="sparing">Sparing</option><option value="as_needed">As needed</option></select></label>
+            <TextArea label="Caution" value={phrase.caution} maxLength={300} rows={2} disabled={!canEdit} onChange={(value) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], caution: value }) }))} />
+            <ContextChecks label="Allowed contexts" selected={phrase.allowed_contexts} disabled={!canEdit} onChange={(values) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], allowed_contexts: values }) }))} />
+            <ContextChecks label="Prohibited contexts" selected={phrase.prohibited_contexts} disabled={!canEdit} onChange={(values) => mutate((current) => ({ ...current, phrases: replaceAt(current.phrases, index, { ...current.phrases[index], prohibited_contexts: values }) }))} />
+          </article>
+        )
+      })}
     </section>
   )
 }
@@ -1077,12 +1094,12 @@ function EditorFieldset({ legend, copy, children }: { legend: string; copy: stri
   return <fieldset className="coach-fieldset"><legend>{legend}</legend><p>{copy}</p><div className="coach-field-grid">{children}</div></fieldset>
 }
 
-function TextInput({ label, value, onChange, maxLength, help }: { label: string; value: string; onChange: (value: string) => void; maxLength?: number; help?: string }) {
-  return <label><span>{label}</span><input value={value} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
+function TextInput({ label, value, onChange, maxLength, help, disabled = false }: { label: string; value: string; onChange: (value: string) => void; maxLength?: number; help?: string; disabled?: boolean }) {
+  return <label><span>{label}</span><input value={value} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
 }
 
-function TextArea({ label, value, onChange, rows, maxLength, help }: { label: string; value: string; onChange: (value: string) => void; rows: number; maxLength?: number; help?: string }) {
-  return <label className="is-wide"><span>{label}</span><textarea value={value} rows={rows} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
+function TextArea({ label, value, onChange, rows, maxLength, help, disabled = false }: { label: string; value: string; onChange: (value: string) => void; rows: number; maxLength?: number; help?: string; disabled?: boolean }) {
+  return <label className="is-wide"><span>{label}</span><textarea value={value} rows={rows} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
 }
 
 function ChoiceChips<Option extends string>({ label, options, selected, onChange, minimum = 0 }: { label: string; options: readonly Option[]; selected: readonly Option[]; onChange: (values: Option[]) => void; minimum?: number }) {
@@ -1116,12 +1133,12 @@ function CheckField({ label, checked, onChange }: { label: string; checked: bool
   return <label className="coach-check"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span>{label}</span></label>
 }
 
-function ContextChecks({ label, selected, onChange }: { label: string; selected: string[]; onChange: (values: typeof PERSONA_PHRASE_CONTEXTS[number][]) => void }) {
-  return <fieldset className="coach-context-checks"><legend>{label}</legend>{PERSONA_PHRASE_CONTEXTS.map((context) => <label key={context}><input type="checkbox" checked={selected.includes(context)} onChange={(event) => onChange(event.target.checked ? [...selected.filter((value) => value !== context), context] as typeof PERSONA_PHRASE_CONTEXTS[number][] : selected.filter((value) => value !== context) as typeof PERSONA_PHRASE_CONTEXTS[number][])} /><span>{titleize(context)}</span></label>)}</fieldset>
+function ContextChecks({ label, selected, onChange, disabled = false }: { label: string; selected: string[]; onChange: (values: typeof PERSONA_PHRASE_CONTEXTS[number][]) => void; disabled?: boolean }) {
+  return <fieldset className="coach-context-checks" disabled={disabled}><legend>{label}</legend>{PERSONA_PHRASE_CONTEXTS.map((context) => <label key={context}><input type="checkbox" checked={selected.includes(context)} onChange={(event) => onChange(event.target.checked ? [...selected.filter((value) => value !== context), context] as typeof PERSONA_PHRASE_CONTEXTS[number][] : selected.filter((value) => value !== context) as typeof PERSONA_PHRASE_CONTEXTS[number][])} /><span>{titleize(context)}</span></label>)}</fieldset>
 }
 
-function ArrayActions({ label, index, count, onMove, onRemove }: { label: string; index: number; count: number; onMove: (direction: -1 | 1) => void; onRemove: () => void }) {
-  return <div className="coach-array-actions"><button type="button" aria-label={`Move ${label} up`} disabled={index === 0} onClick={() => onMove(-1)}>↑</button><button type="button" aria-label={`Move ${label} down`} disabled={index === count - 1} onClick={() => onMove(1)}>↓</button><button type="button" aria-label={`Remove ${label}`} onClick={onRemove}>Remove</button></div>
+function ArrayActions({ label, index, count, onMove, onRemove, canMove = true, canRemove = true }: { label: string; index: number; count: number; onMove: (direction: -1 | 1) => void; onRemove: () => void; canMove?: boolean; canRemove?: boolean }) {
+  return <div className="coach-array-actions"><button type="button" aria-label={`Move ${label} up`} disabled={!canMove || index === 0} onClick={() => onMove(-1)}>↑</button><button type="button" aria-label={`Move ${label} down`} disabled={!canMove || index === count - 1} onClick={() => onMove(1)}>↓</button><button type="button" aria-label={`Remove ${label}`} disabled={!canRemove} onClick={onRemove}>Remove</button></div>
 }
 
 function StatusBadge({ status }: { status: string }) {

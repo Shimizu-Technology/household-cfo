@@ -54,4 +54,42 @@ class StructurePersonaVoiceChoicesTest < ActiveSupport::TestCase
     assert_equal StructurePersonaVoiceChoices::LANGUAGE_STYLES.first(2), normalized.dig("voice", "language_style")
     assert Mia::PersonaSchema.valid?(normalized)
   end
+
+  test "energy normalization preserves quiet and calm intent before directness" do
+    migration = StructurePersonaVoiceChoices.new
+
+    assert_equal "Quiet and unhurried.", migration.send(:normalized_energy, "Direct but quiet and unhurried.")
+    assert_equal "Quiet and unhurried.", migration.send(:normalized_energy, "Use a slow, direct delivery.")
+    assert_equal "Calm, clear, and concise.", migration.send(:normalized_energy, "Calm and direct.")
+    assert_equal "Calm and focused.", migration.send(:normalized_energy, "Keep the energy calm.")
+    assert_equal "Direct and energetic.", migration.send(:normalized_energy, "Direct and energetic.")
+  end
+
+  test "migration normalizes the editable draft without rewriting a published version" do
+    coach = persona_user(role: "coach")
+    persona = create_persona(creator: coach, name: "Legacy voice lifecycle")
+    version = publish_persona(persona, actor: coach)
+    legacy = persona.draft_config.deep_dup
+    legacy["voice"] = {
+      "tone_traits" => [ "empathetic", "grounded" ],
+      "energy" => "Calm and direct.",
+      "accountability_style" => "Ask reflective questions before naming patterns.",
+      "language_style" => [ "Use simple conversational language." ]
+    }
+    legacy_digest = Digest::SHA256.hexdigest(JSON.generate(legacy))
+    persona.update_columns(draft_config: legacy)
+    version.update_columns(config: legacy, config_digest: legacy_digest)
+    published_snapshot = version.reload.attributes.slice("config", "config_digest", "updated_at")
+    published_json = CoachPersonaVersion.connection.select_value(
+      "SELECT config::text FROM coach_persona_versions WHERE id = #{version.id}"
+    )
+
+    StructurePersonaVoiceChoices.new.up
+
+    assert_equal "Calm, clear, and concise.", persona.reload.draft_config.dig("voice", "energy")
+    assert_equal published_snapshot, version.reload.attributes.slice("config", "config_digest", "updated_at")
+    assert_equal published_json, CoachPersonaVersion.connection.select_value(
+      "SELECT config::text FROM coach_persona_versions WHERE id = #{version.id}"
+    )
+  end
 end

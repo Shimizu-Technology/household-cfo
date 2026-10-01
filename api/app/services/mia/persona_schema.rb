@@ -6,10 +6,12 @@ require "securerandom"
 
 module Mia
   class PersonaSchema
-    MAX_BYTES = 32_768
+    MAX_AUTHORING_BYTES = 32_768
+    MAX_BYTES = 40_960
     FREQUENCIES = %w[very_rare rare sparing as_needed].freeze
     PHRASE_CONTEXTS = %w[greeting verified_milestone emotional_support repeated_pattern routine general crisis].freeze
     PHRASE_PROVENANCE = %w[coach_authored participant_supplied].freeze
+    PHRASE_SOURCE_ROLES = %w[admin coach participant].freeze
     ARTIFACT_ID_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
     TONE_TRAITS = %w[
       warm direct respectful calm encouraging candid patient concise practical reassuring lighthearted formal clear unhurried
@@ -129,7 +131,7 @@ module Mia
         Digest::SHA256.hexdigest(canonical_json(configuration).b)
       end
 
-      def prepare_draft_artifacts(configuration, source_user_id:, existing_configuration: nil, allow_coach_artifact_edits: true)
+      def prepare_draft_artifacts(configuration, source_user_id:, source_role_at_capture: "coach", existing_configuration: nil, allow_coach_artifact_edits: true)
         config = normalize(configuration).deep_dup
         existing_artifacts = Array(normalize(existing_configuration).to_h["phrases"]).index_by do |phrase|
           phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["artifact_id"].present?
@@ -172,7 +174,8 @@ module Mia
               phrase,
               artifact_id: existing.fetch("artifact_id"),
               provenance: "coach_authored",
-              source_user_id: source_user_id
+              source_user_id: source_user_id,
+              source_role_at_capture: existing.fetch("source_role_at_capture")
             )
           end
 
@@ -189,18 +192,21 @@ module Mia
             phrase,
             artifact_id: SecureRandom.uuid,
             provenance: "coach_authored",
-            source_user_id: source_user_id
+            source_user_id: source_user_id,
+            source_role_at_capture: source_role_at_capture
           )
         end
         config
       end
 
-      def build_phrase_artifact(attributes, artifact_id: SecureRandom.uuid, provenance: "coach_authored", source_user_id:)
+      def build_phrase_artifact(attributes, artifact_id: SecureRandom.uuid, provenance: "coach_authored", source_user_id:, source_role_at_capture: nil)
         normalized = normalize(attributes)
+        captured_role = source_role_at_capture.presence || (provenance.to_s == "participant_supplied" ? "participant" : "coach")
         artifact = {
           "artifact_id" => artifact_id.to_s,
           "provenance" => provenance.to_s,
           "source_user_id" => Integer(source_user_id, exception: false),
+          "source_role_at_capture" => captured_role.to_s,
           "text" => normalized["text"],
           "meaning" => normalized["meaning"],
           "allowed_contexts" => normalized["allowed_contexts"],
@@ -263,6 +269,8 @@ module Mia
 
         byte_size = JSON.generate(config).bytesize
         errors << "$ exceeds #{MAX_BYTES} bytes" if byte_size > MAX_BYTES
+        authoring_byte_size = JSON.generate(authoring_configuration(config)).bytesize
+        errors << "$ authored content exceeds #{MAX_AUTHORING_BYTES} bytes" if authoring_byte_size > MAX_AUTHORING_BYTES
         errors.first(40)
       rescue JSON::GeneratorError
         [ "$ must contain only JSON-compatible values" ]
@@ -344,7 +352,7 @@ module Mia
           end
           exact_keys(
             phrase,
-            %w[artifact_id provenance source_user_id text meaning allowed_contexts prohibited_contexts frequency caution fingerprint],
+            %w[artifact_id provenance source_user_id source_role_at_capture text meaning allowed_contexts prohibited_contexts frequency caution fingerprint],
             item_path,
             errors
           )
@@ -352,6 +360,13 @@ module Mia
           errors << "#{item_path}.artifact_id must be a UUID" unless phrase["artifact_id"].to_s.match?(ARTIFACT_ID_PATTERN)
           errors << "#{item_path}.provenance is not supported" unless phrase["provenance"].in?(PHRASE_PROVENANCE)
           bounded_integer(phrase["source_user_id"], "#{item_path}.source_user_id", errors, 1..2_147_483_647)
+          captured_role = phrase["source_role_at_capture"]
+          errors << "#{item_path}.source_role_at_capture is not supported" unless captured_role.in?(PHRASE_SOURCE_ROLES)
+          if phrase["provenance"] == "participant_supplied" && captured_role != "participant"
+            errors << "#{item_path}.source_role_at_capture must be participant for participant-supplied wording"
+          elsif phrase["provenance"] == "coach_authored" && !captured_role.in?(%w[admin coach])
+            errors << "#{item_path}.source_role_at_capture must be coach or admin for coach-authored wording"
+          end
           bounded_string(phrase["text"], "#{item_path}.text", errors, 100)
           bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
           enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
@@ -375,6 +390,16 @@ module Mia
         titled_content_array(value["guidance"], "#{path}.guidance", errors)
         scripts_array(value["scripts"], "#{path}.scripts", errors)
         examples_array(value["examples"], "#{path}.examples", errors)
+      end
+
+      def authoring_configuration(config)
+        authored = config.deep_dup
+        authored["phrases"] = Array(authored["phrases"]).map do |phrase|
+          next phrase unless phrase.is_a?(Hash)
+
+          phrase.except("artifact_id", "provenance", "source_user_id", "source_role_at_capture", "fingerprint")
+        end
+        authored
       end
 
       def titled_content_array(value, path, errors)

@@ -770,6 +770,7 @@ export type PersonaConfiguration = {
     artifact_id?: string
     provenance?: 'coach_authored' | 'participant_supplied'
     source_user_id?: number
+    source_role_at_capture?: UserRole
     fingerprint?: string
     text: string
     meaning: string
@@ -987,6 +988,20 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
   versions: AdminPersonaVersion[]
   assignments: AdminPersonaAssignment[]
   draft?: PersonaConfiguration
+  phrase_artifact_access?: {
+    can_add: boolean
+    artifacts: Array<{
+      artifact_id: string
+      provenance: 'coach_authored' | 'participant_supplied'
+      source_role_at_capture: UserRole
+      source_label: string
+      can_edit: boolean
+      can_move: boolean
+      can_remove: boolean
+      locked: boolean
+      locked_reason: string | null
+    }>
+  }
   preview?: AdminPersonaPreviewRecord | null
   content_packs?: AdminContentPackVersion[]
 }

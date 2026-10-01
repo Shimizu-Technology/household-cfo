@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require "digest"
-require "json"
-
 class StructurePersonaVoiceChoices < ActiveRecord::Migration[8.1]
   TONE_TRAITS = %w[
     warm direct respectful calm encouraging candid patient concise practical reassuring lighthearted formal clear unhurried
@@ -37,10 +34,6 @@ class StructurePersonaVoiceChoices < ActiveRecord::Migration[8.1]
     self.table_name = "coach_personas"
   end
 
-  class MigrationVersion < ActiveRecord::Base
-    self.table_name = "coach_persona_versions"
-  end
-
   def up
     MigrationPersona.find_each do |persona|
       config, changed = normalize_config(persona.draft_config)
@@ -54,13 +47,6 @@ class StructurePersonaVoiceChoices < ActiveRecord::Migration[8.1]
         previewed_draft_revision: nil,
         updated_at: Time.current
       )
-    end
-
-    MigrationVersion.find_each do |version|
-      config, changed = normalize_config(version.config)
-      next unless changed
-
-      version.update_columns(config: config, config_digest: config_digest(config), updated_at: Time.current)
     end
   end
 
@@ -101,10 +87,15 @@ class StructurePersonaVoiceChoices < ActiveRecord::Migration[8.1]
   def normalized_energy(value)
     source = value.to_s
     return source if ENERGY_STYLES.include?(source)
+    return "Quiet and unhurried." if source.match?(/\b(?:quiet|unhurried|slow)\b/i)
+    if source.match?(/\bcalm\b/i)
+      return "Calm, clear, and concise." if source.match?(/\b(?:direct|clear|concise|exact)\b/i)
+
+      return "Calm and focused."
+    end
     return "Direct and energetic." if source.match?(/\b(?:direct|energetic|high.energy)\b/i)
     return "Warm and encouraging." if source.match?(/\b(?:warm|encourag)\w*/i)
     return "Steady and reassuring." if source.match?(/\b(?:steady|reassur|confiden)\w*/i)
-    return "Quiet and unhurried." if source.match?(/\b(?:quiet|unhurried|slow)\b/i)
     return "Calm, clear, and concise." if source.match?(/\b(?:clear|concise|exact)\b/i)
 
     "Calm and focused."
@@ -136,20 +127,5 @@ class StructurePersonaVoiceChoices < ActiveRecord::Migration[8.1]
     selected << LANGUAGE_STYLES[6] if source.match?(/\b(?:concise|brief|jargon)\b/i)
     selected << LANGUAGE_STYLES[7] if source.match?(/\b(?:explain|define).{0,30}\b(?:term|jargon)\w*/i)
     selected.uniq.presence || LANGUAGE_STYLES.first(2)
-  end
-
-  def config_digest(config)
-    Digest::SHA256.hexdigest(JSON.generate(canonicalize(config)).b)
-  end
-
-  def canonicalize(value)
-    case value
-    when Hash
-      value.keys.sort.each_with_object({}) { |key, result| result[key] = canonicalize(value.fetch(key)) }
-    when Array
-      value.map { |child| canonicalize(child) }
-    else
-      value
-    end
   end
 end

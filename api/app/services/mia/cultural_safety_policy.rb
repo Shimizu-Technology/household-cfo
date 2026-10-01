@@ -6,10 +6,11 @@ module Mia
     LOCATION_DERIVED_PERSONA = :location_derived_persona
 
     PHRASE_ARTIFACT_FIELD = :phrase_artifact
+    PHRASE_MEANING_FIELD = :phrase_meaning
 
     HUMAN_GROUP_PATTERN = /(?:
       people|persons?|everyone|everybody|families|women|men|households|communities|residents|citizens|locals|
-      mothers|fathers|parents|children|youth|elders|workers|students|couples|spouses
+      mothers|fathers|parents|children|youth|elders|workers|students|couples|spouses|someone|somebody
     )/ix.freeze
     PLACE_PATTERN = /(?:the\s+)?[[:alpha:]][[:alpha:].'’\-]*(?:\s+[[:alpha:]][[:alpha:].'’\-]*){0,3}/i.freeze
     DEMOGRAPHIC_TERM_PATTERN = /(?!(?:human|individual|participant|client|user)\b)[[:alpha:]'’\-]{3,}(?:ians?|eans?|icans?|inos?|ese|ish|anders?|landers?|orros?|ans?|erners?|inx)/i.freeze
@@ -30,7 +31,7 @@ module Mia
     IDENTITY_BASIS_PATTERNS = [
       /\b(?:locals?|regional|cultural|community[\s-]specific|island(?:[\s-]style)?)\b/i,
       /\b(?:location|locale|region|address|where\s+(?:they|the\s+participant)\s+(?:live|are\s+from))\b/i,
-      /\b(?:locals?|residents?|people|families|users|participants|everyone|everybody)\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}\b/i,
+      /\b(?:locals?|residents?|people|families|users|participants|everyone|everybody|someone|somebody)\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}\b/i,
       /\b#{PROPER_IDENTITY_PATTERN}\s+(?:locals?|residents?|people|families|users|participants)\b/x,
       /\b#{DEMOGRAPHIC_TERM_PATTERN}\b/i,
       /\b(?:southern|northern|eastern|western)\b/i,
@@ -59,12 +60,13 @@ module Mia
       irresponsible|careless|reckless|wasteful|illiterate|undisciplined|naive|bad|good|better|worse|poor\s+(?:habits?|savers?|financial\s+habits?)|
       too\s+much|don['’]?t\s+know|do\s+not\s+know|always|never|the\s+same\s+way|prioriti[sz]\w*\b.{0,50}\bover
     )\b/ix.freeze
-    SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:a|an|our|all|some|these|those|the|weekly)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?|class(?:es)?|workshops?|support\s+groups?)\z/i.freeze
-    NONPERSON_SUBJECT_PATTERN = /\A(?:the\s+)?(?:budget|plan|approach|method|program|account|loan|debt|payment|cost|price|fee|rule|law|policy|institution|bank|credit\s+union|transfer|savings?|income|cash\s+flow|emergency\s+fund)\z/i.freeze
+    SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:a|an|our|all|some|these|those|the|weekly)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?|workers?|class(?:es)?|workshops?|support\s+groups?)\z/i.freeze
+    NONPERSON_SUBJECT_PATTERN = /\A(?:the\s+)?(?:budget(?:\s+plan)?|plan|approach|method|program|account|loan|debt|payment|cost|price|fee|rule|law|policy|institution|bank|credit\s+union|transfer|savings?|income|cash\s+flow|emergency\s+fund)\z/i.freeze
     GROUP_QUANTIFIER_PATTERN = /\A(?:a|an|every|each|all|most|many|some)\s+/i.freeze
+    CURATED_HUMAN_IDENTITY_PATTERN = /\b(?:artists?|teachers?|immigrants?|islanders?|caregivers?|employees?|employers?|veterans?|service\s+members?|military\s+spouses?)\z/i.freeze
     CLAIM_SIGNAL_PATTERN = /\b(?:
       is|are|was|were|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|has|have|had|can|cannot|can['’]?t|could|should|would|
-      always|usually|often|generally|typically|naturally|tend(?:s)?\s+to|lack\w*|wast\w*|struggl\w*|put|mak\w*|handl\w*|(?:mis)?manag\w*|prioriti[sz]\w*|
+      always|usually|often|generally|typically|naturally|tend(?:s)?\s+to|lack\w*|wast\w*|struggl\w*|put|mak\w*|handl\w*|(?:mis)?manag\w*|prioriti[sz]\w*|avoid\w*|lov(?:e|es|ed|ing)|prefer\w*|valu(?:e|es|ed|ing)|believ\w*|obey\w*|
       (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing)(?!s)|budget\w*|borrow\w*|remit\w*|invest\w*|earn\w*|afford\w*
     )\b/ix.freeze
     BEHAVIOR_JUDGMENT_PATTERN = /(?:
@@ -81,6 +83,8 @@ module Mia
     )/ix.freeze
     IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN = /\A(?:i|we|you|our|your|my|do\s+not|don['’]?t|never|avoid|automatically|silently|ask|apply|buy|compare|explain|give|help|invest|keep|make|name|put|recommend|review|sell|show|tell|teach|update|use)\b/i.freeze
     SAFE_PROGRAM_OUTCOME_PATTERN = /\A(?:(?:a|an|these|those|the|weekly)\s+)?(?:class(?:es)?|workshops?|support\s+groups?)\b.{0,60}\b(?:help|teach|support)\w*\s+(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?)\b/i.freeze
+    TRAIT_GENERALIZATION_PATTERN = /(?:(?:\balways|\busually|\boften|\bgenerally|\btypically|\bnaturally|\bas\s+a\s+rule|\btend(?:s)?\s+to)\b|\b(?:avoid\w*|lov(?:e|es|ed|ing)|prefer\w*|valu(?:e|es|ed|ing)|believ\w*|obey\w*)\b|\b(?:is|are|was|were)\b(?!\s+(?:from|in|on|located|based|eligible|subject\s+to|covered\s+by|residents?\s+of|citizens?\s+of)\b))/i.freeze
+    PHRASE_MEANING_DESCRIPTION_PATTERN = /\A(?:a|an|the)\s+.{0,100}\b(?:word|phrase|expression|greeting|saying)\b\s+(?:that\s+)?(?:means?|meaning|translated\s+as)\b/i.freeze
 
     class << self
       def violations(value, field: :instruction, identity_labels: [])
@@ -88,10 +92,14 @@ module Mia
 
         text = value.to_s.unicode_normalize(:nfkc)
         violations = []
-        unless field == PHRASE_ARTIFACT_FIELD
-          violations << LOCATION_DERIVED_PERSONA if identity_based_response_style?(text, field:, identity_labels:)
+        if identity_based_response_style?(text, field:, identity_labels:) &&
+            !(field == PHRASE_MEANING_FIELD && text.match?(PHRASE_MEANING_DESCRIPTION_PATTERN))
+          violations << LOCATION_DERIVED_PERSONA
         end
-        if claim_clauses(text).any? { |clause| demographic_financial_claim?(clause) && !concrete_nonjudgmental_reality?(clause) }
+        if claim_clauses(text).any? do |clause|
+             (demographic_financial_claim?(clause) && !concrete_nonjudgmental_reality?(clause)) ||
+               demographic_trait_generalization?(clause)
+           end
           violations << REGIONAL_STEREOTYPE
         end
         violations.uniq
@@ -122,6 +130,13 @@ module Mia
         QUALIFIED_GROUP_PATTERNS.any? { |pattern| text.match?(pattern) } || arbitrary_group_claim?(text)
       end
 
+      def demographic_trait_generalization?(text)
+        return false unless text.match?(TRAIT_GENERALIZATION_PATTERN)
+        return false if concrete_nonjudgmental_reality?(text)
+
+        QUALIFIED_GROUP_PATTERNS.any? { |pattern| text.match?(pattern) } || arbitrary_group_claim?(text)
+      end
+
       def concrete_nonjudgmental_reality?(text)
         text.match?(CONCRETE_REALITY_PATTERN) &&
           !text.match?(JUDGMENT_PATTERN) &&
@@ -146,10 +161,9 @@ module Mia
         return false unless words.length.between?(1, 6)
         return false if normalized.match?(NONPERSON_SUBJECT_PATTERN)
 
-        normalized.match?(/\A(?:the|that|a|an|every|each)\b/i) ||
-          normalized.match?(/\b#{HUMAN_GROUP_PATTERN}\z/ix) ||
+        normalized.match?(/\b#{HUMAN_GROUP_PATTERN}\z/ix) ||
           normalized.match?(/\b#{DEMOGRAPHIC_TERM_PATTERN}\z/i) ||
-          words.last.match?(/s\z/i) ||
+          normalized.match?(CURATED_HUMAN_IDENTITY_PATTERN) ||
           normalized.match?(/\Agen\s+[[:alnum:]]+\z/i)
       end
 

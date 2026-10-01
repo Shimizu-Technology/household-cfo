@@ -2,7 +2,7 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 10
+    VERSION = 11
     NEGATION_PATTERN = /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)/i.freeze
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i
@@ -173,7 +173,8 @@ module Mia
 
       def cultural_field_for(path)
         return CulturalSafetyPolicy::PHRASE_ARTIFACT_FIELD if path.match?(/\A\$\.phrases\[\d+\]\.text\z/)
-        return :metadata if path.match?(/\A\$\.phrases\[\d+\]\.(?:artifact_id|provenance|fingerprint|allowed_contexts|prohibited_contexts)/)
+        return CulturalSafetyPolicy::PHRASE_MEANING_FIELD if path.match?(/\A\$\.phrases\[\d+\]\.meaning\z/)
+        return :metadata if path.match?(/\A\$\.phrases\[\d+\]\.(?:artifact_id|provenance|source_user_id|source_role_at_capture|fingerprint|allowed_contexts|prohibited_contexts)/)
         return :metadata if path.match?(/\A\$\.identity\.(?:assistant_name|human_coach_name|human_coach_title)\z/)
         return :metadata if path == "$.culture.locale_label"
         return :local_reality if path.match?(/\A\$\.culture\.local_realities\[\d+\]\z/)
