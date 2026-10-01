@@ -111,6 +111,33 @@ class HouseholdFinanceMiaGoalIntentResolverTest < ActiveSupport::TestCase
     end
   end
 
+  test "does not carry a prior goal reference into a participant correction" do
+    goals = [
+      { id: 31, label: "Family trip", goal_type: "travel" },
+      { id: 32, label: "Tuition", goal_type: "education" }
+    ]
+    result = resolve(
+      user_message: "Actually use Tuition, with $1,000 progress.",
+      context: {
+        active_goals: goals, archived_goals: [],
+        conversation: {
+          active_thread: {
+            schema_version: 2, type: "goal_plan", title: "Update tracked goal", subject: "Family trip",
+            status: "needs_clarification", action: { type: "update_goal", goal_id: 31, goal_name: "Family trip" }
+          },
+          recent_messages: []
+        }
+      },
+      action: { type: "update_goal", current_amount: "1000" },
+      continuation: true
+    )
+
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_equal 0, result.action.fetch(:goal_id)
+    assert_equal "", result.action.fetch(:goal_name)
+  end
+
   private
 
   def resolve(user_message:, context:, action:, continuation: false)

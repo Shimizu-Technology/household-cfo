@@ -1130,6 +1130,15 @@ module HouseholdFinance
         )
       end
 
+      if action[:type].in?(%w[update_goal archive_goal restore_goal])
+        goals = Array(context[:active_goals]) + Array(context[:archived_goals])
+        return true if uncovered_participant_labels?(
+          goals,
+          represented_labels(prior_action, action, goals, id_fields: %i[goal_id], name_fields: %i[goal_name]),
+          label_key: :label
+        )
+      end
+
       if action[:type].in?(%w[review_pending_action update_transaction_draft ignore_transaction_drafts])
         pending_reviews = Array(context[:pending_transaction_reviews]) + Array(context[:pending_budget_reviews])
         return true if uncovered_participant_labels?(
