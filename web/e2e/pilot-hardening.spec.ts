@@ -359,7 +359,7 @@ async function mockDemoApi(page: Page) {
   let memories = [{
     id: 1, category: 'coaching_style', status: 'user_confirmed', sensitivity: 'ordinary', visibility: 'private',
     display_value: 'Give me one clear next step.', structured_value: {}, owned_by_current_user: true, owner_name: 'You',
-    source_kind: 'manual_profile', confirmed_at: '2026-10-01T00:00:00Z', expires_at: null,
+    source_kind: 'manual_profile', confirmation_fingerprint: null, confirmed_at: '2026-10-01T00:00:00Z', expires_at: null,
     created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
   }]
   const memoryPayload = () => ({
@@ -417,6 +417,7 @@ async function mockDemoApi(page: Page) {
         id: nextMemoryId++, category: input.category, status: input.sensitivity === 'sensitive' ? 'pending_confirmation' : 'user_confirmed',
         sensitivity: input.sensitivity, visibility: 'private', display_value: input.display_value, structured_value: {},
         owned_by_current_user: true, owner_name: 'You', source_kind: 'manual_profile',
+        confirmation_fingerprint: input.sensitivity === 'sensitive' ? `memory-fingerprint-${nextMemoryId - 1}` : null,
         confirmed_at: input.sensitivity === 'sensitive' ? null : '2026-10-01T01:00:00Z', expires_at: null,
         created_at: '2026-10-01T01:00:00Z', updated_at: '2026-10-01T01:00:00Z',
       }
@@ -437,7 +438,7 @@ async function mockDemoApi(page: Page) {
       }
       const index = memories.findIndex((memory) => memory.id === id)
       if (index < 0) return route.fulfill({ status: 404, json: { error: 'Not found' } })
-      if (action === 'confirm') memories[index] = { ...memories[index], status: 'user_confirmed', confirmed_at: '2026-10-01T01:00:00Z' }
+      if (action === 'confirm') memories[index] = { ...memories[index], status: 'user_confirmed', confirmation_fingerprint: null, confirmed_at: '2026-10-01T01:00:00Z' }
       if (action === 'reject') memories[index] = { ...memories[index], status: 'rejected', confirmed_at: null }
       if (!action && route.request().method() === 'PATCH') memories[index] = { ...memories[index], ...route.request().postDataJSON().memory }
       return route.fulfill({ status: 200, json: { memory: memories[index], personalization: memoryPayload().personalization } })

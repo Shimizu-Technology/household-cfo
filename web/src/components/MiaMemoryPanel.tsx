@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import {
   confirmHouseholdMemory,
   createHouseholdMemory,
@@ -11,6 +11,7 @@ import {
   type HouseholdMemoryCategory,
   type MiaMemoryData,
 } from '../api'
+import { resolveMemoryRequestKey, type MemoryRequestKeyState } from '../lib/memoryRequestKey'
 
 const categoryLabels: Record<HouseholdMemoryCategory, string> = {
   goal: 'Personal goal',
@@ -40,6 +41,12 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const createRequestRef = useRef<MemoryRequestKeyState | null>(null)
+
+  function updateForm(next: MemoryForm) {
+    createRequestRef.current = null
+    setForm(next)
+  }
 
   const load = useCallback(async () => {
     if (!enabled) return
@@ -78,16 +85,23 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
           ? 'Memory updated and waiting for confirmation before Mia can use it.'
           : 'Memory updated. Mia will use the confirmed version on your next message.')
       } else {
+        const request = resolveMemoryRequestKey(
+          createRequestRef.current,
+          form,
+          () => globalThis.crypto?.randomUUID?.() ?? `memory-${Date.now()}`,
+        )
+        createRequestRef.current = request
         const result = await createHouseholdMemory({
           ...form,
           display_value: form.display_value.trim(),
           confirmed: form.sensitivity === 'ordinary',
-          request_key: globalThis.crypto?.randomUUID?.() ?? `memory-${Date.now()}`,
+          request_key: request.requestKey,
         })
         setNotice(result.memory.status === 'pending_confirmation'
           ? 'Saved for your confirmation. Mia will not use this sensitive memory yet.'
           : 'Saved. Mia can use this on your next message.')
       }
+      createRequestRef.current = null
       setEditing(null)
       setForm(initialForm)
       await load()
@@ -114,6 +128,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
   }
 
   function beginEdit(memory: HouseholdMemory) {
+    createRequestRef.current = null
     setEditing(memory)
     setForm({
       category: memory.category,
@@ -172,18 +187,18 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
             rows={3}
             disabled={controlsUnavailable || paused || Boolean(busy)}
             placeholder="For example: Ask one question at a time, and check in on our emergency fund goal each month."
-            onChange={(event) => setForm((current) => ({ ...current, display_value: event.target.value }))}
+            onChange={(event) => updateForm({ ...form, display_value: event.target.value })}
           />
           <small>{form.display_value.length}/500</small>
         </label>
         <div className="mia-memory-form-grid">
-          <label><span>Type</span><select aria-label="Memory type" value={form.category} disabled={controlsUnavailable || paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, category: event.target.value as HouseholdMemoryCategory }))}>{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+          <label><span>Type</span><select aria-label="Memory type" value={form.category} disabled={controlsUnavailable || paused || Boolean(busy)} onChange={(event) => updateForm({ ...form, category: event.target.value as HouseholdMemoryCategory })}>{Object.entries(categoryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
           <div className="mia-memory-private-note"><strong>Private to you</strong><span>Other household participants and coaches cannot see or use these memories.</span></div>
         </div>
-        <label className="mia-memory-sensitive"><input type="checkbox" checked={form.sensitivity === 'sensitive'} disabled={controlsUnavailable || paused || Boolean(busy)} onChange={(event) => setForm((current) => ({ ...current, sensitivity: event.target.checked ? 'sensitive' : 'ordinary' }))} /><span>This feels sensitive. Save it for a separate confirmation before Mia can use it.</span></label>
+        <label className="mia-memory-sensitive"><input type="checkbox" checked={form.sensitivity === 'sensitive'} disabled={controlsUnavailable || paused || Boolean(busy)} onChange={(event) => updateForm({ ...form, sensitivity: event.target.checked ? 'sensitive' : 'ordinary' })} /><span>This feels sensitive. Save it for a separate confirmation before Mia can use it.</span></label>
         <div className="mia-memory-form-actions">
           <button type="submit" disabled={controlsUnavailable || paused || Boolean(busy) || !form.display_value.trim()}>{busy === 'create' || busy?.startsWith('edit-') ? 'Saving…' : editing ? 'Save changes' : 'Remember this'}</button>
-          {editing && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { setEditing(null); setForm(initialForm) }}>Cancel edit</button>}
+          {editing && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { createRequestRef.current = null; setEditing(null); setForm(initialForm) }}>Cancel edit</button>}
         </div>
       </form>
 
@@ -196,7 +211,7 @@ export function MiaMemoryPanel({ enabled }: { enabled: boolean }) {
               <p>{memory.display_value}</p>
             </div>
             <div className="mia-memory-item-actions">
-              {memory.status === 'pending_confirmation' && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id), 'Memory confirmed. Mia can use it now.')}>Confirm</button>}
+              {memory.status === 'pending_confirmation' && memory.confirmation_fingerprint && <button type="button" disabled={controlsUnavailable || paused || Boolean(busy)} onClick={() => void act(`confirm-${memory.id}`, () => confirmHouseholdMemory(memory.id, memory.confirmation_fingerprint!), 'Memory confirmed. Mia can use it now.')}>Confirm</button>}
               {memory.status === 'pending_confirmation' && <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => void act(`reject-${memory.id}`, () => rejectHouseholdMemory(memory.id), 'Memory rejected. Mia will not use it.')}>Reject</button>}
               <button type="button" className="secondary-button" disabled={controlsUnavailable || Boolean(busy) || paused} onClick={() => beginEdit(memory)}>Edit</button>
               <button type="button" className="danger-button" disabled={controlsUnavailable || Boolean(busy)} onClick={() => { if (window.confirm('Forget this memory? Mia will stop using it immediately.')) void act(`forget-${memory.id}`, () => forgetHouseholdMemory(memory.id), 'Memory forgotten.') }}>Forget</button>

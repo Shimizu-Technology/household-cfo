@@ -289,17 +289,7 @@ module Api
           assistant_content = "Tell me one thing to remember in #{HouseholdMemory::MAX_DISPLAY_LENGTH} characters or fewer. I will show it under My Profile so you can change or forget it anytime."
           user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
         when :create
-          membership = current_household.household_memberships.find_by!(user_id: current_user.id)
-          if membership.mia_personalization_paused?
-            assistant_content = "Personalization is paused, so I did not save that. Resume it under My Profile → What Mia remembers, then ask me again. Your approved financial records still work normally."
-            user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
-          elsif current_household.household_memories.where(owner_user: current_user).count >= HouseholdMemory::MAX_STORED_PER_OWNER
-            assistant_content = "You already have #{HouseholdMemory::MAX_STORED_PER_OWNER} saved memories. I did not add another. Open My Profile → What Mia remembers and forget one you no longer need."
-            user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
-          else
-            user_message, assistant_message, memory = persist_mia_memory_command(session, content, command.fetch(:value), message_request)
-            assistant_content = assistant_message.content
-          end
+          user_message, assistant_message, memory = persist_mia_memory_command(session, content, command.fetch(:value), message_request)
         end
 
         response_payload = {
@@ -319,6 +309,18 @@ module Api
 
       def persist_mia_memory_command(session, content, value, message_request)
         ApplicationRecord.transaction do
+          membership = current_household.household_memberships.lock.find_by!(user_id: current_user.id)
+          if membership.mia_personalization_paused?
+            answer = "Personalization is paused, so I did not save that. Resume it under My Profile → What Mia remembers, then ask me again. Your approved financial records still work normally."
+            user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+            next [ user_message, assistant_message, nil ]
+          end
+          if current_household.household_memories.where(owner_user: current_user).count >= HouseholdMemory::MAX_STORED_PER_OWNER
+            answer = "You already have #{HouseholdMemory::MAX_STORED_PER_OWNER} saved memories. I did not add another. Open My Profile → What Mia remembers and forget one you no longer need."
+            user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+            next [ user_message, assistant_message, nil ]
+          end
+
           category = mia_memory_category(value)
           sensitive = mia_memory_sensitive?(value)
           needs_confirmation = sensitive || category.in?(%w[goal preference constraint])
@@ -363,17 +365,19 @@ module Api
 
       def mia_memory_category(value)
         normalized = value.downcase
-        return "coaching_style" if normalized.match?(/coach|tone|repl(?:y|ies)|response|question|language|explain/)
-        return "follow_up" if normalized.match?(/follow up|check in|remind/)
-        return "goal" if normalized.match?(/goal|working toward|want to achieve/)
-        return "constraint" if normalized.match?(/cannot|can't|must not|do not|don't|avoid|constraint|limit/)
-        return "habit" if normalized.match?(/usually|every (?:day|week|month)|habit/)
+        return "coaching_style" if normalized.match?(/\b(?:coach(?:ing)?|tone|repl(?:y|ies)|responses?|questions?|language|explain(?:s|ed|ing)?|explanations?)\b/)
+        return "follow_up" if normalized.match?(/\b(?:follow[ -]?ups?|check[ -]?ins?|remind(?:s|ed|ing|ers?)?)\b/)
+        return "goal" if normalized.match?(/\bgoals?\b|\bworking towards?\b|\bwant to achieve\b/)
+        return "constraint" if normalized.match?(/\b(?:cannot|can't|must not|do not|don't|avoid|constraints?|limits?)\b/)
+        return "habit" if normalized.match?(/\b(?:usually|habits?)\b|\bevery (?:day|week|month)\b/)
 
         "preference"
       end
 
       def mia_memory_sensitive?(value)
-        value.downcase.match?(/health|medical|diagnos|disabil|pregnan|fertil|religion|politic|sexual|gender|pronoun|race|ethnic|trauma|abuse|addiction/)
+        value.downcase.match?(
+          /\b(?:health|medical|diagnos(?:e|ed|es|ing|is|ises|tic|tics)?|disabil(?:ity|ities|ed)|pregnan(?:t|cy|cies)|fertil(?:e|ity|ization|isation|ized|ised)?|religions?|politics?|political|sexual|gender|pronouns?|race|ethnic|ethnicity|trauma|abuse|addiction)\b/
+        )
       end
 
       def setup_guide_intent_result(content)

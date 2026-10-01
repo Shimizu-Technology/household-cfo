@@ -1,3 +1,6 @@
+require "digest"
+require "json"
+
 class HouseholdMemory < ApplicationRecord
   CATEGORIES = %w[goal preference constraint habit coaching_style follow_up].freeze
   STATUSES = %w[pending_confirmation user_confirmed rejected expired].freeze
@@ -47,6 +50,7 @@ class HouseholdMemory < ApplicationRecord
       owned_by_current_user: owner_user_id == viewer.id,
       owner_name: owner_user_id == viewer.id ? "You" : owner_user.full_name,
       source_kind: source_kind,
+      confirmation_fingerprint: status == "pending_confirmation" ? confirmation_fingerprint : nil,
       confirmed_at: confirmed_at&.iso8601,
       expires_at: expires_at&.iso8601,
       created_at: created_at&.iso8601,
@@ -54,7 +58,39 @@ class HouseholdMemory < ApplicationRecord
     }
   end
 
+  def confirmation_fingerprint
+    payload = {
+      "category" => category,
+      "display_value" => display_value,
+      "sensitivity" => sensitivity,
+      "visibility" => visibility,
+      "structured_value" => canonicalize(structured_value),
+      "expires_at" => expires_at&.utc&.iso8601(6),
+      "updated_at" => updated_at&.utc&.iso8601(6)
+    }
+    Digest::SHA256.hexdigest(JSON.generate(payload).b)
+  end
+
+  def confirmation_fingerprint_matches?(candidate)
+    candidate = candidate.to_s
+    expected = confirmation_fingerprint
+    candidate.bytesize == expected.bytesize && ActiveSupport::SecurityUtils.secure_compare(candidate, expected)
+  end
+
   private
+
+  def canonicalize(value)
+    case value
+    when Hash
+      value.keys.map(&:to_s).sort.index_with do |key|
+        canonicalize(value.key?(key) ? value[key] : value[key.to_sym])
+      end
+    when Array
+      value.map { |child| canonicalize(child) }
+    else
+      value
+    end
+  end
 
   def structured_value_is_safe_object
     errors.add(:structured_value, "must be an object") unless structured_value.is_a?(Hash)

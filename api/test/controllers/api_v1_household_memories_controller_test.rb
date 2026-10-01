@@ -46,7 +46,9 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal "rejected", memory.reload.status
 
-    post "/api/v1/household_memories/#{memory.id}/confirm", headers: auth_headers(@owner)
+    post "/api/v1/household_memories/#{memory.id}/confirm", params: {
+      memory: { confirmation_fingerprint: memory.confirmation_fingerprint }
+    }, headers: auth_headers(@owner), as: :json
     assert_response :success
     assert_equal "user_confirmed", memory.reload.status
 
@@ -70,7 +72,10 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_not memory.active?
     assert_empty HouseholdFinance::MiaMemoryContextBuilder.new(@household, user: @owner).call.fetch(:memories)
 
-    post "/api/v1/household_memories/#{memory.id}/confirm", headers: auth_headers(@owner)
+    post "/api/v1/household_memories/#{memory.id}/confirm", params: {
+      memory: { confirmation_fingerprint: memory.confirmation_fingerprint }
+    }, headers: auth_headers(@owner), as: :json
+    assert_response :success
     assert_equal [ memory.id ], HouseholdFinance::MiaMemoryContextBuilder.new(@household, user: @owner).call.fetch(:memories).pluck(:id)
 
     patch "/api/v1/household_memories/#{memory.id}", params: {
@@ -79,6 +84,33 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal "pending_confirmation", memory.reload.status
     assert_not memory.active?
+  end
+
+  test "sensitive confirmation is bound to the reviewed memory revision" do
+    memory = @household.household_memories.create!(
+      owner_user: @owner, category: "constraint", status: "pending_confirmation",
+      sensitivity: "sensitive", visibility: "private", source_kind: "manual_profile",
+      display_value: "I am managing a private diagnosis."
+    )
+    reviewed_fingerprint = memory.confirmation_fingerprint
+
+    patch "/api/v1/household_memories/#{memory.id}", params: {
+      memory: { display_value: "I am managing a different private diagnosis." }
+    }, headers: auth_headers(@owner), as: :json
+    assert_response :success
+
+    post "/api/v1/household_memories/#{memory.id}/confirm", params: {
+      memory: { confirmation_fingerprint: reviewed_fingerprint }
+    }, headers: auth_headers(@owner), as: :json
+    assert_response :conflict
+    assert_equal "mia_memory_confirmation_stale", response.parsed_body.fetch("code")
+    assert_equal "pending_confirmation", memory.reload.status
+
+    post "/api/v1/household_memories/#{memory.id}/confirm", params: {
+      memory: { confirmation_fingerprint: memory.confirmation_fingerprint }
+    }, headers: auth_headers(@owner), as: :json
+    assert_response :success
+    assert_equal "user_confirmed", memory.reload.status
   end
 
   test "memories are private to their owner and requested household visibility is forced private" do
@@ -219,6 +251,69 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).dig("assistant_message", "content"), "Personalization is paused"
   end
 
+  test "chat memory classification matches complete words and intended sensitive stems" do
+    {
+      "I collect racecars." => [ "preference", "ordinary" ],
+      "I keep a questionnaire on my desk." => [ "preference", "ordinary" ],
+      "I prefer limitless options." => [ "preference", "ordinary" ],
+      "I was diagnosed with a private condition." => [ "preference", "sensitive" ],
+      "I am pregnant." => [ "preference", "sensitive" ]
+    }.each_with_index do |(value, expected), index|
+      post "/api/v1/mia/messages", params: {
+        message: "Remember that #{value}", request_id: "classification-#{index}"
+      }, headers: auth_headers(@owner), as: :json
+      assert_response :created
+      memory = @household.household_memories.find_by!(request_key: "mia:classification-#{index}")
+      assert_equal expected, [ memory.category, memory.sensitivity ], value
+    end
+  end
+
+  test "chat cap response and messages persist without creating another memory" do
+    HouseholdMemory::MAX_STORED_PER_OWNER.times do |index|
+      create_memory(display_value: "Existing memory #{index}")
+    end
+    session = @household.chat_sessions.create!(user: @owner, title: "Ask Mia")
+
+    assert_no_difference("@household.household_memories.count") do
+      assert_difference("session.chat_messages.count", 2) do
+        post "/api/v1/mia/messages", params: {
+          message: "Remember that I prefer concise replies.", request_id: "memory-at-cap"
+        }, headers: auth_headers(@owner), as: :json
+      end
+    end
+
+    assert_response :created
+    assert_nil response.parsed_body["memory"]
+    assert_includes response.parsed_body.dig("assistant_message", "content"), "saved memories"
+  end
+
+  test "required audit failures roll back memory and personalization changes" do
+    memory = create_memory(display_value: "Keep the original value")
+
+    with_failing_audit("mia_memory.updated") do
+      patch "/api/v1/household_memories/#{memory.id}", params: {
+        memory: { display_value: "Do not retain this value" }
+      }, headers: auth_headers(@owner), as: :json
+    end
+    assert_response :service_unavailable
+    assert_equal "Keep the original value", memory.reload.display_value
+
+    with_failing_audit("mia_memory.forgotten") do
+      delete "/api/v1/household_memories/#{memory.id}", headers: auth_headers(@owner)
+    end
+    assert_response :service_unavailable
+    assert HouseholdMemory.exists?(memory.id)
+
+    membership = @household.household_memberships.find_by!(user: @owner)
+    with_failing_audit("mia_memory.paused") do
+      patch "/api/v1/mia_memory_settings", params: {
+        personalization: { paused: true }
+      }, headers: auth_headers(@owner), as: :json
+    end
+    assert_response :service_unavailable
+    refute membership.reload.mia_personalization_paused?
+  end
+
   test "adversarial memory cannot fill a vague financial action" do
     HouseholdFinance::AnnualBudgetManager.new(@household, year: Date.current.year).create_category!(
       name: "Dining Out", stack_key: "discretionary", monthly_amount: 100
@@ -324,32 +419,6 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     end
   end
 
-  test "unique-index create race reloads and returns the exact winner" do
-    controller = Api::V1::HouseholdMemoriesController
-    original_persist = controller.instance_method(:persist_household_memory!)
-    controller.define_method(:persist_household_memory!) do |attributes|
-      original_persist.bind_call(self, attributes)
-      raise ActiveRecord::RecordNotUnique, "simulated concurrent exact insert"
-    end
-
-    assert_difference("@household.household_memories.count", 1) do
-      post "/api/v1/household_memories", params: {
-        memory: {
-          category: "preference",
-          display_value: "Use the race winner.",
-          sensitivity: "ordinary",
-          confirmed: true,
-          request_key: "simulated-memory-race"
-        }
-      }, headers: auth_headers(@owner), as: :json
-    end
-
-    assert_response :success
-    assert_equal @household.household_memories.find_by!(request_key: "simulated-memory-race").id, response.parsed_body.dig("memory", "id")
-  ensure
-    controller&.define_method(:persist_household_memory!, original_persist) if defined?(original_persist)
-  end
-
   test "memory commands retire prior document evidence while exact replays keep precedence" do
     session = @household.chat_sessions.create!(user: @owner, title: "Ask Mia")
     session.update!(active_topic: document_evidence_topic, open_topics: [ document_evidence_topic ])
@@ -434,5 +503,17 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
   ensure
     singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
     singleton.define_method(method_name, original)
+  end
+
+  def with_failing_audit(event_type)
+    callback_name = :fail_selected_memory_audit
+    HouseholdAuditEvent.define_method(callback_name) do
+      throw(:abort) if self.event_type == event_type
+    end
+    HouseholdAuditEvent.set_callback(:create, :before, callback_name)
+    yield
+  ensure
+    HouseholdAuditEvent.skip_callback(:create, :before, callback_name) if defined?(callback_name)
+    HouseholdAuditEvent.undef_method(callback_name) if defined?(callback_name) && HouseholdAuditEvent.method_defined?(callback_name)
   end
 end

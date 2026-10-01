@@ -18,20 +18,38 @@ module Api
         if request_key && (existing = current_household.household_memories.find_by(owner_user: current_user, request_key: request_key))
           return render_create_replay(existing, attributes)
         end
-        return render_personalization_paused if personalization_paused?
-        if current_household.household_memories.where(owner_user: current_user).count >= HouseholdMemory::MAX_STORED_PER_OWNER
-          return render json: { errors: [ "You can keep up to #{HouseholdMemory::MAX_STORED_PER_OWNER} Mia memories. Forget one before adding another." ] }, status: :unprocessable_entity
-        end
 
-        memory = persist_household_memory!(
-          attributes.merge(
-            owner_user: current_user,
-            request_key: request_key,
-            confirmed_at: attributes.fetch(:status) == "user_confirmed" ? Time.current : nil,
-            source_kind: "manual_profile"
+        memory = nil
+        replay = nil
+        paused = false
+        limit_reached = false
+        ApplicationRecord.transaction do
+          membership = current_household.household_memberships.lock.find_by!(user_id: current_user.id)
+          replay = request_key && current_household.household_memories.find_by(owner_user: current_user, request_key: request_key)
+          if replay
+            next
+          elsif membership.mia_personalization_paused?
+            paused = true
+            next
+          elsif stored_memory_limit_reached?
+            limit_reached = true
+            next
+          end
+
+          memory = persist_household_memory!(
+            attributes.merge(
+              owner_user: current_user,
+              request_key: request_key,
+              confirmed_at: attributes.fetch(:status) == "user_confirmed" ? Time.current : nil,
+              source_kind: "manual_profile"
+            )
           )
-        )
-        audit("mia_memory.created", memory)
+          audit("mia_memory.created", memory)
+        end
+        return render_create_replay(replay, attributes) if replay
+        return render_personalization_paused if paused
+        return render_memory_limit_reached if limit_reached
+
         render json: { memory: memory.as_api_json(viewer: current_user), personalization: personalization_payload }, status: :created
       rescue ActiveRecord::RecordNotUnique
         raise if request_key.blank?
@@ -41,7 +59,9 @@ module Api
 
         render_create_replay(existing.reload, attributes)
       rescue ActiveRecord::RecordInvalid => error
-        render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
+        render_record_invalid(error)
+      rescue ActiveRecord::ActiveRecordError => error
+        render_memory_persistence_failure(error)
       end
 
       def update
@@ -49,55 +69,79 @@ module Api
 
         attributes = memory_params.to_h.symbolize_keys.except(:request_key, :confirmed)
         attributes[:visibility] ||= "private"
-        @memory.assign_attributes(attributes)
-        material_change = @memory.will_save_change_to_display_value? || @memory.will_save_change_to_category? ||
-          @memory.will_save_change_to_sensitivity? || @memory.will_save_change_to_visibility?
-        if material_change && @memory.sensitivity == "sensitive"
-          attributes[:status] = "pending_confirmation"
-          attributes[:confirmed_at] = nil
-          attributes[:rejected_at] = nil
-        elsif material_change && @memory.status.in?(%w[rejected expired])
-          attributes[:status] = "user_confirmed"
-          attributes[:confirmed_at] = Time.current
-          attributes[:rejected_at] = nil
-        end
-        @memory.assign_attributes(attributes)
-        if @memory.changed?
-          @memory.save!
-          audit("mia_memory.updated", @memory)
+        ApplicationRecord.transaction do
+          @memory.lock!
+          @memory.assign_attributes(attributes)
+          material_change = @memory.will_save_change_to_display_value? || @memory.will_save_change_to_category? ||
+            @memory.will_save_change_to_sensitivity? || @memory.will_save_change_to_visibility?
+          if material_change && @memory.sensitivity == "sensitive"
+            @memory.assign_attributes(status: "pending_confirmation", confirmed_at: nil, rejected_at: nil)
+          elsif material_change && @memory.status.in?(%w[rejected expired])
+            @memory.assign_attributes(status: "user_confirmed", confirmed_at: Time.current, rejected_at: nil)
+          end
+          if @memory.changed?
+            @memory.save!
+            audit("mia_memory.updated", @memory)
+          end
         end
         render json: { memory: @memory.as_api_json(viewer: current_user), personalization: personalization_payload }
       rescue ActiveRecord::RecordInvalid => error
-        render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
+        render_record_invalid(error)
+      rescue ActiveRecord::ActiveRecordError => error
+        render_memory_persistence_failure(error)
       end
 
       def confirm
         return render_not_owner unless @memory.owner_user_id == current_user.id
-        unless @memory.status == "user_confirmed"
-          @memory.update!(status: "user_confirmed", confirmed_at: Time.current, rejected_at: nil)
-          audit("mia_memory.confirmed", @memory)
+        stale_confirmation = false
+        ApplicationRecord.transaction do
+          @memory.lock!
+          unless @memory.status == "user_confirmed"
+            supplied_fingerprint = confirmation_params[:confirmation_fingerprint].to_s
+            if @memory.sensitivity == "sensitive" && !@memory.confirmation_fingerprint_matches?(supplied_fingerprint)
+              stale_confirmation = true
+              next
+            end
+
+            @memory.update!(status: "user_confirmed", confirmed_at: Time.current, rejected_at: nil)
+            audit("mia_memory.confirmed", @memory)
+          end
         end
+        return render_stale_confirmation if stale_confirmation
+
         render json: { memory: @memory.as_api_json(viewer: current_user), personalization: personalization_payload }
+      rescue ActiveRecord::ActiveRecordError => error
+        render_memory_persistence_failure(error)
       end
 
       def reject
         return render_not_owner unless @memory.owner_user_id == current_user.id
-        unless @memory.status == "rejected"
-          @memory.update!(status: "rejected", rejected_at: Time.current, confirmed_at: nil)
-          audit("mia_memory.rejected", @memory)
+        ApplicationRecord.transaction do
+          @memory.lock!
+          unless @memory.status == "rejected"
+            @memory.update!(status: "rejected", rejected_at: Time.current, confirmed_at: nil)
+            audit("mia_memory.rejected", @memory)
+          end
         end
         render json: { memory: @memory.as_api_json(viewer: current_user), personalization: personalization_payload }
+      rescue ActiveRecord::ActiveRecordError => error
+        render_memory_persistence_failure(error)
       end
 
       def destroy
         return render_not_owner unless @memory.owner_user_id == current_user.id
         memory_id = @memory.id
-        @memory.destroy!
-        current_household.household_audit_events.create!(
-          user: current_user, actor_type: "user", event_type: "mia_memory.forgotten",
-          occurred_at: Time.current, metadata: { memory_id: memory_id }
-        )
+        ApplicationRecord.transaction do
+          @memory.lock!
+          @memory.destroy!
+          current_household.household_audit_events.create!(
+            user: current_user, actor_type: "user", event_type: "mia_memory.forgotten",
+            occurred_at: Time.current, metadata: { memory_id: memory_id }
+          )
+        end
         head :no_content
+      rescue ActiveRecord::ActiveRecordError => error
+        render_memory_persistence_failure(error)
       end
 
       private
@@ -107,6 +151,10 @@ module Api
           :category, :display_value, :sensitivity, :visibility, :expires_at,
           :request_key, :confirmed, structured_value: {}
         )
+      end
+
+      def confirmation_params
+        params.fetch(:memory, ActionController::Parameters.new).permit(:confirmation_fingerprint)
       end
 
       def set_memory
@@ -168,12 +216,30 @@ module Api
         current_household.household_memories.create!(attributes)
       end
 
+      def stored_memory_limit_reached?
+        current_household.household_memories.where(owner_user: current_user).count >= HouseholdMemory::MAX_STORED_PER_OWNER
+      end
+
       def personalization_paused?
         current_household.household_memberships.find_by!(user_id: current_user.id).mia_personalization_paused?
       end
 
       def render_personalization_paused
         render json: { errors: [ "Resume personalization before adding or changing Mia memories." ] }, status: :conflict
+      end
+
+      def render_memory_limit_reached
+        render json: { errors: [ "You can keep up to #{HouseholdMemory::MAX_STORED_PER_OWNER} Mia memories. Forget one before adding another." ] }, status: :unprocessable_entity
+      end
+
+      def render_stale_confirmation
+        @memory.reload
+        render json: {
+          error: "This memory changed after you reviewed it. Review the current version before confirming.",
+          code: "mia_memory_confirmation_stale",
+          memory: @memory.as_api_json(viewer: current_user),
+          personalization: personalization_payload
+        }, status: :conflict
       end
 
       def require_personalization_active!
@@ -208,6 +274,17 @@ module Api
           occurred_at: Time.current,
           metadata: { memory_id: memory.id, category: memory.category, visibility: memory.visibility, status: memory.status }
         )
+      end
+
+      def render_record_invalid(error)
+        return render_memory_persistence_failure(error) if error.record.is_a?(HouseholdAuditEvent)
+
+        render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
+      end
+
+      def render_memory_persistence_failure(error)
+        Rails.logger.error("[HouseholdMemoriesController] memory write rolled back error=#{error.class}")
+        render json: { errors: [ "That memory change could not be saved right now. Please try again." ] }, status: :service_unavailable
       end
 
       def render_not_owner

@@ -650,6 +650,7 @@ export type HouseholdMemory = {
   owned_by_current_user: boolean
   owner_name: string
   source_kind: 'manual_profile' | 'mia_command'
+  confirmation_fingerprint: string | null
   confirmed_at: string | null
   expires_at: string | null
   created_at: string
@@ -1845,8 +1846,8 @@ export async function updateHouseholdMemory(id: number, values: Partial<Househol
   })
 }
 
-export async function confirmHouseholdMemory(id: number): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
-  return postJson(`/api/v1/household_memories/${id}/confirm`, {})
+export async function confirmHouseholdMemory(id: number, confirmationFingerprint: string): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
+  return postJson(`/api/v1/household_memories/${id}/confirm`, { memory: { confirmation_fingerprint: confirmationFingerprint } })
 }
 
 export async function rejectHouseholdMemory(id: number): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
