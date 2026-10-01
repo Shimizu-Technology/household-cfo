@@ -22,12 +22,6 @@ module HouseholdFinance
           relative_date_rule: "Today, yesterday, this month, last month, and next month are relative to today, not the budget view period."
         },
         budget_view_period: selected_period,
-        conversation: {
-          active_thread: validated_active_thread,
-          open_threads: validated_open_threads,
-          older_summary: validated_active_thread.present? ? conversation_context[:rolling_summary] : nil,
-          recent_messages: transcript
-        },
         budget_categories: budget_categories,
         archived_categories: Array(annual_plan[:archived_categories]).first(MAX_CATEGORIES),
         pending_budget_reviews: pending_budget_reviews,
@@ -35,6 +29,13 @@ module HouseholdFinance
         approved_household_setup: approved_household_setup,
         setup_status: SetupStatus.new(household).as_json,
         income_sources: income_sources,
+        personalization_memory: conversation_context[:personalization_memory],
+        conversation: {
+          active_thread: validated_active_thread,
+          open_threads: validated_open_threads,
+          older_summary: validated_active_thread.present? ? conversation_context[:rolling_summary] : nil,
+          recent_messages: transcript
+        },
         supported_budget_actions: %w[
           set_allocation increase_allocation decrease_allocation move_allocation
           create_category rename_category reclassify_category archive_category

@@ -506,6 +506,112 @@
   }
 }
 
+/* Explicit, participant-controlled Mia memory */
+.mia-memory-panel {
+  display: grid;
+  gap: 22px;
+  scroll-margin-top: 96px;
+}
+
+.mia-memory-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 20px;
+}
+
+.mia-memory-heading h2,
+.mia-memory-heading p { margin: 4px 0 0; }
+.mia-memory-heading p { max-width: 720px; color: var(--muted); }
+
+.mia-memory-paused {
+  padding: 14px 16px;
+  border: 1px solid rgba(177, 113, 37, 0.35);
+  border-radius: 14px;
+  background: rgba(255, 244, 218, 0.72);
+}
+
+.mia-memory-form {
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.5);
+}
+
+.mia-memory-form label:not(.mia-memory-sensitive) { display: grid; gap: 7px; }
+.mia-memory-form label > span { font-weight: 700; }
+.mia-memory-form textarea,
+.mia-memory-form select {
+  width: 100%;
+  min-width: 0;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+.mia-memory-form textarea { resize: vertical; }
+.mia-memory-form small { justify-self: end; color: var(--muted); }
+.mia-memory-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.mia-memory-sensitive { display: flex; align-items: flex-start; gap: 10px; font-weight: 400; }
+.mia-memory-sensitive input { margin-top: 3px; }
+.mia-memory-form-actions,
+.mia-memory-item-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+
+.mia-memory-list { display: grid; gap: 12px; }
+.mia-memory-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.mia-memory-item.status-pending_confirmation { border-color: rgba(177, 113, 37, 0.42); }
+.mia-memory-item.status-rejected,
+.mia-memory-item.status-expired { opacity: 0.68; }
+.mia-memory-item-copy { min-width: 0; }
+.mia-memory-item-copy p { margin: 10px 0 0; overflow-wrap: anywhere; }
+.mia-memory-item-copy small { display: block; margin-top: 8px; color: var(--muted); }
+.mia-memory-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.mia-memory-badges span {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--paper-deep);
+  color: var(--muted);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: capitalize;
+}
+.mia-memory-policy,
+.mia-memory-empty p { margin: 0; color: var(--muted); }
+.mia-memory-empty { padding: 8px 0; }
+.chat-memory-button { white-space: nowrap; }
+.mia-memory-item-actions .danger-button {
+  border-color: rgba(157, 75, 69, 0.34);
+  background: transparent;
+  color: var(--status-red);
+}
+
+@media (max-width: 700px) {
+  .mia-memory-heading,
+  .mia-memory-item { display: grid; }
+  .mia-memory-heading .secondary-button,
+  .mia-memory-item-actions { width: 100%; }
+  .mia-memory-item-actions > button { flex: 1 1 auto; min-height: 44px; }
+}
+
+@media (max-width: 480px) {
+  .mia-memory-form-grid { grid-template-columns: 1fr; }
+  .mia-memory-panel { gap: 16px; }
+  .mia-memory-form { padding: 14px; }
+  .chat-memory-button { font-size: 0.78rem; }
+}
+
 * {
   box-sizing: border-box;
 }

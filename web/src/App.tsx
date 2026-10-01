@@ -10,6 +10,7 @@ import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import { CoachStudio } from './components/CoachStudio'
+import { MiaMemoryPanel } from './components/MiaMemoryPanel'
 import {
   AnnualCashFlowChart,
   CategoryPressureList,
@@ -2374,6 +2375,11 @@ function App() {
                   <p>Talk it through or update the plan while you stay the CFO.</p>
                 </div>
                 <div className="chat-actions">
+                  {(!auth.currentUser || auth.currentUser.is_participant) && <button type="button" className="chat-memory-button" onClick={() => {
+                    setIsChatExpanded(false)
+                    switchSection('My Profile')
+                    window.setTimeout(() => document.getElementById('mia-memory')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80)
+                  }}>Memory</button>}
                   {currentMessages.length > 0 && (
                     <button ref={clearChatTriggerRef} type="button" className="chat-clear-button" onClick={handleClearMessagesRequest} disabled={miaClearing || miaLoading}>
                       {miaClearing ? 'Clearing' : 'Clear'}
@@ -2689,6 +2695,8 @@ function App() {
               <p>{isRealWorkspace ? 'These are your saved household numbers. Update them anytime and Mia will use the new context.' : 'Manual entry works in the real workspace. Uploads are shown as the next natural path so users do not feel trapped in Excel.'}</p>
             </article>
           )}
+
+          {!isFirstSessionSetup && (!auth.currentUser || auth.currentUser.is_participant) && <MiaMemoryPanel enabled={Boolean(isRealWorkspace)} />}
 
           {isRealWorkspace && setupDraft && !isFirstSessionUpload && (
             <WorkspaceSetupForm

@@ -58,6 +58,7 @@ module HouseholdFinance
         expense_stack_totals: expense_stack_totals,
         annual_budget: annual_budget_context,
         documents: document_context,
+        personalization_memory: conversation_context.to_h[:personalization_memory] || conversation_context.to_h["personalization_memory"],
         conversation_continuity: conversation_context
       }
     end

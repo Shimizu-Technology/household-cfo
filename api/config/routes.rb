@@ -32,6 +32,13 @@ Rails.application.routes.draw do
           post :cancel
         end
       end
+      resources :household_memories, only: %i[index create update destroy] do
+        member do
+          post :confirm
+          post :reject
+        end
+      end
+      resource :mia_memory_settings, only: :update
       resources :transaction_drafts, only: :update do
         collection do
           post :bulk_confirm

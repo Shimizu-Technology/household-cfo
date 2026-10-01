@@ -180,6 +180,7 @@ module HouseholdFinance
     def conversation_state
       context = conversation_context.respond_to?(:deep_symbolize_keys) ? conversation_context.deep_symbolize_keys : {}
       {
+        personalization_memory: context[:personalization_memory],
         active_thread: context[:active_topic],
         open_threads: Array(context[:open_topics]).first(4),
         older_summary: context[:rolling_summary]

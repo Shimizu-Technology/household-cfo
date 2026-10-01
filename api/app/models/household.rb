@@ -18,6 +18,7 @@ class Household < ApplicationRecord
   has_many :financial_document_imports, dependent: :destroy
   has_many :mia_action_drafts, dependent: :destroy
   has_many :household_audit_events, dependent: :destroy
+  has_many :household_memories, dependent: :destroy
   has_many :plaid_items, dependent: :destroy
   has_many :plaid_transactions, through: :plaid_items
   has_many :pilot_feedback_reports, dependent: :destroy
