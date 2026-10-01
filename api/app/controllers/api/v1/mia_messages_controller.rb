@@ -44,10 +44,21 @@ module Api
         return if request_handled
         @active_mia_message_request = message_request
 
+        if attached_imports.empty? && (memory_command = mia_memory_command(content))
+          return render_mia_memory_command(
+            session,
+            content,
+            memory_command,
+            message_request: message_request,
+            retire_prior_document_evidence: document_evidence_topic_present?(session)
+          )
+        end
+
         transcript = HouseholdFinance::ConversationTranscriptBuilder.new(
           session,
           persona_version_id: current_persona.version_id
         ).call
+        transcript = intent_transcript_without_memory_commands(transcript)
         history = transcript.map { |message| message.slice(:role, :content) }
         @mia_conversation_messages = history
 
@@ -143,6 +154,10 @@ module Api
         )
         conversation_resolution = resolved_conversation_turn(intent_result)
         response_conversation_context = resolved_conversation_context(conversation_context, conversation_resolution)
+        response_conversation_context[:personalization_memory] = HouseholdFinance::MiaMemoryContextBuilder.new(
+          current_household,
+          user: current_user
+        ).call
 
         assistant_content = assistant_content_for(
           content,
@@ -234,6 +249,136 @@ module Api
       end
 
       private
+
+      def intent_transcript_without_memory_commands(transcript)
+        source_ids = current_household.household_memories
+          .where(owner_user: current_user, source_kind: "mia_command")
+          .where.not(source_chat_message_id: nil)
+          .pluck(:source_chat_message_id)
+        excluded_ids = source_ids.to_set
+        transcript.each_with_index do |message, index|
+          memory_command_turn = message[:role] == "user" && mia_memory_command(message[:content]).present?
+          next unless excluded_ids.include?(message[:id]) || memory_command_turn
+
+          excluded_ids << message[:id]
+          acknowledgement = transcript[index + 1]
+          excluded_ids << acknowledgement[:id] if acknowledgement&.dig(:role) == "assistant"
+        end
+        transcript.reject { |message| excluded_ids.include?(message[:id]) }
+      end
+
+      def mia_memory_command(content)
+        normalized = content.to_s.squish
+        return { type: :list } if normalized.match?(/\A(?:what|which) (?:things? )?(?:does mia|do you) remember(?: about me| about us)?\??\z/i)
+
+        match = normalized.match(/\A(?:please )?remember(?: that| this)?[,:]?\s+(.+)\z/i)
+        return unless match
+
+        value = match[1].to_s.squish
+        return { type: :invalid } if value.blank? || value.length > HouseholdMemory::MAX_DISPLAY_LENGTH
+
+        { type: :create, value: value }
+      end
+
+      def render_mia_memory_command(session, content, command, message_request:, retire_prior_document_evidence:)
+        case command.fetch(:type)
+        when :list
+          assistant_content = mia_memory_list_answer
+          user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        when :invalid
+          assistant_content = "Tell me one thing to remember in #{HouseholdMemory::MAX_DISPLAY_LENGTH} characters or fewer. I will show it under My Profile so you can change or forget it anytime."
+          user_message, assistant_message = persist_chat_messages(session, content, [], assistant_content)
+        when :create
+          user_message, assistant_message, memory = persist_mia_memory_command(session, content, command.fetch(:value), message_request)
+        end
+
+        response_payload = {
+          user_message: serialize_chat_message(user_message, author: "You"),
+          assistant_message: serialize_chat_message(assistant_message),
+          transaction_draft: nil,
+          mia_action_draft: nil,
+          budget: nil,
+          spending_report: nil,
+          memory: memory&.as_api_json(viewer: current_user)
+        }
+        retire_document_evidence_state(session) if retire_prior_document_evidence
+        complete_message_request(message_request, response_payload)
+        record_mia_operation("mia.request.completed", assistant_message: assistant_message)
+        render json: response_payload, status: :created
+      end
+
+      def persist_mia_memory_command(session, content, value, message_request)
+        ApplicationRecord.transaction do
+          membership = current_household.household_memberships.lock.find_by!(user_id: current_user.id)
+          if membership.mia_personalization_paused?
+            answer = "Personalization is paused, so I did not save that. Resume it under My Profile → What Mia remembers, then ask me again. Your approved financial records still work normally."
+            user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+            next [ user_message, assistant_message, nil ]
+          end
+          if current_household.household_memories.where(owner_user: current_user).count >= HouseholdMemory::MAX_STORED_PER_OWNER
+            answer = "You already have #{HouseholdMemory::MAX_STORED_PER_OWNER} saved memories. I did not add another. Open My Profile → What Mia remembers and forget one you no longer need."
+            user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+            next [ user_message, assistant_message, nil ]
+          end
+
+          category = mia_memory_category(value)
+          sensitive = mia_memory_sensitive?(value)
+          needs_confirmation = sensitive || category.in?(%w[goal preference constraint])
+          status = needs_confirmation ? "pending_confirmation" : "user_confirmed"
+          answer = if needs_confirmation
+            reason = sensitive ? "as sensitive " : ""
+            "I saved that #{reason}and left it waiting for your confirmation. Review it under My Profile → What Mia remembers before I use it."
+          else
+            "I’ll remember that for future coaching. You can review, edit, pause, or forget it anytime under My Profile → What Mia remembers. It will not override your approved financial records."
+          end
+          user_message, assistant_message = persist_chat_messages(session, content, [], answer)
+          memory = current_household.household_memories.create!(
+            owner_user: current_user,
+            source_chat_message: user_message,
+            source_kind: "mia_command",
+            request_key: message_request ? "mia:#{message_request.request_key}" : "mia-message:#{user_message.id}",
+            category: category,
+            status: status,
+            sensitivity: sensitive ? "sensitive" : "ordinary",
+            visibility: "private",
+            display_value: value,
+            confirmed_at: status == "user_confirmed" ? Time.current : nil
+          )
+          current_household.household_audit_events.create!(
+            user: current_user, actor_type: "user", event_type: "mia_memory.created",
+            occurred_at: Time.current,
+            metadata: { memory_id: memory.id, category: memory.category, visibility: memory.visibility, status: memory.status, source: "mia_command" }
+          )
+          [ user_message, assistant_message, memory ]
+        end
+      end
+
+      def mia_memory_list_answer
+        membership = current_household.household_memberships.find_by!(user_id: current_user.id)
+        memories = current_household.household_memories.visible_to(current_user).active.ordered.limit(HouseholdMemory::MAX_ACTIVE_CONTEXT)
+        return "Personalization is paused. I still keep the choices shown under My Profile → What Mia remembers, but I am not using them in replies." if membership.mia_personalization_paused?
+        return "I do not have any active saved memories for you. I do not mine chat history. Say “Remember that…” or add one under My Profile → What Mia remembers." if memories.empty?
+
+        lines = memories.map.with_index { |memory, index| "#{index + 1}. #{memory.display_value} (#{memory.category.humanize.downcase}, only me)" }
+        "Here is what I actively remember for personalization:\n#{lines.join("\n")}\nThese are coaching context, not financial truth. You can edit or forget them under My Profile."
+      end
+
+      def mia_memory_category(value)
+        normalized = value.downcase
+        return "coaching_style" if normalized.match?(/\b(?:coach(?:ing)?|tone|repl(?:y|ies)|responses?|questions?|language|explain(?:s|ed|ing)?|explanations?)\b/)
+        return "follow_up" if normalized.match?(/\b(?:follow[ -]?ups?|check[ -]?ins?|remind(?:s|ed|ing|ers?)?)\b/)
+        return "goal" if normalized.match?(/\bgoals?\b|\bworking towards?\b|\bwant to achieve\b/)
+        return "constraint" if normalized.match?(/\b(?:cannot|can't|must not|do not|don't|avoid|constraints?|limits?)\b/)
+        return "habit" if normalized.match?(/\b(?:usually|habits?)\b|\bevery (?:day|week|month)\b/)
+
+        "preference"
+      end
+
+      def mia_memory_sensitive?(value)
+        value.downcase.match?(
+          /\b(?:health|medical|diagnos(?:e|ed|es|ing|is|ises|tic|tics)?|disabil(?:ity|ities|ed)|pregnan(?:t|cy|cies)|fertil(?:e|ity|ization|isation|ized|ised)?|religions?|politics?|political|sexual|gender|pronouns?|race|ethnic|ethnicity|trauma|abuse|addiction)\b/
+        )
+      end
 
       def setup_guide_intent_result(content)
         guide = HouseholdFinance::MiaSetupGuide.new(current_household)

@@ -354,6 +354,23 @@ async function mockDemoApi(page: Page) {
   let pilotFeedbackStatus = 'submitted'
   let persona = personaDetailFixture()
   let personaAssignment: null | Record<string, unknown> = null
+  let memoryPaused = false
+  let nextMemoryId = 2
+  let memories = [{
+    id: 1, category: 'coaching_style', status: 'user_confirmed', sensitivity: 'ordinary', visibility: 'private',
+    display_value: 'Give me one clear next step.', structured_value: {}, owned_by_current_user: true, owner_name: 'You',
+    source_kind: 'manual_profile', confirmation_fingerprint: null, confirmed_at: '2026-10-01T00:00:00Z', expires_at: null,
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
+  }]
+  const memoryPayload = () => ({
+    memories,
+    personalization: { paused: memoryPaused, paused_at: memoryPaused ? '2026-10-01T01:00:00Z' : null },
+    policy: {
+      source: 'Only memories you explicitly saved appear here. Each household participant has a private memory list.',
+      financial_truth: 'Mia uses approved household records for financial facts.',
+      coach_visibility: false,
+    },
+  })
   const assignableCohort = () => ({
     id: 41,
     name: 'Household CFO pilot',
@@ -383,6 +400,7 @@ async function mockDemoApi(page: Page) {
       },
     },
     '/api/v1/document_imports': { document_imports: [] },
+    '/api/v1/household_memories': memoryPayload(),
     '/api/v1/admin/cohorts': { cohorts: [pilotCohort] },
     '/api/v1/admin/users': { users: [pilotAdminUser] },
   }
@@ -390,6 +408,41 @@ async function mockDemoApi(page: Page) {
   await page.route('http://api.test/**', async (route) => {
     const url = new URL(route.request().url())
     const path = url.pathname
+    if (path === '/api/v1/household_memories' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: memoryPayload() })
+    }
+    if (path === '/api/v1/household_memories' && route.request().method() === 'POST') {
+      const input = route.request().postDataJSON().memory
+      const memory = {
+        id: nextMemoryId++, category: input.category, status: input.sensitivity === 'sensitive' ? 'pending_confirmation' : 'user_confirmed',
+        sensitivity: input.sensitivity, visibility: 'private', display_value: input.display_value, structured_value: {},
+        owned_by_current_user: true, owner_name: 'You', source_kind: 'manual_profile',
+        confirmation_fingerprint: input.sensitivity === 'sensitive' ? `memory-fingerprint-${nextMemoryId - 1}` : null,
+        confirmed_at: input.sensitivity === 'sensitive' ? null : '2026-10-01T01:00:00Z', expires_at: null,
+        created_at: '2026-10-01T01:00:00Z', updated_at: '2026-10-01T01:00:00Z',
+      }
+      memories = [memory, ...memories]
+      return route.fulfill({ status: 201, json: { memory, personalization: memoryPayload().personalization } })
+    }
+    if (path === '/api/v1/mia_memory_settings' && route.request().method() === 'PATCH') {
+      memoryPaused = Boolean(route.request().postDataJSON().personalization.paused)
+      return route.fulfill({ status: 200, json: { personalization: memoryPayload().personalization } })
+    }
+    const memoryMatch = path.match(/^\/api\/v1\/household_memories\/(\d+)(?:\/(confirm|reject))?$/)
+    if (memoryMatch) {
+      const id = Number(memoryMatch[1])
+      const action = memoryMatch[2]
+      if (route.request().method() === 'DELETE') {
+        memories = memories.filter((memory) => memory.id !== id)
+        return route.fulfill({ status: 204, body: '' })
+      }
+      const index = memories.findIndex((memory) => memory.id === id)
+      if (index < 0) return route.fulfill({ status: 404, json: { error: 'Not found' } })
+      if (action === 'confirm') memories[index] = { ...memories[index], status: 'user_confirmed', confirmation_fingerprint: null, confirmed_at: '2026-10-01T01:00:00Z' }
+      if (action === 'reject') memories[index] = { ...memories[index], status: 'rejected', confirmed_at: null }
+      if (!action && route.request().method() === 'PATCH') memories[index] = { ...memories[index], ...route.request().postDataJSON().memory }
+      return route.fulfill({ status: 200, json: { memory: memories[index], personalization: memoryPayload().personalization } })
+    }
     if (path === '/api/v1/admin/personas' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { personas: [persona] } })
     }
@@ -510,6 +563,77 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript((messages) => {
     window.localStorage.setItem('household-cfo:mia-chat:v1:preview', JSON.stringify(messages))
   }, chatMessages(100))
+})
+
+test('Mia memory stays explicit, reversible, and usable on mobile and desktop', async ({ page }) => {
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('button', { name: 'Memory', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'What Mia remembers' })).toBeVisible()
+  await expect(page.getByText('Give me one clear next step.')).toBeVisible()
+
+  const input = page.getByRole('textbox', { name: 'Memory for Mia' })
+  await input.fill('Check in on our emergency fund goal each month.')
+  await page.getByRole('combobox', { name: 'Memory type' }).selectOption('follow_up')
+  await expect(page.getByText('Other household participants and coaches cannot see or use these memories.')).toBeVisible()
+  await page.getByRole('button', { name: 'Remember this' }).click()
+  await expect(page.getByText('Check in on our emergency fund goal each month.')).toBeVisible()
+  await expect(page.getByText('Saved. Mia can use this on your next message.')).toBeVisible()
+
+  await input.fill('A sensitive coaching constraint.')
+  await page.getByRole('checkbox', { name: /This feels sensitive/ }).check()
+  await page.getByRole('button', { name: 'Remember this' }).click()
+  const sensitiveMemory = page.locator('.mia-memory-item').filter({ hasText: 'A sensitive coaching constraint.' })
+  await expect(sensitiveMemory.getByText('pending confirmation')).toBeVisible()
+  await sensitiveMemory.getByRole('button', { name: 'Confirm' }).click()
+  await expect(sensitiveMemory.getByText('Active')).toBeVisible()
+
+  await input.fill('A second sensitive coaching constraint.')
+  await page.getByRole('checkbox', { name: /This feels sensitive/ }).check()
+  await page.getByRole('button', { name: 'Remember this' }).click()
+  const pendingWhilePaused = page.locator('.mia-memory-item').filter({ hasText: 'A second sensitive coaching constraint.' })
+  await expect(pendingWhilePaused.getByText('pending confirmation')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Pause personalization' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Personalization is paused.' })).toBeVisible()
+  await expect(input).toBeDisabled()
+  await expect(pendingWhilePaused.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  await expect(pendingWhilePaused.getByRole('button', { name: 'Reject' })).toBeEnabled()
+  await expect(pendingWhilePaused.getByRole('button', { name: 'Forget' })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+})
+
+test('Mia memory shows a real initial loading state and keeps controls disabled', async ({ page }) => {
+  let releaseMemory: (() => void) | undefined
+  const memoryGate = new Promise<void>((resolve) => { releaseMemory = resolve })
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/household_memories', async (route) => {
+    await memoryGate
+    return route.fulfill({
+      status: 200,
+      json: {
+        memories: [],
+        personalization: { paused: false, paused_at: null },
+        policy: {
+          source: 'Only memories you explicitly saved appear here.',
+          financial_truth: 'Mia uses approved household records for financial facts.',
+          coach_visibility: false,
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Ask Mia')
+  await page.getByRole('button', { name: 'Memory', exact: true }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Loading Mia’s memories…' })).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Memory for Mia' })).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Pause personalization' })).toBeDisabled()
+
+  releaseMemory?.()
+  await expect(page.getByText('Nothing saved yet.')).toBeVisible()
+  await expect(page.getByRole('textbox', { name: 'Memory for Mia' })).toBeEnabled()
 })
 
 test('an initial workspace loading failure offers a real retry and restores the participant app', async ({ page }) => {
@@ -2385,6 +2509,7 @@ test('incomplete participants get a short first session, private feedback, and a
   await expect(page.getByRole('heading', { name: 'Give Mia a useful starting point.' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Guide', exact: true })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Feedback', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Memory', exact: true })).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Read the 3-minute guide' }).click()
   await expect(page.getByRole('heading', { name: 'A clear first Mia session in three moves.' })).toBeVisible()

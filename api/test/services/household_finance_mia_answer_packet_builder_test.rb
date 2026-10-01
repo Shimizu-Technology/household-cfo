@@ -59,4 +59,18 @@ class HouseholdFinanceMiaAnswerPacketBuilderTest < ActiveSupport::TestCase
     assert_equal 1, packet.dig(:annual_plan_summary, :pending_draft_count)
     assert_equal [ { name: "Groceries", stack_key: "needs", planned: 300.0, actual: 85.0, remaining: 215.0 } ], packet.dig(:annual_plan_summary, :top_categories)
   end
+
+  test "includes personalization once in the post-decision narration packet" do
+    memory = { context_type: "user_curated_personalization", paused: false, memories: [ { id: 7, category: "coaching_style", value: "Use short replies" } ] }
+    packet = HouseholdFinance::MiaAnswerPacketBuilder.new(
+      kind: "coaching",
+      fallback_response: "Take one next step.",
+      write_state: "no_write",
+      conversation_context: { personalization_memory: memory, active_topic: { title: "Runway" } }
+    ).call
+
+    assert_equal memory, packet.fetch(:personalization_memory)
+    refute packet.fetch(:conversation_state).key?(:personalization_memory)
+    assert_equal 1, JSON.generate(packet).scan("user_curated_personalization").length
+  end
 end

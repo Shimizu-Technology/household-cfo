@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_031300) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_040100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -386,6 +386,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031300) do
   create_table "household_memberships", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "household_id", null: false
+    t.boolean "mia_personalization_paused", default: false, null: false
+    t.datetime "mia_personalization_paused_at"
     t.string "role", default: "owner", null: false
     t.datetime "updated_at", null: false
     t.bigint "user_id", null: false
@@ -394,6 +396,37 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031300) do
     t.index ["role"], name: "index_household_memberships_on_role"
     t.index ["user_id"], name: "index_household_memberships_on_one_owner_per_user", unique: true, where: "((role)::text = 'owner'::text)"
     t.index ["user_id"], name: "index_household_memberships_on_user_id"
+  end
+
+  create_table "household_memories", force: :cascade do |t|
+    t.string "category", null: false
+    t.datetime "confirmed_at"
+    t.datetime "created_at", null: false
+    t.string "display_value", null: false
+    t.datetime "expires_at"
+    t.bigint "household_id", null: false
+    t.bigint "owner_user_id", null: false
+    t.datetime "rejected_at"
+    t.string "request_key"
+    t.string "sensitivity", default: "ordinary", null: false
+    t.bigint "source_chat_message_id"
+    t.string "source_kind", default: "manual_profile", null: false
+    t.string "status", default: "pending_confirmation", null: false
+    t.jsonb "structured_value", default: {}, null: false
+    t.datetime "updated_at", null: false
+    t.string "visibility", default: "private", null: false
+    t.index ["household_id", "owner_user_id", "request_key"], name: "index_household_memories_on_request_key", unique: true, where: "(request_key IS NOT NULL)"
+    t.index ["household_id", "status", "expires_at"], name: "index_household_memories_on_active_scope"
+    t.index ["household_id"], name: "index_household_memories_on_household_id"
+    t.index ["owner_user_id"], name: "index_household_memories_on_owner_user_id"
+    t.index ["source_chat_message_id"], name: "index_household_memories_on_source_chat_message_id"
+    t.check_constraint "category::text = ANY (ARRAY['goal'::character varying::text, 'preference'::character varying::text, 'constraint'::character varying::text, 'habit'::character varying::text, 'coaching_style'::character varying::text, 'follow_up'::character varying::text])", name: "household_memories_category_valid"
+    t.check_constraint "char_length(display_value::text) >= 1 AND char_length(display_value::text) <= 500", name: "household_memories_display_value_length"
+    t.check_constraint "request_key IS NULL OR char_length(request_key::text) <= 120", name: "household_memories_request_key_length"
+    t.check_constraint "sensitivity::text = ANY (ARRAY['ordinary'::character varying::text, 'sensitive'::character varying::text])", name: "household_memories_sensitivity_valid"
+    t.check_constraint "source_kind::text = ANY (ARRAY['manual_profile'::character varying::text, 'mia_command'::character varying::text])", name: "household_memories_source_kind_valid"
+    t.check_constraint "status::text = ANY (ARRAY['pending_confirmation'::character varying::text, 'user_confirmed'::character varying::text, 'rejected'::character varying::text, 'expired'::character varying::text])", name: "household_memories_status_valid"
+    t.check_constraint "visibility::text = 'private'::text", name: "household_memories_visibility_valid"
   end
 
   create_table "household_profiles", force: :cascade do |t|
@@ -961,6 +994,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_031300) do
   add_foreign_key "household_audit_events", "users"
   add_foreign_key "household_memberships", "households"
   add_foreign_key "household_memberships", "users"
+  add_foreign_key "household_memories", "chat_messages", column: "source_chat_message_id", on_delete: :nullify
+  add_foreign_key "household_memories", "households"
+  add_foreign_key "household_memories", "users", column: "owner_user_id"
   add_foreign_key "household_profiles", "households"
   add_foreign_key "household_transactions", "budget_periods"
   add_foreign_key "household_transactions", "financial_document_imports", column: "source_import_id"

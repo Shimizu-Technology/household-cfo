@@ -637,6 +637,38 @@ export type MiaMessagesData = {
   disclaimer: string
 }
 
+export type HouseholdMemoryCategory = 'goal' | 'preference' | 'constraint' | 'habit' | 'coaching_style' | 'follow_up'
+export type HouseholdMemoryStatus = 'pending_confirmation' | 'user_confirmed' | 'rejected' | 'expired'
+export type HouseholdMemory = {
+  id: number
+  category: HouseholdMemoryCategory
+  status: HouseholdMemoryStatus
+  sensitivity: 'ordinary' | 'sensitive'
+  visibility: 'private'
+  display_value: string
+  structured_value: Record<string, unknown>
+  owned_by_current_user: boolean
+  owner_name: string
+  source_kind: 'manual_profile' | 'mia_command'
+  confirmation_fingerprint: string | null
+  confirmed_at: string | null
+  expires_at: string | null
+  created_at: string
+  updated_at: string
+}
+export type MiaMemoryData = {
+  memories: HouseholdMemory[]
+  personalization: { paused: boolean; paused_at: string | null }
+  policy: { source: string; financial_truth: string; coach_visibility: false }
+}
+export type HouseholdMemoryInput = {
+  category: HouseholdMemoryCategory
+  display_value: string
+  sensitivity: 'ordinary' | 'sensitive'
+  confirmed?: boolean
+  request_key?: string
+}
+
 export type UserRole = 'admin' | 'coach' | 'participant'
 export type InvitationStatus = 'pending' | 'accepted' | 'revoked'
 export type AdminCohortStatus = 'draft' | 'enrolling' | 'active' | 'completed' | 'archived'
@@ -1798,6 +1830,38 @@ export async function fetchMiaMessages(realWorkspace = false, beforeId?: number 
 
   const query = beforeId ? `?before_id=${encodeURIComponent(beforeId)}&limit=60` : '?limit=60'
   return fetchJson<MiaMessagesData>(`/api/v1/mia/messages${query}`)
+}
+
+export async function fetchHouseholdMemories(): Promise<MiaMemoryData> {
+  return fetchJson<MiaMemoryData>('/api/v1/household_memories')
+}
+
+export async function createHouseholdMemory(values: HouseholdMemoryInput): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
+  return postJson('/api/v1/household_memories', { memory: values })
+}
+
+export async function updateHouseholdMemory(id: number, values: Partial<HouseholdMemoryInput>): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
+  return fetchJson(`/api/v1/household_memories/${id}`, {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memory: values }),
+  })
+}
+
+export async function confirmHouseholdMemory(id: number, confirmationFingerprint: string): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
+  return postJson(`/api/v1/household_memories/${id}/confirm`, { memory: { confirmation_fingerprint: confirmationFingerprint } })
+}
+
+export async function rejectHouseholdMemory(id: number): Promise<{ memory: HouseholdMemory; personalization: MiaMemoryData['personalization'] }> {
+  return postJson(`/api/v1/household_memories/${id}/reject`, {})
+}
+
+export async function forgetHouseholdMemory(id: number): Promise<void> {
+  return fetchJson<void>(`/api/v1/household_memories/${id}`, { method: 'DELETE' })
+}
+
+export async function setMiaPersonalizationPaused(paused: boolean): Promise<{ personalization: MiaMemoryData['personalization'] }> {
+  return fetchJson('/api/v1/mia_memory_settings', {
+    method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ personalization: { paused } }),
+  })
 }
 
 export async function sendMiaMessage(message: string, history: MiaMessage[] = [], realWorkspace = false, year?: number, month?: number, documentImportIds: number[] = [], requestId?: string): Promise<MiaMessageResponse> {
