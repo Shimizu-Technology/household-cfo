@@ -129,6 +129,26 @@ const optionality = {
 }
 const cfoFilter = { framework: 'CFO Filter', prompt: 'Pressure-test the move.', decisions: [{ item: 'Large planned purchase', amount: 1_234_567.89, recommendation: 'Wait', reason: 'Protect runway first.' }], targets: [], priority_stack: ['Essential bills', 'Expected expenses', 'Runway'] }
 
+function experienceCapabilities(optionalModules: { cfo_filter?: boolean; optionality?: boolean } = {}) {
+  const enabled = { cfo_filter: optionalModules.cfo_filter ?? true, optionality: optionalModules.optionality ?? true }
+  return {
+    schema_version: 1,
+    source: 'published_cohort',
+    cohort_id: 41,
+    experience_version: { id: 301, number: 1 },
+    modules: ([
+      ['home', 'Home', true], ['review', 'Review', true], ['ask_mia', 'Ask Mia', true], ['budget', 'Budget', true],
+      ['profile', 'My Profile', true], ['wealth', 'Wealth', true], ['cfo_filter', 'CFO Filter', false], ['optionality', 'Optionality', false],
+    ] as const).map(([id, label, core]) => {
+      const moduleEnabled = core || enabled[id as keyof typeof enabled]
+      return {
+        id, label, core, enabled: moduleEnabled,
+        ...(moduleEnabled ? {} : { unavailable_message: `${label} is not included in this cohort right now. You can still ask Mia about this decision.` }),
+      }
+    }),
+  }
+}
+
 const miaBudgetDraft = {
   id: 71, status: 'pending', draft_type: 'budget_edit', year: currentYear,
   title: 'Move more into the unexpected sinking fund',
@@ -216,6 +236,7 @@ function realWorkspaceData(setupComplete = false) {
       },
       debts: [],
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
+      capabilities: experienceCapabilities(),
       setup_values: {
         household_name: 'Test Participant Household', primary_goal: 'Build a calm monthly plan.',
         primary_income: setupComplete ? 5_000 : 0, business_income: 0, fixed_expenses: setupComplete ? 2_500 : 0,
@@ -354,6 +375,11 @@ async function mockDemoApi(page: Page) {
   let pilotFeedbackStatus = 'submitted'
   let persona = personaDetailFixture()
   let personaAssignment: null | Record<string, unknown> = null
+  let experienceDraft = { schema_version: 1 as const, optional_modules: { cfo_filter: true, optionality: true } }
+  let experienceDraftRevision = 1
+  let experiencePreview: null | { digest: string; draft_revision: number; generated_at: string } = null
+  let experiencePublishedVersion: null | Record<string, unknown> = null
+  let experienceVersions: Array<Record<string, unknown>> = []
   let memoryPaused = false
   let nextMemoryId = 2
   let memories = [{
@@ -378,6 +404,16 @@ async function mockDemoApi(page: Page) {
     assignable: true,
     blocked_reason: null,
     persona_assignment: personaAssignment,
+  })
+  const experienceConfiguration = () => ({
+    cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
+    draft: experienceDraft,
+    draft_revision: experienceDraftRevision,
+    preview_required: experiencePreview === null,
+    preview: experiencePreview,
+    published_version: experiencePublishedVersion,
+    versions: experienceVersions,
+    permissions: { edit: true, publish: true, rollback: true },
   })
   const responses: Record<string, unknown> = {
     '/api/demo/profile': profile,
@@ -445,6 +481,46 @@ async function mockDemoApi(page: Page) {
     }
     if (path === '/api/v1/admin/personas' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { personas: [persona] } })
+    }
+    if (path === '/api/v1/admin/cohorts/41/experience_configuration' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration() } })
+    }
+    if (path === '/api/v1/admin/cohorts/41/experience_configuration' && route.request().method() === 'PATCH') {
+      experienceDraft = route.request().postDataJSON().experience_configuration.draft_config
+      experienceDraftRevision += 1
+      experiencePreview = null
+      return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration() } })
+    }
+    if (path === '/api/v1/admin/cohorts/41/experience_configuration/preview' && route.request().method() === 'POST') {
+      experiencePreview = { digest: `experience-preview-${experienceDraftRevision}`, draft_revision: experienceDraftRevision, generated_at: '2026-10-01T02:00:00Z' }
+      return route.fulfill({
+        status: 200,
+        json: {
+          preview: { ...experiencePreview, modules: experienceCapabilities(experienceDraft.optional_modules).modules },
+          experience_configuration: experienceConfiguration(),
+        },
+      })
+    }
+    if (path === '/api/v1/admin/cohorts/41/experience_configuration/publish' && route.request().method() === 'POST') {
+      const number = experienceVersions.length + 1
+      const version = {
+        id: 300 + number, number, digest: `experience-version-${number}`, published_at: '2026-10-01T02:05:00Z',
+        published_by: { id: 901, full_name: 'Pilot Admin' }, config: experienceDraft,
+      }
+      experiencePublishedVersion = version
+      experienceVersions = [version, ...experienceVersions]
+      return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration(), published_version: version } })
+    }
+    const experienceRollback = path.match(/^\/api\/v1\/admin\/cohorts\/41\/experience_configuration\/versions\/(\d+)\/rollback$/)
+    if (experienceRollback && route.request().method() === 'POST') {
+      const target = experienceVersions.find((version) => version.id === Number(experienceRollback[1]))!
+      const number = experienceVersions.length + 1
+      const version = { ...target, id: 300 + number, number, digest: `experience-version-${number}`, restored_from_version: { id: target.id, number: target.number } }
+      experienceDraft = target.config as typeof experienceDraft
+      experiencePublishedVersion = version
+      experienceVersions = [version, ...experienceVersions]
+      experiencePreview = null
+      return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration(), published_version: version } })
     }
     if (path === '/api/v1/admin/personas' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON().persona
@@ -2924,6 +3000,73 @@ test('Coach Studio preserves coach-authored community context through preview, p
   page.once('dialog', (dialog) => dialog.accept())
   await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
   await expect(page.getByRole('status')).toContainText('Version 3 is now published from version 1')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio participant tools preview publish and restore the exact cohort navigation', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+
+  await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
+  await expect(page.getByText('Always on')).toHaveCount(6)
+  await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
+  await expect(page.getByLabel('Include Optionality')).toBeChecked()
+
+  await page.getByLabel('Include CFO Filter').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status')).toContainText('draft saved')
+  await page.getByRole('button', { name: 'Preview navigation' }).click()
+
+  const preview = page.getByRole('region', { name: 'Exact participant navigation preview' })
+  await expect(preview.getByRole('navigation', { name: 'Desktop preview' })).toContainText('Optionality')
+  await expect(preview).toContainText('Not included: CFO Filter')
+
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('1 participant in Household CFO pilot')
+    await dialog.accept()
+  })
+  await page.getByRole('button', { name: 'Publish to cohort' }).click()
+  await expect(page.getByRole('status')).toContainText('version 1 is published')
+
+  await page.getByLabel('Include CFO Filter').check()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await page.getByRole('button', { name: 'Preview navigation' }).click()
+  page.once('dialog', (dialog) => dialog.accept())
+  await page.getByRole('button', { name: 'Publish to cohort' }).click()
+  await expect(page.getByRole('status')).toContainText('version 2 is published')
+
+  await page.getByText('Version history (2)').click()
+  const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
+  page.once('dialog', (dialog) => dialog.accept())
+  await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
+  await expect(page.getByRole('status')).toContainText('Version 1 was restored as version 3')
+  await expect(page.getByLabel('Include CFO Filter')).not.toBeChecked()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('participant navigation remains available when a saved optional-tool link is disabled', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.capabilities = experienceCapabilities({ cfo_filter: false, optionality: true })
+  delete workspace.cfoFilter
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+
+  await page.goto('/?pilot_e2e_role=participant#CFO%20Filter')
+
+  await expect(page).toHaveURL(/#Home$/)
+  const notice = page.getByRole('status').filter({ hasText: 'CFO Filter is not included in this cohort right now.' })
+  await expect(notice).toBeVisible()
+  await expect(notice).toBeFocused()
+  await expect(page.locator('.cfo-screen')).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
+
+  const tools = page.getByRole('button', { name: 'Tools', exact: true })
+  await tools.click()
+  await expect(page.getByRole('link', { name: 'CFO Filter', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: 'Optionality', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'My Profile', exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Wealth', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'Optionality', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Can I leave my job?' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

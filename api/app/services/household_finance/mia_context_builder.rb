@@ -4,11 +4,12 @@ module HouseholdFinance
     MAX_PRIMARY_GOAL_LENGTH = 240
     MAX_FINANCIAL_RECORDS = 50
 
-    def initialize(household, annual_plan: nil, reference_month: Date.current.month, conversation_context: nil)
+    def initialize(household, annual_plan: nil, reference_month: Date.current.month, conversation_context: nil, experience_capabilities: nil)
       @household = household
       @annual_plan = annual_plan
       @reference_month = reference_month.to_i.clamp(1, 12)
       @conversation_context = conversation_context
+      @experience_capabilities = experience_capabilities
       @snapshot = SnapshotBuilder.new(
         household,
         annual_budget_manager: snapshot_budget_manager,
@@ -60,8 +61,19 @@ module HouseholdFinance
         expense_stack_totals: expense_stack_totals,
         annual_budget: annual_budget_context,
         documents: document_context,
+        available_product_modules: available_product_modules,
         personalization_memory: personalization_memory,
         conversation_continuity: continuity
+      }
+    end
+
+    def available_product_modules
+      return nil unless @experience_capabilities
+
+      {
+        safety_note: "Only enabled modules may be presented as named Household CFO cohort tools.",
+        enabled: @experience_capabilities.fetch(:modules).select { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) },
+        disabled: @experience_capabilities.fetch(:modules).reject { |item| item.fetch(:enabled) }.map { |item| item.fetch(:id) }
       }
     end
 

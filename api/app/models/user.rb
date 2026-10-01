@@ -26,6 +26,9 @@ class User < ApplicationRecord
   has_many :published_coach_persona_versions, class_name: "CoachPersonaVersion", foreign_key: :published_by_user_id, dependent: :restrict_with_exception, inverse_of: :published_by_user
   has_many :coach_persona_publication_events, foreign_key: :actor_user_id, dependent: :restrict_with_exception, inverse_of: :actor_user
   has_many :cohort_persona_assignments, foreign_key: :assigned_by_user_id, dependent: :restrict_with_exception, inverse_of: :assigned_by_user
+  has_many :edited_cohort_experience_configurations, class_name: "CohortExperienceConfiguration", foreign_key: :last_edited_by_user_id, dependent: :restrict_with_exception, inverse_of: :last_edited_by_user
+  has_many :published_cohort_experience_versions, class_name: "CohortExperienceVersion", foreign_key: :published_by_user_id, dependent: :restrict_with_exception, inverse_of: :published_by_user
+  has_many :cohort_experience_publication_events, foreign_key: :actor_user_id, dependent: :restrict_with_exception, inverse_of: :actor_user
   has_many :cohort_memberships, dependent: :destroy
   has_many :cohorts, through: :cohort_memberships
   has_many :chat_sessions, dependent: :destroy

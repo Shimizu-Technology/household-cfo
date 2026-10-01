@@ -1604,7 +1604,8 @@ module Api
           current_household,
           annual_plan: annual_plan,
           reference_month: budget_month_param,
-          conversation_context: conversation_context
+          conversation_context: conversation_context,
+          experience_capabilities: current_experience_capabilities
         ).call
         response_history = conversation_resolution&.dig(:intent) == "recall" ? [] : history
         ::Demo::MiaResponder.new(persona: current_persona).call(

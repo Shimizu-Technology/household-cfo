@@ -2,7 +2,7 @@ module HouseholdFinance
   class DataPresenter
     UNRESOLVED_COHORT = Object.new.freeze
 
-    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT, ensure_plan: true)
+    def initialize(household, user: nil, annual_plan: nil, persona: nil, cohort_membership: UNRESOLVED_COHORT, experience_capabilities: nil, ensure_plan: true)
       @household = household
       @user = user
       @annual_plan = annual_plan
@@ -14,19 +14,23 @@ module HouseholdFinance
         cohort_membership
       end
       @persona = persona || ::Mia::PersonaResolver.new(user: user, cohort_membership: @cohort_membership).call
+      @experience_capabilities = experience_capabilities || CohortExperience::EffectiveCapabilitiesResolver.new(
+        cohort_membership: @cohort_membership
+      ).call
     end
 
     def app_data
-      {
+      payload = {
         workspace: workspace,
         profile: profile,
         dashboard: dashboard,
         budget: budget,
         wealth: wealth,
-        optionality: optionality,
-        cfoFilter: cfo_filter,
         mia: mia
       }
+      payload[:optionality] = optionality if module_enabled?("optionality")
+      payload[:cfoFilter] = cfo_filter if module_enabled?("cfo_filter")
+      payload
     end
 
     def workspace
@@ -38,7 +42,8 @@ module HouseholdFinance
         setup_status: status.as_json,
         setup_values: setup_values,
         debts: debt_records,
-        cohort: cohort_context
+        cohort: cohort_context,
+        capabilities: experience_capabilities
       }
     end
 
@@ -218,6 +223,12 @@ module HouseholdFinance
     end
 
     private
+
+    attr_reader :experience_capabilities
+
+    def module_enabled?(id)
+      experience_capabilities.fetch(:modules).any? { |item| item.fetch(:id) == id && item.fetch(:enabled) }
+    end
 
     def setup_status
       @setup_status ||= SetupStatus.new(household)

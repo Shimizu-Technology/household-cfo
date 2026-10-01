@@ -132,6 +132,16 @@ const currency = new Intl.NumberFormat('en-US', {
 })
 
 const sections = ['Home', 'Review', 'Ask Mia', 'Budget', 'My Profile', 'Wealth', 'CFO Filter', 'Optionality']
+const sectionCapabilityIds: Record<string, string> = {
+  Home: 'home',
+  Review: 'review',
+  'Ask Mia': 'ask_mia',
+  Budget: 'budget',
+  'My Profile': 'profile',
+  Wealth: 'wealth',
+  'CFO Filter': 'cfo_filter',
+  Optionality: 'optionality',
+}
 const COACH_STUDIO_SECTION = 'Coach Studio'
 const ADMIN_SECTION = 'Admin'
 const CHAT_HISTORY_PAGE_SIZE = 60
@@ -348,6 +358,8 @@ function App() {
     return sectionFromLocation()
   })
   const [routeAnnouncement, setRouteAnnouncement] = useState('')
+  const [unavailableModuleNotice, setUnavailableModuleNotice] = useState<string | null>(null)
+  const unavailableModuleNoticeRef = useRef<HTMLDivElement | null>(null)
   const sectionScrollPositionsRef = useRef(new Map<string, number>())
   const pendingSectionNavigationRef = useRef<PendingSectionNavigation | null>(null)
   const lastHandledLocationRef = useRef('')
@@ -436,10 +448,13 @@ function App() {
   const isFocusedFirstSessionSetup = isFirstSessionSetup && !isFirstSessionUpload
   const workspaceLoadKey = data ? `${data.workspace?.mode ?? 'unknown'}:${data.workspace?.household_id ?? 'demo'}` : ''
   const visibleSections = useMemo(() => {
+    const enabledParticipantSections = data
+      ? sections.filter((section) => data.workspace.capabilities.modules.some((module) => module.id === sectionCapabilityIds[section] && module.enabled))
+      : []
     const staffSections = auth.currentUser?.is_staff ? [COACH_STUDIO_SECTION] : []
     const adminSections = auth.currentUser?.is_admin ? [ADMIN_SECTION] : []
-    return [...sections, ...staffSections, ...adminSections]
-  }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff])
+    return [...enabledParticipantSections, ...staffSections, ...adminSections]
+  }, [auth.currentUser?.is_admin, auth.currentUser?.is_staff, data])
   const activeSection = !visibleSections.includes(active) ? sections[0] : active
   const selectedImport = useMemo(() => {
     const explicitImport = selectedImportId ? documentImports.find((documentImport) => documentImport.id === selectedImportId) : null
@@ -1026,6 +1041,14 @@ function App() {
     restoreScroll?: boolean
     source?: 'history' | 'ui'
   } = {}) => {
+    const unavailableCapability = data?.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[section] && !module.enabled)
+    if (unavailableCapability) {
+      const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
+      setUnavailableModuleNotice(message)
+      setRouteAnnouncement(message)
+    } else if (options.source !== 'history') {
+      setUnavailableModuleNotice(null)
+    }
     const targetSection = visibleSections.includes(section) ? section : sections[0]
     let replacedStaleOAuthLocation = false
     if (activeSection === 'Budget' && targetSection !== 'Budget' && hasUnsavedBudgetChanges) {
@@ -1100,12 +1123,19 @@ function App() {
     }
 
     const followBrowserLocation = () => {
+      if (!data) return
       const locationKey = `${window.location.pathname}${window.location.search}${window.location.hash}`
       if (lastHandledLocationRef.current === locationKey) return
 
       const requestedSection = sectionFromLocation()
       if (requestedSection === ADMIN_SECTION && auth.isClerkEnabled && !auth.currentUser) return
       lastHandledLocationRef.current = locationKey
+      const unavailableCapability = data.workspace.capabilities.modules.find((module) => module.id === sectionCapabilityIds[requestedSection] && !module.enabled)
+      if (unavailableCapability) {
+        const message = unavailableCapability.unavailable_message || `${unavailableCapability.label} is not included in this cohort right now.`
+        setUnavailableModuleNotice(message)
+        setRouteAnnouncement(message)
+      }
       const targetSection = visibleSections.includes(requestedSection) ? requestedSection : sections[0]
       const targetHash = sectionHash(targetSection)
       if (window.location.hash !== targetHash) {
@@ -1138,6 +1168,12 @@ function App() {
       window.removeEventListener('hashchange', followBrowserLocation)
     }
   }, [activeSection, auth.currentUser, auth.isClerkEnabled, canResumePlaidOAuthReturn, data, switchSection, visibleSections])
+
+  useEffect(() => {
+    if (activeSection !== 'Home' || !unavailableModuleNotice) return
+
+    window.requestAnimationFrame(() => unavailableModuleNoticeRef.current?.focus({ preventScroll: true }))
+  }, [activeSection, unavailableModuleNotice])
 
   useLayoutEffect(() => {
     const pendingNavigation = pendingSectionNavigationRef.current
@@ -2287,6 +2323,12 @@ function App() {
 
       {activeSection === 'Home' && (
         <>
+          {unavailableModuleNotice && (
+            <div className="module-unavailable-notice" role="status" tabIndex={-1} ref={unavailableModuleNoticeRef}>
+              <div><strong>That tool is not included right now.</strong><p>{unavailableModuleNotice}</p></div>
+              <button type="button" aria-label="Dismiss tool notice" onClick={() => setUnavailableModuleNotice(null)}>Dismiss</button>
+            </div>
+          )}
           <HomeWelcomePanel
             needsSetup={Boolean(isRealWorkspace && !data.workspace?.setup_complete)}
             setupStatus={data.workspace.setup_status}
@@ -2901,7 +2943,7 @@ function App() {
         </section>
       )}
 
-      {activeSection === 'CFO Filter' && (
+      {activeSection === 'CFO Filter' && data.cfoFilter && (
         <section className="screen-grid cfo-screen">
           <ScreenHeading
             eyebrow="CFO Filter"
@@ -2931,7 +2973,7 @@ function App() {
         </section>
       )}
 
-      {activeSection === 'Optionality' && (
+      {activeSection === 'Optionality' && data.optionality && (
         <section className="screen-grid optionality-screen">
           <ScreenHeading
             eyebrow="Optionality"
