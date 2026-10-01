@@ -374,7 +374,10 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
       "Queer households generally handle money poorly.",
       "People from Guam lack financial literacy.",
       "Filipino households put family before savings.",
-      "Samoans have bad money habits."
+      "Samoans have bad money habits.",
+      "Artists struggle with finances.",
+      "Teachers mismanage their money.",
+      "Immigrants make poor financial decisions."
     ].each { |content| assert_unsafe("regional_stereotype", content) }
   end
 
@@ -384,8 +387,21 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
       "Give each reply a distinct Guam character.",
       "The assistant should come across as a Guam local.",
       "Let the writing evoke Guam.",
-      "Make the voice feel homegrown in Guam."
+      "Make the voice feel homegrown in Guam.",
+      "Make every answer seem like it was written in Guam.",
+      "Give each reply the personality of Guam.",
+      "Have Mia communicate the way Guam residents would."
     ].each { |content| assert_unsafe("regional_stereotype", content) }
+  end
+
+  test "cultural safety preserves singular safe program outcomes" do
+    [
+      "The workshop is financially accessible.",
+      "A class is good for budgeting.",
+      "The support group helps families save."
+    ].each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Generic program guidance", content: content), content
+    end
   end
 
   private

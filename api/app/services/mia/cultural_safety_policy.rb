@@ -23,8 +23,8 @@ module Mia
 
     RESPONSE_STYLE_PATTERN = /\b(?:
       voice|tone|style|accent|dialect|slang|vernacular|language|phrasing|expressions?|idioms?|lingo|
-      cadence|drawl|speech|speech\s+patterns?|colloquialisms?|rhythm|sound|speak|talk|write|writing|read|
-      respond|reply|answer|wording|character|come\s+across|evoke|homegrown|feel|flavou?r|vibes?|aesthetic|sensibility|spirit|energy|aura|communication\s+style|
+      cadence|drawl|speech|speech\s+patterns?|colloquialisms?|rhythm|sound|speak|talk|write|writing|written|read|
+      respond|reply|answer|communicate|wording|character|personality|come\s+across|seem|evoke|homegrown|feel|flavou?r|vibes?|aesthetic|sensibility|spirit|energy|aura|communication\s+style|
       traditions?|values?|customs?|cultural\s+identity|cultural\s+traits?
     )\b/ix.freeze
     IDENTITY_BASIS_PATTERNS = [
@@ -40,6 +40,8 @@ module Mia
       /\bread\s+like\s+.{0,30}\b(?:came|comes)\s+from\s+#{PLACE_PATTERN}\b/ix,
       /\b(?:distinct\s+)?#{PLACE_PATTERN}\s+character\b/ix,
       /\bcome\s+across\s+as\s+(?:a\s+)?#{PLACE_PATTERN}\s+local\b/ix,
+      /\bseem\s+like\s+.{0,30}\bwritten\s+in\s+#{PLACE_PATTERN}\b/ix,
+      /\bcommunicate\s+the\s+way\s+#{PLACE_PATTERN}\s+residents?\s+would\b/ix,
       /\bevoke\s+#{PLACE_PATTERN}\b/ix,
       /\bhomegrown\s+(?:in|from)\s+#{PLACE_PATTERN}\b/ix
     ].freeze
@@ -57,12 +59,12 @@ module Mia
       irresponsible|careless|reckless|wasteful|illiterate|undisciplined|naive|bad|good|better|worse|poor\s+(?:habits?|savers?|financial\s+habits?)|
       too\s+much|don['’]?t\s+know|do\s+not\s+know|always|never|the\s+same\s+way|prioriti[sz]\w*\b.{0,50}\bover
     )\b/ix.freeze
-    SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:our|all|some|these|those|the|weekly)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?|classes|workshops|support\s+groups)\z/i.freeze
+    SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:a|an|our|all|some|these|those|the|weekly)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?|class(?:es)?|workshops?|support\s+groups?)\z/i.freeze
     NONPERSON_SUBJECT_PATTERN = /\A(?:the\s+)?(?:budget|plan|approach|method|program|account|loan|debt|payment|cost|price|fee|rule|law|policy|institution|bank|credit\s+union|transfer|savings?|income|cash\s+flow|emergency\s+fund)\z/i.freeze
     GROUP_QUANTIFIER_PATTERN = /\A(?:a|an|every|each|all|most|many|some)\s+/i.freeze
     CLAIM_SIGNAL_PATTERN = /\b(?:
       is|are|was|were|isn['’]?t|aren['’]?t|wasn['’]?t|weren['’]?t|has|have|had|can|cannot|can['’]?t|could|should|would|
-      always|usually|often|generally|typically|naturally|tend(?:s)?\s+to|lack\w*|wast\w*|put|handl\w*|manag\w*|prioriti[sz]\w*|
+      always|usually|often|generally|typically|naturally|tend(?:s)?\s+to|lack\w*|wast\w*|struggl\w*|put|mak\w*|handl\w*|(?:mis)?manag\w*|prioriti[sz]\w*|
       (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing)(?!s)|budget\w*|borrow\w*|remit\w*|invest\w*|earn\w*|afford\w*
     )\b/ix.freeze
     BEHAVIOR_JUDGMENT_PATTERN = /(?:
@@ -71,11 +73,14 @@ module Mia
       \bhandl\w*\s+(?:their\s+)?money\s+poorly\b|
       \black\w*\s+financial\s+literacy\b|
       \b(?:bad|poor)\s+(?:financial|money)\s+habits?\b|
+      \bstruggl\w*\s+with\s+finances?\b|
+      \b(?:mis)?manag\w*\s+(?:their\s+)?money\b|
+      \bmak\w*\s+poor\s+financial\s+decisions?\b|
       \bput\w*\s+.{0,50}\bbefore\s+savings?\b|
       \bprioriti[sz]\w*\s+.{0,50}\bover\s+savings?\b
     )/ix.freeze
     IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN = /\A(?:i|we|you|our|your|my|do\s+not|don['’]?t|never|avoid|automatically|silently|ask|apply|buy|compare|explain|give|help|invest|keep|make|name|put|recommend|review|sell|show|tell|teach|update|use)\b/i.freeze
-    SAFE_PROGRAM_OUTCOME_PATTERN = /\A(?:(?:these|those|the|weekly)\s+)?(?:classes|workshops|support\s+groups)\b.{0,60}\b(?:help|teach|support)\w*\s+(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?)\b/i.freeze
+    SAFE_PROGRAM_OUTCOME_PATTERN = /\A(?:(?:a|an|these|those|the|weekly)\s+)?(?:class(?:es)?|workshops?|support\s+groups?)\b.{0,60}\b(?:help|teach|support)\w*\s+(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?)\b/i.freeze
 
     class << self
       def violations(value, field: :instruction, identity_labels: [])

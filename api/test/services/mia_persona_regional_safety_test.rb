@@ -111,7 +111,10 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       "Queer households generally handle money poorly.",
       "People from Guam lack financial literacy.",
       "Filipino households put family before savings.",
-      "Samoans have bad money habits."
+      "Samoans have bad money habits.",
+      "Artists struggle with finances.",
+      "Teachers mismanage their money.",
+      "Immigrants make poor financial decisions."
     ].each do |claim|
       config = persona_configuration(assistant_name: "Historical stereotype probe")
       config["culture"]["context"] = claim
@@ -132,7 +135,10 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
         "Make the voice feel homegrown in Guam.",
         ->(config, value) { config["curriculum"]["guidance"] = [ { "title" => "Voice", "content" => value } ] },
         "$.curriculum.guidance[0].content"
-      ]
+      ],
+      [ "Make every answer seem like it was written in Guam.", ->(config, value) { config["coaching"]["method"] = value }, "$.coaching.method" ],
+      [ "Give each reply the personality of Guam.", ->(config, value) { config["coaching"]["principles"] << value }, "$.coaching.principles[2]" ],
+      [ "Have Mia communicate the way Guam residents would.", ->(config, value) { config["coaching"]["do"] = [ value ] }, "$.coaching.do[0]" ]
     ]
 
     probes.each do |instruction, apply, path|
@@ -223,7 +229,10 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     [
       "Weekly classes often help participants budget.",
       "These workshops are financially accessible.",
-      "Support groups often help families save."
+      "Support groups often help families save.",
+      "The workshop is financially accessible.",
+      "A class is good for budgeting.",
+      "The support group helps families save."
     ].each_with_index do |content, index|
       assistant_name = "Curriculum assistant #{index + 1}"
       config = persona_configuration(assistant_name: assistant_name)
