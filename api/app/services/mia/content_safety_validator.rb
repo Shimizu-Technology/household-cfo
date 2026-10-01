@@ -88,9 +88,18 @@ module Mia
           text.to_enum(:scan, pattern).any? do
             match = Regexp.last_match
             prefix = text[0...match.begin(0)].to_s.last(120)
-            !prefix.match?(/\b(?:do not|don['’]t|never|avoid|must not|should not|shouldn['’]t|cannot|can not|can['’]t|may not)\b[^.!?\n]{0,60}\z/i)
+            !negated_action_prefix?(prefix)
           end
         end
+      end
+
+      def negated_action_prefix?(prefix)
+        negator = /(?:do not|don['’]t|never|avoid|must not|should not|shouldn['’]t|cannot|can not|can['’]t|may not)/i
+        return true if prefix.match?(/\b#{negator}\s*\z/)
+
+        prefix.match?(
+          /\b#{negator}\s+(?:tell|advise|instruct|recommend|urge|direct)\s+(?:you|(?:(?:a|an|the|any)\s+)?(?:client|participant|household|person|user|someone|people)s?)\s+to\s*\z/i
+        )
       end
 
       def valid_payment_card_number?(text)
