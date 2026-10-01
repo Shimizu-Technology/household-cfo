@@ -453,6 +453,20 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal 0, green_path.dig(:green, :protected_liquid_gap)
   end
 
+  test "missing liquid balances keep runway nullable and point blockers to account controls" do
+    household, user = create_household
+    household.accounts.delete_all
+    household.update!(confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
+
+    payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+
+    assert_nil payload.dig(:dashboard, :summary, :runway_months)
+    assert_nil payload.dig(:dashboard, :summary, :next_safe_to_spend_amount)
+    assert_equal "Add or update liquid account balances under Accounts & assets first.", payload.dig(:optionality, :question)
+    assert_equal "Liquid balances needed", payload.dig(:wealth, :milestones, 0, :label)
+    assert_includes payload.dig(:wealth, :milestones, 0, :unit), "Accounts & assets"
+  end
+
   test "action center counts transaction and Mia reviews separately" do
     household, user = create_household
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
@@ -588,6 +602,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       debt_summary_minimum_payment_cents: 0,
       debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
     )
+    household.accounts.create!(label: "Known checking", account_type: "checking", balance_cents: 0, balance_known: true)
 
     [ household, user ]
   end

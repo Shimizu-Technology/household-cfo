@@ -83,7 +83,7 @@ module Api
         private
 
         def payload
-          items = current_household.plaid_items.order(created_at: :desc).includes(:plaid_accounts)
+          items = current_household.plaid_items.order(created_at: :desc).includes(plaid_accounts: :account)
           {
             configured: PlaidIntegration::Configuration.configured?,
             environment: PlaidIntegration::Configuration.configured? ? PlaidIntegration::Configuration.environment : nil,
@@ -107,6 +107,7 @@ module Api
             disconnected_at: item.disconnected_at,
             auto_confirm_trusted_merchants: item.auto_confirm_trusted_merchants,
             accounts: item.plaid_accounts.map do |account|
+              eligibility = PlaidIntegration::AccountEligibility.new(account)
               {
                 id: account.id,
                 name: account.name,
@@ -117,7 +118,15 @@ module Api
                 current_balance_cents: account.current_balance_cents,
                 available_balance_cents: account.available_balance_cents,
                 currency: account.iso_currency_code,
-                active: account.active
+                active: account.active,
+                eligible_for_asset_tracking: eligibility.eligible? && eligibility.active_observation?,
+                allowed_account_types: eligibility.allowed_account_types,
+                suggested_account_type: eligibility.suggested_account_type,
+                canonical_account_id: account.account&.id,
+                canonical_balance_known: account.account&.balance_known?,
+                canonical_balance_cents: account.account&.balance_known? ? account.account.balance_cents : nil,
+                observation_newer_than_saved: account.account.present? && account.current_balance_cents.present? && item.last_synced_at.present? &&
+                  (account.account.plaid_reconciled_at.nil? || item.last_synced_at.to_i > account.account.plaid_reconciled_at.to_i)
               }
             end
           }

@@ -1,6 +1,73 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "resolves a grounded negative checking balance as an actionable asset review" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Add Everyday Checking with a -$125.50 balance",
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "asset_action", continuation: false,
+          resolved_message: "Add Everyday Checking with its overdrawn balance",
+          topic: { type: "asset_plan", title: "Everyday Checking", subject: "Everyday Checking" },
+          action: default_action.merge(type: "create_account", account_name: "Everyday Checking", account_type: "checking", amount: "-125.50")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "asset_action", result.intent
+    assert_equal "-125.50", result.action.fetch(:amount)
+  end
+
+  test "rejects a provider-invented negative account balance" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Add Everyday Checking with a -$125.50 balance",
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "asset_action", continuation: false,
+          resolved_message: "Add Everyday Checking",
+          topic: { type: "asset_plan", title: "Everyday Checking", subject: "Everyday Checking" },
+          action: default_action.merge(type: "create_account", account_name: "Everyday Checking", account_type: "checking", amount: "-925.50")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+  end
+
+  test "strips an unrequested unknown account balance from a rename" do
+    context = intent_context.deep_dup
+    context[:active_accounts] = [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 500, balance_known: true } ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Rename Everyday Checking to Daily Checking",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "asset_action", continuation: false,
+          resolved_message: "Rename Everyday Checking",
+          topic: { type: "asset_plan", title: "Daily Checking", subject: "Everyday Checking" },
+          action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", new_name: "Daily Checking", amount: "unknown")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "", result.action.fetch(:amount)
+    assert_equal "Daily Checking", result.action.fetch(:new_name)
+  end
+
   test "resolves an approved debt update to an exact active record" do
     context = intent_context.deep_dup
     context[:active_debts] = [ { id: 77, label: "Visa", debt_type: "credit_card", balance: 3_100, minimum_payment: 175, interest_rate_percent: 28.9 } ]
@@ -2990,7 +3057,13 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       debt_type: "",
       minimum_payment: "",
       interest_rate_percent: "",
-      debt_tracking_mode: ""
+      debt_tracking_mode: "",
+      account_id: 0,
+      account_name: "",
+      account_type: "",
+      balance_as_of_on: "",
+      plaid_account_id: 0,
+      reconcile_decision: ""
     }
   end
 

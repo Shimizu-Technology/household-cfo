@@ -54,7 +54,7 @@ module HouseholdFinance
       when IncomeSource, ExpenseItem
         item.amount_cents = record.amount_cents if item.amount_cents.nil?
       when Account
-        item.balance_cents = record.balance_cents if item.balance_cents.nil?
+        item.balance_cents = record.balance_cents if item.balance_cents.nil? && record.balance_known? && !attributes.key?(:balance_cents)
       when Debt
         item.balance_cents = record.balance_cents if item.balance_cents.nil? && record.balance_known? && !attributes.key?(:balance_cents)
         item.payment_cents = record.minimum_payment_cents if item.payment_cents.nil? && record.minimum_payment_known? && !attributes.key?(:payment_cents)
@@ -113,12 +113,21 @@ module HouseholdFinance
 
     def sync_account!
       record = typed_record!(Account)
-      attributes = {
+      updates = {
         label: item.label,
         account_type: item.account_type.presence_in(Account::ACCOUNT_TYPES) || record.account_type || "other"
       }
-      attributes[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
-      record.update!(attributes)
+      if @attributes.key?(:balance_cents) && item.balance_cents.nil?
+        updates[:balance_cents] = 0
+        updates[:balance_known] = false
+        updates[:balance_as_of_on] = nil
+      elsif !item.balance_cents.nil?
+        updates[:balance_cents] = item.balance_cents
+        updates[:balance_known] = true
+        updates[:balance_as_of_on] = document_import.document_date || document_import.period_end_on || Date.current
+      end
+      updates[:source_metadata] = (record.source_metadata || {}).merge("document_import_id" => document_import.id, "document_import_item_id" => item.id)
+      record.update!(updates)
     end
 
     def sync_debt!

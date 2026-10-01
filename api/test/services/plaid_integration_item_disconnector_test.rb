@@ -11,6 +11,7 @@ class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
   end
 
   test "removes the Plaid Item and its unapproved pending drafts after Plaid confirms removal" do
+    canonical = @household.accounts.create!(label: "Saved checking", account_type: "checking", balance_cents: 4_200, plaid_account: @account)
     removed_token = nil
     fake = Object.new
     fake.define_singleton_method(:item_remove) { |request| removed_token = request.access_token }
@@ -21,6 +22,9 @@ class PlaidIntegrationItemDisconnectorTest < ActiveSupport::TestCase
     assert_equal "disconnected", @item.reload.status
     assert_nil @item.access_token_ciphertext
     assert_empty @item.plaid_accounts
+    assert_nil canonical.reload.plaid_account_id
+    assert_equal 4_200, canonical.balance_cents
+    assert canonical.active?
     assert_empty @item.plaid_transactions
     assert_not TransactionDraft.exists?(@draft.id)
     assert_equal "plaid_item.disconnected", @household.household_audit_events.order(:id).last.event_type

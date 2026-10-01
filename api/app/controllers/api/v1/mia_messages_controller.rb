@@ -1218,7 +1218,7 @@ module Api
           end
 
           case transaction_lookup_answer ? nil : intent_result.intent
-          when "budget_action", "household_action", "income_action", "debt_action"
+          when "budget_action", "household_action", "income_action", "debt_action", "asset_action"
             if intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(
                 current_household,

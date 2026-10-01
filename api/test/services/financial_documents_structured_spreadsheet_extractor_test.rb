@@ -298,6 +298,24 @@ class FinancialDocumentsStructuredSpreadsheetExtractorTest < ActiveSupport::Test
     file&.close!
   end
 
+  test "imports negative balances only for checking and savings accounts" do
+    file = Tempfile.new([ "signed-account-balances", ".csv" ])
+    file.write(<<~CSV)
+      type,label,balance,category
+      account,Everyday checking,-125.50,checking
+      account,Home,-250000,property
+    CSV
+    file.rewind
+
+    result = FinancialDocuments::StructuredSpreadsheetExtractor.new(file_path: file.path, filename: "signed-account-balances.csv").call
+
+    assert result.success?, result.error
+    assert_equal [ "Everyday checking" ], result.data.fetch(:items).pluck(:label)
+    assert_equal(-12_550, result.data.fetch(:items).sole.fetch(:balance_cents))
+  ensure
+    file&.close!
+  end
+
   test "extracts a full monthly CSV beyond the old eighty-row sample" do
     file = Tempfile.new([ "large-statement", ".csv" ])
     file.write("date,description,amount,category,notes\n")

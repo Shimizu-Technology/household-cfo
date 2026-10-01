@@ -29,7 +29,11 @@ module HouseholdFinance
       body = if timing_unavailable
         "Scenario only — I could not ground the requested timing to a specific month, so I did not apply the selected budget month or model a dated impact. #{money(amount_cents)} remains unapproved and was not saved. Restate the month or date to compare it safely."
       elsif setup_status.complete?
-        send("#{scenario_type}_answer")
+        if liquid_balance_required? && !AssetPortfolio.new(household).liquid_balance_known?
+          "Scenario only#{timing_phrase} — #{money(amount_cents)} is not saved or approved. I cannot model safe-to-spend or runway because the liquid account picture is incomplete. Add at least one checking, savings, or emergency-fund account and enter every active liquid balance, then ask again."
+        else
+          send("#{scenario_type}_answer")
+        end
       else
         missing = setup_status.as_json.fetch(:missing_fields).pluck(:label).to_sentence
         "Scenario only#{timing_phrase} — #{money(amount_cents)} is not saved or approved. I cannot model it against readiness until the starting picture is confirmed. Complete these setup details first: #{missing}."
@@ -85,6 +89,10 @@ module HouseholdFinance
     def yellow_runway_gap_cents
       target = (snapshot.fetch(:total_outflow_cents) * snapshot.fetch(:target_runway_months).to_f / 2.0).round
       [ target - snapshot.fetch(:liquid_assets_cents), 0 ].max
+    end
+
+    def liquid_balance_required?
+      scenario_type.in?(%w[purchase one_time_income extra_debt_payment])
     end
 
     def setup_status

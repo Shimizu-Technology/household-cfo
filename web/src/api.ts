@@ -7,8 +7,8 @@ export type WorkspaceSetupValues = {
   flexible_spend: number
   expected_sinking_fund: number
   unexpected_sinking_fund: number
-  emergency_fund: number
-  other_assets: number
+  emergency_fund: number | null
+  other_assets: number | null
   credit_card_debt: number | null
   debt_payment: number | null
   target_runway_months: number
@@ -36,6 +36,8 @@ export type WorkspaceData = {
   setup_status: WorkspaceSetupStatus
   setup_values: WorkspaceSetupValues
   income_sources: IncomeTimelineSource[]
+  accounts: AccountRecord[]
+  asset_portfolio: AssetPortfolio
   debts: DebtRecord[]
   debt_portfolio: DebtPortfolio
   cohort: null | {
@@ -45,6 +47,45 @@ export type WorkspaceData = {
     status: AdminCohortStatus
   }
   capabilities: ExperienceCapabilities
+}
+
+export type AccountType = 'checking' | 'savings' | 'emergency_fund' | 'retirement' | 'investment' | 'property' | 'other'
+export type AccountRecord = {
+  id: number
+  label: string
+  account_type: AccountType
+  balance: number | null
+  balance_as_of_on: string | null
+  active: boolean
+  archived_at: string | null
+  source_type: 'manual_ui' | 'mia' | 'document_import' | 'setup' | 'plaid'
+  source_metadata: Record<string, unknown>
+  plaid_link: null | {
+    plaid_account_id: number
+    institution_name: string
+    name: string
+    mask: string | null
+    current_balance: number | null
+    available_balance: number | null
+    observed_at: string | null
+    active: boolean
+    observation_newer_than_saved: boolean
+  }
+}
+export type AccountInput = { label: string; account_type: AccountType; balance: number | null; balance_as_of_on?: string | null; plaid_account_id?: number }
+export type AssetPortfolio = {
+  liquid_balance: number
+  nonliquid_balance: number
+  total_balance: number
+  liquid_balance_known: boolean
+  nonliquid_balance_known: boolean
+  total_balance_known: boolean
+  active_count: number
+  archived_count: number
+  liquid_known_count: number
+  nonliquid_known_count: number
+  total_known_count: number
+  unknown_balance_account_ids: number[]
 }
 
 export type ExperienceModuleId = 'home' | 'review' | 'ask_mia' | 'budget' | 'profile' | 'wealth' | 'cfo_filter' | 'optionality'
@@ -317,8 +358,8 @@ export type DashboardData = {
     flexible_spend: number
     debt_payments: number
     monthly_surplus_rate_percent: number
-    runway_months: number
-    next_safe_to_spend_amount: number
+    runway_months: number | null
+    next_safe_to_spend_amount: number | null
     readiness_available: boolean
     readiness_tone: 'red' | 'yellow' | 'green'
     readiness_label: string
@@ -470,6 +511,13 @@ export type MiaActionItem = {
     | 'archive_debt'
     | 'restore_debt'
     | 'update_debt_tracking'
+    | 'create_account'
+    | 'update_account'
+    | 'archive_account'
+    | 'restore_account'
+    | 'link_plaid_account'
+    | 'reconcile_plaid_account'
+    | 'unlink_plaid_account'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -489,7 +537,7 @@ export type MiaActionItem = {
 export type MiaActionDraft = {
   id: number
   status: 'pending' | 'applied' | 'canceled'
-  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan'
+  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan'
   year: number
   title: string
   summary: string
@@ -2071,6 +2119,13 @@ export type PlaidAccount = {
   available_balance_cents: number | null
   currency: string | null
   active: boolean
+  eligible_for_asset_tracking: boolean
+  allowed_account_types: AccountType[]
+  suggested_account_type: AccountType | null
+  canonical_account_id: number | null
+  canonical_balance_known: boolean | null
+  canonical_balance_cents: number | null
+  observation_newer_than_saved: boolean
 }
 
 export type PlaidItem = {
@@ -2241,6 +2296,8 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       },
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
       income_sources: budget.annual_plan?.income_sources ?? [],
+      accounts: [],
+      asset_portfolio: { liquid_balance: 0, nonliquid_balance: 0, total_balance: 0, liquid_balance_known: false, nonliquid_balance_known: false, total_balance_known: false, active_count: 0, archived_count: 0, liquid_known_count: 0, nonliquid_known_count: 0, total_known_count: 0, unknown_balance_account_ids: [] },
       debts: [],
       debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
       cohort: null,
@@ -2295,6 +2352,37 @@ export async function archiveDebt(id: number, idempotencyKey: string): Promise<D
 export async function restoreDebt(id: number, idempotencyKey: string): Promise<DebtRecord> {
   const payload = await fetchJson<{ debt: DebtRecord }>(`/api/v1/debts/${id}/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({}) })
   return payload.debt
+}
+
+async function accountMutation(path: string, method: string, idempotencyKey: string, body?: Record<string, unknown>): Promise<AccountRecord> {
+  const payload = await fetchJson<{ account: AccountRecord }>(path, {
+    method,
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), 'Idempotency-Key': idempotencyKey },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  return payload.account
+}
+
+export function createAccount(values: AccountInput, idempotencyKey: string) {
+  return accountMutation('/api/v1/accounts', 'POST', idempotencyKey, { account: values })
+}
+export function updateAccount(id: number, values: AccountInput, idempotencyKey: string) {
+  return accountMutation(`/api/v1/accounts/${id}`, 'PATCH', idempotencyKey, { account: values })
+}
+export function archiveAccount(id: number, idempotencyKey: string) {
+  return accountMutation(`/api/v1/accounts/${id}`, 'DELETE', idempotencyKey)
+}
+export function restoreAccount(id: number, idempotencyKey: string) {
+  return accountMutation(`/api/v1/accounts/${id}/restore`, 'POST', idempotencyKey, {})
+}
+export function linkPlaidAccount(id: number, plaidAccountId: number, idempotencyKey: string) {
+  return accountMutation(`/api/v1/accounts/${id}/plaid_link`, 'POST', idempotencyKey, { plaid_account_id: plaidAccountId })
+}
+export function reconcilePlaidAccount(id: number, decision: 'accept_observed' | 'keep_saved', idempotencyKey: string) {
+  return accountMutation(`/api/v1/accounts/${id}/plaid_reconcile`, 'POST', idempotencyKey, { decision })
+}
+export function unlinkPlaidAccount(id: number, idempotencyKey: string) {
+  return accountMutation(`/api/v1/accounts/${id}/plaid_link`, 'DELETE', idempotencyKey)
 }
 
 export async function updateDebtTracking(values: { mode: 'summary' | 'individual'; summary_balance?: number | null; summary_minimum_payment?: number | null }, idempotencyKey: string): Promise<DebtPortfolio> {

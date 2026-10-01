@@ -513,6 +513,16 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
     assert_includes answer, "not live available balances"
   end
 
+  test "account coverage excludes archived liquid accounts" do
+    household = create_yellow_household
+    household.accounts.create!(label: "Old savings", account_type: "savings", balance_cents: 90_000_00, active: false, archived_at: Time.current)
+
+    answer = HouseholdFinance::MiaCoachAnswerer.new(household, "Which account can cover $80,000?").call
+
+    assert_includes answer, "No saved liquid household account"
+    refute_includes answer, "Old savings"
+  end
+
   test "parses comma-separated currency amounts without confusing punctuation for thousands separators" do
     household = create_yellow_household
 
@@ -578,6 +588,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       primary_goal: "Protect the household plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
+    household.accounts.create!(label: "Known checking", account_type: "checking", balance_cents: 0, balance_known: true) unless household.accounts.active.any?(&:liquid?)
     if household.debts.active.exists?
       household.household_profile.update!(debt_tracking_mode: "individual")
     else

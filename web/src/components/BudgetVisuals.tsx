@@ -41,7 +41,7 @@ export function MonthPlanSummary({
   planned: number
   actual: number
   pending: number
-  safeToSpend?: number
+  safeToSpend?: number | null
   baselineSurplus?: number
   debtMinimums?: number
   debtMinimumsKnown?: boolean
@@ -78,9 +78,9 @@ export function MonthPlanSummary({
         <strong>{projected > planned && planned > 0 ? `${currency.format(subtractMoney(projected, planned))} over plan if all pending items are approved` : `${currency.format(Math.max(subtractMoney(planned, projected), 0))} remains after pending review`}</strong>
       </div>
 
-      {(safeToSpend !== undefined || baselineSurplus !== undefined) && (
+      {(safeToSpend != null || baselineSurplus !== undefined) && (
         <div className="month-plan-decision-row">
-          {safeToSpend !== undefined && (
+          {safeToSpend != null && (
             <div>
               <span>Safe to spend</span>
               <strong>{debtMinimumsKnown ? currency.format(safeToSpend) : 'Not available'}</strong>

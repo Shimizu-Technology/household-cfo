@@ -18,7 +18,14 @@ module HouseholdFinance
         "update_debt" => "debt.record.update",
         "archive_debt" => "debt.record.archive",
         "restore_debt" => "debt.record.restore",
-        "update_debt_tracking" => "debt.tracking_mode.update"
+        "update_debt_tracking" => "debt.tracking_mode.update",
+        "create_account" => "account.record.create",
+        "update_account" => "account.record.update",
+        "archive_account" => "account.record.archive",
+        "restore_account" => "account.record.restore",
+        "link_plaid_account" => "account.plaid.link",
+        "reconcile_plaid_account" => "account.plaid.reconcile",
+        "unlink_plaid_account" => "account.plaid.unlink"
       }.freeze
 
       def self.operation_key(item)

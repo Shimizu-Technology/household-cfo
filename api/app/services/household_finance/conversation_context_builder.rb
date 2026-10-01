@@ -11,6 +11,7 @@ module HouseholdFinance
       rename_category reclassify_category archive_category restore_category review_pending_action
       create_transaction_draft update_transaction_draft ignore_transaction_drafts update_household_setup
       schedule_income_change create_debt update_debt archive_debt restore_debt update_debt_tracking
+      create_account update_account archive_account restore_account link_plaid_account reconcile_plaid_account unlink_plaid_account
     ].freeze
     SETUP_UPDATE_LIMITS = {
       "household_name" => 120,
@@ -189,7 +190,13 @@ module HouseholdFinance
         balance: sanitized_text(action["balance"], max_length: 40),
         minimum_payment: sanitized_text(action["minimum_payment"], max_length: 40),
         interest_rate_percent: sanitized_text(action["interest_rate_percent"], max_length: 20),
-        debt_tracking_mode: sanitized_text(action["debt_tracking_mode"], max_length: 20)
+        debt_tracking_mode: sanitized_text(action["debt_tracking_mode"], max_length: 20),
+        account_id: bounded_integer(action["account_id"], 0..MAX_RECORD_ID),
+        account_name: sanitized_text(action["account_name"], max_length: 120),
+        account_type: sanitized_text(action["account_type"], max_length: 40),
+        balance_as_of_on: sanitized_text(action["balance_as_of_on"], max_length: 20),
+        plaid_account_id: bounded_integer(action["plaid_account_id"], 0..MAX_RECORD_ID),
+        reconcile_decision: sanitized_text(action["reconcile_decision"], max_length: 40)
       }.compact
     end
 

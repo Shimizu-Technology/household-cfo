@@ -16,6 +16,19 @@ class FinancialDocumentsExtractorTest < ActiveSupport::TestCase
     assert_nil extractor.send(:cents_or_nil, "($12.00)")
   end
 
+  test "keeps negative document balances only for signed account types" do
+    extractor = FinancialDocuments::Extractor.new(api_key: "test-key")
+    checking = extractor.send(:normalize_item, {
+      "target_type" => "account", "label" => "Checking", "balance" => "-125.50", "account_type" => "checking"
+    })
+    property = extractor.send(:normalize_item, {
+      "target_type" => "account", "label" => "Home", "balance" => "-125.50", "account_type" => "property"
+    })
+
+    assert_equal(-12_550, checking.fetch(:balance_cents))
+    assert_nil property
+  end
+
   test "receipt prompt requires line-specific category evidence and preserves uncertainty" do
     user = User.create!(clerk_id: "clerk_extractor_category_prompt", email: "extractor-category-prompt@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Extractor Category Prompt Household")

@@ -23,7 +23,7 @@ module HouseholdFinance
       cents(value)
     end
 
-    def document_cents(value, negative_as_magnitude: false)
+    def document_cents(value, negative_as_magnitude: false, allow_negative: false)
       text = value.to_s.unicode_normalize(:nfkc).strip
       return nil if text.blank?
 
@@ -32,13 +32,14 @@ module HouseholdFinance
       signed_negative = text.start_with?("-")
       text = text.delete_prefix("-").strip if signed_negative
       negative = accounting_negative || signed_negative
-      return nil if negative && !negative_as_magnitude
+      return nil if negative && !negative_as_magnitude && !allow_negative
 
       normalized = text.sub(/\A\$\s+/, "$")
       return nil unless normalized.match?(DOCUMENT_AMOUNT_PATTERN)
 
       decimal = BigDecimal(normalized.delete("$,"))
-      (decimal * 100).to_i
+      cents = (decimal * 100).to_i
+      negative && allow_negative ? -cents : cents
     rescue ArgumentError, FloatDomainError
       nil
     end

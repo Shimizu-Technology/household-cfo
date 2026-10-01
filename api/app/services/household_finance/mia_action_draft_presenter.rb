@@ -73,6 +73,10 @@ module HouseholdFinance
         debt_review_fields(before.fetch("debt", {}), after.fetch("debt", {}))
       when "debt.tracking_mode.update"
         debt_tracking_review_fields(before, after)
+      when "account.record.create"
+        account_create_review_fields(after.fetch("account", {}))
+      when "account.record.update", "account.record.archive", "account.record.restore", "account.plaid.link", "account.plaid.reconcile", "account.plaid.unlink"
+        account_review_fields(before.fetch("account", {}), after.fetch("account", {}))
       when "budget.allocation.set"
         before_rows = Array(before["allocations"]).index_by { |row| row["id"] }
         Array(after["allocations"]).map do |row|
@@ -118,6 +122,42 @@ module HouseholdFinance
         { label: "Monthly minimum", before: "—", after: debt_money_value(debt, "minimum_payment") },
         { label: "APR", before: "—", after: debt_apr_value(debt["interest_rate_percent"]) }
       ]
+    end
+
+    def account_create_review_fields(account)
+      [
+        { label: "Account", before: "Does not exist", after: account["label"].to_s },
+        { label: "Type", before: "—", after: account["account_type"].to_s.humanize },
+        { label: "Approved balance", before: "—", after: account_money_value(account) },
+        { label: "Balance date", before: "—", after: account["balance_as_of_on"].presence || "Not entered" }
+      ]
+    end
+
+    def account_review_fields(before, after)
+      labels = { "label" => "Account", "account_type" => "Type", "balance_cents" => "Approved balance", "balance_known" => "Approved balance", "balance_as_of_on" => "Balance date", "active" => "Planning status", "plaid_account_id" => "Bank match" }
+      handled = []
+      labels.filter_map do |key, label|
+        next if handled.include?(label)
+        next if key == "balance_cents" && before[key] == after[key] && before["balance_known"] == after["balance_known"]
+        next if key == "balance_known"
+        next if key != "balance_cents" && before[key] == after[key]
+        handled << label
+        value = lambda do |record|
+          case key
+          when "balance_cents" then account_money_value(record)
+          when "account_type" then record[key].to_s.humanize
+          when "active" then record[key] ? "Active" : "Archived"
+          when "plaid_account_id" then record[key].present? ? "Matched" : "Not matched"
+          else record[key].presence || "Not entered"
+          end
+        end
+        { label: label, before: value.call(before), after: value.call(after) }
+      end
+    end
+
+    def account_money_value(account)
+      return "Not entered" unless account["balance_known"]
+      money_from_cents(account["balance_cents"])
     end
 
     def debt_review_fields(before, after)

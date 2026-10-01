@@ -8,6 +8,7 @@ import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
+import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import { CoachStudio } from './components/CoachStudio'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
@@ -28,6 +29,7 @@ import { changedDebtMoneyInputs, changedInterestRateInput } from './lib/document
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
+import { guamTodayIso } from './lib/householdDate'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -338,6 +340,19 @@ const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
   'debt_payment',
   'target_runway_months',
 ]
+const nullableWorkspaceSetupMoneyKeys = new Set<WorkspaceSetupMoneyKey>([
+  'emergency_fund',
+  'other_assets',
+  'credit_card_debt',
+  'debt_payment',
+])
+const firstSessionSetupKeys = new Set<keyof WorkspaceSetupValues>([
+  'household_name',
+  'primary_goal',
+  'primary_income',
+  'fixed_expenses',
+  'flexible_spend',
+])
 
 function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: WorkspaceSetupStatus): WorkspaceSetupDraft {
   const draft = { ...values } as unknown as WorkspaceSetupDraft
@@ -352,7 +367,7 @@ function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSet
   const values = { ...draft } as unknown as WorkspaceSetupValues
   const moneyValues = values as unknown as Record<WorkspaceSetupMoneyKey, number | null>
   workspaceSetupMoneyKeys.forEach((key) => {
-    if ((key === 'credit_card_debt' || key === 'debt_payment') && draft[key].trim() === '') {
+    if (nullableWorkspaceSetupMoneyKeys.has(key) && draft[key].trim() === '') {
       moneyValues[key] = null
       return
     }
@@ -427,6 +442,9 @@ function App() {
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
+  const accountManagerRef = useRef<HTMLElement | null>(null)
+  const accountFocusSequenceRef = useRef(0)
+  const [accountFocusRequest, setAccountFocusRequest] = useState<AccountFocusRequest | null>(null)
   const debtManagerRef = useRef<HTMLElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
@@ -1253,13 +1271,32 @@ function App() {
   }
 
   function openManualControls(draft: MiaActionDraft) {
-    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' ? 'My Profile' : 'Budget')
+    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' ? 'My Profile' : 'Budget')
     if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
+    if (draft.draft_type === 'asset_plan') {
+      const accountItem = draft.items.find((item) => item.target_record_type === 'Account' || item.operation_key?.startsWith('account.'))
+      const accountId = accountItem?.target_record_id ?? (Number(accountItem?.payload.account_id ?? 0) || null)
+      const actionType = accountItem?.action_type
+      if (actionType && actionType.endsWith('_account')) {
+        const reconcileDecision = accountItem?.payload.decision === 'accept_observed' || accountItem?.payload.decision === 'keep_saved'
+          ? accountItem.payload.decision
+          : undefined
+        accountFocusSequenceRef.current += 1
+        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId, reconcileDecision })
+      } else {
+        window.setTimeout(focusAccountManager, 80)
+      }
+    }
   }
 
   function focusDebtManager() {
     debtManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     debtManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+  }
+
+  function focusAccountManager() {
+    accountManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    accountManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function startManualFirstSession() {
@@ -2374,10 +2411,11 @@ function App() {
     setSetupError(null)
     try {
       const setupValues = workspaceSetupValuesFromDraft(setupDraft)
-      const excludedSetupKeys = wasSetupComplete
-        ? ['primary_income', 'business_income', 'credit_card_debt', 'debt_payment']
-        : ['credit_card_debt', 'debt_payment']
-      const payload = await saveWorkspaceSetup(Object.fromEntries(Object.entries(setupValues).filter(([key]) => !excludedSetupKeys.includes(key))))
+      const excludedSetupKeys = ['primary_income', 'business_income', 'credit_card_debt', 'debt_payment']
+      const submittedSetupValues = Object.fromEntries(Object.entries(setupValues).filter(([key]) => (
+        wasSetupComplete ? !excludedSetupKeys.includes(key) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
+      )))
+      const payload = await saveWorkspaceSetup(submittedSetupValues)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
@@ -2441,6 +2479,11 @@ function App() {
 
     if (sectionLabel.toLowerCase().includes('debt')) {
       requestAnimationFrame(focusDebtManager)
+      return
+    }
+
+    if (sectionLabel.toLowerCase().includes('saving') || sectionLabel.toLowerCase().includes('asset')) {
+      requestAnimationFrame(focusAccountManager)
       return
     }
 
@@ -2996,6 +3039,17 @@ function App() {
             />
           )}
 
+
+          {isRealWorkspace && !isFirstSessionSetup && (
+            <AccountManager
+              sectionRef={accountManagerRef}
+              accounts={data.workspace.accounts}
+              portfolio={data.workspace.asset_portfolio}
+              onChanged={refreshWorkspaceAfterDebtChange}
+              focusRequest={accountFocusRequest}
+              onFocusRequestHandled={() => setAccountFocusRequest(null)}
+            />
+          )}
 
           {isRealWorkspace && !isFirstSessionSetup && (
             <DebtManager
@@ -6386,14 +6440,6 @@ function formatMonthYear(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)))
 }
 
-function guamTodayIso() {
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'Pacific/Guam', year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(new Date())
-  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
-  return `${value.year}-${value.month}-${value.day}`
-}
-
 function guamCurrentMonthIso() {
   return guamTodayIso().slice(0, 7)
 }
@@ -6958,6 +7004,7 @@ function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
   if (draftType === 'household_setup') return 'Household numbers'
   if (draftType === 'income_schedule') return 'Income timeline'
   if (draftType === 'debt_plan') return 'Debt plan'
+  if (draftType === 'asset_plan') return 'Accounts & assets'
   return 'Budget plan'
 }
 

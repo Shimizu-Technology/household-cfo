@@ -5,6 +5,7 @@ class MiaActionItem < ApplicationRecord
     archive_income_source restore_income_source create_income_schedule_entry update_income_schedule_entry
     delete_income_schedule_entry
     create_debt update_debt archive_debt restore_debt update_debt_tracking
+    create_account update_account archive_account restore_account link_plaid_account reconcile_plaid_account unlink_plaid_account
   ].freeze
 
   belongs_to :mia_action_draft, inverse_of: :mia_action_items

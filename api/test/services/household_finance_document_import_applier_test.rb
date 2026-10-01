@@ -69,7 +69,11 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     budget_plan = HouseholdFinance::AnnualBudgetManager.new(@household, year: Date.current.year).plan_data
     groceries_row = budget_plan.fetch(:rows).find { |row| row.fetch(:name) == "Groceries" }
     assert_equal 825.0, groceries_row.dig(:months, 0, :planned)
-    assert_equal 2_250_00, @household.accounts.find_by!(label: "Checking").balance_cents
+    saved_account = @household.accounts.find_by!(label: "Checking")
+    assert_equal 2_250_00, saved_account.balance_cents
+    assert saved_account.balance_known?
+    assert_equal "document_import", saved_account.source_type
+    assert_equal @document_import.id, saved_account.source_metadata.fetch("document_import_id")
     saved_debt = @household.debts.find_by!(label: "Visa")
     assert_equal 4_820_00, saved_debt.balance_cents
     assert_equal BigDecimal("24.99"), saved_debt.interest_rate_percent
@@ -80,6 +84,31 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
       assert_equal @user, item.applied_by_user
       assert_not_nil item.applied_record
     end
+  end
+
+  test "an import does not silently restore an archived account and preserves signed checking balances" do
+    archived = @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 500_00, active: false, archived_at: Time.current)
+    item = @document_import.items.create!(target_type: "account", label: "checking", balance_cents: -25_00, account_type: "checking")
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_not archived.reload.active?
+    active = @household.accounts.active.find_by!(label: "checking")
+    assert_equal(-25_00, active.balance_cents)
+    assert active.balance_known?
+    assert_equal active, item.reload.applied_record
+  end
+
+  test "an explicit zero account balance imports as known zero" do
+    item = @document_import.items.create!(target_type: "account", label: "Empty checking", balance_cents: 0, account_type: "checking")
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    account = item.reload.applied_record
+    assert account.balance_known?
+    assert_equal 0, account.balance_cents
   end
 
   test "matches existing household records case-insensitively when applying" do

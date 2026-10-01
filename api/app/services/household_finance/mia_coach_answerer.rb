@@ -63,7 +63,7 @@ module HouseholdFinance
     end
 
     def guardrail_answer
-      capability_answer || incomplete_setup_answer || incomplete_debt_minimums_answer
+      capability_answer || incomplete_setup_answer || incomplete_debt_minimums_answer || incomplete_liquid_balances_answer
     end
 
     private
@@ -91,6 +91,14 @@ module HouseholdFinance
       return if DebtPortfolio.new(household).minimum_payment_known?
 
       "I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because at least one required monthly debt minimum is not entered. I will not treat a missing minimum as $0. Next step: add every minimum under My Profile, or use a confirmed $0 household summary when none are due. No financial decision was made and no numbers changed."
+    end
+
+    def incomplete_liquid_balances_answer
+      return unless setup_status.complete?
+      return unless setup_dependent_coaching_request?
+      return if AssetPortfolio.new(household).liquid_balance_known?
+
+      "I cannot give a readiness, safe-to-spend, purchase, payoff, or runway verdict yet because the liquid account picture is incomplete. I will not treat a missing balance as $0. Next step: add at least one checking, savings, or emergency-fund account and enter every active liquid balance. No financial decision was made and no numbers changed."
     end
 
     def setup_dependent_coaching_request?
@@ -189,7 +197,7 @@ module HouseholdFinance
       amount = amount_from_message_cents
       return "Tell me the exact amount you want to cover, and I can compare it with saved household account snapshots without guessing a live bank balance." unless amount&.positive?
 
-      qualifying_accounts = household.accounts.where(account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
+      qualifying_accounts = household.accounts.active.where(balance_known: true, account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
       if qualifying_accounts.none?
         return "No saved liquid household account has a recorded balance of at least #{money(amount)}. These are approved saved snapshots, not live available balances; pending transactions, holds, and protected emergency runway can change what is actually usable. Next CFO move: verify the live available balance and protect required bills before choosing a funding account."
       end

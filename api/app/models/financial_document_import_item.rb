@@ -9,7 +9,7 @@ class FinancialDocumentImportItem < ApplicationRecord
   validates :target_type, inclusion: { in: TARGET_TYPES }
   validates :label, presence: true, length: { maximum: 120 }
   validates :amount_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
-  validates :balance_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
+  validates :balance_cents, numericality: { only_integer: true }, allow_nil: true
   validates :payment_cents, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, allow_nil: true
   validates :interest_rate_percent, numericality: { greater_than_or_equal_to: 0, less_than_or_equal_to: 999.99 }, allow_nil: true
   validates :cadence, inclusion: { in: IncomeSource::CADENCES }, allow_blank: true
@@ -22,6 +22,7 @@ class FinancialDocumentImportItem < ApplicationRecord
   validate :required_financial_value_present
   validate :selected_and_ignored_are_mutually_exclusive
   validate :applied_record_belongs_to_import_household
+  validate :negative_balance_is_valid_for_account_type
 
   scope :apply_candidates, -> { where(selected: true, ignored: false, applied_at: nil) }
 
@@ -40,7 +41,7 @@ class FinancialDocumentImportItem < ApplicationRecord
     when "income_source", "expense_item", "goal"
       errors.add(:amount_cents, "is required") if amount_cents.blank?
     when "account"
-      errors.add(:balance_cents, "is required") if balance_cents.blank?
+      errors.add(:balance_cents, "is required") if balance_cents.nil?
     when "debt"
       errors.add(:balance_cents, "is required") if balance_cents.blank? && payment_cents.blank?
     end
@@ -51,5 +52,12 @@ class FinancialDocumentImportItem < ApplicationRecord
     return if applied_record.household_id == financial_document_import&.household_id
 
     errors.add(:applied_record, "must belong to the document import household")
+  end
+
+  def negative_balance_is_valid_for_account_type
+    return unless balance_cents.to_i.negative?
+    return if target_type == "account" && account_type.in?(Account::SIGNED_BALANCE_TYPES)
+
+    errors.add(:balance_cents, "cannot be negative for this record type")
   end
 end

@@ -10,21 +10,35 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_110000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_120500) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
   create_table "accounts", force: :cascade do |t|
     t.string "account_type", default: "other", null: false
-    t.integer "balance_cents", default: 0, null: false
+    t.boolean "active", default: true, null: false
+    t.datetime "archived_at"
+    t.date "balance_as_of_on"
+    t.bigint "balance_cents", default: 0, null: false
+    t.boolean "balance_known", default: true, null: false
     t.datetime "created_at", null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
+    t.bigint "plaid_account_id"
+    t.datetime "plaid_reconciled_at"
+    t.jsonb "source_metadata", default: {}, null: false
+    t.string "source_type", default: "manual_ui", null: false
     t.datetime "updated_at", null: false
-    t.index ["household_id", "account_type", "label"], name: "index_accounts_on_household_account_type_label", unique: true
+    t.index "household_id, account_type, lower((label)::text)", name: "index_active_accounts_on_household_type_label", unique: true, where: "(active = true)"
     t.index ["household_id", "account_type"], name: "index_accounts_on_household_id_and_account_type"
+    t.index ["household_id", "active"], name: "index_accounts_on_household_id_and_active"
     t.index ["household_id"], name: "index_accounts_on_household_id"
-    t.check_constraint "balance_cents >= 0", name: "accounts_balance_cents_non_negative"
+    t.index ["plaid_account_id"], name: "index_accounts_on_unique_plaid_account", unique: true, where: "(plaid_account_id IS NOT NULL)"
+    t.check_constraint "(account_type::text = ANY (ARRAY['checking'::character varying, 'savings'::character varying]::text[])) OR balance_cents >= 0", name: "accounts_balance_signed_only_for_cash"
+    t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "accounts_archive_state_valid"
+    t.check_constraint "balance_known = true OR balance_cents = 0 AND balance_as_of_on IS NULL", name: "accounts_unknown_balance_zero_without_date"
+    t.check_constraint "jsonb_typeof(source_metadata) = 'object'::text", name: "accounts_source_metadata_object"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying, 'plaid'::character varying]::text[])", name: "accounts_source_type_valid"
   end
 
   create_table "budget_allocations", force: :cascade do |t|
@@ -691,7 +705,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_110000) do
     t.index ["selected"], name: "index_financial_document_import_items_on_selected"
     t.check_constraint "NOT (selected AND ignored)", name: "financial_document_import_items_selected_not_ignored"
     t.check_constraint "amount_cents IS NULL OR amount_cents >= 0", name: "financial_doc_items_amount_cents_non_negative"
-    t.check_constraint "balance_cents IS NULL OR balance_cents >= 0", name: "financial_doc_items_balance_cents_non_negative"
+    t.check_constraint "balance_cents IS NULL OR balance_cents >= 0 OR target_type::text = 'account'::text AND (account_type::text = ANY (ARRAY['checking'::character varying, 'savings'::character varying]::text[]))", name: "financial_doc_items_balance_cents_valid"
     t.check_constraint "confidence IS NULL OR (confidence::text = ANY (ARRAY['high'::character varying, 'medium'::character varying, 'low'::character varying]::text[]))", name: "financial_document_import_items_confidence_valid"
     t.check_constraint "interest_rate_percent IS NULL OR interest_rate_percent >= 0::numeric AND interest_rate_percent <= 999.99", name: "financial_doc_items_apr_valid"
     t.check_constraint "payment_cents IS NULL OR payment_cents >= 0", name: "financial_doc_items_payment_cents_non_negative"
@@ -1014,7 +1028,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_110000) do
     t.index ["household_id"], name: "index_mia_action_drafts_on_household_id"
     t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
     t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
-    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying, 'debt_plan'::character varying]::text[])", name: "mia_action_drafts_type_valid"
+    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying, 'debt_plan'::character varying, 'asset_plan'::character varying]::text[])", name: "mia_action_drafts_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'canceled'::character varying]::text[])", name: "mia_action_drafts_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "mia_action_drafts_year_reasonable"
   end
@@ -1040,7 +1054,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_110000) do
     t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
-    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying, 'create_income_source'::character varying, 'update_income_source'::character varying, 'archive_income_source'::character varying, 'restore_income_source'::character varying, 'create_income_schedule_entry'::character varying, 'update_income_schedule_entry'::character varying, 'delete_income_schedule_entry'::character varying, 'create_debt'::character varying, 'update_debt'::character varying, 'archive_debt'::character varying, 'restore_debt'::character varying, 'update_debt_tracking'::character varying]::text[])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying, 'create_income_source'::character varying, 'update_income_source'::character varying, 'archive_income_source'::character varying, 'restore_income_source'::character varying, 'create_income_schedule_entry'::character varying, 'update_income_schedule_entry'::character varying, 'delete_income_schedule_entry'::character varying, 'create_debt'::character varying, 'update_debt'::character varying, 'archive_debt'::character varying, 'restore_debt'::character varying, 'update_debt_tracking'::character varying, 'create_account'::character varying, 'update_account'::character varying, 'archive_account'::character varying, 'restore_account'::character varying, 'link_plaid_account'::character varying, 'reconcile_plaid_account'::character varying, 'unlink_plaid_account'::character varying]::text[])", name: "mia_action_items_action_type_valid"
     t.check_constraint "jsonb_typeof(prepared_operation) = 'object'::text", name: "mia_action_items_prepared_operation_object"
     t.check_constraint "operation_key IS NULL AND operation_version IS NULL AND prepared_operation_fingerprint IS NULL AND prepared_operation = '{}'::jsonb OR operation_key IS NOT NULL AND operation_version > 0 AND prepared_operation_fingerprint IS NOT NULL AND prepared_operation <> '{}'::jsonb", name: "mia_action_items_operation_identity_complete"
   end
@@ -1398,6 +1412,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_110000) do
   end
 
   add_foreign_key "accounts", "households"
+  add_foreign_key "accounts", "plaid_accounts", on_delete: :nullify
   add_foreign_key "budget_allocations", "budget_categories"
   add_foreign_key "budget_allocations", "budget_periods"
   add_foreign_key "budget_categories", "households"

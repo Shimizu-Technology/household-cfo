@@ -143,4 +143,34 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
       assert_equal [ ended.id ], context.fetch(:archived_income_sources).pluck(:id)
     end
   end
+
+  test "filters ineligible bank observations before applying the context limit" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "plaid-context@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Plaid Context Household")
+    item = household.plaid_items.create!(
+      connected_by_user: user, plaid_item_id: "item-#{SecureRandom.hex(4)}", access_token: "token",
+      institution_name: "Test Bank", environment: "sandbox", consented_at: Time.current,
+      consent_policy_version: "test", last_synced_at: Time.current
+    )
+    now = Time.current
+    PlaidAccount.insert_all!(100.times.map do |index|
+      {
+        plaid_item_id: item.id, plaid_account_id: "inactive-#{index}-#{SecureRandom.hex(4)}",
+        name: "Inactive #{index}", account_type: "depository", account_subtype: "checking",
+        active: false, created_at: now, updated_at: now
+      }
+    end)
+    eligible = item.plaid_accounts.create!(
+      plaid_account_id: "eligible-#{SecureRandom.hex(4)}", name: "Island checking",
+      account_type: "depository", account_subtype: "checking", current_balance_cents: 125_00, active: true
+    )
+
+    context = HouseholdFinance::MiaIntentContextBuilder.new(
+      household,
+      annual_plan: HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data,
+      conversation_context: {}, transcript: [], selected_month: 10
+    ).call
+
+    assert_equal [ eligible.id ], context.fetch(:eligible_plaid_accounts).pluck(:id)
+  end
 end

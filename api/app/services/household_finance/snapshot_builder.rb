@@ -46,7 +46,9 @@ module HouseholdFinance
         total_outflow_cents: total_outflow_cents,
         baseline_surplus_cents: baseline_surplus_cents,
         liquid_assets_cents: liquid_assets_cents,
+        liquid_assets_known: asset_portfolio.liquid_balance_known?,
         total_assets_cents: total_assets_cents,
+        total_assets_known: asset_portfolio.total_balance_known?,
         total_debt_cents: total_debt_cents,
         debt_balance_known: debt_portfolio.balance_known?,
         debt_minimums_known: debt_portfolio.minimum_payment_known?,
@@ -128,7 +130,11 @@ module HouseholdFinance
     end
 
     def accounts
-      @accounts ||= association_records(:accounts)
+      @accounts ||= asset_portfolio.active_accounts
+    end
+
+    def asset_portfolio
+      @asset_portfolio ||= AssetPortfolio.new(household)
     end
 
     def goals
@@ -201,11 +207,11 @@ module HouseholdFinance
     end
 
     def liquid_assets_cents
-      @liquid_assets_cents ||= accounts.select(&:liquid?).sum(&:balance_cents)
+      @liquid_assets_cents ||= asset_portfolio.liquid_balance_cents
     end
 
     def total_assets_cents
-      @total_assets_cents ||= accounts.sum(&:balance_cents)
+      @total_assets_cents ||= asset_portfolio.total_balance_cents
     end
 
     def total_debt_cents
@@ -213,14 +219,20 @@ module HouseholdFinance
     end
 
     def net_worth_cents
+      return nil unless asset_portfolio.total_balance_known? && debt_portfolio.balance_known?
+
       total_assets_cents - total_debt_cents
     end
 
     def runway_months
+      return nil unless asset_portfolio.liquid_balance_known?
+
       readiness_calculation.fetch(:runway_months)
     end
 
     def safe_to_spend_cents
+      return nil unless asset_portfolio.liquid_balance_known?
+
       readiness_calculation.fetch(:safe_to_spend_cents)
     end
 
@@ -233,10 +245,14 @@ module HouseholdFinance
     end
 
     def readiness_tone
+      return nil unless asset_portfolio.liquid_balance_known?
+
       readiness_calculation.fetch(:readiness_tone)
     end
 
     def readiness_label
+      return nil unless asset_portfolio.liquid_balance_known?
+
       readiness_calculation.fetch(:readiness_label)
     end
 

@@ -60,6 +60,20 @@ module HouseholdFinance
         structured_debt_status_proposal(archive: false)
       when "update_debt_tracking"
         structured_debt_tracking_proposal
+      when "create_account"
+        structured_account_create_proposal
+      when "update_account"
+        structured_account_update_proposal
+      when "archive_account"
+        structured_account_status_proposal(archive: true)
+      when "restore_account"
+        structured_account_status_proposal(archive: false)
+      when "link_plaid_account"
+        structured_account_link_proposal
+      when "reconcile_plaid_account"
+        structured_account_reconcile_proposal
+      when "unlink_plaid_account"
+        structured_account_unlink_proposal
       else
         validation_result("I could not safely resolve that change. Nothing changed. Tell me the value and when it should take effect.")
       end

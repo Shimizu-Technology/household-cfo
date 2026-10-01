@@ -23,6 +23,18 @@ class ApiV1PlaidControllerTest < ActionDispatch::IntegrationTest
     refute serialized.key?("access_token_ciphertext")
   end
 
+  test "linked observation without a completed sync is not presented as newer" do
+    @account.update!(account_subtype: "checking", current_balance_cents: 0)
+    @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 0, balance_known: true, plaid_account: @account)
+
+    get "/api/v1/plaid/items", headers: auth_headers(@user)
+
+    assert_response :success
+    observed = response.parsed_body.fetch("items").first.fetch("accounts").first
+    assert_equal false, observed.fetch("observation_newer_than_saved")
+    assert_equal 0, observed.fetch("canonical_balance_cents")
+  end
+
   test "link token endpoint requires explicit consent before calling Plaid" do
     post "/api/v1/plaid/items/link_token", params: { consent_accepted: false }, headers: auth_headers(@user), as: :json
 

@@ -177,9 +177,37 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 6_600, current_month.fetch("planned_outflow")
     assert_equal 2_600, current_month.fetch("baseline_surplus")
     refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
-    assert_equal 2.7, body.fetch("dashboard").fetch("summary").fetch("runway_months")
+    assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
+  end
+
+  test "five-field first-session setup leaves optional assets unknown" do
+    user = create_user(email: "five-field-setup@example.com", first_name: "Mel")
+
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          household_name: "Five Field Household",
+          primary_goal: "Build a calm monthly plan.",
+          primary_income: 6_200,
+          fixed_expenses: 2_800,
+          flexible_spend: 0
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    body = response.parsed_body
+    household = user.households.first
+
+    assert_empty household.accounts
+    assert_nil body.dig("workspace", "setup_values", "emergency_fund")
+    assert_nil body.dig("workspace", "setup_values", "other_assets")
+    refute body.dig("workspace", "asset_portfolio", "liquid_balance_known")
+    assert_equal 0, body.dig("workspace", "asset_portfolio", "liquid_known_count")
+    assert_nil body.dig("dashboard", "summary", "runway_months")
   end
 
   test "workspace setup audit failure rolls back changes and returns a safe retry response" do
@@ -602,6 +630,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "liquid@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 10_000_000)
+    household.accounts.create!(label: "Known other assets", account_type: "other", balance_cents: 0, balance_known: true)
     household.debts.create!(label: "Credit card debt", debt_type: "credit_card", balance_cents: 2_000_000)
     household.debts.create!(label: "Mortgage", debt_type: "mortgage", balance_cents: 50_000_000)
 

@@ -42,6 +42,8 @@ module HouseholdFinance
         setup_status: status.as_json,
         setup_values: setup_values,
         income_sources: household_income_sources,
+        accounts: account_records,
+        asset_portfolio: asset_portfolio.as_json,
         debts: debt_records,
         debt_portfolio: debt_portfolio.as_json,
         cohort: cohort_context,
@@ -78,10 +80,10 @@ module HouseholdFinance
           flexible_spend: dollars(snapshot.fetch(:stack_totals_cents).fetch("discretionary")),
           debt_payments: dollars(snapshot.fetch(:debt_payments_cents)),
           monthly_surplus_rate_percent: monthly_surplus_rate_percent,
-          runway_months: snapshot.fetch(:runway_months),
-          next_safe_to_spend_amount: setup_status.complete? && snapshot.fetch(:debt_minimums_known) ? dollars(snapshot.fetch(:safe_to_spend_cents)) : 0,
-          readiness_available: setup_status.complete? && snapshot.fetch(:debt_minimums_known),
-          readiness_tone: setup_status.complete? && snapshot.fetch(:debt_minimums_known) ? snapshot.fetch(:readiness_tone) : "red",
+          runway_months: readiness_available? ? snapshot.fetch(:runway_months) : nil,
+          next_safe_to_spend_amount: readiness_available? ? dollars(snapshot.fetch(:safe_to_spend_cents)) : (setup_status.complete? && snapshot.fetch(:debt_minimums_known) ? nil : 0),
+          readiness_available: readiness_available?,
+          readiness_tone: readiness_available? ? snapshot.fetch(:readiness_tone) : "red",
           readiness_label: readiness_label_for_dashboard
         },
         action_center: action_center,
@@ -108,13 +110,17 @@ module HouseholdFinance
 
     def wealth
       debt_balance_known = snapshot.fetch(:debt_balance_known)
-      liquid_net_worth_available = debt_balance_known && debt_portfolio.mode == "individual"
+      total_assets_known = snapshot.fetch(:total_assets_known)
+      liquid_assets_known = snapshot.fetch(:liquid_assets_known)
+      liquid_net_worth_available = debt_balance_known && liquid_assets_known && debt_portfolio.mode == "individual"
       {
         summary: {
-          net_worth: debt_balance_known ? dollars(snapshot.fetch(:net_worth_cents)) : nil,
+          net_worth: debt_balance_known && total_assets_known ? dollars(snapshot.fetch(:net_worth_cents)) : nil,
           liquid_net_worth: liquid_net_worth_available ? dollars(snapshot.fetch(:liquid_assets_cents) - liquid_liabilities_cents) : nil,
           liquid_net_worth_available: liquid_net_worth_available,
           debt_balance_known: debt_balance_known,
+          total_assets_known: total_assets_known,
+          liquid_assets_known: liquid_assets_known,
           debt_minimums_known: snapshot.fetch(:debt_minimums_known),
           ten_year_surplus_capacity: snapshot.fetch(:debt_minimums_known) ? dollars(ten_year_surplus_capacity_cents) : nil,
           monthly_surplus_available: snapshot.fetch(:debt_minimums_known) ? dollars(monthly_surplus_available_cents) : nil
@@ -126,12 +132,12 @@ module HouseholdFinance
 
     def optionality
       runway_target = target_runway_months
-      unless snapshot.fetch(:debt_minimums_known)
+      unless snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
         return {
           available: false,
-          unavailable_reason: "Enter every required monthly debt minimum, or confirm a $0 household summary, before modeling optionality.",
+          unavailable_reason: readiness_unavailable_reason,
           scenario: household.primary_goal.presence || "Household stability",
-          question: "Complete the monthly debt minimums first.",
+          question: readiness_blocker_question,
           target_runway_months: runway_target,
           current_runway_months: nil,
           monthly_gap: nil,
@@ -210,8 +216,8 @@ module HouseholdFinance
         flexible_spend: dollars(expenses_by_stack("discretionary")),
         expected_sinking_fund: dollars(expenses_by_stack("sinking_expected")),
         unexpected_sinking_fund: dollars(expenses_by_stack("sinking_unexpected")),
-        emergency_fund: dollars(account_by_type("emergency_fund")),
-        other_assets: dollars(account_by_type("other")),
+        emergency_fund: account_type_known?("emergency_fund") ? dollars(account_by_type("emergency_fund")) : nil,
+        other_assets: account_type_known?("other") ? dollars(account_by_type("other")) : nil,
         credit_card_debt: debt_portfolio.balance_known? ? dollars(debt_portfolio.total_balance_cents) : nil,
         debt_payment: debt_portfolio.minimum_payment_known? ? dollars(debt_portfolio.monthly_minimum_cents) : nil,
         target_runway_months: target_runway_months
@@ -231,6 +237,35 @@ module HouseholdFinance
           archived_at: debt.archived_at&.iso8601,
           source_type: debt.source_type,
           source_metadata: debt.source_metadata
+        }
+      end
+    end
+
+    def account_records
+      accounts.map do |account|
+        observation = account.plaid_account
+        {
+          id: account.id,
+          label: account.label,
+          account_type: account.account_type,
+          balance: account.balance_known? ? dollars(account.balance_cents) : nil,
+          balance_as_of_on: account.balance_as_of_on&.iso8601,
+          active: account.active?,
+          archived_at: account.archived_at&.iso8601,
+          source_type: account.source_type,
+          source_metadata: account.source_metadata,
+          plaid_link: observation && {
+            plaid_account_id: observation.id,
+            institution_name: observation.plaid_item.institution_name,
+            name: observation.name,
+            mask: observation.mask,
+            current_balance: observation.current_balance_cents.nil? ? nil : dollars(observation.current_balance_cents),
+            available_balance: observation.available_balance_cents.nil? ? nil : dollars(observation.available_balance_cents),
+            observed_at: observation.plaid_item.last_synced_at&.iso8601,
+            active: PlaidIntegration::AccountEligibility.new(observation).active_observation?,
+            observation_newer_than_saved: observation.plaid_item.last_synced_at.present? &&
+              (account.plaid_reconciled_at.nil? || observation.plaid_item.last_synced_at > account.plaid_reconciled_at)
+          }
         }
       end
     end
@@ -290,7 +325,33 @@ module HouseholdFinance
     end
 
     def accounts
-      @accounts ||= household.accounts.order(:account_type, :label).to_a
+      @accounts ||= household.accounts.includes(plaid_account: :plaid_item).order(:active, :account_type, :label).to_a
+    end
+
+    def active_accounts
+      accounts.select(&:active?)
+    end
+
+    def asset_portfolio
+      @asset_portfolio ||= AssetPortfolio.new(household)
+    end
+
+    def readiness_available?
+      setup_status.complete? && snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
+    end
+
+    def readiness_unavailable_reason
+      return "Enter every required monthly debt minimum, or confirm a $0 household summary, before using cash guidance." unless snapshot.fetch(:debt_minimums_known)
+      return "Add at least one liquid account and enter every active liquid balance before using runway or safe-to-spend guidance." unless snapshot.fetch(:liquid_assets_known)
+
+      "Finish the starting picture before using cash guidance."
+    end
+
+    def readiness_blocker_question
+      return "Complete the monthly debt minimums under My Profile first." unless snapshot.fetch(:debt_minimums_known)
+      return "Add or update liquid account balances under Accounts & assets first." unless snapshot.fetch(:liquid_assets_known)
+
+      "Finish the starting picture before modeling optionality."
     end
 
     def debts
@@ -359,7 +420,7 @@ module HouseholdFinance
     end
 
     def savings_and_debt_items
-      account_items = accounts.map { |account| { label: account.label, amount: dollars(account.balance_cents) } }
+      account_items = active_accounts.select(&:balance_known?).map { |account| { label: account.label, amount: dollars(account.balance_cents) } }
       debt_items = if debt_portfolio.mode == "summary"
         debt_portfolio.balance_known? && debt_portfolio.total_balance_cents.positive? ? [ { label: "Household debt summary", amount: -dollars(debt_portfolio.total_balance_cents) } ] : []
       else
@@ -376,7 +437,7 @@ module HouseholdFinance
     end
 
     def account_rows
-      asset_rows = accounts.map do |account|
+      asset_rows = active_accounts.select(&:balance_known?).map do |account|
         { name: account.label, type: account.account_type, balance: dollars(account.balance_cents) }
       end
       debt_rows = if debt_portfolio.mode == "summary"
@@ -399,6 +460,13 @@ module HouseholdFinance
       unless snapshot.fetch(:debt_minimums_known)
         return [
           { tone: "yellow", title: "Debt minimums needed", body: "Add every required monthly minimum, or confirm a $0 household summary, before using readiness or cash-flow guidance." },
+          { tone: debt_tone, title: "Debt focus", body: debt_body }
+        ]
+      end
+
+      unless snapshot.fetch(:liquid_assets_known)
+        return [
+          { tone: "yellow", title: "Liquid balances needed", body: readiness_unavailable_reason },
           { tone: debt_tone, title: "Debt focus", body: debt_body }
         ]
       end
@@ -448,6 +516,14 @@ module HouseholdFinance
           "Add every required debt minimum, or confirm a $0 household summary.",
           "Review those debt details before relying on readiness or safe-to-spend.",
           "Ask Mia to compare debt options after the monthly baseline is complete."
+        ]
+      end
+
+      unless snapshot.fetch(:liquid_assets_known)
+        return [
+          readiness_unavailable_reason,
+          "Mark a balance as unknown instead of entering $0 when you do not know it.",
+          "Ask Mia to help add or update an account for review."
         ]
       end
 
@@ -505,6 +581,13 @@ module HouseholdFinance
         }
       end
 
+      unless snapshot.fetch(:liquid_assets_known)
+        return {
+          title: "Finish the liquid account picture before making a cash-flow call.",
+          body: readiness_unavailable_reason
+        }
+      end
+
       case snapshot.fetch(:readiness_tone)
       when "green"
         {
@@ -526,10 +609,10 @@ module HouseholdFinance
 
     def readiness_path
       target_months = snapshot.fetch(:target_runway_months).to_f
-      unless snapshot.fetch(:debt_minimums_known)
+      unless snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
         return {
           available: false,
-          unavailable_reason: "Monthly debt minimums are not fully entered, so runway and surplus milestones are not available yet.",
+          unavailable_reason: readiness_unavailable_reason,
           current_runway_months: nil,
           target_runway_months: target_months,
           protected_liquid_amount: dollars(snapshot.fetch(:liquid_assets_cents)),
@@ -597,6 +680,15 @@ module HouseholdFinance
         ]
       end
 
+      unless snapshot.fetch(:liquid_assets_known)
+        return [
+          "Help me add my checking account",
+          "Which account balances are still unknown?",
+          "Update my emergency fund balance",
+          "Why is cash guidance unavailable?"
+        ]
+      end
+
       status = snapshot.fetch(:readiness_tone).capitalize
 
       [
@@ -616,9 +708,14 @@ module HouseholdFinance
     end
 
     def milestones
-      unless snapshot.fetch(:debt_balance_known) && snapshot.fetch(:debt_minimums_known)
+      unless snapshot.fetch(:debt_balance_known) && snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
+        label, unit = if !snapshot.fetch(:debt_balance_known) || !snapshot.fetch(:debt_minimums_known)
+          [ "Debt details needed", "Add debt balances and monthly minimums under My Profile" ]
+        else
+          [ "Liquid balances needed", "Add checking, savings, or emergency-fund balances under Accounts & assets" ]
+        end
         return [
-          { kind: "status", label: "Debt details needed", current: 0, target: 0, unit: "status", status: "yellow" }
+          { kind: "status", label: label, current: 0, target: 0, unit: unit, status: "yellow" }
         ]
       end
 
@@ -792,6 +889,12 @@ module HouseholdFinance
         end
       end
 
+      unless snapshot.fetch(:liquid_assets_known)
+        return [ "Non-essential purchase", "Extra debt payment", "Runway transfer" ].map do |item|
+          { item: item, amount: 0, recommendation: "Wait", reason: readiness_unavailable_reason }
+        end
+      end
+
       safe = [ dollars(snapshot.fetch(:safe_to_spend_cents)), 0 ].max
       debt_balance_known = snapshot.fetch(:debt_balance_known)
       debt_entered = debt_balance_known && snapshot.fetch(:total_debt_cents).positive?
@@ -834,6 +937,7 @@ module HouseholdFinance
     def readiness_label_for_dashboard
       return "Setup incomplete — finish your starting picture" unless setup_status.complete?
       return "Debt minimums needed — add them or confirm none are due" unless snapshot.fetch(:debt_minimums_known)
+      return "Liquid balances needed — add them before using cash guidance" unless snapshot.fetch(:liquid_assets_known)
 
       snapshot.fetch(:readiness_label)
     end
@@ -946,7 +1050,12 @@ module HouseholdFinance
     end
 
     def account_by_type(account_type)
-      accounts.select { |account| account.account_type == account_type }.sum(&:balance_cents)
+      active_accounts.select { |account| account.account_type == account_type && account.balance_known? }.sum(&:balance_cents)
+    end
+
+    def account_type_known?(account_type)
+      matches = active_accounts.select { |account| account.account_type == account_type }
+      matches.any? && matches.all?(&:balance_known?)
     end
 
     def debt_by_type(debt_type)

@@ -49,6 +49,36 @@ class HouseholdFinanceSetupStatusTest < ActiveSupport::TestCase
     assert_equal 0, HouseholdFinance::DataPresenter.new(@household).setup_values.fetch(:flexible_spend)
   end
 
+  test "optional asset setup keeps blanks unknown and refuses to overwrite detailed accounts" do
+    HouseholdFinance::SetupUpdater.new(@household, emergency_fund: "0").call
+    emergency = @household.accounts.find_by!(label: "Emergency fund", account_type: "emergency_fund")
+    assert emergency.balance_known?
+    assert_equal 0, emergency.balance_cents
+    assert_equal Date.current, emergency.balance_as_of_on
+    assert_includes @household.reload.confirmed_setup_fields, "emergency_fund"
+
+    HouseholdFinance::SetupUpdater.new(@household, emergency_fund: "").call
+    assert_not emergency.reload.balance_known?
+    assert_nil emergency.balance_as_of_on
+    refute_includes @household.reload.confirmed_setup_fields, "emergency_fund"
+
+    @household.accounts.create!(label: "Brokerage", account_type: "other", balance_cents: 25_000, balance_known: true)
+    error = assert_raises(ArgumentError) { HouseholdFinance::SetupUpdater.new(@household, other_assets: 500).call }
+    assert_includes error.message, "tracked by detailed accounts"
+    assert_equal 25_000, @household.accounts.find_by!(label: "Brokerage").balance_cents
+  end
+
+  test "resubmitting the displayed asset total preserves aggregate and detailed accounts" do
+    aggregate = @household.accounts.create!(label: "Other assets", account_type: "other", balance_cents: 10_000, balance_known: true, source_type: "setup")
+    detailed = @household.accounts.create!(label: "Brokerage", account_type: "other", balance_cents: 20_000, balance_known: true)
+
+    assert_no_changes(-> { @household.accounts.order(:id).pluck(:id, :balance_cents, :active) }) do
+      HouseholdFinance::SetupUpdater.new(@household, other_assets: 300).call
+    end
+    assert_equal 10_000, aggregate.reload.balance_cents
+    assert_equal 20_000, detailed.reload.balance_cents
+  end
+
   test "rejects blank required values instead of silently confirming them" do
     error = assert_raises(ArgumentError) do
       HouseholdFinance::SetupUpdater.new(@household, primary_income: " ").call
