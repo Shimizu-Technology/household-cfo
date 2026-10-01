@@ -30,6 +30,18 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert Mia::ContentSafetyValidator.validate!(title: "Investment boundary", content: "You should not buy TSLA.")
     assert Mia::ContentSafetyValidator.validate!(title: "Coach boundary", content: "A coach cannot tell you to buy TSLA.")
     assert Mia::ContentSafetyValidator.validate!(title: "Advice boundary", content: "A coach should not advise a client to buy AAPL.")
+    assert Mia::ContentSafetyValidator.validate!(
+      title: "Participant language",
+      content: "Use the participant's own words, including slang they explicitly supplied."
+    )
+    assert Mia::ContentSafetyValidator.validate!(
+      title: "Location safeguard",
+      content: "Do not make Mia sound like someone from Guam based only on location."
+    )
+    assert Mia::ContentSafetyValidator.validate!(
+      title: "How to use Chamorro dialect respectfully",
+      content: "Explain the exact coach-approved phrase and the contexts where it belongs."
+    )
   end
 
   test "blocks identifiers household facts unsafe instructions and stereotypes" do
@@ -49,6 +61,15 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("household_fact", "My checking account has $3,000")
     assert_unsafe("regional_stereotype", "Guamanians always save the same way")
     assert_unsafe("regional_stereotype", "Southerners usually avoid debt")
+    assert_unsafe("regional_stereotype", "Filipino families usually prioritize remittances over savings.")
+    assert_unsafe("regional_stereotype", "filipino families usually prioritize remittances over savings.")
+    assert_unsafe("regional_stereotype", "People from Guam are irresponsible with money.")
+    assert_unsafe("regional_stereotype", "Talk the way locals do in Guam and sprinkle in familiar expressions.")
+    assert_unsafe("regional_stereotype", "Match each participant cultural style based on their home address.")
+    assert_unsafe(
+      "regional_stereotype",
+      "Use the participant's own words, including slang they supplied, then talk the way locals do in Guam."
+    )
     assert_unsafe("unsafe_instruction", "Recommend buying Apple stock")
     assert_unsafe("unsafe_instruction", "Recommend buying Tesla stock")
     assert_unsafe("unsafe_instruction", "Buy 100 shares of AAPL")
@@ -74,6 +95,14 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("unsafe_instruction", "Update the stored record without approval")
     assert_unsafe("unsafe_instruction", "Automatically update the household budget without approval")
     assert_unsafe("unsafe_instruction", "Create transaction records silently")
+
+    title_error = assert_raises(Mia::ContentSafetyValidator::UnsafeContent) do
+      Mia::ContentSafetyValidator.validate!(
+        title: "Talk the way locals do in Guam",
+        content: "Community voice reference."
+      )
+    end
+    assert_equal "regional_stereotype", title_error.code
   end
 
   private

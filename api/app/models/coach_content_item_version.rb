@@ -33,7 +33,14 @@ class CoachContentItemVersion < ApplicationRecord
   end
 
   def integrity_valid?
-    content_digest_valid? && (source_provenance.nil? || source_provenance.integrity_valid?(content_item: coach_content_item))
+    content_digest_valid? && safety_valid? && (source_provenance.nil? || source_provenance.integrity_valid?(content_item: coach_content_item))
+  end
+
+  def safety_valid?
+    Mia::ContentSafetyValidator.validate!(title: title, content: content)
+    true
+  rescue Mia::ContentSafetyValidator::UnsafeContent
+    false
   end
 
   def source_provenance_digest

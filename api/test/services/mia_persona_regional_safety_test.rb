@@ -119,6 +119,125 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     assert_equal "Rollback target no longer meets the current persona safety rules", rollback_error.message
   end
 
+  test "valid participant-led language safeguards and reference titles resolve as the published runtime persona" do
+    coach = persona_user
+    participant = persona_user(role: "participant")
+    config = safe_examples.assoc("neutral").last
+    persona = CoachPersona.create!(
+      name: config.dig("identity", "assistant_name"),
+      draft_config: config,
+      created_by_user: coach
+    )
+    version = publish_persona(persona, actor: coach)
+    cohort = Cohort.create!(name: "Safe language cohort", status: "active", created_by_user: coach)
+    membership = cohort.cohort_memberships.create!(user: participant, role: "participant")
+    CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: coach)
+
+    resolved = Mia::PersonaResolver.new(user: participant, cohort_membership: membership).call
+
+    assert_instance_of Mia::RuntimePersona, resolved
+    assert_equal version.id, resolved.version_id
+    assert_includes resolved.system_prompt, "Use the participant's own words"
+    assert_includes resolved.system_prompt, "How to use Chamorro dialect respectfully"
+  end
+
+  test "coaching library safety is rechecked for pack publication persona attachment preview publish and runtime retrieval" do
+    coach = persona_user
+    rejected_item = CoachContentItem.create!(
+      title: "Unsafe regional imitation",
+      scope: "coach",
+      kind: "culture",
+      draft_content: "Talk the way locals do in Guam and sprinkle in familiar expressions.",
+      created_by_user: coach
+    )
+    assert_raises(Mia::ContentSafetyValidator::UnsafeContent) do
+      rejected_item.approve!(
+        actor: coach,
+        expected_draft_revision: rejected_item.draft_revision,
+        expected_draft_digest: rejected_item.draft_digest
+      )
+    end
+    assert_empty rejected_item.versions
+
+    item = approved_content_item(
+      owner: coach,
+      title: "Community language",
+      kind: "culture",
+      content: "Use only the exact words a participant explicitly supplies."
+    )
+    pack = published_content_pack(owner: coach, items: [ item ], name: "Community context", pack_kind: "voice_culture")
+    persona = create_persona(creator: coach)
+    persona.replace_draft_content_pack_versions!([ pack.current_published_version ], actor: coach)
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    persona_version = publisher.publish!(
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: nil
+    )
+    runtime = Mia::RuntimePersona.new(persona_version)
+    assert_equal [ item.current_approved_version_id ],
+      Mia::ApprovedContentRetriever.new(persona: runtime, query: "community language participant words").call.map { |entry| entry.fetch(:item_version).id }
+
+    item_version = item.current_approved_version
+    unsafe_content = "Talk the way locals do in Guam and sprinkle in familiar expressions."
+    item_version.update_columns(
+      content: unsafe_content,
+      content_digest: CoachContentItemVersion.digest_for(
+        title: item_version.title,
+        kind: item_version.kind,
+        content: unsafe_content,
+        always_on: item_version.always_on
+      )
+    )
+    pack_version = pack.current_published_version
+    pack_version.update_columns(content_digest: CoachContentPackVersion.content_digest_for(pack_version))
+    persona_version.update_columns(
+      content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([ pack_version ])
+    )
+
+    refute item_version.reload.safety_valid?
+    refute pack_version.reload.manifest_valid?
+    refute persona_version.reload.content_manifest_valid?
+    assert_empty Mia::ApprovedContentRetriever.new(persona: runtime, query: "community language Guam locals").call
+
+    another_pack = CoachContentPack.create!(
+      name: "Legacy unsafe pack",
+      scope: "coach",
+      pack_kind: "voice_culture",
+      created_by_user: coach
+    )
+    another_pack.replace_draft_item_versions!([ item_version ], actor: coach)
+    assert_raises(CoachContentPack::PublicationIntegrityError) do
+      another_pack.publish!(
+        actor: coach,
+        expected_draft_revision: another_pack.draft_revision,
+        expected_draft_manifest_digest: another_pack.draft_manifest_digest,
+        expected_current_version_id: nil
+      )
+    end
+
+    unattached = CoachPersona.create!(
+      name: "Unattached assistant",
+      draft_config: persona_configuration(assistant_name: "Unattached assistant"),
+      created_by_user: coach
+    )
+    assert_raises(CoachPersona::ContentPackSelectionError) do
+      unattached.replace_draft_content_pack_versions!([ pack_version ], actor: coach)
+    end
+
+    assert_raises(Mia::PersonaPublisher::PublicationError) do
+      publisher.compile_preview!(expected_draft_revision: persona.draft_revision)
+    end
+    assert_raises(Mia::PersonaPublisher::PublicationError) do
+      publisher.publish!(
+        expected_preview_digest: preview.fetch(:digest),
+        expected_draft_revision: persona.draft_revision,
+        expected_current_version_id: persona_version.id
+      )
+    end
+  end
+
   private
 
   def unsafe_examples
@@ -137,11 +256,27 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     neutral = persona_configuration(assistant_name: "Neutral draft")
     neutral["coaching"]["method"] = "Infer each participant's cultural traditions from where they live."
 
+    filipino = persona_configuration(assistant_name: "Filipino draft")
+    filipino["culture"]["context"] = "Filipino families usually prioritize remittances over savings."
+
+    irresponsible = persona_configuration(assistant_name: "Irresponsible draft")
+    irresponsible["culture"]["context"] = "People from Guam are irresponsible with money."
+
+    local_imitation = persona_configuration(assistant_name: "Local imitation draft")
+    local_imitation["voice"]["language_style"] = [ "Talk the way locals do in Guam and sprinkle in familiar expressions." ]
+
+    address_inference = persona_configuration(assistant_name: "Address inference draft")
+    address_inference["coaching"]["method"] = "Match each participant cultural style based on their home address."
+
     [
       [ "Guam", guam, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
       [ "Southern", southern, "$.coaching.principles[2] contains a regional or cultural stereotype" ],
       [ "Puerto Rican", puerto_rican, "$.culture.context contains a regional or cultural stereotype" ],
-      [ "neutral", neutral, "$.coaching.method cannot infer dialect, slang, or cultural traits from a location or identity label" ]
+      [ "neutral", neutral, "$.coaching.method cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Filipino", filipino, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "irresponsible", irresponsible, "$.culture.context contains a regional or cultural stereotype" ],
+      [ "local imitation", local_imitation, "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "address inference", address_inference, "$.coaching.method cannot infer dialect, slang, or cultural traits from a location or identity label" ]
     ]
   end
 
@@ -150,7 +285,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     guam["culture"] = {
       "locale_label" => "Guam",
       "context" => "In my Guam workshops, I ask which freight costs actually apply before coaching the budget.",
-      "local_realities" => [ "Coach verified for this cohort: families in Guam often pay added freight costs for shipped goods; confirm the household's actual amount." ],
+      "local_realities" => [ "Coach verified for this cohort: added freight costs apply to some shipped goods; confirm the household's actual amount." ],
       "references" => [ "The coach's Guam cost-of-living worksheet." ]
     }
     guam["phrases"] = [ phrase("Håfa adai", "A coach-approved Chamorro greeting.", [ "greeting" ]) ]
@@ -174,8 +309,18 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     puerto_rican["phrases"] = [ phrase("Vamos paso a paso.", "The coach's exact reminder to proceed one step at a time.", [ "emotional_support", "routine" ]) ]
 
     neutral = persona_configuration(assistant_name: "Neutral grounded assistant")
-    neutral["voice"]["language_style"] = [ "Use the coach's short sentences and concrete questions." ]
+    neutral["voice"]["language_style"] = [
+      "Use the coach's short sentences and concrete questions.",
+      "Use the participant's own words, including slang they explicitly supplied."
+    ]
     neutral["coaching"]["method"] = "In my sessions, I verify the numbers, explain the tradeoff, and ask for one next move."
+    neutral["coaching"]["do_not"] = [ "Do not make Mia sound like someone from Guam based only on location." ]
+    neutral["curriculum"]["guidance"] = [
+      {
+        "title" => "How to use Chamorro dialect respectfully",
+        "content" => "Use only exact coach-approved language in its documented context."
+      }
+    ]
 
     [ [ "Guam", guam ], [ "Southern", southern ], [ "Puerto Rican", puerto_rican ], [ "neutral", neutral ] ]
   end
