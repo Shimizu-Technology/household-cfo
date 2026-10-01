@@ -4569,7 +4569,7 @@ test('manual transaction capture joins the unified review queue without changing
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
-test('Review discloses a bounded queue and labels bulk actions as applying only to shown results', async ({ page }) => {
+test('Review discloses a bounded queue and labels bulk actions as applying only to loaded results', async ({ page }) => {
   const workspace = realWorkspaceData(true)
   workspace.budget.annual_plan.pending_transaction_drafts = Array.from({ length: 500 }, (_, index) => ({
     ...workspace.budget.annual_plan.pending_transaction_drafts[0],
@@ -4583,8 +4583,8 @@ test('Review discloses a bounded queue and labels bulk actions as applying only 
   await openSection(page, 'Review')
 
   await expect(page.getByText('Showing the newest 500 of 501 pending reviews. Resolve a batch to load the rest.')).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Select all 500 shown' })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Ignore all 500 shown' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Select all 500 loaded' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Ignore all 500 loaded' })).toBeVisible()
 })
 
 test('uncertain receipt splits stay reviewable and cannot be confirmed until categorized on mobile', async ({ page }) => {

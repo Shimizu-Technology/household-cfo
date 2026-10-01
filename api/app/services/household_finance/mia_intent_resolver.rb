@@ -1517,6 +1517,8 @@ module HouseholdFinance
 
       existing_ids = Array(review[:splits]).map { |split| split[:id].to_i }.select(&:positive?)
       provided_ids = splits.map { |split| split[:id].to_i }
+      positive_provided_ids = provided_ids.select(&:positive?)
+      return false unless positive_provided_ids.uniq.length == positive_provided_ids.length
       return provided_ids.all? { |id| id.zero? || existing_ids.include?(id) } if existing_ids.length <= 1
 
       provided_ids.all?(&:positive?) && provided_ids.uniq.length == provided_ids.length && provided_ids.sort == existing_ids.sort

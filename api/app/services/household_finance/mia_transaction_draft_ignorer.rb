@@ -9,11 +9,11 @@ module HouseholdFinance
       text.match?(IGNORE_TERMS) && text.match?(ALL_TERMS) && text.match?(/\b(?:pending|drafts?|reviews?|transactions?|them|those)\b/i)
     end
 
-    def initialize(household, command:, raw_input:, user: nil, idempotency_key: nil)
+    def initialize(household, command:, raw_input:, user:, idempotency_key: nil)
       @household = household
       @command = command.to_h.deep_symbolize_keys
       @raw_input = raw_input.to_s.squish
-      @user = user || household.household_memberships.includes(:user).order(:id).first&.user
+      @user = user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
 
@@ -51,6 +51,10 @@ module HouseholdFinance
         "Ignored #{count} pending transaction reviews totaling #{money(total_cents)}. Actuals did not change."
       end
       Result.new(success?: true, drafts: drafts, response: response, errors: [])
+    rescue ActiveRecord::RecordInvalid => e
+      failure("I could not ignore that pending transaction review: #{e.record.errors.full_messages.to_sentence}. Nothing changed.")
+    rescue ActiveRecord::RecordNotFound, ArgumentError => e
+      failure("I could not ignore that pending transaction review: #{e.message}. Nothing changed.")
     end
 
     private

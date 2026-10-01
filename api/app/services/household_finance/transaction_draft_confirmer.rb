@@ -115,6 +115,9 @@ module HouseholdFinance
           raise InvalidDraftCorrection, result.errors.to_sentence unless result.success?
         end
       elsif selected_category
+        if attributes[:amount].present? && draft.transaction_draft_splits.one?
+          draft.transaction_draft_splits.sole.update!(amount_cents: draft.total_amount_cents)
+        end
         TransactionDraftUpdater.new(draft, { budget_category_id: selected_category.id }, refresh_matches: false).call.tap do |result|
           raise InvalidDraftCorrection, result.errors.to_sentence unless result.success?
         end

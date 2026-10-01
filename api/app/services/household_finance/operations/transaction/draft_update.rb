@@ -101,7 +101,12 @@ module HouseholdFinance
             draft[:budget_category_id] = stable_primary_category_id(draft[:budget_category_id], input.fetch(:splits))
           elsif input.key?(:budget_category_id)
             category = active_category(input.fetch(:budget_category_id))
-            after[:splits] = [ split_attributes(category, draft.fetch(:total_amount_cents)).merge(confidence: nil) ]
+            after[:splits] = [
+              split_attributes(category, draft.fetch(:total_amount_cents)).merge(
+                confidence: nil,
+                metadata: { "human_reviewed_replacement" => true }
+              )
+            ]
             draft[:budget_category_id] = category.id
           end
           after

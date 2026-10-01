@@ -2,8 +2,8 @@ require "test_helper"
 
 class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
   setup do
-    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "mia-draft-editor@example.com", role: "participant", invitation_status: "accepted")
-    @household = HouseholdFinance::WorkspaceResolver.new(user).household
+    @user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "mia-draft-editor@example.com", role: "participant", invitation_status: "accepted")
+    @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     @dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
     @groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 850)
@@ -23,6 +23,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     assert_no_difference("HouseholdTransaction.count") do
       result = HouseholdFinance::MiaTransactionDraftEditor.new(
         @household,
+        user: @user,
         command: { draft_id: @draft.id, occurred_on: "2026-07-09" }
       ).call
 
@@ -37,6 +38,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
   test "keeps the pending-scope snapshot without reloading before the locked update" do
     editor = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: { draft_id: @draft.id, occurred_on: "2026-07-09" }
     )
     reload_flags = []
@@ -55,6 +57,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
   test "updates merchant amount and category while keeping a single split valid" do
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: {
         draft_id: @draft.id,
         merchant: "Neighborhood Cafe",
@@ -81,6 +84,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
 
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: { draft_id: @draft.id, amount: "15.25" },
       idempotency_key: "mia-receipt-amount"
     ).call
@@ -100,6 +104,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     existing_split = @draft.transaction_draft_splits.sole
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: {
         draft_id: @draft.id,
         splits: [
@@ -129,6 +134,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
 
     rejected = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: { draft_id: @draft.id, splits: [ { id: foreign_split.id, category_id: @groceries.id, amount: "12.34" } ] },
       idempotency_key: "mia-foreign-receipt-split"
     ).call
@@ -137,6 +143,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
 
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: { draft_id: @draft.id, splits: [ { id: split.id, category_id: @groceries.id, amount: "12.34" } ] },
       idempotency_key: "mia-owned-receipt-split"
     ).call
@@ -173,6 +180,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     ].each_with_index do |splits, index|
       rejected = HouseholdFinance::MiaTransactionDraftEditor.new(
         @household,
+        user: @user,
         command: { draft_id: @draft.id, splits: splits },
         idempotency_key: "mia-invalid-multi-split-#{index}"
       ).call
@@ -181,6 +189,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
 
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: {
         draft_id: @draft.id,
         splits: [
@@ -206,6 +215,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
 
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
+      user: @user,
       command: { draft_id: @draft.id, amount: "15.25" }
     ).call
 
@@ -221,6 +231,7 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
 
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       other_household,
+      user: other_user,
       command: { draft_id: @draft.id, occurred_on: "2026-07-09" }
     ).call
 

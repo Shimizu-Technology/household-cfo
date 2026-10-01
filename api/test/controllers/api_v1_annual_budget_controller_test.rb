@@ -1784,6 +1784,36 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3_000, draft.confirmed_transaction.total_amount_cents
   end
 
+  test "confirming one split with amount and category corrections keeps the split total valid" do
+    user = create_user(email: "corrected-draft-amount-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    dining = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 700)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Village Cafe",
+      total_amount_cents: 2_500,
+      budget_category: dining,
+      source_type: "manual_ui",
+      status: "pending"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_500)
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        params: { transaction_draft: { amount: "30", budget_category_id: groceries.id } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "corrected", draft.reload.status
+    assert_equal [ [ groceries.id, 3_000 ] ], draft.transaction_draft_splits.pluck(:budget_category_id, :amount_cents)
+    assert_equal 3_000, draft.confirmed_transaction.total_amount_cents
+    assert_equal [ [ groceries.id, 3_000 ] ], draft.confirmed_transaction.transaction_splits.pluck(:budget_category_id, :amount_cents)
+  end
+
   test "blank confirmation amount keeps the drafted amount" do
     user = create_user(email: "blank-corrected-amount@example.com")
     patch "/api/v1/workspace/setup",

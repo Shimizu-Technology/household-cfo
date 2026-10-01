@@ -329,6 +329,28 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
     end
   end
 
+  test "category edits on a zero-split draft audit the human-reviewed replacement" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = @household.transaction_drafts.create!(
+        occurred_on: Date.new(2026, 9, 28), merchant: "Unsplit receipt", total_amount_cents: 4_217,
+        source_type: "receipt", status: "pending", raw_input: "Receipt upload"
+      )
+
+      result = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: { draft_id: draft.id, budget_category_id: @category.id, source_type: "manual_ui" },
+        idempotency_key: "zero-split-category"
+      )
+
+      persisted = result.subject.transaction_draft_splits.sole
+      assert_equal @category.id, persisted.budget_category_id
+      assert_equal 4_217, persisted.amount_cents
+      assert_equal({ "human_reviewed_replacement" => true }, persisted.metadata)
+      assert_equal({ "human_reviewed_replacement" => true }, result.execution.predicted_after_snapshot.dig("splits", 0, "metadata"))
+      assert_equal({ "human_reviewed_replacement" => true }, result.execution.after_snapshot.dig("splits", 0, "metadata"))
+    end
+  end
+
   test "statement category edits preserve multi-split granularity and reject foreign split ids" do
     travel_to Date.new(2026, 10, 1) do
       dining = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 200)

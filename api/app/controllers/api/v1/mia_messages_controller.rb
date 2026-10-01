@@ -1761,7 +1761,7 @@ module Api
 
       def mia_transaction_idempotency_key(action, draft_id = nil)
         request_key = @active_mia_message_request&.request_key.presence || request.request_id
-        [ "mia-transaction", request_key, action, draft_id ].compact.join(":").first(200)
+        [ "mia-transaction", current_user.id, current_chat_session.id, request_key, action, draft_id ].compact.join(":").first(200)
       end
 
       def serialize_mia_action_draft(draft)

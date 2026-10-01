@@ -7140,7 +7140,7 @@ function TransactionDraftReviewStack({
             Ignore selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set(filteredPendingDrafts.map((draft) => draft.id)))}>
-            Select all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' shown' : ' results'}
+            Select all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' loaded' : ' results'}
           </button>
           {selectedDrafts.length > 0 && (
             <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set())}>
@@ -7151,7 +7151,7 @@ function TransactionDraftReviewStack({
             Confirm categorized {confirmableDrafts.length}
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
-            Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' shown' : ''}
+            Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' loaded' : ''}
           </button>
           {filteredDraftsNeedingCategory.length > 0 && (
             <p className="transaction-draft-bulk-warning" role="status">

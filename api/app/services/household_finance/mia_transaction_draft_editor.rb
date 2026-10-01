@@ -6,10 +6,10 @@ module HouseholdFinance
       end
     end
 
-    def initialize(household, command:, user: nil, idempotency_key: nil)
+    def initialize(household, command:, user:, idempotency_key: nil)
       @household = household
       @command = command.to_h.deep_symbolize_keys
-      @user = user || household.household_memberships.includes(:user).order(:id).first&.user
+      @user = user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
 

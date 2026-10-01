@@ -1720,6 +1720,40 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     end
   end
 
+  test "rejects duplicate positive ids for a single-split transaction correction" do
+    context = intent_context.deep_dup
+    context[:pending_transaction_reviews] = [
+      {
+        id: 77, merchant: "Walkthrough Market", occurred_on: "2026-07-10", amount: 30,
+        splits: [ { id: 701, category_id: 42, category_name: "Fixed essentials", amount: 30 } ]
+      }
+    ]
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Split this into two fixed essentials lines.",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "transaction_draft_action",
+          continuation: true,
+          resolved_message: "Split the existing line into two lines",
+          topic: { type: "transaction_draft", title: "Walkthrough Market review", subject: "Walkthrough Market" },
+          action: default_action.merge(
+            type: "update_transaction_draft",
+            draft_id: 77,
+            splits: [
+              { id: 701, category_id: 42, category_name: "Fixed essentials", amount: "10" },
+              { id: 701, category_id: 42, category_name: "Fixed essentials", amount: "20" }
+            ]
+          )
+        )
+      end
+    ).call
+
+    refute result.actionable?
+    assert result.clarification?
+  end
+
   test "rejects a transaction correction that references an invented pending draft" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Change that transaction to yesterday",
