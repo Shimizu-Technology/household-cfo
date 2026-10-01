@@ -1025,7 +1025,9 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     [
       "Assuming our monthly income is $5,000, how much can we save?",
       "Say monthly income is $5,000 and fixed expenses are $2,400. What is the surplus?",
-      "Let's say our flexible spending is $900. How would that affect the plan?"
+      "Let's say our flexible spending is $900. How would that affect the plan?",
+      "If our monthly income is $5,000, how much can we save?",
+      "Given our monthly income is $5,000, what is our surplus?"
     ].each do |message|
       result = HouseholdFinance::MiaIntentResolver.new(
         user_message: message,
