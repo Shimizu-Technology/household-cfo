@@ -201,6 +201,9 @@ module HouseholdFinance
         content = message[:content] || message["content"]
         next unless role.to_s.in?(%w[user assistant]) && content.to_s.squish.present?
 
+        content = ::Mia::LanguagePolicy.redact_unauthorized_phrase_artifacts(content, persona: persona)
+        next if content.blank?
+
         { role: role.to_s, content: content.to_s.squish.truncate(MAX_HISTORY_MESSAGE_CHARACTERS, omission: "…") }
       end.last(MAX_HISTORY_MESSAGES)
 

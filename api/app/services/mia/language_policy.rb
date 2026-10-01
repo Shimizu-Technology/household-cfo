@@ -39,6 +39,10 @@ module Mia
     )\b/ix.freeze
     GENERIC_PRAISE_SENTENCE_PATTERN = /(?:\A|(?<=[.!?])\s+)(?:you(?:'re| are)\s+(?:doing\s+)?(?:great|amazing|awesome|incredible)|great\s+(?:job|work)|amazing\s+(?:job|work)|i(?:'m| am)\s+(?:so\s+)?proud\s+of\s+you|you(?:'ve| have)\s+got\s+this)[.!]?\s*/i.freeze
 
+    def self.redact_unauthorized_phrase_artifacts(content, persona:)
+      new(user_message: "", persona: persona).send(:redact_unauthorized_phrase_artifacts, content)
+    end
+
     def initialize(user_message:, history: [], persona: Persona.default)
       @user_message = user_message.to_s
       @history = Array(history)
@@ -74,8 +78,8 @@ module Mia
     def sanitize_custom_persona(content)
       value = content.to_s
       value = remove_generic_praise(value) unless earned_moment?
-      entries = cultural_phrases
-      allowed_entries = entries.select { |entry| custom_phrase_allowed?(entry) }
+      entries = all_cultural_phrases
+      allowed_entries = cultural_phrases.select { |entry| custom_phrase_allowed?(entry) }
       leading_phrase_removed = false
       entries.each do |entry|
         next if allowed_entries.include?(entry)
@@ -97,6 +101,25 @@ module Mia
         normalized = entry.respond_to?(:stringify_keys) ? entry.stringify_keys : nil
         normalized if normalized&.fetch("text", nil).to_s.squish.present?
       end
+    end
+
+    def all_cultural_phrases
+      source = persona.respond_to?(:all_cultural_phrases) ? persona.all_cultural_phrases : persona.cultural_phrases
+      Array(source).filter_map do |entry|
+        normalized = entry.respond_to?(:stringify_keys) ? entry.stringify_keys : nil
+        normalized if normalized&.fetch("text", nil).to_s.squish.present?
+      end
+    end
+
+    def redact_unauthorized_phrase_artifacts(content)
+      authorized_entries = cultural_phrases
+      value = content.to_s
+      all_cultural_phrases.each do |entry|
+        next if authorized_entries.include?(entry)
+
+        value = value.gsub(custom_phrase_pattern(entry.fetch("text")), " ")
+      end
+      value.gsub(/\s+([.!?,;:])/, "\\1").squish
     end
 
     def custom_phrase_allowed?(entry)

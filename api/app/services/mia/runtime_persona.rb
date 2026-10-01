@@ -24,11 +24,12 @@ module Mia
       )
     end
 
-    def initialize(version, config: nil, identifier: nil, persona_id: nil)
+    def initialize(version, config: nil, identifier: nil, persona_id: nil, participant_id: nil)
       @version = version
       @config = PersonaSchema.validate!(config || version.config)
       @identifier = identifier
       @persona_id = persona_id
+      @participant_id = participant_id
     end
 
     def id
@@ -67,7 +68,7 @@ module Mia
     end
 
     def system_prompt
-      PersonaPromptBuilder.call(config)
+      PersonaPromptBuilder.call(scoped_config)
     end
 
     def fallback_response(key)
@@ -79,6 +80,10 @@ module Mia
     end
 
     def cultural_phrases
+      scoped_config.fetch("phrases")
+    end
+
+    def all_cultural_phrases
       config.fetch("phrases")
     end
 
@@ -88,7 +93,13 @@ module Mia
 
     private
 
-    attr_reader :config
+    attr_reader :config, :participant_id
+
+    def scoped_config
+      @scoped_config ||= config.merge(
+        "phrases" => PhraseArtifactAudience.scope(config.fetch("phrases"), participant_id: participant_id)
+      )
+    end
 
     def identity
       config.fetch("identity")

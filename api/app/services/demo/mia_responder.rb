@@ -222,6 +222,9 @@ module Demo
         content = message[:content] || message["content"]
         next unless role.to_s.in?([ "assistant", "user" ]) && content.to_s.strip.present?
 
+        content = ::Mia::LanguagePolicy.redact_unauthorized_phrase_artifacts(content, persona: @persona)
+        next if content.blank?
+
         { role: role.to_s, content: content.to_s.strip }
       end.last(32)
     end
