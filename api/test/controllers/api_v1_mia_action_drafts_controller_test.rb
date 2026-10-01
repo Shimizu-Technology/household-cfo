@@ -61,6 +61,43 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Build a three-month emergency fund", item.dig("payload", "value")
   end
 
+  test "chat setup summary creates one review and changes nothing until apply" do
+    user = create_user(email: "mia-setup-summary-review@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    setup_before = HouseholdFinance::DataPresenter.new(household, user: user).setup_values
+    message = "Here is everything I know so far: our household is called Island Test Household. We bring home about $5,500 each month, fixed essentials are about $2,400, flexible spending is about $900, and our main goal is to build a three-month emergency fund."
+
+    without_openrouter_api_key do
+      post "/api/v1/mia/messages",
+        params: { message: message },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    draft = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "household_setup", draft.fetch("draft_type")
+    assert_equal "pending", draft.fetch("status")
+    assert_equal(
+      %w[fixed_expenses flexible_spend household_name primary_goal primary_income target_runway_months],
+      draft.fetch("items").map { |item| item.dig("payload", "key") }.sort
+    )
+    assert_equal setup_before, HouseholdFinance::DataPresenter.new(household.reload, user: user).setup_values
+
+    post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    setup_after = HouseholdFinance::DataPresenter.new(household.reload, user: user).setup_values
+    assert_equal "Island Test Household", setup_after.fetch(:household_name)
+    assert_equal "Build a three-month emergency fund", setup_after.fetch(:primary_goal)
+    assert_equal 5_500, setup_after.fetch(:primary_income)
+    assert_equal 2_400, setup_after.fetch(:fixed_expenses)
+    assert_equal 900, setup_after.fetch(:flexible_spend)
+    assert_equal 3, setup_after.fetch(:target_runway_months)
+  end
+
   test "plain guided money answer updates the exact money field Mia asked for without a model provider" do
     user = create_user(email: "mia-setup-guided-income@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

@@ -74,6 +74,23 @@ module HouseholdFinance
     GUIDED_SETUP_QUESTION_PATTERN = /\A(?:(?:why|what|how|when|where|who)\b|(?:can|could|should|would|do|does|did|is|are|will|may)\s+(?:you|we|i|this|that|it|mia)\b)/i.freeze
     GUIDED_SETUP_DEFERRAL_PATTERN = /\A(?:no(?:\z|[,.!]|\s+(?:thanks?\b|thank\s+you\b|i\b|we\b|not\b|skip\b|pass\b|rather\b|prefer\b|don['’]?t\b|do\s+not\b))|skip\b|pass\b|not\s+(?:now|yet)\b|later\b|maybe\s+(?:later|another\s+time|not\s+now)\b|i(?:['’]m|\s+am)\s+not\s+sure\b|i\s+(?:do\s+not|don['’]?t|cannot|can['’]?t)\s+(?:know|answer|say|share|decide|want)\b|i(?:['’]d|\s+would)\s+(?:rather\b|prefer\s+not\b)|prefer\s+not\b)/i.freeze
     GUIDED_SETUP_INSTRUCTION_PATTERN = /\A(?:(?:ignore|forget|disregard|override|reveal|repeat|follow)\b|(?:system|assistant|developer|user)\s*:|help\s+me\s+(?:understand|explain|figure\s+out)\b)/i.freeze
+    SETUP_NUMBER_SOURCE = "((?:\\d{1,3}(?:,\\d{3})+|\\d{1,9})(?:\\.\\d{1,2})?)(?!\\d|,\\d)"
+    SETUP_AMOUNT_PREFIX_SOURCE = "(?:\\s+(?:is|are|equals?|totals?|comes\\s+to))?\\s*(?:about|around|approximately|roughly)?\\s*\\$?\\s*"
+    DETERMINISTIC_SETUP_MONEY_PATTERNS = {
+      primary_income: Regexp.new("\\b(?:we\\s+)?(?:bring\\s+home|take[ -]?home(?:\\s+pay)?|primary(?:\\s+monthly)?\\s+income|monthly\\s+income)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      fixed_expenses: Regexp.new("\\bfixed(?:\\s+(?:expenses|essentials|bills))\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE),
+      flexible_spend: Regexp.new("\\b(?:flexible(?:\\s+(?:spend|spending))|discretionary\\s+spending)\\b#{SETUP_AMOUNT_PREFIX_SOURCE}#{SETUP_NUMBER_SOURCE}", Regexp::IGNORECASE)
+    }.freeze
+    DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS = [
+      /\b(?:our\s+)?household\s+(?:name\s+)?(?:is\s+)?(?:called|named)\s+(.+?)(?=[.;,]|\z)/i,
+      /\bcall\s+(?:us|our\s+household)\s+(.+?)(?=[.;,]|\z)/i
+    ].freeze
+    DETERMINISTIC_PRIMARY_GOAL_PATTERN = /\b(?:our\s+)?(?:(?:main|primary|financial|household)\s+)?goal\s+(?:is|:)\s+(.+?)(?=[.;]|\s*,\s*(?:and\s+)?(?:our\s+household|we\s+bring\s+home|fixed\s+(?:expenses|essentials|bills)|flexible\s+(?:spend|spending))\b|\z)/i.freeze
+    DETERMINISTIC_RUNWAY_PATTERN = /\b(\d+(?:\.\d+)?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)[-\s]+months?(?:\s+of)?\s+(?:emergency\s+(?:fund|savings)|runway)\b/i.freeze
+    SETUP_NUMBER_WORDS = {
+      "one" => 1, "two" => 2, "three" => 3, "four" => 4, "five" => 5, "six" => 6,
+      "seven" => 7, "eight" => 8, "nine" => 9, "ten" => 10, "eleven" => 11, "twelve" => 12
+    }.freeze
 
     Result = Struct.new(
       :intent,
@@ -133,7 +150,7 @@ module HouseholdFinance
     def call
       return nil if user_message.blank?
 
-      setup_result = guided_setup_reply_result
+      setup_result = deterministic_setup_result || guided_setup_reply_result
       return setup_result if setup_result
       return nil if api_key.blank? && transport.nil?
 
@@ -153,6 +170,105 @@ module HouseholdFinance
     private
 
     attr_reader :user_message, :context, :api_key, :model, :transport
+
+    def deterministic_setup_result
+      return @deterministic_setup_result if defined?(@deterministic_setup_result)
+
+      @deterministic_setup_result = begin
+        unless normalized_user_message.match?(HYPOTHETICAL_PATTERN) || normalized_user_message.match?(PURCHASE_SCENARIO_PATTERN)
+          values, conflicts = deterministic_setup_values
+          if conflicts.any?
+            deterministic_setup_clarification(conflicts.first)
+          elsif values.any?
+            action = normalize_action(default_action_payload.merge(type: "update_household_setup", setup_updates: values))
+            prior_action = validated_prior_action(action, continuation: true)
+            action = merge_prior_action(action, prior_action)
+            Result.new(
+              intent: "household_action",
+              confidence: 1.0,
+              continuation: prior_action.present?,
+              resolved_message: user_message,
+              needs_clarification: false,
+              clarification: "",
+              topic: { type: "household_setup", title: "Starting household picture", subject: "Household setup" },
+              action: { type: "update_household_setup", setup_updates: action.fetch(:setup_updates) },
+              read_only_plan: {},
+              source: "deterministic"
+            )
+          end
+        end
+      end
+    end
+
+    def deterministic_setup_values
+      values = {}
+      conflicts = []
+
+      DETERMINISTIC_SETUP_MONEY_PATTERNS.each do |field, pattern|
+        matches = user_message.scan(pattern).flatten.filter_map { |raw| normalized_setup_money(raw) }.uniq
+        if matches.many?
+          conflicts << field
+        elsif matches.one?
+          values[field] = matches.first
+        end
+      end
+
+      household_names = DETERMINISTIC_HOUSEHOLD_NAME_PATTERNS.flat_map do |pattern|
+        user_message.scan(pattern).flatten.map { |raw| bounded(raw, 120) }
+      end.reject(&:blank?).uniq
+      if household_names.many?
+        conflicts << :household_name
+      elsif household_names.one?
+        values[:household_name] = household_names.first
+      end
+
+      goal_matches = user_message.scan(DETERMINISTIC_PRIMARY_GOAL_PATTERN).flatten.map do |raw|
+        normalized_goal = bounded(raw, 500).sub(/\Ato\s+/i, "")
+        normalized_goal.sub(/\A./) { |character| character.upcase }
+      end.reject(&:blank?).uniq
+      if goal_matches.many?
+        conflicts << :primary_goal
+      elsif goal_matches.one?
+        values[:primary_goal] = goal_matches.first
+      end
+
+      if values.key?(:primary_goal)
+        runway_matches = user_message.scan(DETERMINISTIC_RUNWAY_PATTERN).flatten.filter_map do |raw|
+          months = BigDecimal(SETUP_NUMBER_WORDS.fetch(raw.downcase, raw).to_s)
+          months.to_s("F").sub(/\.0+\z/, "") if months.positive? && months <= 120
+        end.uniq
+        if runway_matches.many?
+          conflicts << :target_runway_months
+        elsif runway_matches.one?
+          values[:target_runway_months] = runway_matches.first
+        end
+      end
+
+      [ values.slice(:household_name, :primary_goal, :primary_income, :fixed_expenses, :flexible_spend, :target_runway_months), conflicts ]
+    end
+
+    def normalized_setup_money(raw)
+      cents = cents_or_nil(raw.to_s.delete(","))
+      return unless cents
+
+      (BigDecimal(cents.to_s) / 100).to_s("F").sub(/\.0+\z/, "")
+    end
+
+    def deterministic_setup_clarification(field)
+      label = MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(field)
+      Result.new(
+        intent: "clarification",
+        confidence: 1.0,
+        continuation: false,
+        resolved_message: user_message,
+        needs_clarification: true,
+        clarification: "I found more than one #{label.downcase}. Which value should I prepare for review?",
+        topic: { type: "household_setup", title: "Starting household picture", subject: label },
+        action: { type: "none" },
+        read_only_plan: {},
+        source: "deterministic"
+      )
+    end
 
     def guided_setup_reply_result
       return @guided_setup_reply_result if defined?(@guided_setup_reply_result)

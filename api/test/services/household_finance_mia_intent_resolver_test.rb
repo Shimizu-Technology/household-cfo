@@ -903,6 +903,124 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "6", result.action.dig(:setup_updates, :target_runway_months)
   end
 
+  test "deterministically routes the chat setup summary before a provider can call income a purchase" do
+    message = "Here is everything I know so far: our household is called Island Test Household. We bring home about $5,500 each month, fixed essentials are about $2,400, flexible spending is about $900, and our main goal is to build a three-month emergency fund."
+    provider_called = false
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        provider_called = true
+        resolution_json(
+          intent: "coaching",
+          continuation: false,
+          resolved_message: "What if I spend $5,500?",
+          topic: { type: "read_only_plan", title: "Purchase scenario", subject: "Purchase" },
+          action: default_action,
+          read_only_plan: {
+            title: "Purchase scenario",
+            items: [
+              read_only_item(
+                kind: "scenario",
+                source_text: message,
+                resolved_question: "What if I spend $5,500?",
+                basis: "hypothetical",
+                scenario_type: "purchase",
+                scenario_label: "Purchase",
+                amount: "5500"
+              )
+            ]
+          }
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute provider_called
+    assert result.actionable?
+    assert_equal "deterministic", result.source
+    assert_equal "household_action", result.intent
+    assert_equal "update_household_setup", result.action.fetch(:type)
+    assert_equal(
+      {
+        household_name: "Island Test Household",
+        primary_goal: "Build a three-month emergency fund",
+        primary_income: "5500",
+        fixed_expenses: "2400",
+        flexible_spend: "900",
+        target_runway_months: "3"
+      },
+      result.action.fetch(:setup_updates)
+    )
+    refute result.read_only_plan?
+  end
+
+  test "deterministically routes a partial household setup summary without a provider" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "For our starting picture, we bring home $5,500 a month and fixed essentials are $2,400.",
+      context: intent_context,
+      api_key: nil
+    ).call
+
+    assert result.actionable?
+    assert_equal "deterministic", result.source
+    assert_equal(
+      { primary_income: "5500", fixed_expenses: "2400" },
+      result.action.fetch(:setup_updates)
+    )
+  end
+
+  test "does not let a long setup summary fall through to purchase routing" do
+    message = <<~TEXT.squish
+      Here is everything I know so far for the starting household picture. Please keep these as proposed values for review because I want to verify every number before anything changes.
+      Our household is called Island Test Household. We bring home about $5,500 each month, fixed essentials are about $2,400, flexible spending is about $900,
+      and our main goal is to build a three-month emergency fund while keeping enough breathing room for normal family needs.
+    TEXT
+
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: nil
+    ).call
+
+    assert result.actionable?
+    assert_equal "update_household_setup", result.action.fetch(:type)
+    assert_equal "Island Test Household", result.action.dig(:setup_updates, :household_name)
+    assert_equal "5500", result.action.dig(:setup_updates, :primary_income)
+    assert_equal "Build a three-month emergency fund while keeping enough breathing room for normal family needs", result.action.dig(:setup_updates, :primary_goal)
+  end
+
+  test "asks for clarification instead of drafting contradictory setup amounts" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "For setup, we bring home $5,500 each month. Correction: we bring home $6,100 each month.",
+      context: intent_context,
+      api_key: nil
+    ).call
+
+    assert result.clarification?
+    assert_equal "deterministic", result.source
+    assert_equal "clarification", result.intent
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "primary monthly income"
+  end
+
+  test "keeps an ordinary purchase question on the purchase scenario path" do
+    message = "Can I buy a $900 laptop?"
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: ->(_payload) { nil }
+    ).call
+
+    assert result.read_only_plan?
+    assert_equal "purchase", result.read_only_plan.dig(:items, 0, :scenario_type)
+    assert_equal "900", result.read_only_plan.dig(:items, 0, :amount)
+    assert_equal "none", result.action.fetch(:type)
+  end
+
   test "discards model zero defaults that the participant did not provide" do
     message = "Call us QA Test Family. We bring home $6,200 monthly, fixed essentials are $3,000, flexible spending is $800, and our goal is a six-month emergency fund."
     resolver = HouseholdFinance::MiaIntentResolver.new(
