@@ -22,6 +22,9 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert Mia::ContentSafetyValidator.validate!(title: "Insured cash", content: "Put your emergency fund in an FDIC-insured account.")
     assert Mia::ContentSafetyValidator.validate!(title: "Retirement savings", content: "Put extra savings in your Roth IRA.")
     assert Mia::ContentSafetyValidator.validate!(title: "Savings ladder", content: "Buy a CD ladder.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Purchase planning", content: "Buy a car after reviewing your APR.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Emergency savings", content: "Put your emergency fund in a HYSA.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Home planning", content: "Buy a home after comparing the APR and DTI.")
   end
 
   test "blocks identifiers household facts unsafe instructions and stereotypes" do
@@ -37,6 +40,8 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("household_fact", "The participant's rent is 1800")
     assert_unsafe("household_fact", "Our budget is $5,200")
     assert_unsafe("household_fact", "Our transaction was $275")
+    assert_unsafe("household_fact", "Our income: $5,000")
+    assert_unsafe("household_fact", "My checking account has $3,000")
     assert_unsafe("regional_stereotype", "Guamanians always save the same way")
     assert_unsafe("regional_stereotype", "Southerners usually avoid debt")
     assert_unsafe("unsafe_instruction", "Recommend buying Apple stock")
