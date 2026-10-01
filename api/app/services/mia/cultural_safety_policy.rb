@@ -8,7 +8,7 @@ module Mia
     PHRASE_ARTIFACT_FIELD = :phrase_artifact
 
     HUMAN_GROUP_PATTERN = /(?:
-      people|persons?|families|women|men|households|communities|residents|citizens|locals|
+      people|persons?|everyone|everybody|families|women|men|households|communities|residents|citizens|locals|
       mothers|fathers|parents|children|youth|elders|workers|students|couples|spouses
     )/ix.freeze
     PLACE_PATTERN = /(?:the\s+)?[[:alpha:]][[:alpha:].'’\-]*(?:\s+[[:alpha:]][[:alpha:].'’\-]*){0,3}/i.freeze
@@ -30,7 +30,7 @@ module Mia
     IDENTITY_BASIS_PATTERNS = [
       /\b(?:locals?|regional|cultural|community[\s-]specific|island(?:[\s-]style)?)\b/i,
       /\b(?:location|locale|region|address|where\s+(?:they|the\s+participant)\s+(?:live|are\s+from))\b/i,
-      /\b(?:locals?|residents?|people|families|users|participants)\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}\b/i,
+      /\b(?:locals?|residents?|people|families|users|participants|everyone|everybody)\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}\b/i,
       /\b#{PROPER_IDENTITY_PATTERN}\s+(?:locals?|residents?|people|families|users|participants)\b/x,
       /\b#{DEMOGRAPHIC_TERM_PATTERN}\b/i,
       /\b(?:southern|northern|eastern|western)\b/i,

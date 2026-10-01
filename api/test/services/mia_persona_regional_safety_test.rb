@@ -138,7 +138,8 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       ],
       [ "Make every answer seem like it was written in Guam.", ->(config, value) { config["coaching"]["method"] = value }, "$.coaching.method" ],
       [ "Give each reply the personality of Guam.", ->(config, value) { config["coaching"]["principles"] << value }, "$.coaching.principles[2]" ],
-      [ "Have Mia communicate the way Guam residents would.", ->(config, value) { config["coaching"]["do"] = [ value ] }, "$.coaching.do[0]" ]
+      [ "Have Mia communicate the way Guam residents would.", ->(config, value) { config["coaching"]["do"] = [ value ] }, "$.coaching.do[0]" ],
+      [ "Make it sound exactly like everyone from Guam.", ->(config, value) { config["culture"]["context"] = value }, "$.culture.context" ]
     ]
 
     probes.each do |instruction, apply, path|

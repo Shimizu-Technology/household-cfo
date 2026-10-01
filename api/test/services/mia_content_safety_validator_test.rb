@@ -390,7 +390,8 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
       "Make the voice feel homegrown in Guam.",
       "Make every answer seem like it was written in Guam.",
       "Give each reply the personality of Guam.",
-      "Have Mia communicate the way Guam residents would."
+      "Have Mia communicate the way Guam residents would.",
+      "Make it sound exactly like everyone from Guam."
     ].each { |content| assert_unsafe("regional_stereotype", content) }
   end
 

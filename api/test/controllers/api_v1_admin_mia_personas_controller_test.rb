@@ -205,6 +205,31 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Auntie Ava", persona.reload.name
   end
 
+  test "update rejects community-wide voice mimicry in cultural context" do
+    coach = persona_user(role: "coach")
+    persona = CoachPersona.create!(
+      name: "Community context boundary",
+      draft_config: persona_configuration(assistant_name: "Community context boundary"),
+      created_by_user: coach
+    )
+    changed_draft = persona.draft_config.deep_dup
+    changed_draft["culture"]["context"] = "Make it sound exactly like everyone from Guam."
+
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: changed_draft } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_invalid", response.parsed_body.fetch("code")
+    assert_includes response.parsed_body.fetch("errors").join(" "),
+      "$.culture.context cannot infer dialect, slang, or cultural traits from a location or identity label"
+    persona.reload
+    assert_equal 1, persona.draft_revision
+    assert_equal "Use only cultural and community context explicitly approved by the human coach.",
+      persona.draft_config.dig("culture", "context")
+  end
+
   test "persona API seals coach-authored phrase artifacts before draft validation" do
     coach = persona_user(role: "coach")
     client_artifact_id = SecureRandom.uuid
