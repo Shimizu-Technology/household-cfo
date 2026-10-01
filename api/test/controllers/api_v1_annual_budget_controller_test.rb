@@ -1860,6 +1860,31 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes body.dig("workspace", "mia", "messages").last.fetch("content"), "Actuals did not change"
   end
 
+  test "manual transaction capture creates one audited pending review and replays by idempotency key" do
+    user = create_user(email: "manual-transaction-capture@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    headers = auth_headers(user).merge("Idempotency-Key" => "manual-capture-1")
+    params = { transaction_draft: { occurred_on: Date.current.iso8601, merchant: "ZXQ Island Vendor", amount: "17.42", budget_category_id: nil } }
+
+    assert_difference("TransactionDraft.count", 1) do
+      assert_no_difference("HouseholdTransaction.count") do
+        post "/api/v1/transaction_drafts", params: params, headers: headers, as: :json
+        assert_response :created
+        post "/api/v1/transaction_drafts", params: params, headers: headers, as: :json
+        assert_response :created
+      end
+    end
+
+    body = JSON.parse(response.body)
+    draft = household.transaction_drafts.find(body.dig("transaction_draft", "id"))
+    assert_equal "pending", draft.status
+    assert_equal "manual_ui", draft.source_type
+    assert_nil draft.budget_category_id
+    assert_nil draft.transaction_draft_splits.sole.budget_category_id
+    assert_equal 1, household.household_operation_executions.where(idempotency_key: "manual-capture-1").count
+    assert_equal "transaction.draft.create", household.household_audit_events.find_by!(event_type: "household_operation.executed").metadata.fetch("operation_key")
+  end
+
   test "bulk resolution rejects more than five hundred reviews" do
     user = create_user(email: "bulk-draft-limit@example.com")
 

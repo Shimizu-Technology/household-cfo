@@ -1251,7 +1251,9 @@ module Api
               creation = HouseholdFinance::MiaTransactionDraftCreator.new(
                 current_household,
                 command: intent_result.action,
-                raw_input: content
+                raw_input: content,
+                user: current_user,
+                idempotency_key: mia_transaction_idempotency_key("create")
               ).call
               if creation.success?
                 transaction_draft = creation.draft
@@ -1264,7 +1266,9 @@ module Api
                 resolved_content,
                 annual_budget_manager: annual_budget_manager,
                 plan_prepared: true,
-                raw_input: content
+                raw_input: content,
+                user: current_user,
+                idempotency_key: mia_transaction_idempotency_key("legacy-create")
               ).call
             end
             annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
@@ -1274,12 +1278,19 @@ module Api
                 ignored = HouseholdFinance::MiaTransactionDraftIgnorer.new(
                   current_household,
                   command: intent_result.action,
-                  raw_input: content
+                  raw_input: content,
+                  user: current_user,
+                  idempotency_key: mia_transaction_idempotency_key("ignore")
                 ).call
                 direct_answer = ignored.response
                 annual_plan = annual_budget_manager.plan_data if ignored.success?
               else
-                draft_edit = HouseholdFinance::MiaTransactionDraftEditor.new(current_household, command: intent_result.action).call
+                draft_edit = HouseholdFinance::MiaTransactionDraftEditor.new(
+                  current_household,
+                  command: intent_result.action,
+                  user: current_user,
+                  idempotency_key: mia_transaction_idempotency_key("update", intent_result.action.to_h[:draft_id])
+                ).call
                 if draft_edit.success?
                   transaction_draft = draft_edit.draft
                   transaction_draft_answer = draft_edit.response
@@ -1341,7 +1352,9 @@ module Api
           ignored = HouseholdFinance::MiaTransactionDraftIgnorer.new(
             current_household,
             command: { type: "ignore_transaction_drafts", all_pending: true },
-            raw_input: content
+            raw_input: content,
+            user: current_user,
+            idempotency_key: mia_transaction_idempotency_key("ignore-all")
           ).call
           return legacy_transaction_route_payload(
             followup,
@@ -1399,7 +1412,9 @@ module Api
             routed_content,
             annual_budget_manager: annual_budget_manager,
             plan_prepared: annual_plan.present?,
-            raw_input: content
+            raw_input: content,
+            user: current_user,
+            idempotency_key: mia_transaction_idempotency_key("legacy-create")
           ).call
           annual_plan = annual_plan_for_transaction_draft(transaction_draft, annual_budget_manager) if transaction_draft
         end
@@ -1440,7 +1455,9 @@ module Api
         if text.match?(/\byesterday\b/i)
           edit = HouseholdFinance::MiaTransactionDraftEditor.new(
             current_household,
-            command: { draft_id: pending.first.id, occurred_on: Date.current.prev_day.iso8601 }
+            command: { draft_id: pending.first.id, occurred_on: Date.current.prev_day.iso8601 },
+            user: current_user,
+            idempotency_key: mia_transaction_idempotency_key("legacy-update", pending.first.id)
           ).call
           return legacy_transaction_route_payload(
             followup,
@@ -1740,6 +1757,11 @@ module Api
           HouseholdFinance::Money.dollars(cents),
           precision: cents.to_i % 100 == 0 ? 0 : 2
         )
+      end
+
+      def mia_transaction_idempotency_key(action, draft_id = nil)
+        request_key = @active_mia_message_request&.request_key.presence || request.request_id
+        [ "mia-transaction", request_key, action, draft_id ].compact.join(":").first(200)
       end
 
       def serialize_mia_action_draft(draft)

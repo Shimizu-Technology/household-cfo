@@ -44,6 +44,7 @@ import {
   createDebt,
   createIncomeSource,
   createIncomeScheduleEntry,
+  createTransactionDraft,
   deleteDocumentImport,
   deleteDocumentImportSource,
   deleteDebt,
@@ -120,6 +121,7 @@ import type {
   RecentTransaction,
   SpendingReport,
   TransactionDraft,
+  TransactionDraftCreateInput,
   TransactionDraftSplit,
   TransactionDraftUpdateInput,
   UserRole,
@@ -440,6 +442,7 @@ function App() {
   const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
   const budgetOperationKeysRef = useRef(new OperationIdempotencyKeys())
+  const transactionOperationKeysRef = useRef(new OperationIdempotencyKeys())
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const miaCharactersRemaining = MIA_MESSAGE_MAX_LENGTH - question.length
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
@@ -1830,6 +1833,30 @@ function App() {
     }
   }
 
+  async function handleCreateTransactionDraft(values: TransactionDraftCreateInput) {
+    if (!isRealWorkspace) return
+
+    const signature = `transaction:create:${JSON.stringify(values)}`
+    setBudgetAction('create-transaction-draft')
+    setBudgetError(null)
+    try {
+      const response = await createTransactionDraft(values, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
+      const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
+      setData(response.workspace)
+      if (response.workspace.budget.annual_plan) setBudgetView({ year: response.workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
+      refreshSpendingReportForBudget(response.workspace.budget, draftMonthIndex)
+      replaceMiaHistory(response.workspace.mia)
+      captureAnalyticsEvent('transaction_draft_created', { source_type: 'manual_ui' })
+    } catch (caught) {
+      const message = caught instanceof Error ? caught.message : 'Transaction review could not be created.'
+      setBudgetError(message)
+      throw new Error(message, { cause: caught })
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
   async function handleUpdateTransactionDraft(draft: TransactionDraft, values: TransactionDraftUpdateInput) {
     if (!isRealWorkspace) return
 
@@ -1837,7 +1864,9 @@ function App() {
     setBudgetError(null)
     setDocumentsError(null)
     try {
-      const response = await updateTransactionDraft(draft.id, values)
+      const signature = `transaction:update:${draft.id}:${JSON.stringify(values)}`
+      const response = await updateTransactionDraft(draft.id, values, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(response.transaction_draft.occurred_on)
       setData(response.workspace)
       setDocumentImports((current) => replaceImportTransactionDraft(current, response.transaction_draft))
@@ -1889,7 +1918,9 @@ function App() {
     setBudgetError(null)
     setDocumentsError(null)
     try {
-      const workspace = await ignoreTransactionDraft(draft.id)
+      const signature = `transaction:ignore:${draft.id}`
+      const workspace = await ignoreTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
@@ -1932,9 +1963,11 @@ function App() {
     setDocumentsError(null)
     setMiaError(null)
     try {
+      const ignoreSignature = `transaction:bulk-ignore:${ids.slice().sort((a, b) => a - b).join(',')}`
       const workspace = resolution === 'confirm'
         ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`)
-        : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear)
+        : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear, transactionOperationKeysRef.current.keyFor(ignoreSignature))
+      if (resolution === 'ignore') transactionOperationKeysRef.current.complete(ignoreSignature)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
@@ -2814,18 +2847,23 @@ function App() {
 
           {isRealWorkspace && auth.currentUser ? (
             <>
-              {pendingPlaidDrafts.length > 0 && (
-                <article className="panel activity-review-panel">
+              <article className="panel activity-review-panel">
+                <ManualTransactionCapture
+                  categories={activeBudgetPlan?.rows ?? []}
+                  busy={budgetAction === 'create-transaction-draft'}
+                  onCreate={handleCreateTransactionDraft}
+                />
+                {pendingTransactionDrafts.length > 0 && (
                   <TransactionDraftReviewStack
-                    drafts={pendingPlaidDrafts}
+                    drafts={pendingTransactionDrafts}
                     isRealWorkspace
                     compact
                     action={budgetAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
                     eyebrow="Household review"
-                    title="Confirm the category—not whether the bank saw it"
-                    description="Posted transactions are already bank-observed and available to Mia. Confirm the category and any splits to make them official budget actuals."
+                    title="Review every transaction before it becomes an actual"
+                    description="Mia, manual entries, bank activity, and uploads share this queue. Check the source, merchant, amount, category, and splits before confirming."
                     onUpdate={handleUpdateTransactionDraft}
                     onMatch={handleMatchTransactionDraft}
                     onConfirm={handleConfirmTransactionDraft}
@@ -2834,8 +2872,8 @@ function App() {
                     onBulkConfirm={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
                     onBulkIgnore={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
                   />
-                </article>
-              )}
+                )}
+              </article>
               <PlaidConnections
                 userId={String(auth.currentUser.id)}
                 variant="activity"
@@ -6870,6 +6908,77 @@ function miaActionItemFinePrint(item: MiaActionItem) {
   return `Applies to ${changes.length} month${changes.length === 1 ? '' : 's'}.`
 }
 
+function ManualTransactionCapture({
+  categories,
+  busy,
+  onCreate,
+}: {
+  categories: BudgetCategoryRow[]
+  busy: boolean
+  onCreate: (values: TransactionDraftCreateInput) => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  const [occurredOn, setOccurredOn] = useState(guamTodayIso())
+  const [merchant, setMerchant] = useState('')
+  const [amount, setAmount] = useState('')
+  const [categoryId, setCategoryId] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+  const activeCategories = categories.filter((category) => category.active)
+
+  function reset() {
+    setOccurredOn(guamTodayIso())
+    setMerchant('')
+    setAmount('')
+    setCategoryId('')
+    setFormError(null)
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setFormError(null)
+    try {
+      await onCreate({
+        occurred_on: occurredOn,
+        merchant: merchant.trim(),
+        amount,
+        budget_category_id: categoryId ? Number(categoryId) : null,
+      })
+      reset()
+      setOpen(false)
+    } catch (caught) {
+      setFormError(caught instanceof Error ? caught.message : 'Transaction review could not be created.')
+    }
+  }
+
+  return (
+    <section className="manual-transaction-capture" aria-labelledby="manual-transaction-heading">
+      <div className="manual-transaction-heading">
+        <div>
+          <p className="eyebrow">Quick capture</p>
+          <h3 id="manual-transaction-heading">Add a transaction</h3>
+          <p>Create a review card now. Your budget actuals stay unchanged until you confirm it.</p>
+        </div>
+        <button type="button" className="secondary-button" aria-expanded={open} onClick={() => { setOpen((current) => !current); setFormError(null) }}>
+          {open ? 'Close' : 'Add transaction'}
+        </button>
+      </div>
+      {open && (
+        <form className="manual-transaction-form" onSubmit={(event) => void submit(event)}>
+          <label><span>Date</span><input type="date" required max={guamTodayIso()} value={occurredOn} onChange={(event) => setOccurredOn(event.currentTarget.value)} /></label>
+          <label><span>Merchant</span><input required maxLength={120} autoComplete="organization" placeholder="Pay-Less" value={merchant} onChange={(event) => setMerchant(event.currentTarget.value)} /></label>
+          <label><span>Amount</span><input type="number" required min="0.01" step="0.01" inputMode="decimal" placeholder="0.00" value={amount} onChange={(event) => setAmount(event.currentTarget.value)} /></label>
+          <label><span>Category <small>optional</small></span><select value={categoryId} onChange={(event) => setCategoryId(event.currentTarget.value)}><option value="">Leave uncategorized</option>{activeCategories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}</select></label>
+          {formError && <p className="manual-transaction-error" role="alert">{formError}</p>}
+          <div className="manual-transaction-actions">
+            <button type="button" className="secondary-button" disabled={busy} onClick={() => { reset(); setOpen(false) }}>Cancel</button>
+            <button type="submit" disabled={busy}>{busy ? 'Adding review' : 'Add to review'}</button>
+          </div>
+        </form>
+      )}
+    </section>
+  )
+}
+
 function TransactionDraftReviewStack({
   drafts,
   isRealWorkspace,
@@ -7239,7 +7348,10 @@ function TransactionDraftReviewCard({
       <div className="transaction-draft-main">
         <div className="transaction-draft-title-row">
           <strong>{draft.merchant}</strong>
-          <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
+          <div className="transaction-draft-badges">
+            <span className="transaction-source-badge">{transactionDraftSourceLabel(draft.source_type)}</span>
+            <span className={`document-status ${transactionDraftStatusTone(draft.status)}`}>{titleize(draft.status)}</span>
+          </div>
         </div>
         <p>{formatShortDate(draft.occurred_on)} · {currency.format(displayAmount)} · {(draft.splits ?? []).length > 1 ? `${draft.splits?.length} splits` : (draft.category_name ?? 'Needs category')}</p>
         {(draft.splits ?? []).length > 0 && (
@@ -7422,6 +7534,17 @@ function transactionDraftStatusTone(status: TransactionDraft['status']) {
   if (status === 'pending') return 'gold'
   if (status === 'ignored') return 'red'
   return 'green'
+}
+
+function transactionDraftSourceLabel(sourceType?: string) {
+  if (sourceType === 'manual_chat') return 'Mia'
+  if (sourceType === 'manual_ui') return 'Manual'
+  if (sourceType === 'plaid') return 'Bank'
+  if (sourceType === 'receipt') return 'Receipt'
+  if (sourceType === 'screenshot') return 'Screenshot'
+  if (sourceType === 'statement') return 'Statement'
+  if (sourceType === 'import') return 'Import'
+  return 'Imported'
 }
 
 function transactionDraftTerminalCopy(status: TransactionDraft['status']) {

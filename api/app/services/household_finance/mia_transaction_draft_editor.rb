@@ -6,9 +6,11 @@ module HouseholdFinance
       end
     end
 
-    def initialize(household, command:)
+    def initialize(household, command:, user: nil, idempotency_key: nil)
       @household = household
       @command = command.to_h.deep_symbolize_keys
+      @user = user || household.household_memberships.includes(:user).order(:id).first&.user
+      @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
 
     def call
@@ -17,10 +19,13 @@ module HouseholdFinance
       attributes = update_attributes(draft)
       return failure(draft, "Tell me what to change on that pending transaction review. Nothing changed.") if attributes.empty?
 
-      update = TransactionDraftUpdater.new(draft, attributes).call
-      return Result.new(success: false, draft: update.draft, response: update.errors.to_sentence, errors: update.errors) unless update.success?
-
-      updated_draft = update.draft
+      operation = Operations::Runner.new(household, user: user).run(
+        operation_key: "transaction.draft.update",
+        input: attributes.merge(draft_id: draft.id, source_type: "manual_chat"),
+        idempotency_key: idempotency_key,
+        source: "mia"
+      )
+      updated_draft = operation.subject.reload
       changes = change_descriptions(before, snapshot(updated_draft))
       response = if changes.empty?
         "That pending #{updated_draft.merchant} review already has those details. Actuals did not change."
@@ -36,7 +41,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :command
+    attr_reader :household, :command, :user, :idempotency_key
 
     def update_attributes(draft)
       {}.tap do |attributes|

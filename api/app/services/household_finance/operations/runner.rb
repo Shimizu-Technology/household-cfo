@@ -122,6 +122,7 @@ module HouseholdFinance
       def subject_belongs_to_household?(subject)
         case subject
         when Household then subject.id == household.id
+        when TransactionDraft then subject.household_id == household.id
         when IncomeSource then subject.household_id == household.id
         when IncomeScheduleEntry then subject.income_source.household_id == household.id
         when BudgetCategory then subject.household_id == household.id

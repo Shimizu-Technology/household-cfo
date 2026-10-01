@@ -2473,10 +2473,20 @@ export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchan
   splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null; confidence: number | string | null; metadata: Record<string, unknown> }>>
 }
 
-export async function updateTransactionDraft(id: number, values: TransactionDraftUpdateInput): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
+export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null }
+
+export async function createTransactionDraft(values: TransactionDraftCreateInput, idempotencyKey: string): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
+  return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>('/api/v1/transaction_drafts', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft: values }),
+  })
+}
+
+export async function updateTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string): Promise<{ transaction_draft: TransactionDraft; workspace: AppData }> {
   return fetchJson<{ transaction_draft: TransactionDraft; workspace: AppData }>(`/api/v1/transaction_drafts/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ transaction_draft: values }),
   })
 }
@@ -2486,8 +2496,12 @@ export async function confirmTransactionDraft(id: number, values: TransactionDra
   return payload.workspace
 }
 
-export async function ignoreTransactionDraft(id: number): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/ignore`, {})
+export async function ignoreTransactionDraft(id: number, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/ignore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: '{}',
+  })
   return payload.workspace
 }
 
@@ -2496,8 +2510,12 @@ export async function bulkConfirmTransactionDrafts(ids: number[], year: number, 
   return payload.workspace
 }
 
-export async function bulkIgnoreTransactionDrafts(ids: number[], year: number): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_ignore', { transaction_draft_ids: ids, year })
+export async function bulkIgnoreTransactionDrafts(ids: number[], year: number, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_ignore', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft_ids: ids, year }),
+  })
   return payload.workspace
 }
 

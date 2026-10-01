@@ -329,7 +329,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       [ "We paid $12.34 at Penny Cafe today", "Penny Cafe", 1_234 ],
       [ "I charged $44.20 at Shell for gas today", "Shell", 4_420 ],
       [ "We bought $89.99 from Payless for groceries today", "Payless", 8_999 ],
-      [ "I withdrew $20 at ATM today", "ATM", 2_000 ],
+      [ "I withdrew $20 at ATM today", nil, nil ],
       [ "I spent $15 at School Store for school supplies today", "School Store", 1_500 ],
       [ "I paid $1,850 rent today", "rent", 185_000 ],
       [ "I spent $0 at Free Cafe today", nil, nil ],

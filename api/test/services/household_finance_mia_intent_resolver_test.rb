@@ -1562,6 +1562,30 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "2026-07-10", result.action.fetch(:occurred_on)
   end
 
+  test "fails closed when the model labels a credit card payment as an expense" do
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "I paid $200 to my Visa credit card today",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_report",
+          continuation: false,
+          resolved_message: "Create a pending Visa review",
+          topic: { type: "transaction_report", title: "Visa payment", subject: "Visa" },
+          action: default_action.merge(type: "create_transaction_draft", merchant: "Visa", amount: "200", occurred_on: "2026-07-10")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.actionable?
+    assert result.clarification?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "already incurred expenses"
+  end
+
   test "resolves a date correction for an allowed pending transaction review" do
     context = intent_context.deep_dup
     context[:pending_transaction_reviews] = [

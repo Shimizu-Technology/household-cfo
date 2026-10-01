@@ -42,7 +42,7 @@ Rails.application.routes.draw do
         end
       end
       resource :mia_memory_settings, only: :update
-      resources :transaction_drafts, only: :update do
+      resources :transaction_drafts, only: %i[create update] do
         collection do
           post :bulk_confirm
           post :bulk_ignore

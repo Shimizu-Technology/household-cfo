@@ -111,6 +111,7 @@ module HouseholdFinance
     def parsed_date(value)
       date = Date.iso8601(value.to_s)
       raise InvalidDraftUpdate, "Transaction date is outside supported budget years" unless AnnualBudgetManager.supported_year?(date.year)
+      raise InvalidDraftUpdate, "Transaction date cannot be in the future" if date > Date.current
 
       date
     rescue ArgumentError

@@ -123,7 +123,11 @@ module HouseholdFinance
           stack_key: selected_category.stack_key
         )
       elsif draft.transaction_draft_splits.exists? && draft.transaction_draft_splits.sum(:amount_cents) != draft.total_amount_cents
-        raise InvalidDraftCorrection, "Transaction splits must equal transaction total"
+        if attributes[:amount].present? && draft.transaction_draft_splits.one?
+          draft.transaction_draft_splits.sole.update!(amount_cents: draft.total_amount_cents)
+        else
+          raise InvalidDraftCorrection, "Transaction splits must equal transaction total"
+        end
       end
     end
 
@@ -211,6 +215,7 @@ module HouseholdFinance
     end
 
     def ensure_supported_transaction_date!
+      raise InvalidDraftCorrection, "Transaction date cannot be in the future" if draft.occurred_on > Date.current
       return if AnnualBudgetManager.supported_year?(draft.occurred_on.year)
 
       raise InvalidDraftCorrection, "Transaction date is outside supported budget years"
@@ -221,6 +226,7 @@ module HouseholdFinance
 
       date = Date.iso8601(value.to_s)
       raise InvalidDraftCorrection, "Transaction date is outside supported budget years" unless AnnualBudgetManager.supported_year?(date.year)
+      raise InvalidDraftCorrection, "Transaction date cannot be in the future" if date > Date.current
 
       date
     rescue ArgumentError

@@ -4451,6 +4451,57 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await cancelRequest
 })
 
+test('manual transaction capture joins the unified review queue without changing actuals', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  let workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    const input = route.request().postDataJSON().transaction_draft
+    expect(route.request().headers()['idempotency-key']).toBeTruthy()
+    expect(input).toMatchObject({ merchant: 'Village Market', amount: '17.42', budget_category_id: null })
+    expect(input).not.toHaveProperty('account_id')
+    const draft = {
+      id: 701,
+      occurred_on: input.occurred_on,
+      merchant: input.merchant,
+      amount: 17.42,
+      amount_cents: 1_742,
+      status: 'pending',
+      source_type: 'manual_ui',
+      financial_document_import_id: null,
+      category_id: null,
+      category_name: null,
+      splits: [{ id: 702, budget_category_id: null, category_name: null, stack_key: null, stack_label: '', amount: 17.42, amount_cents: 1_742, notes: null, confidence: 1, metadata: {} }],
+      matches: [],
+      matched_transaction_id: null,
+    }
+    workspace = {
+      ...workspace,
+      budget: {
+        ...workspace.budget,
+        annual_plan: { ...workspace.budget.annual_plan, pending_transaction_drafts: [draft, ...workspace.budget.annual_plan.pending_transaction_drafts] },
+      },
+    }
+    return route.fulfill({ status: 201, json: { transaction_draft: draft, workspace } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Review')
+  await expect(page.getByRole('heading', { name: 'Add a transaction' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add transaction' }).click()
+  await page.getByLabel('Merchant').fill('Village Market')
+  await page.getByLabel('Amount').fill('17.42')
+  await page.getByRole('button', { name: 'Add to review' }).click()
+
+  const card = page.locator('.transaction-draft-card').filter({ hasText: 'Village Market' })
+  await expect(card).toContainText('Manual')
+  await expect(card).toContainText('Needs category')
+  await expect(card.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Review every transaction before it becomes an actual' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('uncertain receipt splits stay reviewable and cannot be confirmed until categorized on mobile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   let workspace = realWorkspaceData(true)

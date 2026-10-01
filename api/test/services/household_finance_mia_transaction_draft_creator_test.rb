@@ -75,4 +75,17 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
       assert_includes result.errors, "Transaction splits must equal transaction total"
     end
   end
+
+  test "rejects non-expense money movements even when the model proposes an expense draft" do
+    assert_no_difference("TransactionDraft.count") do
+      result = HouseholdFinance::MiaTransactionDraftCreator.new(
+        @household,
+        command: { merchant: "Visa", amount: "200", occurred_on: "2026-07-10", splits: [] },
+        raw_input: "I paid $200 to my Visa credit card today"
+      ).call
+
+      refute result.success?
+      assert_includes result.errors, "Only already incurred purchases can become transaction reviews"
+    end
+  end
 end

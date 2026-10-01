@@ -24,7 +24,11 @@ module HouseholdFinance
           Income::SourceRestore::KEY => Income::SourceRestore,
           Income::ScheduleCreate::KEY => Income::ScheduleCreate,
           Income::ScheduleUpdate::KEY => Income::ScheduleUpdate,
-          Income::ScheduleDelete::KEY => Income::ScheduleDelete
+          Income::ScheduleDelete::KEY => Income::ScheduleDelete,
+          Transaction::DraftCreate::KEY => Transaction::DraftCreate,
+          Transaction::DraftUpdate::KEY => Transaction::DraftUpdate,
+          Transaction::DraftIgnore::KEY => Transaction::DraftIgnore,
+          Transaction::DraftsBulkIgnore::KEY => Transaction::DraftsBulkIgnore
         }
       end
     end

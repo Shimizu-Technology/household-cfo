@@ -9,10 +9,12 @@ module HouseholdFinance
       text.match?(IGNORE_TERMS) && text.match?(ALL_TERMS) && text.match?(/\b(?:pending|drafts?|reviews?|transactions?|them|those)\b/i)
     end
 
-    def initialize(household, command:, raw_input:)
+    def initialize(household, command:, raw_input:, user: nil, idempotency_key: nil)
       @household = household
       @command = command.to_h.deep_symbolize_keys
       @raw_input = raw_input.to_s.squish
+      @user = user || household.household_memberships.includes(:user).order(:id).first&.user
+      @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
 
     def call
@@ -24,23 +26,33 @@ module HouseholdFinance
         return failure("I found #{drafts.length} matching pending reviews. Name the merchant with its date or amount so I do not ignore the wrong one. Nothing changed.")
       end
 
-      result = TransactionDraftBulkResolver.new(household, draft_ids: drafts.map(&:id), action: "ignore").call
-      return failure("I could not ignore those pending reviews: #{result.errors.to_sentence}. Nothing changed.") unless result.success?
-
-      count = result.drafts.length
-      total_cents = result.drafts.sum(&:total_amount_cents)
+      operation_key = drafts.one? ? "transaction.draft.ignore" : "transaction.drafts.bulk_ignore"
+      input = if drafts.one?
+        { draft_id: drafts.first.id, source_type: "manual_chat" }
+      else
+        { draft_ids: drafts.map(&:id), source_type: "manual_chat", year: drafts.first.occurred_on.year }
+      end
+      Operations::Runner.new(household, user: user).run(
+        operation_key: operation_key,
+        input: input,
+        idempotency_key: idempotency_key,
+        source: "mia"
+      )
+      drafts.each(&:reload)
+      count = drafts.length
+      total_cents = drafts.sum(&:total_amount_cents)
       response = if count == 1
-        draft = result.drafts.first
+        draft = drafts.first
         "Ignored the pending #{draft.merchant} review for #{money(draft.total_amount_cents)}. Actuals did not change."
       else
         "Ignored #{count} pending transaction reviews totaling #{money(total_cents)}. Actuals did not change."
       end
-      Result.new(success?: true, drafts: result.drafts, response: response, errors: [])
+      Result.new(success?: true, drafts: drafts, response: response, errors: [])
     end
 
     private
 
-    attr_reader :household, :command, :raw_input
+    attr_reader :household, :command, :raw_input, :user, :idempotency_key
 
     def explicit_ignore_request?
       return false unless raw_input.match?(IGNORE_TERMS)

@@ -5,16 +5,35 @@ module Api
       before_action :require_writable_household!
       before_action :set_draft, only: %i[update confirm ignore match reopen]
 
+      def create
+        result = operation_runner.run(
+          operation_key: "transaction.draft.create",
+          input: update_params.to_h.merge(source_type: "manual_ui"),
+          idempotency_key: request_idempotency_key
+        )
+        draft = result.subject
+        render json: {
+          transaction_draft: serialize_draft(draft),
+          workspace: workspace_payload_for(draft.occurred_on.year)
+        }, status: :created
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
+      end
+
       def update
-        result = HouseholdFinance::TransactionDraftUpdater.new(@draft, update_params).call
-        unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
-        end
+        result = operation_runner.run(
+          operation_key: "transaction.draft.update",
+          input: update_params.to_h.merge(draft_id: @draft.id, source_type: "manual_ui"),
+          idempotency_key: request_idempotency_key
+        )
+        draft = result.subject
 
         render json: {
-          transaction_draft: serialize_draft(result.draft),
-          workspace: workspace_payload_for(result.draft.occurred_on.year)
+          transaction_draft: serialize_draft(draft),
+          workspace: workspace_payload_for(draft.occurred_on.year)
         }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
       end
 
       def confirm
@@ -35,24 +54,24 @@ module Api
       end
 
       def ignore
-        ApplicationRecord.transaction do
-          @draft.with_lock do
-            raise ArgumentError, "Transaction draft is not pending" unless @draft.pending?
-
-            @draft.update!(status: "ignored")
-          end
-          HouseholdFinance::DocumentImportStatusReconciler.new(@draft.financial_document_import).call if @draft.financial_document_import
+        result = operation_runner.run(
+          operation_key: "transaction.draft.ignore",
+          input: { draft_id: @draft.id, source_type: "manual_ui" },
+          idempotency_key: request_idempotency_key
+        )
+        draft = result.subject
+        status_message = ignored_message(draft)
+        unless result.replayed?
+          append_chat_status_message(status_message)
+          update_conversation_draft_status("ignored", status_message)
         end
-        status_message = ignored_message(@draft)
-        append_chat_status_message(status_message)
-        update_conversation_draft_status("ignored", status_message)
 
         render json: {
-          transaction_draft: serialize_draft(@draft.reload),
-          workspace: workspace_payload_for(@draft.occurred_on.year)
+          transaction_draft: serialize_draft(draft.reload),
+          workspace: workspace_payload_for(draft.occurred_on.year)
         }
       rescue ArgumentError, ActiveRecord::RecordInvalid => e
-        render json: { errors: [ e.message ] }, status: :unprocessable_entity
+        render_operation_error(e)
       end
 
       def bulk_confirm
@@ -60,7 +79,22 @@ module Api
       end
 
       def bulk_ignore
-        resolve_bulk("ignore")
+        draft_ids = requested_draft_ids
+        result = operation_runner.run(
+          operation_key: "transaction.drafts.bulk_ignore",
+          input: { draft_ids: draft_ids, source_type: "manual_ui", year: params[:year] },
+          idempotency_key: request_idempotency_key
+        )
+        drafts = current_household.transaction_drafts.where(id: draft_ids).to_a
+        status_message = "Ignored #{drafts.length} pending transaction #{'review'.pluralize(drafts.length)} totaling #{money(drafts.sum(&:total_amount_cents))}. Actuals did not change."
+        append_chat_status_message(status_message) unless result.replayed?
+        render json: {
+          resolved_count: drafts.length,
+          resolved_ids: drafts.map(&:id),
+          workspace: workspace_payload_for(params[:year])
+        }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
       end
 
       def match
@@ -98,7 +132,7 @@ module Api
       private
 
       def resolve_bulk(action)
-        draft_ids = Array(params[:transaction_draft_ids]).map(&:to_i).select(&:positive?).uniq
+        draft_ids = requested_draft_ids
         if draft_ids.empty?
           return render json: { errors: [ "Select at least one pending transaction review" ] }, status: :unprocessable_entity
         end
@@ -129,6 +163,14 @@ module Api
           resolved_ids: result.drafts.map(&:id),
           workspace: workspace_payload_for(params[:year])
         }
+      end
+
+      def requested_draft_ids
+        Array(params[:transaction_draft_ids]).map(&:to_i).select(&:positive?).uniq
+      end
+
+      def operation_runner
+        HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
       end
 
       def set_draft
