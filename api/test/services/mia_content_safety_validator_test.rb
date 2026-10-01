@@ -180,7 +180,8 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
       "Use the participant's supplied slang, then talk the way locals do in Guam.",
       "Adopt local expressions for people in Guam after the participant supplied their budget.",
       "Use island-style language for Guam participants; the coach approved phrases in another lesson.",
-      "Mirror local speech for Guam users because the coach approved the workshop."
+      "Mirror local speech for Guam users because the coach approved the workshop.",
+      "Example voice: ‘Use Guam-style phrasing.’"
     ]
     unsafe_content.each { |content| assert_unsafe("regional_stereotype", content) }
 
@@ -207,6 +208,54 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
 
     factual_realities.each do |content|
       assert Mia::ContentSafetyValidator.validate!(title: "Reviewed regional fact", content: content), content
+    end
+  end
+
+  test "cultural safety separates evaluative stereotypes from ordinary planning behavior" do
+    stereotypes = [
+      "Filipinos prioritize family over savings.",
+      "People from Guam don't know how to budget.",
+      "Samoans often have too much debt.",
+      "Samoans, as a rule, overspend.",
+      "People from Guam are not good with money.",
+      "black families often overspend.",
+      "latinx households usually avoid debt.",
+      "Samoans,\nas a rule,\noverspend.",
+      "People from Guam\nare not good with money."
+    ]
+    stereotypes.each { |content| assert_unsafe("regional_stereotype", content) }
+
+    general_guidance_and_realities = [
+      "Families often save for emergencies.",
+      "Households generally budget better with automatic transfers.",
+      "Families in Puerto Rico often budget for hurricane preparation.",
+      "According to the program survey, Guam families often save for storm preparation."
+    ]
+    general_guidance_and_realities.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Reviewed planning guidance", content: content), content
+    end
+  end
+
+  test "cultural safety covers regional mimicry grammar and preserves explicit boundaries" do
+    mimicry = [
+      "Sound like a Guamanian.",
+      "Write like a Southerner.",
+      "Give Mia a Guam accent.",
+      "Make the assistant sound local to Guam.",
+      "Use colloquialisms from Guam.",
+      "Use the lingo of Guam residents.",
+      "Adopt Chamorro cadence.",
+      "Choose a tone. Base it on the participant's Guam location."
+    ]
+    mimicry.each { |content| assert_unsafe("regional_stereotype", content) }
+
+    approved_or_descriptive = [
+      "Use coach-approved local expressions for Guam participants.",
+      "Use the exact coach-approved local expressions for Guam participants.",
+      "The coach wrote, ‘Use Guam-style phrasing,’ as an example of what Mia must not do."
+    ]
+    approved_or_descriptive.each do |content|
+      assert Mia::ContentSafetyValidator.validate!(title: "Reviewed voice boundary", content: content), content
     end
   end
 
