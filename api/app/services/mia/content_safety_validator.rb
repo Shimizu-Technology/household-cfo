@@ -26,6 +26,8 @@ module Mia
       /\b(?:my|our|we|i)\b.{0,50}\b(?:earn|make|income|salary|owe|debt|balance|saved)\b.{0,30}\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|six figures?)\b/i
     ].freeze
     REGIONAL_STEREOTYPE_PATTERN = /\b(?:(?:people|families|women|men|households|clients)\s+(?:from|in)\s+[A-Z][A-Za-z.'\- ]{1,40}|Guamanians?|Southerners?|Chamorro(?:s| people)?)\s+(?:always|never|all|typically|usually|often|naturally|tend\s+to|are\s+(?:all|just|simply))\b/i
+    LEGITIMATE_FINANCIAL_ACRONYMS = %w[APR APY CD DTI ETF ETFS FDIC HSA HYSA IRA IRS ROTH SIPC].freeze
+    SPECIFIC_SECURITY_TOKEN = "(?-i:(?!(?:#{LEGITIMATE_FINANCIAL_ACRONYMS.join('|')})\\b)[A-Z]{2,5})"
     UNSAFE_INSTRUCTION_PATTERNS = [
       /\b(?:ignore|disregard|override)\b.{0,80}\b(?:previous|system|developer|instruction|safety|guardrail|policy)\b/i,
       /\b(?:reveal|show|print|repeat|expose)\b.{0,50}\b(?:system prompt|developer message|hidden instruction|tool call)\b/i,
@@ -37,8 +39,10 @@ module Mia
       /\b(?:without approval|bypass approval|automatically|silently)\b.{0,50}\b(?:write|create|update|delete|approve)\b.{0,60}\b(?:database|stored records?|records?|accounts?|transactions?|budgets?|households?)\b/i,
       /\b(?:recommend|tell|instruct|urge|advise|direct)\b.{0,90}\b(?:buy|sell|invest|move|transfer|put|allocate)\b.{0,90}\b(?:bitcoin|crypto|meme coin|nft|options?|forex|futures?|penny stocks?|individual stocks?)\b/i,
       /\b(?:recommend|pick|name|select|buy|sell|invest\s+in|allocate|put)\b.{0,80}\b(?:[A-Z][A-Za-z&.-]*(?:\s+[A-Z][A-Za-z&.-]*){0,2})\s+(?:stocks?|shares?|securities?)\b/i,
-      /\b(?:buy|sell)\s+(?-i:(?!(?:APR|APY|CD|DTI|ETF|ETFS|FDIC|HSA|HYSA|IRA|IRS|ROTH|SIPC)\b)[A-Z]{2,5})\b/i,
-      /\b(?:invest\s+in|allocate\s+(?:money|savings|funds|portfolio)\s+to|put\s+(?:all\s+)?(?:your\s+)?(?:money|savings|funds|portfolio)\s+in)\s+(?:an?\s+)?(?-i:(?!(?:APR|APY|CD|DTI|ETF|ETFS|FDIC|HSA|HYSA|IRA|IRS|ROTH|SIPC)\b)[A-Z]{2,5})\b/i,
+      /\b(?:buy|sell)\s+(?:(?:\$\s?\d[\d,]*(?:\.\d{1,2})?|\d+(?:\.\d+)?%)\s+(?:of\s+)?|(?:some|your|the)\s+|(?:\d+\s+)?shares?\s+of\s+)?#{SPECIFIC_SECURITY_TOKEN}\b/i,
+      /\binvest\s+(?:(?:\$\s?\d[\d,]*(?:\.\d{1,2})?|\d+(?:\.\d+)?%)\s+in\s+|(?:all\s+)?(?:your\s+)?(?:money|savings|funds|portfolio)\s+(?:in|into)\s+|in\s+)(?:an?\s+)?#{SPECIFIC_SECURITY_TOKEN}\b/i,
+      /\ballocate\s+(?:(?:\$\s?\d[\d,]*(?:\.\d{1,2})?|\d+(?:\.\d+)?%)(?:\s+of\s+(?:your\s+)?portfolio)?|(?:all\s+)?(?:your\s+)?(?:money|savings|funds|portfolio))\s+to\s+#{SPECIFIC_SECURITY_TOKEN}\b/i,
+      /\bput\s+(?:all\s+)?(?:your\s+)?(?:money|savings|funds|portfolio|emergency\s+fund)\s+(?:in|into)\s+(?:an?\s+)?#{SPECIFIC_SECURITY_TOKEN}\b/i,
       /\b(?:recommend|pick|name|select)\b.{0,80}\b(?-i:[A-Z]{2,5})\b.{0,20}\b(?:stock|shares?|security|ticker)\b/i,
       /\bbuy\b.{0,40}\b\d+\s+shares?\s+of\s+(?:[A-Z]{1,5}|[A-Z][a-z]+)\b/i,
       /\b(?:provide|give|offer|deliver)\b.{0,60}\b(?:financial|legal|tax|investment|accounting)\s+advice\b/i,
@@ -83,8 +87,8 @@ module Mia
         UNSAFE_INSTRUCTION_PATTERNS.any? do |pattern|
           text.to_enum(:scan, pattern).any? do
             match = Regexp.last_match
-            prefix = text[0...match.begin(0)].to_s.last(80)
-            !prefix.match?(/\b(?:do not|don['’]t|never|avoid|must not)\s*\z/i)
+            prefix = text[0...match.begin(0)].to_s.last(120)
+            !prefix.match?(/\b(?:do not|don['’]t|never|avoid|must not|should not|shouldn['’]t|cannot|can not|can['’]t|may not)\b[^.!?\n]{0,60}\z/i)
           end
         end
       end

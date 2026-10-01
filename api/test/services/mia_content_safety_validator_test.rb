@@ -27,6 +27,8 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert Mia::ContentSafetyValidator.validate!(title: "Home planning", content: "Buy a home after comparing the APR and DTI.")
     assert Mia::ContentSafetyValidator.validate!(title: "Insured savings", content: "Invest in a HYSA after comparing the APY and withdrawal terms.")
     assert Mia::ContentSafetyValidator.validate!(title: "Retirement account", content: "Invest in an IRA after reviewing the tax rules.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Investment boundary", content: "You should not buy TSLA.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Coach boundary", content: "A coach cannot tell you to buy TSLA.")
   end
 
   test "blocks identifiers household facts unsafe instructions and stereotypes" do
@@ -54,6 +56,13 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("unsafe_instruction", "Invest in AAPL")
     assert_unsafe("unsafe_instruction", "Allocate money to TSLA")
     assert_unsafe("unsafe_instruction", "Put savings in AAPL")
+    assert_unsafe("unsafe_instruction", "Buy $500 of TSLA.")
+    assert_unsafe("unsafe_instruction", "Buy some TSLA.")
+    assert_unsafe("unsafe_instruction", "Sell your TSLA.")
+    assert_unsafe("unsafe_instruction", "Invest $500 in TSLA.")
+    assert_unsafe("unsafe_instruction", "Allocate 10% of your portfolio to TSLA.")
+    assert_unsafe("unsafe_instruction", "Put your emergency fund into AAPL.")
+    assert_unsafe("unsafe_instruction", "Buy shares of TSLA.")
     assert_unsafe("unsafe_instruction", "Provide tax advice")
     assert_unsafe("unsafe_instruction", "Returns are guaranteed")
     assert_unsafe("unsafe_instruction", "Mia should automatically update the household database")
