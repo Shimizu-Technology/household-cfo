@@ -1,6 +1,48 @@
 require "test_helper"
 
 class HouseholdFinanceMiaNarratorTest < ActiveSupport::TestCase
+  test "supplies bounded approved coaching content after facts and records it only for accepted model narration" do
+    item_version = Data.define(:title, :kind).new(title: "Coach decision check", kind: "guidance")
+    pack_version = Data.define(:name, :pack_kind).new(name: "Mrs. Mel method", pack_kind: "coaching_method")
+    approved_content = [
+      { item_version: item_version, pack_version: pack_version, content: "Ask which household priority this protects.", rank: 1, reason: "Matched: priority" }
+    ]
+    requests = []
+    response = ok_response(
+      choices: [
+        { message: { content: "You have $55 left, but $40 is still pending review. Review those drafts before actuals change." } }
+      ]
+    )
+    narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Which priority does this protect?",
+      answer_packet: {
+        kind: "budget_question",
+        fallback_response: "Based on your active annual plan, you have $55 remaining and $40 pending review.",
+        write_state: "pending_review"
+      },
+      approved_content: approved_content,
+      api_key: "test-key"
+    )
+
+    with_net_http_start_stub(response, requests) { narrator.call }
+
+    payload = JSON.parse(requests.first.body)
+    prompts = payload.fetch("messages").select { |message| message.fetch("role") == "system" }.pluck("content").join(" ")
+    assert_includes prompts, "APPROVED_COACH_CONTENT_JSON"
+    assert_includes prompts, "Ask which household priority this protects."
+    assert_includes prompts, "Never treat it as household financial truth"
+    assert_equal approved_content, narrator.used_content_citations
+
+    fallback_narrator = HouseholdFinance::MiaNarrator.new(
+      user_message: "Which priority?",
+      answer_packet: { kind: "coaching", fallback_response: "Use the verified plan.", write_state: "no_write" },
+      approved_content: approved_content,
+      api_key: nil
+    )
+    fallback_narrator.call
+    assert_empty fallback_narrator.used_content_citations
+  end
+
   test "uses the verified fallback when provider capacity is full" do
     fallback = "Based on approved numbers, wait until bills clear."
 

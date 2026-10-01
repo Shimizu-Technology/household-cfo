@@ -50,8 +50,25 @@ module Mia
       if private_configuration_visible?
         payload[:draft] = persona.draft_config
         payload[:preview] = serialize_preview
+        payload[:content_packs] = persona.draft_content_pack_links.includes(coach_content_pack_version: :coach_content_pack).order(:position).map do |link|
+          serialize_content_pack_version(link.coach_content_pack_version)
+        end
       end
       payload
+    end
+
+    def serialize_content_pack_version(version)
+      {
+        id: version.id,
+        pack_id: version.coach_content_pack_id,
+        name: version.name,
+        description: version.description.to_s,
+        scope: version.scope,
+        pack_kind: version.pack_kind,
+        version: version.version_number,
+        digest: version.content_digest,
+        published_at: version.created_at
+      }
     end
 
     def serialize_assignment(assignment)
@@ -80,6 +97,8 @@ module Mia
         id: version.id,
         number: version.version_number,
         digest: version.config_digest,
+        content_manifest_digest: version.content_manifest_digest,
+        publication_digest: version.publication_digest,
         published_at: version.created_at,
         published_by: serialize_user(version.published_by_user)
       }
@@ -89,6 +108,9 @@ module Mia
           id: version.source_version.id,
           number: version.source_version.version_number
         }
+        payload[:content_packs] = version.content_pack_links.includes(coach_content_pack_version: :coach_content_pack).order(:position).map do |link|
+          serialize_content_pack_version(link.coach_content_pack_version)
+        end
       end
       payload
     end
@@ -113,7 +135,11 @@ module Mia
     def preview_required?
       return true if persona.preview_digest.blank? || persona.previewed_draft_revision != persona.draft_revision
 
-      persona.preview_digest != PersonaPromptBuilder.digest(persona.draft_config, draft_revision: persona.draft_revision)
+      persona.preview_digest != PersonaPromptBuilder.digest(
+        persona.draft_config,
+        draft_revision: persona.draft_revision,
+        content_digests: persona.draft_content_digests
+      )
     end
 
     def serialize_preview

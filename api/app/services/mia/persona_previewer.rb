@@ -21,7 +21,7 @@ module Mia
     def call
       return result(status: "not_requested", source: "not_requested", reply: nil, notice: "Enter a test message to run a behavioral preview.") if sample_prompt.blank?
 
-      active_responder = responder || Demo::MiaResponder.new(persona: preview_persona)
+      active_responder = responder || Demo::MiaResponder.new(persona: preview_persona, approved_content: approved_content)
       reply = active_responder.call(sample_prompt, context: JSON.generate(PREVIEW_CONTEXT), draft_capable: false)
       source = active_responder.response_source.to_s
 
@@ -57,6 +57,14 @@ module Mia
         persona_id: persona.id,
         draft_revision: persona.draft_revision
       )
+    end
+
+    def approved_content
+      pack_versions = persona.draft_content_pack_links
+        .includes(coach_content_pack_version: { entries: { coach_content_item_version: :coach_content_item } })
+        .order(:position)
+        .map(&:coach_content_pack_version)
+      ApprovedContentRetriever.new(persona: preview_persona, query: sample_prompt, pack_versions: pack_versions).call
     end
 
     def preview_notice(source)

@@ -644,6 +644,14 @@ export type MiaMessage = {
   content: string
   attachments?: MiaMessageAttachment[]
   presentation?: MiaAnswerPresentation
+  citations?: Array<{
+    title: string
+    kind: AdminContentItemKind
+    item_version: number
+    pack_name: string
+    pack_version: number
+    reason: string
+  }>
   created_at?: string
 }
 
@@ -760,6 +768,8 @@ export type AdminPersonaVersion = {
   id: number
   number: number
   digest: string
+  content_manifest_digest: string
+  publication_digest: string
   published_at: string
   published_by: AdminPersonaUser
   config?: PersonaConfiguration
@@ -767,6 +777,68 @@ export type AdminPersonaVersion = {
     id: number
     number: number
   }
+  content_packs?: AdminContentPackVersion[]
+}
+
+export type AdminContentItemKind = 'guidance' | 'script' | 'example' | 'phrase' | 'culture' | 'finance_reference'
+export type AdminContentPackKind = 'voice_culture' | 'coaching_method' | 'finance_reference'
+export type AdminContentScope = 'coach' | 'platform'
+
+export type AdminContentItemVersion = {
+  id: number
+  item_id: number
+  title: string
+  kind: AdminContentItemKind
+  content: string
+  version: number
+  digest: string
+  approved_at: string
+}
+
+export type AdminContentItem = {
+  id: number
+  title: string
+  scope: AdminContentScope
+  kind: AdminContentItemKind
+  draft_content: string | null
+  draft_revision: number | null
+  archived: boolean
+  editable: boolean
+  current_approved_version: AdminContentItemVersion | null
+  versions: AdminContentItemVersion[]
+  has_unapproved_changes: boolean
+  updated_at: string
+}
+
+export type AdminContentPackVersion = {
+  id: number
+  pack_id: number
+  name: string
+  description: string
+  scope: AdminContentScope
+  pack_kind: AdminContentPackKind
+  version: number
+  digest: string
+  published_at: string
+  items?: AdminContentItemVersion[]
+}
+
+export type AdminContentPack = {
+  id: number
+  name: string
+  description: string
+  scope: AdminContentScope
+  pack_kind: AdminContentPackKind
+  draft_revision: number | null
+  archived: boolean
+  editable: boolean
+  draft_items: AdminContentItemVersion[]
+  current_published_version: AdminContentPackVersion | null
+  versions: AdminContentPackVersion[]
+  has_unpublished_changes: boolean
+  item_updates_available: boolean
+  update_available: boolean
+  updated_at: string
 }
 
 export type AdminPersonaAssignment = {
@@ -827,6 +899,7 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
   assignments: AdminPersonaAssignment[]
   draft?: PersonaConfiguration
   preview?: AdminPersonaPreviewRecord | null
+  content_packs?: AdminContentPackVersion[]
 }
 
 export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'safety_only' | 'unavailable'
@@ -1551,6 +1624,85 @@ export async function rollbackCohortExperienceConfiguration(
 export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
   const payload = await fetchJson<{ personas: AdminPersonaSummary[] }>('/api/v1/admin/personas')
   return payload.personas
+}
+
+export async function fetchAdminContentItems(): Promise<AdminContentItem[]> {
+  const payload = await fetchJson<{ items: AdminContentItem[] }>('/api/v1/admin/content_items')
+  return payload.items
+}
+
+export async function createAdminContentItem(values: {
+  title: string
+  scope: AdminContentScope
+  kind: AdminContentItemKind
+  draft_content: string
+}): Promise<AdminContentItem> {
+  const payload = await postJson<{ item: AdminContentItem }>('/api/v1/admin/content_items', { item: values })
+  return payload.item
+}
+
+export async function updateAdminContentItem(id: number, values: {
+  title: string
+  kind: AdminContentItemKind
+  draft_content: string
+  draft_revision: number
+}): Promise<AdminContentItem> {
+  const payload = await fetchJson<{ item: AdminContentItem }>(`/api/v1/admin/content_items/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ item: values }),
+  })
+  return payload.item
+}
+
+export async function approveAdminContentItem(id: number): Promise<AdminContentItem> {
+  const payload = await postJson<{ item: AdminContentItem }>(`/api/v1/admin/content_items/${id}/approve`, {})
+  return payload.item
+}
+
+export async function fetchAdminContentPacks(): Promise<AdminContentPack[]> {
+  const payload = await fetchJson<{ packs: AdminContentPack[] }>('/api/v1/admin/content_packs')
+  return payload.packs
+}
+
+export async function createAdminContentPack(values: {
+  name: string
+  description: string
+  scope: AdminContentScope
+  pack_kind: AdminContentPackKind
+  item_version_ids: number[]
+}): Promise<AdminContentPack> {
+  const payload = await postJson<{ pack: AdminContentPack }>('/api/v1/admin/content_packs', { pack: values })
+  return payload.pack
+}
+
+export async function updateAdminContentPack(id: number, values: {
+  name: string
+  description: string
+  pack_kind: AdminContentPackKind
+  item_version_ids: number[]
+  draft_revision: number
+}): Promise<AdminContentPack> {
+  const payload = await fetchJson<{ pack: AdminContentPack }>(`/api/v1/admin/content_packs/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pack: values }),
+  })
+  return payload.pack
+}
+
+export async function publishAdminContentPack(id: number): Promise<AdminContentPack> {
+  const payload = await postJson<{ pack: AdminContentPack }>(`/api/v1/admin/content_packs/${id}/publish`, {})
+  return payload.pack
+}
+
+export async function updateAdminPersonaContentPacks(personaId: number, draftRevision: number, packVersionIds: number[]): Promise<AdminPersonaDetail> {
+  const payload = await fetchJson<{ persona: AdminPersonaDetail }>(`/api/v1/admin/personas/${personaId}/content_packs`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ content_packs: { draft_revision: draftRevision, pack_version_ids: packVersionIds } }),
+  })
+  return payload.persona
 }
 
 export async function fetchAdminPersona(id: number): Promise<AdminPersonaDetail> {

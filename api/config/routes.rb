@@ -94,6 +94,13 @@ Rails.application.routes.draw do
           resources :versions, controller: "mia_persona_versions", only: :show do
             post :rollback, on: :member
           end
+          resource :content_packs, controller: "persona_content_packs", only: :update
+        end
+        resources :content_items, controller: "coach_content_items", only: %i[index create update destroy] do
+          post :approve, on: :member
+        end
+        resources :content_packs, controller: "coach_content_packs", only: %i[index create update destroy] do
+          post :publish, on: :member
         end
         resources :cohorts, only: %i[index show create update] do
           resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]

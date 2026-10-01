@@ -17,6 +17,12 @@ class CoachPersona < ApplicationRecord
   has_many :publication_events, class_name: "CoachPersonaPublicationEvent", dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohort_persona_assignments, dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohorts, through: :cohort_persona_assignments
+  has_many :draft_content_pack_links,
+    -> { order(:position) },
+    class_name: "CoachPersonaDraftContentPack",
+    dependent: :destroy,
+    inverse_of: :coach_persona
+  has_many :draft_content_pack_versions, through: :draft_content_pack_links, source: :coach_content_pack_version
 
   normalizes :name, with: ->(name) { name.to_s.strip }
 
@@ -61,6 +67,39 @@ class CoachPersona < ApplicationRecord
     update!(draft_config: version.config.deep_dup, current_published_version: version)
   ensure
     @force_draft_revision_and_preview_reset = false
+  end
+
+  def replace_draft_content_pack_versions!(versions, actor:)
+    raise ArgumentError, "Not authorized to edit this persona" unless actor&.admin? || created_by_user_id == actor&.id
+    raise ArgumentError, "Archived personas are read-only" if archived?
+
+    normalized = Array(versions).uniq(&:id)
+    raise ArgumentError, "A persona can use at most 12 content packs" if normalized.length > 12
+    normalized.each do |version|
+      pack = version.coach_content_pack
+      next if pack.scope == "platform" || pack.created_by_user_id == created_by_user_id
+
+      raise ArgumentError, "Content packs from another coach cannot be attached"
+    end
+
+    with_lock do
+      return if draft_content_pack_links.order(:position).pluck(:coach_content_pack_version_id) == normalized.map(&:id)
+
+      draft_content_pack_links.delete_all
+      normalized.each_with_index { |version, position| draft_content_pack_links.create!(coach_content_pack_version: version, position: position) }
+      update_columns(
+        draft_revision: draft_revision + 1,
+        preview_digest: nil,
+        previewed_at: nil,
+        previewed_draft_revision: nil,
+        updated_at: Time.current,
+        lock_version: lock_version + 1
+      )
+    end
+  end
+
+  def draft_content_digests
+    draft_content_pack_links.includes(:coach_content_pack_version).order(:position).map { |link| link.coach_content_pack_version.content_digest }
   end
 
   private

@@ -34,6 +34,7 @@ import {
 } from '../lib/personaDraft'
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
+import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
 import './CoachStudio.css'
 
 const guidedSteps = [
@@ -49,6 +50,7 @@ type EditorMode = 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
 type StudioView = 'assistants' | 'participant_tools'
+type StudioSection = 'assistants' | 'library'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
@@ -75,6 +77,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [pendingLibraryReturn, setPendingLibraryReturn] = useState(false)
   const [studioView, setStudioView] = useState<StudioView>('assistants')
   const [experienceDirty, setExperienceDirty] = useState(false)
+  const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
   const selectedIdRef = useRef<number | null>(null)
   const loadPersonaRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
@@ -489,6 +492,13 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         <small>Signed in as {currentUser.full_name}</small>
       </div>
 
+      <nav className="coach-studio-sections" aria-label="Coach Studio sections">
+        <button type="button" className={studioSection === 'assistants' ? 'is-active' : ''} aria-current={studioSection === 'assistants' ? 'page' : undefined} onClick={() => setStudioSection('assistants')}>Assistants</button>
+        <button type="button" className={studioSection === 'library' ? 'is-active' : ''} aria-current={studioSection === 'library' ? 'page' : undefined} disabled={dirty} title={dirty ? 'Save or discard persona changes before opening the coaching library.' : undefined} onClick={() => setStudioSection('library')}>Coaching Library</button>
+      </nav>
+
+      {studioSection === 'library' ? <CoachContentLibrary currentUser={currentUser} /> : <>
+
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {conflict && (
@@ -644,6 +654,18 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 )}
               </article>
 
+              {selectedPersona.draft && (
+                <PersonaContentPacksPanel
+                  key={selectedPersona.id}
+                  persona={selectedPersona}
+                  dirty={dirty}
+                  onPersonaChange={(persona) => {
+                    acceptPersona(persona)
+                    setNotice('Approved content selection saved. Run a fresh preview before publishing.')
+                  }}
+                />
+              )}
+
               <LifecyclePanel
                 persona={selectedPersona}
                 preview={preview}
@@ -670,7 +692,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
             </>
           )}
         </div>
-      </div>}
+      </div>
+      </>}
     </section>
   )
 }

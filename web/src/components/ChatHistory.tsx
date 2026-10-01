@@ -71,6 +71,19 @@ export function ChatHistory({
                 {presentation
                   ? <MiaReadOnlyAnswer presentation={presentation} idPrefix={`mia-answer-${messageIndex}`} />
                   : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripMiaPrefix={message.role === 'assistant'} />}
+                {message.role === 'assistant' && (message.citations ?? []).length > 0 && (
+                  <details className="mia-content-sources">
+                    <summary>Coach-approved sources ({message.citations?.length})</summary>
+                    <ul>
+                      {message.citations?.map((citation) => (
+                        <li key={`${citation.pack_name}-${citation.pack_version}-${citation.title}-${citation.item_version}`}>
+                          <strong>{citation.title}</strong>
+                          <span>{citation.pack_name} v{citation.pack_version} · item v{citation.item_version} · {citation.reason}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
                 {(message.attachments ?? []).length > 0 && (
                   <MessageAttachmentList
                     attachments={message.attachments ?? []}

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "digest"
+
 class CoachPersonaVersion < ApplicationRecord
   belongs_to :coach_persona, inverse_of: :versions
   belongs_to :published_by_user, class_name: "User", inverse_of: :published_coach_persona_versions
@@ -12,6 +14,12 @@ class CoachPersonaVersion < ApplicationRecord
     inverse_of: :source_version
   has_many :cohort_persona_assignments, dependent: :restrict_with_exception, inverse_of: :coach_persona_version
   has_many :chat_messages, dependent: :restrict_with_exception, inverse_of: :coach_persona_version
+  has_many :content_pack_links,
+    -> { order(:position) },
+    class_name: "CoachPersonaVersionContentPack",
+    dependent: :restrict_with_exception,
+    inverse_of: :coach_persona_version
+  has_many :content_pack_versions, through: :content_pack_links, source: :coach_content_pack_version
   has_many :publication_events,
     class_name: "CoachPersonaPublicationEvent",
     dependent: :restrict_with_exception,
@@ -19,6 +27,7 @@ class CoachPersonaVersion < ApplicationRecord
 
   validates :version_number, numericality: { only_integer: true, greater_than: 0 }, uniqueness: { scope: :coach_persona_id }
   validates :config_digest, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :content_manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validate :publisher_is_staff
   validate :config_matches_schema_and_digest
   validate :source_version_belongs_to_persona
@@ -26,6 +35,14 @@ class CoachPersonaVersion < ApplicationRecord
 
   before_validation :normalize_config, on: :create
   before_destroy :prevent_destroy
+
+  def self.content_manifest_digest_for(pack_versions)
+    Digest::SHA256.hexdigest(JSON.generate(Array(pack_versions).map(&:content_digest)).b)
+  end
+
+  def publication_digest
+    Digest::SHA256.hexdigest(JSON.generate({ config: config_digest, content: content_manifest_digest }).b)
+  end
 
   private
 

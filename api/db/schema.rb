@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_050000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_050100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -118,6 +118,138 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050000) do
     t.index ["user_id"], name: "index_chat_sessions_on_user_id"
   end
 
+  create_table "coach_content_citations", force: :cascade do |t|
+    t.bigint "chat_message_id", null: false
+    t.bigint "coach_content_item_version_id", null: false
+    t.bigint "coach_content_pack_version_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "rank", null: false
+    t.string "reason", null: false
+    t.datetime "updated_at", null: false
+    t.index ["chat_message_id", "coach_content_item_version_id"], name: "idx_content_citations_message_item", unique: true
+    t.index ["chat_message_id", "rank"], name: "idx_content_citations_message_rank", unique: true
+    t.index ["chat_message_id"], name: "index_coach_content_citations_on_chat_message_id"
+    t.index ["coach_content_item_version_id"], name: "index_coach_content_citations_on_coach_content_item_version_id"
+    t.index ["coach_content_pack_version_id"], name: "index_coach_content_citations_on_coach_content_pack_version_id"
+    t.check_constraint "rank > 0 AND rank <= 6", name: "coach_content_citations_rank_valid"
+  end
+
+  create_table "coach_content_item_versions", force: :cascade do |t|
+    t.bigint "approved_by_user_id", null: false
+    t.bigint "coach_content_item_id", null: false
+    t.text "content", null: false
+    t.string "content_digest", null: false
+    t.datetime "created_at", null: false
+    t.string "kind", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["approved_by_user_id"], name: "index_coach_content_item_versions_on_approved_by_user_id"
+    t.index ["coach_content_item_id", "version_number"], name: "idx_content_item_versions_number", unique: true
+    t.index ["coach_content_item_id"], name: "index_coach_content_item_versions_on_coach_content_item_id"
+    t.index ["content_digest"], name: "index_coach_content_item_versions_on_content_digest"
+    t.check_constraint "content_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_versions_digest_sha256"
+    t.check_constraint "octet_length(content) <= 12000", name: "coach_content_item_versions_content_bytes"
+    t.check_constraint "version_number > 0", name: "coach_content_item_versions_number_positive"
+  end
+
+  create_table "coach_content_items", force: :cascade do |t|
+    t.datetime "archived_at"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.bigint "current_approved_version_id"
+    t.text "draft_content", null: false
+    t.integer "draft_revision", default: 1, null: false
+    t.string "kind", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "scope", default: "coach", null: false
+    t.string "title", null: false
+    t.datetime "updated_at", null: false
+    t.index "created_by_user_id, scope, lower((title)::text)", name: "idx_coach_content_items_owner_scope_title", unique: true
+    t.index ["created_by_user_id"], name: "index_coach_content_items_on_created_by_user_id"
+    t.index ["current_approved_version_id"], name: "idx_content_items_current_version"
+    t.check_constraint "draft_revision > 0", name: "coach_content_items_revision_positive"
+    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying, 'script'::character varying, 'example'::character varying, 'phrase'::character varying, 'culture'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_items_kind_valid"
+    t.check_constraint "octet_length(draft_content) <= 12000", name: "coach_content_items_content_bytes"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_items_scope_valid"
+  end
+
+  create_table "coach_content_pack_draft_entries", force: :cascade do |t|
+    t.bigint "coach_content_item_version_id", null: false
+    t.bigint "coach_content_pack_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "position", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_item_version_id"], name: "idx_on_coach_content_item_version_id_ac4465000a"
+    t.index ["coach_content_pack_id", "coach_content_item_version_id"], name: "idx_pack_draft_entries_item_version", unique: true
+    t.index ["coach_content_pack_id", "position"], name: "idx_pack_draft_entries_position", unique: true
+    t.index ["coach_content_pack_id"], name: "idx_on_coach_content_pack_id_7a43074d6c"
+    t.check_constraint "\"position\" >= 0", name: "coach_content_pack_draft_entries_position_nonnegative"
+  end
+
+  create_table "coach_content_pack_version_entries", force: :cascade do |t|
+    t.bigint "coach_content_item_version_id", null: false
+    t.bigint "coach_content_pack_version_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "position", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_item_version_id"], name: "idx_on_coach_content_item_version_id_3184aabf01"
+    t.index ["coach_content_pack_version_id", "coach_content_item_version_id"], name: "idx_pack_version_entries_item_version", unique: true
+    t.index ["coach_content_pack_version_id", "position"], name: "idx_pack_version_entries_position", unique: true
+    t.index ["coach_content_pack_version_id"], name: "idx_on_coach_content_pack_version_id_266ad2ad2f"
+    t.check_constraint "\"position\" >= 0", name: "coach_content_pack_version_entries_position_nonnegative"
+  end
+
+  create_table "coach_content_pack_versions", force: :cascade do |t|
+    t.bigint "coach_content_pack_id", null: false
+    t.string "content_digest", null: false
+    t.datetime "created_at", null: false
+    t.text "description"
+    t.string "name", null: false
+    t.string "pack_kind", null: false
+    t.bigint "published_by_user_id", null: false
+    t.string "scope", null: false
+    t.datetime "updated_at", null: false
+    t.integer "version_number", null: false
+    t.index ["coach_content_pack_id", "version_number"], name: "idx_content_pack_versions_number", unique: true
+    t.index ["coach_content_pack_id"], name: "index_coach_content_pack_versions_on_coach_content_pack_id"
+    t.index ["published_by_user_id"], name: "index_coach_content_pack_versions_on_published_by_user_id"
+    t.check_constraint "content_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_pack_versions_digest_sha256"
+    t.check_constraint "version_number > 0", name: "coach_content_pack_versions_number_positive"
+  end
+
+  create_table "coach_content_packs", force: :cascade do |t|
+    t.datetime "archived_at"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.bigint "current_published_version_id"
+    t.text "description"
+    t.integer "draft_revision", default: 1, null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "name", null: false
+    t.string "pack_kind", null: false
+    t.string "scope", default: "coach", null: false
+    t.datetime "updated_at", null: false
+    t.index "created_by_user_id, scope, lower((name)::text)", name: "idx_coach_content_packs_owner_scope_name", unique: true
+    t.index ["created_by_user_id"], name: "index_coach_content_packs_on_created_by_user_id"
+    t.index ["current_published_version_id"], name: "idx_content_packs_current_version"
+    t.check_constraint "draft_revision > 0", name: "coach_content_packs_revision_positive"
+    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying, 'coaching_method'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_packs_kind_valid"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_packs_scope_valid"
+  end
+
+  create_table "coach_persona_draft_content_packs", force: :cascade do |t|
+    t.bigint "coach_content_pack_version_id", null: false
+    t.bigint "coach_persona_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "position", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_pack_version_id"], name: "idx_on_coach_content_pack_version_id_77445a4bb5"
+    t.index ["coach_persona_id", "coach_content_pack_version_id"], name: "idx_persona_draft_packs_version", unique: true
+    t.index ["coach_persona_id", "position"], name: "idx_persona_draft_packs_position", unique: true
+    t.index ["coach_persona_id"], name: "index_coach_persona_draft_content_packs_on_coach_persona_id"
+  end
+
   create_table "coach_persona_publication_events", force: :cascade do |t|
     t.bigint "actor_user_id", null: false
     t.bigint "coach_persona_id", null: false
@@ -133,10 +265,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050000) do
     t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying::text, 'rollback'::character varying::text])", name: "coach_persona_publication_events_type_valid"
   end
 
+  create_table "coach_persona_version_content_packs", force: :cascade do |t|
+    t.bigint "coach_content_pack_version_id", null: false
+    t.bigint "coach_persona_version_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "position", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_pack_version_id"], name: "idx_on_coach_content_pack_version_id_a2cf520e02"
+    t.index ["coach_persona_version_id", "coach_content_pack_version_id"], name: "idx_persona_version_packs_version", unique: true
+    t.index ["coach_persona_version_id", "position"], name: "idx_persona_version_packs_position", unique: true
+    t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_08a3a5cabb"
+  end
+
   create_table "coach_persona_versions", force: :cascade do |t|
     t.bigint "coach_persona_id", null: false
     t.jsonb "config", null: false
     t.string "config_digest", null: false
+    t.string "content_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
     t.datetime "created_at", null: false
     t.bigint "published_by_user_id", null: false
     t.bigint "source_version_id"
@@ -148,6 +293,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050000) do
     t.index ["source_version_id"], name: "index_coach_persona_versions_on_source_version_id"
     t.check_constraint "NOT (config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_persona_versions_response_invariants_true"
     t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_digest_sha256"
+    t.check_constraint "content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_content_manifest_sha256"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
     t.check_constraint "octet_length(config::text) <= 36864", name: "coach_persona_versions_config_bytes"
     t.check_constraint "version_number > 0", name: "coach_persona_versions_positive_number"
@@ -1019,10 +1165,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050000) do
   add_foreign_key "chat_messages", "coach_persona_versions"
   add_foreign_key "chat_sessions", "households"
   add_foreign_key "chat_sessions", "users"
+  add_foreign_key "coach_content_citations", "chat_messages", on_delete: :cascade
+  add_foreign_key "coach_content_citations", "coach_content_item_versions"
+  add_foreign_key "coach_content_citations", "coach_content_pack_versions"
+  add_foreign_key "coach_content_item_versions", "coach_content_items"
+  add_foreign_key "coach_content_item_versions", "users", column: "approved_by_user_id"
+  add_foreign_key "coach_content_items", "coach_content_item_versions", column: "current_approved_version_id"
+  add_foreign_key "coach_content_items", "users", column: "created_by_user_id"
+  add_foreign_key "coach_content_pack_draft_entries", "coach_content_item_versions"
+  add_foreign_key "coach_content_pack_draft_entries", "coach_content_packs"
+  add_foreign_key "coach_content_pack_version_entries", "coach_content_item_versions"
+  add_foreign_key "coach_content_pack_version_entries", "coach_content_pack_versions"
+  add_foreign_key "coach_content_pack_versions", "coach_content_packs"
+  add_foreign_key "coach_content_pack_versions", "users", column: "published_by_user_id"
+  add_foreign_key "coach_content_packs", "coach_content_pack_versions", column: "current_published_version_id"
+  add_foreign_key "coach_content_packs", "users", column: "created_by_user_id"
+  add_foreign_key "coach_persona_draft_content_packs", "coach_content_pack_versions"
+  add_foreign_key "coach_persona_draft_content_packs", "coach_personas"
   add_foreign_key "coach_persona_publication_events", "coach_persona_versions"
   add_foreign_key "coach_persona_publication_events", "coach_persona_versions", column: "source_version_id"
   add_foreign_key "coach_persona_publication_events", "coach_personas"
   add_foreign_key "coach_persona_publication_events", "users", column: "actor_user_id"
+  add_foreign_key "coach_persona_version_content_packs", "coach_content_pack_versions"
+  add_foreign_key "coach_persona_version_content_packs", "coach_persona_versions"
   add_foreign_key "coach_persona_versions", "coach_persona_versions", column: "source_version_id"
   add_foreign_key "coach_persona_versions", "coach_personas"
   add_foreign_key "coach_persona_versions", "users", column: "published_by_user_id"

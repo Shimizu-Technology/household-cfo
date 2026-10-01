@@ -26,9 +26,17 @@ module Mia
           version_number: persona.versions.maximum(:version_number).to_i + 1,
           config: target_version.config.deep_dup,
           config_digest: target_version.config_digest,
+          content_manifest_digest: target_version.content_manifest_digest,
           published_by_user: actor,
           source_version: target_version
         )
+        target_version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
+          version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
+        end
+        persona.draft_content_pack_links.delete_all
+        version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
+          persona.draft_content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
+        end
         persona.apply_rollback_version!(version)
         persona.cohort_persona_assignments.update_all(
           coach_persona_version_id: version.id,

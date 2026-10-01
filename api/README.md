@@ -28,6 +28,20 @@ If port 3000 is busy, start Rails on another explicit port (for example `bin/rai
 
 The default Mia coach persona lives in `config/mia_personas.yml`. Set `MIA_PERSONA_ID` to select a different configured persona at runtime; safety and financial-boundary rules stay in code and cannot be overridden by persona config.
 
+### Coach-approved content library
+
+Coach Studio separates reusable teaching from the assistant configuration:
+
+1. A coach writes a content item and explicitly approves an immutable version.
+2. The coach selects exact approved item versions for a content pack and publishes an immutable pack version.
+3. The coach attaches exact pack versions to a persona draft, previews that exact draft, then publishes it.
+
+Editing or approving a newer item never changes a published pack. Publishing a newer pack never changes a published persona or an assigned cohort. Coach Studio shows the newer version as available and requires a fresh persona preview and publish before participants receive it. Rollbacks preserve the exact historical pack links.
+
+Runtime retrieval is deterministic and bounded to six items and 6,000 UTF-8 bytes from the effective published persona version. Coach-owned packs are considered before platform finance references. Only the selected approved excerpts reach the narration or persona-preview layer, and assistant messages record the supplied item and pack versions as citations. Content never enters financial fact resolution, intent classification, action planning, approval checks, crisis handling, or write authorization.
+
+A locale label alone supplies no dialect, slang, or cultural persona. Regional language and context can affect presentation only when a coach writes, reviews, approves, packs, attaches, previews, and publishes the specific material.
+
 ## Clerk setup
 
 Set either `CLERK_JWKS_URL` or `CLERK_ISSUER` in the API environment. For invite-only linking by email, also set `CLERK_SECRET_KEY` so the API can fetch Clerk profile/email details when the default token omits them.
@@ -106,5 +120,8 @@ bundle exec bundler-audit check --update
 - `GET/POST/PATCH /api/v1/admin/users` and `POST /api/v1/admin/users/:id/resend_invitation` — staff/admin invite records, Resend delivery status, role/status management, and cohort assignment.
 - `GET/POST/PATCH /api/v1/admin/cohorts` — admin-only cohort creation and cohort metadata management.
 - `GET/PATCH /api/v1/admin/cohorts/:cohort_id/experience_configuration`, plus `preview`, `publish`, version detail, and `rollback` actions — versioned participant-tool controls for administrators and assigned coaches. Core financial modules stay on; CFO Filter and Optionality can be configured per cohort. The effective capabilities are also returned by `GET /api/v1/workspace`, and disabled optional endpoints return `403 module_disabled`.
+- `GET/POST/PATCH/DELETE /api/v1/admin/content_items` and `POST /api/v1/admin/content_items/:id/approve` — coach-owned or administrator-owned manual content drafts and explicit immutable approvals.
+- `GET/POST/PATCH/DELETE /api/v1/admin/content_packs` and `POST /api/v1/admin/content_packs/:id/publish` — ordered collections pinned to exact approved item versions and published as immutable pack versions.
+- `PATCH /api/v1/admin/personas/:persona_id/content_packs` — replaces a persona draft's exact pack-version links, advances its draft revision, and invalidates any prior preview.
 - `GET /api/demo/*` — demo-safe Household CFO screens; public only when Clerk is not configured for local preview.
 - `POST /api/demo/mia/messages` — demo Mia response endpoint; uses OpenRouter when configured and deterministic fallback otherwise.

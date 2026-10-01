@@ -40,4 +40,30 @@ module PersonaTestHelper
       expected_current_version_id: persona.current_published_version_id
     )
   end
+
+
+  def approved_content_item(owner:, title: "Ask one clear question", kind: "guidance", content: "Ask one clear question, then offer one practical next step.", scope: "coach")
+    item = CoachContentItem.create!(
+      title: title,
+      scope: scope,
+      kind: kind,
+      draft_content: content,
+      created_by_user: owner
+    )
+    item.approve!(actor: owner)
+    item
+  end
+
+  def published_content_pack(owner:, items:, name: "Coach method", pack_kind: "coaching_method", scope: "coach")
+    pack = CoachContentPack.create!(
+      name: name,
+      description: "Reviewed coaching content.",
+      scope: scope,
+      pack_kind: pack_kind,
+      created_by_user: owner
+    )
+    pack.replace_draft_item_versions!(items.map(&:current_approved_version), actor: owner)
+    pack.publish!(actor: owner)
+    pack
+  end
 end

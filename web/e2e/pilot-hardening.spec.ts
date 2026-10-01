@@ -333,6 +333,7 @@ function personaDetailFixture() {
     versions: [],
     assignments: [],
     draft: structuredClone(personaConfiguration),
+    content_packs: [] as unknown[],
     preview: null,
   }
 }
@@ -371,6 +372,64 @@ function chatMessages(count = 125) {
   }))
 }
 
+type MockContentItemVersion = {
+  id: number
+  item_id: number
+  title: string
+  kind: string
+  content: string
+  version: number
+  digest: string
+  approved_at: string
+}
+
+type MockContentItem = {
+  id: number
+  title: string
+  scope: string
+  kind: string
+  draft_content: string
+  draft_revision: number
+  archived: boolean
+  editable: boolean
+  current_approved_version: MockContentItemVersion | null
+  versions: MockContentItemVersion[]
+  has_unapproved_changes: boolean
+  updated_at: string
+}
+
+type MockContentPackVersion = {
+  id: number
+  pack_id: number
+  name: string
+  description: string
+  scope: string
+  pack_kind: string
+  version: number
+  digest: string
+  published_at: string
+  items: MockContentItemVersion[]
+}
+
+type MockContentPack = {
+  id: number
+  name: string
+  description: string
+  scope: string
+  pack_kind: string
+  item_version_ids: number[]
+  draft_revision: number
+  archived: boolean
+  editable: boolean
+  draft_items: MockContentItemVersion[]
+  current_published_version: MockContentPackVersion | null
+  versions: MockContentPackVersion[]
+  has_unpublished_changes: boolean
+  item_updates_available: boolean
+  update_available: boolean
+  updated_at: string
+}
+
 async function mockDemoApi(page: Page) {
   let pilotFeedbackStatus = 'submitted'
   let persona = personaDetailFixture()
@@ -388,6 +447,8 @@ async function mockDemoApi(page: Page) {
     source_kind: 'manual_profile', confirmation_fingerprint: null, confirmed_at: '2026-10-01T00:00:00Z', expires_at: null,
     created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
   }]
+  let contentItems: MockContentItem[] = []
+  let contentPacks: MockContentPack[] = []
   const memoryPayload = () => ({
     memories,
     personalization: { paused: memoryPaused, paused_at: memoryPaused ? '2026-10-01T01:00:00Z' : null },
@@ -521,6 +582,66 @@ async function mockDemoApi(page: Page) {
       experienceVersions = [version, ...experienceVersions]
       experiencePreview = null
       return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration(), published_version: version } })
+    if (path === '/api/v1/admin/content_items' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { items: contentItems } })
+    }
+    if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
+      const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content'>
+      const item: MockContentItem = {
+        id: 901, ...input, draft_revision: 1, archived: false, editable: true,
+        current_approved_version: null, versions: [], has_unapproved_changes: true,
+        updated_at: '2026-10-01T01:00:00Z',
+      }
+      contentItems = [item]
+      return route.fulfill({ status: 201, json: { item } })
+    }
+    const contentItemMatch = path.match(/^\/api\/v1\/admin\/content_items\/(\d+)(?:\/(approve))?$/)
+    if (contentItemMatch) {
+      const item = contentItems.find((candidate) => candidate.id === Number(contentItemMatch[1]))!
+      if (contentItemMatch[2] === 'approve') {
+        const version = { id: 911, item_id: item.id, title: item.title, kind: item.kind, content: item.draft_content, version: 1, digest: 'item-digest', approved_at: '2026-10-01T01:02:00Z' }
+        Object.assign(item, { current_approved_version: version, versions: [version], has_unapproved_changes: false })
+        return route.fulfill({ status: 200, json: { item, approved_version: version } })
+      }
+      if (route.request().method() === 'PATCH') {
+        Object.assign(item, route.request().postDataJSON().item, { draft_revision: item.draft_revision + 1, has_unapproved_changes: true })
+        return route.fulfill({ status: 200, json: { item } })
+      }
+    }
+    if (path === '/api/v1/admin/content_packs' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { packs: contentPacks } })
+    }
+    if (path === '/api/v1/admin/content_packs' && route.request().method() === 'POST') {
+      const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'scope' | 'pack_kind' | 'item_version_ids'>
+      const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
+      const pack: MockContentPack = {
+        id: 921, ...input, draft_revision: 2, archived: false, editable: true, draft_items: selectedItems,
+        current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: true, updated_at: '2026-10-01T01:03:00Z',
+      }
+      contentPacks = [pack]
+      return route.fulfill({ status: 201, json: { pack } })
+    }
+    const contentPackMatch = path.match(/^\/api\/v1\/admin\/content_packs\/(\d+)(?:\/(publish))?$/)
+    if (contentPackMatch) {
+      const pack = contentPacks.find((candidate) => candidate.id === Number(contentPackMatch[1]))!
+      if (contentPackMatch[2] === 'publish') {
+        const version = { id: 931, pack_id: pack.id, name: pack.name, description: pack.description, scope: pack.scope, pack_kind: pack.pack_kind, version: 1, digest: 'pack-digest', published_at: '2026-10-01T01:04:00Z', items: pack.draft_items }
+        Object.assign(pack, { current_published_version: version, versions: [version], has_unpublished_changes: false, item_updates_available: false, update_available: false })
+        return route.fulfill({ status: 200, json: { pack, published_version: version } })
+      }
+      if (route.request().method() === 'PATCH') return route.fulfill({ status: 200, json: { pack } })
+    }
+    if (path === '/api/v1/admin/personas/81/content_packs' && route.request().method() === 'PATCH') {
+      const ids = route.request().postDataJSON().content_packs.pack_version_ids
+      persona = {
+        ...persona,
+        content_packs: contentPacks.map((pack) => pack.current_published_version).filter((version) => version && ids.includes(version.id)),
+        draft_revision: persona.draft_revision + 1,
+        preview: null,
+        preview_required: true,
+        has_unpublished_changes: true,
+      }
+      return route.fulfill({ status: 200, json: { persona } })
     }
     if (path === '/api/v1/admin/personas' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON().persona
@@ -3225,6 +3346,41 @@ test('participant navigation keeps a disabled deep link canonical after capabili
   await expect(page).toHaveURL(/#Home$/)
   await expect(page.getByRole('heading', { name: 'CFO snapshot' })).toBeVisible()
   await expect(page.locator('.cfo-screen')).toHaveCount(0)
+})
+
+test('Coach Studio builds and pins an exact coach-approved content pack', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('button', { name: 'Coaching Library' }).click()
+  await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
+  await expect(page.getByText('Location labels never create slang, accents, or cultural assumptions.')).toBeVisible()
+
+  await page.getByRole('button', { name: 'New item' }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await itemPanel.getByLabel('Title').fill('Guam family context')
+  await itemPanel.getByLabel('Type').selectOption('culture')
+  await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only after the participant raises them.')
+  await itemPanel.getByRole('button', { name: 'Create draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Content draft created')
+  await itemPanel.getByRole('button', { name: 'Approve new version' }).click()
+  await expect(page.getByRole('status')).toContainText('immutable version')
+
+  await page.getByRole('button', { name: 'New pack' }).click()
+  const packPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Publish a reusable collection' }) })
+  await packPanel.getByLabel('Pack name').fill('Mrs. Mel Guam context')
+  await packPanel.getByLabel('Purpose').selectOption('voice_culture')
+  await packPanel.getByLabel(/Guam family context/).check()
+  await packPanel.getByRole('button', { name: 'Create pack draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Content pack draft created')
+  await packPanel.getByRole('button', { name: 'Publish exact version' }).click()
+  await expect(page.getByRole('status')).toContainText('immutable version')
+
+  await page.getByRole('button', { name: 'Assistants', exact: true }).click()
+  const sourcePanel = page.locator('.persona-content-packs')
+  await sourcePanel.getByLabel(/Mrs. Mel Guam context/).check()
+  await sourcePanel.getByRole('button', { name: 'Save source selection' }).click()
+  await expect(page.getByRole('status')).toContainText('fresh preview')
+  await expect(sourcePanel).toContainText('v1')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('Coach Studio protects unsaved work across mobile back and section navigation', async ({ page }) => {
