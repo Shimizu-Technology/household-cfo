@@ -207,11 +207,11 @@ module Api
       end
 
       def confirm_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def update_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, removed_split_ids: [], splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def permitted_draft_params

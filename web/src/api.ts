@@ -2471,6 +2471,7 @@ export async function cancelMiaActionDraft(id: number): Promise<AppData> {
 }
 
 export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
+  removed_split_ids?: number[]
   splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null }>>
 }
 

@@ -1892,6 +1892,47 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("errors").join, "already used"
   end
 
+  test "manual transaction update explicitly removes retains and adds split lines" do
+    user = create_user(email: "manual-split-edit@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    groceries = manager.create_category!(name: "Manual groceries", stack_key: "discretionary", monthly_amount: 500)
+    dining = manager.create_category!(name: "Manual dining", stack_key: "discretionary", monthly_amount: 200)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current, merchant: "Manual split shop", total_amount_cents: 5_000,
+      budget_category: groceries, source_type: "receipt", status: "pending"
+    )
+    retained = draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 3_000, confidence: 0.91, metadata: { "line" => 1 })
+    removed = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_000, confidence: 0.73, metadata: { "line" => 2 })
+
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: {
+        transaction_draft: {
+          amount: "50",
+          removed_split_ids: [ removed.id ],
+          splits: [
+            { id: retained.id, amount: "30", budget_category_id: groceries.id },
+            { amount: "20", budget_category_id: dining.id, notes: "Replacement line" }
+          ]
+        }
+      },
+      headers: auth_headers(user).merge("Idempotency-Key" => "manual-split-edit"),
+      as: :json
+
+    assert_response :success
+    splits = draft.reload.transaction_draft_splits.order(:id).to_a
+    assert_equal 2, splits.length
+    assert_equal retained.id, splits.first.id
+    assert_equal BigDecimal("0.91"), splits.first.confidence
+    assert_equal({ "line" => 1 }, splits.first.metadata)
+    refute TransactionDraftSplit.exists?(removed.id)
+    assert_equal({ "human_reviewed_replacement" => true }, splits.second.metadata)
+    assert_equal groceries.id, draft.budget_category_id
+    assert_empty household.household_transactions
+    body = JSON.parse(response.body)
+    assert_equal [ retained.id, splits.second.id ], body.dig("transaction_draft", "splits").map { |split| split.fetch("id") }
+  end
+
   test "transaction mutation endpoints require an explicit idempotency key" do
     user = create_user(email: "transaction-idempotency-required@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

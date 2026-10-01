@@ -4566,6 +4566,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
       category_name: categoryNames.get(payload.splits[0].budget_category_id) ?? null,
       splits: payload.splits.map((split: typeof uncertainDraft.splits[number]) => ({
         ...split,
+        id: split.id ?? 900,
         budget_category_id: split.budget_category_id,
         category_name: categoryNames.get(Number(split.budget_category_id)) ?? split.category_name,
       })),
@@ -4598,12 +4599,18 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   await categorySelects.nth(1).selectOption('1')
   await categorySelects.nth(2).selectOption('4')
   await categorySelects.nth(3).selectOption('2')
+  await card.getByRole('button', { name: 'Remove' }).nth(2).click()
+  await card.getByRole('button', { name: 'Add split' }).click()
+  await card.getByLabel('Split amount').last().fill('11.25')
+  await card.getByLabel('Category').last().selectOption('4')
+  await card.getByLabel('Notes').last().fill('Reviewed replacement line')
   const updateRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/191') && request.method() === 'PATCH')
   await card.getByRole('button', { name: 'Save draft' }).click()
   const request = await updateRequest
   const submittedSplits = request.postDataJSON().transaction_draft.splits
-  expect(submittedSplits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 4, 2])
-  expect(submittedSplits.map((split: { id: number }) => split.id)).toEqual([501, 502, 503, 504])
+  expect(request.postDataJSON().transaction_draft.removed_split_ids).toEqual([503])
+  expect(submittedSplits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 2, 4])
+  expect(submittedSplits.map((split: { id?: number }) => split.id)).toEqual([501, 502, 504, undefined])
   submittedSplits.forEach((split: Record<string, unknown>) => {
     expect(split).not.toHaveProperty('confidence')
     expect(split).not.toHaveProperty('metadata')

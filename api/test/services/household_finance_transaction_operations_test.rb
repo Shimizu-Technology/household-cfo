@@ -175,8 +175,54 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
       assert_equal "proposed", candidate.reload.status
       assert_equal "confirmed", transaction.reload.status
       assert_equal "matched", reopened.execution.after_snapshot.fetch("reopened_from_status")
-      assert_nil reopened.execution.after_snapshot.fetch("transaction")
+      assert_equal transaction.id, reopened.execution.after_snapshot.dig("transaction", "id")
+      assert_equal "confirmed", reopened.execution.after_snapshot.dig("transaction", "status")
+      assert_equal draft.total_amount_cents, reopened.execution.after_snapshot.dig("transaction", "total_amount_cents")
       assert_equal "proposed", reopened.execution.after_snapshot.fetch("matches").sole.fetch("status")
+    end
+  end
+
+  test "matched reopen rolls back when the linked actual changes" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("broken-matched-reopen-source")
+      period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(draft.occurred_on)
+      transaction = @household.household_transactions.create!(
+        budget_period: period, occurred_on: draft.occurred_on, merchant: draft.merchant,
+        total_amount_cents: draft.total_amount_cents, source_type: "manual_ui", status: "confirmed"
+      )
+      transaction.transaction_splits.create!(budget_category: @category, amount_cents: draft.total_amount_cents)
+      match = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.99, status: "proposed", match_reason: "same purchase")
+      match_input = { draft_id: draft.id, match_id: match.id, source_type: "manual_ui" }
+      @runner.run(operation_key: "transaction.draft.match", input: match_input, idempotency_key: "match-before-broken-reopen")
+      reopen_input = { draft_id: draft.id, source_type: "manual_ui" }
+      fake_factory = lambda do |target|
+        Object.new.tap do |fake|
+          fake.define_singleton_method(:call) do
+            target.matched_transaction.update!(status: "ignored")
+            target.transaction_draft_matches.update_all(status: "proposed", updated_at: Time.current)
+            target.update!(status: "pending", matched_transaction: nil)
+            HouseholdFinance::TransactionDraftReopener::Result.new(success: true, draft: target.reload, errors: [])
+          end
+        end
+      end
+
+      singleton = HouseholdFinance::TransactionDraftReopener.singleton_class
+      original_new = singleton.instance_method(:new)
+      singleton.define_method(:new, &fake_factory)
+      error = assert_raises(ArgumentError) do
+        begin
+          @runner.run(operation_key: "transaction.draft.reopen", input: reopen_input, idempotency_key: "broken-matched-reopen")
+        ensure
+          singleton.define_method(:new, original_new)
+        end
+      end
+
+      assert_includes error.message, "did not match the requested change"
+      assert_equal "matched", draft.reload.status
+      assert_equal transaction.id, draft.matched_transaction_id
+      assert_equal "confirmed", transaction.reload.status
+      assert_equal "accepted", match.reload.status
+      assert_nil @household.household_operation_executions.find_by(idempotency_key: "broken-matched-reopen")
     end
   end
 
@@ -329,6 +375,87 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
       assert_equal [ dining.id, dining.id ], persisted.map(&:budget_category_id)
       assert_equal [ { "row" => 4 }, { "row" => 5 } ], persisted.map(&:metadata)
       assert_equal [ BigDecimal("0.78"), BigDecimal("0.66") ], persisted.map(&:confidence)
+    end
+  end
+
+  test "reordering unchanged split objects preserves the stable draft category and provenance" do
+    travel_to Date.new(2026, 10, 1) do
+      dining = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 200)
+      draft = @household.transaction_drafts.create!(
+        occurred_on: Date.new(2026, 9, 28), merchant: "Reordered Receipt", total_amount_cents: 5_000,
+        budget_category: @category, source_type: "receipt", status: "pending"
+      )
+      primary = draft.transaction_draft_splits.create!(budget_category: @category, amount_cents: 3_000, confidence: 0.78, metadata: { "line" => 1 })
+      secondary = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_000, confidence: 0.66, metadata: { "line" => 2 })
+
+      reordered = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: {
+          draft_id: draft.id, source_type: "manual_ui", removed_split_ids: [],
+          splits: [
+            { id: secondary.id, amount: "20", budget_category_id: dining.id },
+            { id: primary.id, amount: "30", budget_category_id: @category.id }
+          ]
+        },
+        idempotency_key: "multi-reorder"
+      )
+
+      assert_equal @category.id, draft.reload.budget_category_id
+      assert_equal @category.id, reordered.execution.predicted_after_snapshot.dig("draft", "budget_category_id")
+      assert_equal @category.id, reordered.execution.after_snapshot.dig("draft", "budget_category_id")
+      assert_equal [ primary.id, secondary.id ], draft.transaction_draft_splits.order(:id).pluck(:id)
+      assert_equal [ { "line" => 1 }, { "line" => 2 } ], draft.transaction_draft_splits.order(:id).map(&:metadata)
+      assert_equal [ BigDecimal("0.78"), BigDecimal("0.66") ], draft.transaction_draft_splits.order(:id).map(&:confidence)
+    end
+  end
+
+  test "manual split replacement explicitly retains removes and creates lines while Mia fails closed" do
+    travel_to Date.new(2026, 10, 1) do
+      dining = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 200)
+      draft = @household.transaction_drafts.create!(
+        occurred_on: Date.new(2026, 9, 28), merchant: "Editable Receipt", total_amount_cents: 5_000,
+        budget_category: @category, source_type: "receipt", status: "pending"
+      )
+      retained = draft.transaction_draft_splits.create!(budget_category: @category, amount_cents: 3_000, confidence: 0.88, metadata: { "line" => 1 })
+      removed = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_000, confidence: 0.77, metadata: { "line" => 2 })
+      input = {
+        draft_id: draft.id, source_type: "manual_ui", removed_split_ids: [ removed.id ],
+        splits: [
+          { id: retained.id, amount: "30", budget_category_id: @category.id },
+          { amount: "20", budget_category_id: dining.id, notes: "Manual replacement" }
+        ]
+      }
+
+      ambiguous = assert_raises(ArgumentError) do
+        @runner.run(
+          operation_key: "transaction.draft.update",
+          input: input.except(:removed_split_ids),
+          idempotency_key: "manual-ambiguous-split-replacement"
+        )
+      end
+      assert_includes ambiguous.message, "retained or removed"
+
+      result = @runner.run(operation_key: "transaction.draft.update", input: input, idempotency_key: "manual-split-replacement")
+
+      persisted = result.subject.transaction_draft_splits.order(:id).to_a
+      assert_equal 2, persisted.length
+      assert_equal retained.id, persisted.first.id
+      assert_equal BigDecimal("0.88"), persisted.first.confidence
+      assert_equal({ "line" => 1 }, persisted.first.metadata)
+      assert_nil persisted.second.confidence
+      assert_equal({ "human_reviewed_replacement" => true }, persisted.second.metadata)
+      assert_equal @category.id, draft.reload.budget_category_id
+      refute TransactionDraftSplit.exists?(removed.id)
+
+      mia_error = assert_raises(ArgumentError) do
+        @runner.run(
+          operation_key: "transaction.draft.update",
+          input: input.merge(source_type: "manual_chat"),
+          idempotency_key: "mia-split-replacement",
+          source: "mia"
+        )
+      end
+      assert_includes mia_error.message, "cannot add or remove"
     end
   end
 

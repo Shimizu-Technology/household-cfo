@@ -50,6 +50,7 @@ import {
   deleteIncomeScheduleEntry,
   matchTransactionDraft,
   reopenTransactionDraft,
+  updateTransactionDraft,
 } from './api'
 
 const completedPayload = {
@@ -139,6 +140,33 @@ describe('transaction resolution idempotency contract', () => {
       '/api/v1/transaction_drafts/14/match',
       '/api/v1/transaction_drafts/15/reopen',
     ])
+  })
+
+  it('sends an explicit retained removed and new split contract for manual edits', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ transaction_draft: {}, workspace: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await updateTransactionDraft(11, {
+      amount: '50',
+      removed_split_ids: [102],
+      splits: [
+        { id: 101, amount: '30', budget_category_id: 4 },
+        { amount: '20', budget_category_id: 5 },
+      ],
+    }, 'transaction-split-edit')
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit
+    expect((request.headers as Record<string, string>)['Idempotency-Key']).toBe('transaction-split-edit')
+    expect(JSON.parse(String(request.body))).toEqual({
+      transaction_draft: {
+        amount: '50',
+        removed_split_ids: [102],
+        splits: [
+          { id: 101, amount: '30', budget_category_id: 4 },
+          { amount: '20', budget_category_id: 5 },
+        ],
+      },
+    })
   })
 })
 

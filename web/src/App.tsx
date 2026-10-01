@@ -7246,6 +7246,7 @@ function TransactionDraftReviewCard({
   const [occurredOn, setOccurredOn] = useState(draft.occurred_on)
   const [amount, setAmount] = useState(editableAmountForDraft(draft))
   const [splits, setSplits] = useState<EditableDraftSplit[]>(() => editableSplitsForDraft(draft))
+  const [removedSplitIds, setRemovedSplitIds] = useState<number[]>([])
   const [editError, setEditError] = useState<string | null>(null)
   const firstMissingCategoryRef = useRef<HTMLSelectElement | null>(null)
   const activeCategories = categories.filter((category) => category.active)
@@ -7293,6 +7294,7 @@ function TransactionDraftReviewCard({
     setOccurredOn(draft.occurred_on)
     setAmount(editableAmountForDraft(draft))
     setSplits(editableSplitsForDraft(draft))
+    setRemovedSplitIds([])
     setEditError(null)
   }
 
@@ -7318,7 +7320,11 @@ function TransactionDraftReviewCard({
   }
 
   function removeSplit(index: number) {
-    setSplits((current) => current.length <= 1 ? current : current.filter((_, candidateIndex) => candidateIndex !== index))
+    if (splits.length <= 1) return
+    const removed = splits[index]
+    const removedId = removed?.id
+    if (removedId) setRemovedSplitIds((current) => Array.from(new Set([ ...current, removedId ])).sort((left, right) => left - right))
+    setSplits((current) => current.filter((_, candidateIndex) => candidateIndex !== index))
   }
 
   async function saveDraftEdits() {
@@ -7336,6 +7342,7 @@ function TransactionDraftReviewCard({
         occurred_on: occurredOn,
         merchant,
         amount,
+        removed_split_ids: removedSplitIds,
         splits: cleanedSplits.map((split) => ({
           id: split.id,
           amount: split.amount,

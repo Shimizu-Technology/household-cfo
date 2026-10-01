@@ -95,7 +95,7 @@ module HouseholdFinance
           }
         end
 
-        def normalized_update_splits(draft, values, total_cents:)
+        def normalized_update_splits(draft, values, total_cents:, removed_split_ids: [], allow_split_changes: false)
           raw = Array(values).map { |value| value.to_h.deep_symbolize_keys }
           raise ArgumentError, "Transaction splits are required" if raw.empty?
           raise ArgumentError, "Add no more than #{MAX_SPLITS} transaction splits" if raw.length > MAX_SPLITS
@@ -103,14 +103,31 @@ module HouseholdFinance
           existing_splits = draft.transaction_draft_splits.order(:id).to_a
           existing_by_id = existing_splits.index_by(&:id)
           provided_ids = raw.map { |split| normalized_split_id(split[:id]) }
-          if existing_splits.many?
+          removed_ids = normalized_removed_split_ids(removed_split_ids)
+          raise ArgumentError, "Mia cannot add or remove transaction splits without manual review" if removed_ids.any? && !allow_split_changes
+          if existing_splits.one? && raw.one? && provided_ids.first.nil? && removed_ids.empty?
+            raw.first[:id] = existing_splits.first.id
+            provided_ids[0] = existing_splits.first.id
+          end
+
+          if allow_split_changes
+            retained_ids = provided_ids.compact
+            raise ArgumentError, "A transaction split can only be included once" unless retained_ids.uniq.length == retained_ids.length
+            raise ArgumentError, "A transaction split cannot be retained and removed" if (retained_ids & removed_ids).any?
+            unless (retained_ids + removed_ids).sort == existing_splits.map(&:id).sort
+              raise ArgumentError, "Identify every existing transaction split as retained or removed"
+            end
+          elsif existing_splits.many?
             raise ArgumentError, "Include the id for every existing transaction split" if provided_ids.any?(&:nil?)
             raise ArgumentError, "A transaction split can only be included once" unless provided_ids.uniq.length == provided_ids.length
             unless provided_ids.sort == existing_splits.map(&:id).sort
               raise ArgumentError, "Include every existing transaction split id from this review"
             end
-          elsif existing_splits.one? && raw.one? && provided_ids.first.nil?
-            raw.first[:id] = existing_splits.first.id
+          elsif existing_splits.one?
+            retained_ids = provided_ids.compact
+            unless retained_ids == [ existing_splits.first.id ]
+              raise ArgumentError, "Include the existing transaction split id when adding split lines"
+            end
           end
 
           seen_ids = []
@@ -150,6 +167,19 @@ module HouseholdFinance
           splits
         end
 
+        def canonical_split_order(splits)
+          Array(splits).each_with_index.sort_by do |(split, index)|
+            split[:id] ? [ 0, split[:id] ] : [ 1, index ]
+          end.map(&:first)
+        end
+
+        def stable_primary_category_id(current_category_id, splits)
+          category_ids = Array(splits).filter_map { |split| split[:budget_category_id] }
+          return current_category_id if current_category_id && category_ids.include?(current_category_id)
+
+          canonical_split_order(splits).first&.fetch(:budget_category_id, nil)
+        end
+
         def normalized_split_id(value)
           return if value.blank?
 
@@ -160,6 +190,14 @@ module HouseholdFinance
           split_id
         rescue ArgumentError, TypeError
           raise ArgumentError, "Transaction split id is invalid"
+        end
+
+        def normalized_removed_split_ids(values)
+          ids = Array(values).map { |id| normalized_split_id(id) }
+          raise ArgumentError, "Removed transaction split ids are invalid" if ids.any?(&:nil?)
+          raise ArgumentError, "A removed transaction split can only be included once" unless ids.uniq.length == ids.length
+
+          ids
         end
 
         def draft_snapshot(draft, lock: false)
@@ -202,7 +240,7 @@ module HouseholdFinance
               match_reason: match.match_reason
             }
           end
-          transaction_id ||= draft.confirmed_transaction_id
+          transaction_id ||= draft.confirmed_transaction_id || draft.matched_transaction_id
           transaction_scope = household.household_transactions.includes(transaction_splits: :budget_category)
           transaction_scope = transaction_scope.lock if lock
           transaction = transaction_scope.find_by(id: transaction_id) if transaction_id

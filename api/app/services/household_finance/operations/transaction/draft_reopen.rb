@@ -31,7 +31,7 @@ module HouseholdFinance
             snapshot.fetch(:draft)[:status] = "pending"
             snapshot.fetch(:draft)[:confirmed_transaction_id] = nil
             snapshot.fetch(:draft)[:matched_transaction_id] = nil
-            snapshot[:transaction][:status] = "ignored" if snapshot[:transaction]
+            snapshot[:transaction][:status] = "ignored" if snapshot[:transaction] && reopened_from_status.in?(%w[confirmed corrected])
             snapshot.fetch(:matches).each { |match| match[:status] = "proposed" } if reopened_from_status == "matched"
           end
         end
@@ -76,7 +76,9 @@ module HouseholdFinance
             valid &&= expected_match_ids.all? do |id|
               actual_matches.any? { |match| match["id"] == id && match["status"] == "proposed" }
             end
-            valid &&= snapshot["transaction"].nil?
+            expected_transaction = expected["transaction"]
+            actual_transaction = snapshot["transaction"]
+            valid &&= expected_transaction.present? && actual_transaction == expected_transaction
           when "ignored"
             valid &&= snapshot["transaction"].nil?
             valid &&= Array(snapshot["matches"]).none? { |match| match["status"] == "accepted" }

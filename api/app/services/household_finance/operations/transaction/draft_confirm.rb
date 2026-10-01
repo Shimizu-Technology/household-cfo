@@ -11,7 +11,8 @@ module HouseholdFinance
 
         def normalize(input)
           draft = household.transaction_drafts.find(input[:draft_id].to_i)
-          normalized = { draft_id: draft.id, source_type: normalized_source_type(input[:source_type]), year: draft.occurred_on.year }
+          source_type = normalized_source_type(input[:source_type])
+          normalized = { draft_id: draft.id, source_type: source_type, year: draft.occurred_on.year }
           if input[:occurred_on].present?
             occurred_on = parsed_date(input[:occurred_on])
             normalized[:occurred_on] = occurred_on.iso8601
@@ -29,7 +30,15 @@ module HouseholdFinance
           normalized[:budget_category_id] = active_category(input[:budget_category_id]).id if input[:budget_category_id].present?
           if input.key?(:splits)
             total_cents = normalized[:amount_cents] || draft.total_amount_cents
-            normalized[:splits] = normalized_update_splits(draft, input[:splits], total_cents: total_cents)
+            removed_split_ids = normalized_removed_split_ids(input[:removed_split_ids])
+            normalized[:removed_split_ids] = removed_split_ids if input.key?(:removed_split_ids)
+            normalized[:splits] = normalized_update_splits(
+              draft,
+              input[:splits],
+              total_cents: total_cents,
+              removed_split_ids: removed_split_ids,
+              allow_split_changes: source_type == "manual_ui"
+            )
           end
           normalized
         end

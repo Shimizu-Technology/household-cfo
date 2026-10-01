@@ -11,7 +11,8 @@ module HouseholdFinance
 
         def normalize(input)
           draft = household.transaction_drafts.find(input[:draft_id].to_i)
-          normalized = { draft_id: draft.id, source_type: normalized_source_type(input[:source_type]), year: draft.occurred_on.year }
+          source_type = normalized_source_type(input[:source_type])
+          normalized = { draft_id: draft.id, source_type: source_type, year: draft.occurred_on.year }
           if input.key?(:occurred_on) && input[:occurred_on].present?
             occurred_on = parsed_date(input[:occurred_on])
             normalized[:occurred_on] = occurred_on.iso8601
@@ -31,7 +32,15 @@ module HouseholdFinance
           end
           if input.key?(:splits)
             total_cents = normalized[:amount_cents] || draft.total_amount_cents
-            normalized[:splits] = normalized_update_splits(draft, input[:splits], total_cents: total_cents)
+            removed_split_ids = normalized_removed_split_ids(input[:removed_split_ids])
+            normalized[:removed_split_ids] = removed_split_ids if input.key?(:removed_split_ids)
+            normalized[:splits] = normalized_update_splits(
+              draft,
+              input[:splits],
+              total_cents: total_cents,
+              removed_split_ids: removed_split_ids,
+              allow_split_changes: source_type == "manual_ui"
+            )
           elsif normalized[:amount_cents] && draft.transaction_draft_splits.one?
             split = draft.transaction_draft_splits.sole
             normalized[:splits] = normalized_update_splits(
@@ -88,10 +97,8 @@ module HouseholdFinance
           draft[:merchant] = input[:merchant] if input.key?(:merchant)
           draft[:total_amount_cents] = input[:amount_cents] if input.key?(:amount_cents)
           if input.key?(:splits)
-            after[:splits] = input.fetch(:splits).each_with_index.sort_by do |(split, index)|
-              split[:id] ? [ 0, split[:id] ] : [ 1, index ]
-            end.map(&:first)
-            draft[:budget_category_id] = input.fetch(:splits).first[:budget_category_id]
+            after[:splits] = canonical_split_order(input.fetch(:splits))
+            draft[:budget_category_id] = stable_primary_category_id(draft[:budget_category_id], input.fetch(:splits))
           elsif input.key?(:budget_category_id)
             category = active_category(input.fetch(:budget_category_id))
             after[:splits] = [ split_attributes(category, draft.fetch(:total_amount_cents)).merge(confidence: nil) ]

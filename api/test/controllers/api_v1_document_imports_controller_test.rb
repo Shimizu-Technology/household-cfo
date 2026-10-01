@@ -1282,14 +1282,14 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       status: "pending",
       raw_input: "Receipt upload"
     )
-    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
+    original_split = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 1_800, category_name: "Dining Out")
 
     patch "/api/v1/transaction_drafts/#{draft.id}",
       params: {
         transaction_draft: {
           amount: "18.00",
           splits: [
-            { amount: "13.75", budget_category_id: dining.id, notes: "Meal" },
+            { id: original_split.id, amount: "13.75", budget_category_id: dining.id, notes: "Meal" },
             { amount: "4.25", budget_category_id: tips.id, notes: "Tip" }
           ]
         }
@@ -1423,7 +1423,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
       status: "pending",
       raw_input: "Statement row"
     )
-    draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 10_342, category_name: "Groceries")
+    original_split = draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 10_342, category_name: "Groceries")
     draft.transaction_draft_matches.create!(household_transaction: existing, confidence: 0.98, match_reason: "same amount")
 
     assert_difference("HouseholdTransaction.count", 1) do
@@ -1431,7 +1431,7 @@ class ApiV1DocumentImportsControllerTest < ActionDispatch::IntegrationTest
         params: {
           transaction_draft: {
             splits: [
-              { amount: "85.42", budget_category_id: groceries.id, notes: "Food" },
+              { id: original_split.id, amount: "85.42", budget_category_id: groceries.id, notes: "Food" },
               { amount: "18.00", budget_category_id: dining.id, notes: "Other" }
             ]
           }

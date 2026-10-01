@@ -97,12 +97,13 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
   end
 
   test "applies explicit category splits only when they equal the transaction total" do
+    existing_split = @draft.transaction_draft_splits.sole
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
       command: {
         draft_id: @draft.id,
         splits: [
-          { category_id: @dining.id, category_name: "Dining Out", amount: "7.34" },
+          { id: existing_split.id, category_id: @dining.id, category_name: "Dining Out", amount: "7.34" },
           { category_id: @groceries.id, category_name: "Groceries", amount: "5.00" }
         ]
       }

@@ -64,8 +64,9 @@ module HouseholdFinance
           draft.transaction_draft_splits.create!(attributes)
         end
       end
-      first_category = normalized.first[:budget_category]
-      draft.update!(budget_category: first_category)
+      persisted_splits = draft.transaction_draft_splits.order(:id).to_a
+      stable_primary = persisted_splits.find { |split| split.budget_category_id == draft.budget_category_id } || persisted_splits.first
+      draft.update!(budget_category: stable_primary&.budget_category)
     end
 
     def normalize_single_category!
