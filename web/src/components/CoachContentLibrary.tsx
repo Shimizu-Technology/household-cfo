@@ -26,7 +26,7 @@ import './CoachContentLibrary.css'
 const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
 const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', 'finance_reference']
 
-export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser }) {
+export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange?: (dirty: boolean) => void }) {
   const [items, setItems] = useState<AdminContentItem[]>([])
   const [packs, setPacks] = useState<AdminContentPack[]>([])
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
@@ -34,6 +34,11 @@ export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const [itemDirty, setItemDirty] = useState(false)
+  const [packDirty, setPackDirty] = useState(false)
+
+  useEffect(() => onDirtyChange?.(itemDirty || packDirty), [itemDirty, onDirtyChange, packDirty])
+  useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
   const load = useCallback(async () => {
     setBusy(true)
@@ -93,6 +98,7 @@ export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser 
           items={items}
           selected={selectedItem}
           busy={busy}
+          onDirtyChange={setItemDirty}
           onSelect={setSelectedItemId}
           onCreate={(values) => mutate(async () => { const item = await createAdminContentItem(values); setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
           onSave={(item, values) => mutate(async () => { await updateAdminContentItem(item.id, { ...values, draft_revision: item.draft_revision ?? 0 }) }, 'Content draft saved. Approve the new version when it is ready.')}
@@ -104,6 +110,7 @@ export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser 
           items={items}
           selected={selectedPack}
           busy={busy}
+          onDirtyChange={setPackDirty}
           onSelect={setSelectedPackId}
           onCreate={(values) => mutate(async () => { const pack = await createAdminContentPack(values); setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
           onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Pack draft saved. Its published version has not changed.')}
@@ -114,11 +121,12 @@ export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser 
   )
 }
 
-function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCreate, onSave, onApprove }: {
+function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
   items: AdminContentItem[]
   selected: AdminContentItem | null
   busy: boolean
+  onDirtyChange: (dirty: boolean) => void
   onSelect: (id: number | null) => void
   onCreate: (values: { title: string; scope: AdminContentScope; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<void>
   onSave: (item: AdminContentItem, values: { title: string; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<void>
@@ -136,6 +144,10 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
     kind !== selected.kind ||
     alwaysOn !== selected.always_on
   ))
+  const createDirty = Boolean(creating && (title.trim() || content.trim() || kind !== 'guidance' || scope !== 'coach' || alwaysOn))
+
+  useEffect(() => onDirtyChange(itemDirty || createDirty), [createDirty, itemDirty, onDirtyChange])
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   function startCreate() {
     onSelect(null)
@@ -196,12 +208,13 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
   )
 }
 
-function ContentPacksPanel({ currentUser, packs, items, selected, busy, onSelect, onCreate, onSave, onPublish }: {
+function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
   currentUser: CurrentUser
   packs: AdminContentPack[]
   items: AdminContentItem[]
   selected: AdminContentPack | null
   busy: boolean
+  onDirtyChange: (dirty: boolean) => void
   onSelect: (id: number | null) => void
   onCreate: (values: { name: string; description: string; scope: AdminContentScope; pack_kind: AdminContentPackKind; item_version_ids: number[] }) => Promise<void>
   onSave: (pack: AdminContentPack, values: { name: string; description: string; pack_kind: AdminContentPackKind; item_version_ids: number[] }) => Promise<void>
@@ -220,6 +233,10 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onSelect
     kind !== selected.pack_kind ||
     selectedVersions.join(',') !== selected.draft_items.map((item) => item.id).join(',')
   ))
+  const createDirty = Boolean(creating && (name.trim() || description.trim() || kind !== 'coaching_method' || scope !== 'coach' || selectedVersions.length > 0))
+
+  useEffect(() => onDirtyChange(packDirty || createDirty), [createDirty, onDirtyChange, packDirty])
+  useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   function startCreate() {
     onSelect(null)

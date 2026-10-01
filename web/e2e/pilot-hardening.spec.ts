@@ -586,6 +586,7 @@ async function mockDemoApi(page: Page) {
       experienceVersions = [version, ...experienceVersions]
       experiencePreview = null
       return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration(), published_version: version } })
+    }
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { items: contentItems } })
     }
@@ -3365,7 +3366,7 @@ test('participant navigation keeps a disabled deep link canonical after capabili
 
 test('Coach Studio builds and pins an exact coach-approved content pack', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
-  await page.getByRole('button', { name: 'Coaching Library' }).click()
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
   await expect(page.getByRole('heading', { name: 'Build reusable coaching material' })).toBeVisible()
   await expect(page.getByText('Location labels never create slang, accents, or cultural assumptions.')).toBeVisible()
 
@@ -3378,6 +3379,12 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await expect(page.getByRole('status')).toContainText('Content draft created')
   await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only when the participant raises them.')
   await expect(itemPanel.getByRole('button', { name: 'Save draft before approving' })).toBeDisabled()
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard unsaved Coach Studio changes')
+    await dialog.dismiss()
+  })
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await expect(itemPanel.getByLabel('Draft wording')).toHaveValue('Mention extended-family obligations only when the participant raises them.')
   await itemPanel.getByRole('button', { name: 'Save draft', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Content draft saved')
   await itemPanel.getByRole('button', { name: 'Approve new version' }).click()
@@ -3397,7 +3404,7 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await packPanel.getByRole('button', { name: 'Publish exact version' }).click()
   await expect(page.getByRole('status')).toContainText('immutable version')
 
-  await page.getByRole('button', { name: 'Assistants', exact: true }).click()
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
   const sourcePanel = page.locator('.persona-content-packs')
   await sourcePanel.getByLabel(/Mrs. Mel Guam context/).check()
   await sourcePanel.getByRole('button', { name: 'Save source selection' }).click()
