@@ -472,7 +472,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_digest_sha256"
     t.check_constraint "content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_content_manifest_sha256"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
-    t.check_constraint "octet_length(config::text) <= 36864", name: "coach_persona_versions_config_bytes"
+    t.check_constraint "octet_length(config::text) <= 49152", name: "coach_persona_versions_config_bytes"
     t.check_constraint "version_number > 0", name: "coach_persona_versions_positive_number"
   end
 
@@ -497,7 +497,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.check_constraint "NOT (draft_config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (draft_config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_personas_response_invariants_true"
     t.check_constraint "draft_revision > 0", name: "coach_personas_positive_draft_revision"
     t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "coach_personas_draft_config_object"
-    t.check_constraint "octet_length(draft_config::text) <= 36864", name: "coach_personas_draft_config_bytes"
+    t.check_constraint "octet_length(draft_config::text) <= 49152", name: "coach_personas_draft_config_bytes"
     t.check_constraint "preview_digest IS NULL AND previewed_at IS NULL AND previewed_draft_revision IS NULL OR preview_digest IS NOT NULL AND previewed_at IS NOT NULL AND previewed_draft_revision IS NOT NULL", name: "coach_personas_preview_fields_complete"
     t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_personas_preview_digest_sha256"
   end

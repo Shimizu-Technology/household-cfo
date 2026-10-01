@@ -42,6 +42,10 @@ module Mia
       can_edit?(persona) && persona.published? && !persona.archived?
     end
 
+    def can_manage_phrase_artifacts?(persona)
+      persona.created_by_user_id == user.id && !persona.archived?
+    end
+
     private
 
     attr_reader :user

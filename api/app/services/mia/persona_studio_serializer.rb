@@ -6,7 +6,8 @@ module Mia
       "Use only approved household financial facts.",
       "Keep the participant in control of every financial write.",
       "Do not provide licensed advice or bypass crisis handling.",
-      "Do not imitate accents or invent cultural stereotypes."
+      "Do not imitate accents or invent cultural stereotypes.",
+      "Do not paste cultural mimicry into a prohibition; state the safe allowed behavior instead."
     ].freeze
 
     def initialize(persona, policy:)
@@ -49,6 +50,7 @@ module Mia
       )
       if private_configuration_visible?
         payload[:draft] = persona.draft_config
+        payload[:phrase_artifact_access] = phrase_artifact_access
         payload[:preview] = serialize_preview
         payload[:content_packs] = persona.draft_content_pack_links.includes(coach_content_pack_version: :coach_content_pack).order(:position).map do |link|
           serialize_content_pack_version(link.coach_content_pack_version)
@@ -152,6 +154,33 @@ module Mia
         draft_revision: persona.previewed_draft_revision,
         generated_at: persona.previewed_at
       }
+    end
+
+    def phrase_artifact_access
+      can_manage = policy.can_manage_phrase_artifacts?(persona)
+      {
+        can_add: can_manage,
+        artifacts: Array(persona.draft_config["phrases"]).map do |phrase|
+          participant_supplied = phrase["provenance"] == "participant_supplied"
+          can_edit = can_manage && !participant_supplied
+          {
+            artifact_id: phrase["artifact_id"],
+            provenance: phrase["provenance"],
+            source_role_at_capture: phrase["source_role_at_capture"],
+            source_label: participant_supplied ? "Participant supplied" : "Coach authored",
+            can_edit: can_edit,
+            can_move: can_manage,
+            can_remove: can_manage,
+            locked: !can_edit,
+            locked_reason: phrase_locked_reason(participant_supplied:, can_manage:)
+          }
+        end
+      }
+    end
+
+    def phrase_locked_reason(participant_supplied:, can_manage:)
+      return "Participant-supplied wording is sealed and cannot be edited." if participant_supplied
+      "Only the owning coach can change this sealed phrase." unless can_manage
     end
 
     def permissions

@@ -87,7 +87,7 @@ class HouseholdFinanceConversationTranscriptBuilderTest < ActiveSupport::TestCas
     session.chat_messages.create!(role: "assistant", content: "Legacy global answer.")
     session.chat_messages.create!(role: "assistant", content: "Retired persona answer.", assistant_author: "Coach Lila", coach_persona_version: first_version)
     session.chat_messages.create!(role: "user", content: "Keep my question across persona updates.")
-    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Measured and steady." }))
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     current_version = publish_persona(persona, coach)
     session.chat_messages.create!(role: "assistant", content: "Current persona answer.", assistant_author: "Coach Lila", coach_persona_version: current_version)
 

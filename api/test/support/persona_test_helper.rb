@@ -18,6 +18,22 @@ module PersonaTestHelper
     )
   end
 
+  def persona_phrase_artifact(attributes = {}, source_user_id: 1, provenance: "coach_authored")
+    defaults = {
+      "text" => "Approved phrase",
+      "meaning" => "Coach-authored wording with a documented meaning.",
+      "allowed_contexts" => [ "general" ],
+      "prohibited_contexts" => [ "crisis" ],
+      "frequency" => "rare",
+      "caution" => "Use only in the documented context."
+    }
+    Mia::PersonaSchema.build_phrase_artifact(
+      defaults.merge(attributes.stringify_keys),
+      source_user_id: source_user_id,
+      provenance: provenance
+    )
+  end
+
   def create_persona(creator: persona_user, name: "Household CFO")
     CoachPersona.create!(
       name: name,

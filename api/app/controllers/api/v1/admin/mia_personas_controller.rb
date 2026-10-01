@@ -4,6 +4,9 @@ module Api
   module V1
     module Admin
       class MiaPersonasController < BaseController
+        LOCATION_DERIVED_STYLE_ERROR = "cannot infer dialect, slang, or cultural traits from a location or identity label"
+        COACH_FACING_LOCATION_STYLE_GUIDANCE = "cannot ask Mia to imitate how a location or group sounds. Add only wording the coach has explicitly authored."
+
         before_action :authenticate_user!
         before_action :require_staff!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
@@ -20,6 +23,11 @@ module Api
         def create
           attributes = create_persona_params
           draft = attributes[:draft_config].presence || default_draft(attributes[:name])
+          draft = Mia::PersonaSchema.prepare_draft_artifacts(
+            draft,
+            source_user_id: current_user.id,
+            source_role_at_capture: current_user.role
+          )
           persona = CoachPersona.create!(
             name: attributes[:name].presence || draft.to_h.dig("identity", "assistant_name"),
             description: attributes[:description],
@@ -29,6 +37,8 @@ module Api
           render json: { persona: serializer(persona).detail }, status: :created
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_invalid")
+        rescue Mia::PersonaSchema::InvalidConfiguration => error
+          render_schema_error(error)
         end
 
         def update
@@ -50,13 +60,25 @@ module Api
             end
             return render_revision_conflict unless expected_draft_revision == persona.draft_revision
 
-            persona.update!(update_persona_params)
+            attributes = update_persona_params
+            if attributes[:draft_config]
+              attributes[:draft_config] = Mia::PersonaSchema.prepare_draft_artifacts(
+                attributes[:draft_config],
+                source_user_id: persona.created_by_user_id,
+                source_role_at_capture: current_user.role,
+                existing_configuration: persona.draft_config,
+                allow_coach_artifact_edits: current_user.id == persona.created_by_user_id
+              )
+            end
+            persona.update!(attributes)
           end
           render json: { persona: serializer(persona.reload).detail }
         rescue ActiveRecord::StaleObjectError
           render_revision_conflict
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_invalid")
+        rescue Mia::PersonaSchema::InvalidConfiguration => error
+          render_schema_error(error)
         end
 
         def destroy
@@ -235,8 +257,30 @@ module Api
         end
 
         def render_validation_error(record, code:)
-          messages = record.errors.full_messages
+          messages = present_persona_errors(record.errors.full_messages)
           render json: { error: messages.first, errors: messages, code: code }, status: :unprocessable_entity
+        end
+
+        def render_schema_error(error)
+          messages = present_persona_errors(error.errors)
+          render json: { error: messages.first, errors: messages, code: "persona_invalid" }, status: :unprocessable_entity
+        end
+
+        def present_persona_errors(messages)
+          Array(messages).map do |message|
+            next message unless message.include?(LOCATION_DERIVED_STYLE_ERROR)
+
+            "#{persona_field_label(message)} #{COACH_FACING_LOCATION_STYLE_GUIDANCE}"
+          end
+        end
+
+        def persona_field_label(message)
+          return "Community context" if message.include?("$.culture.context")
+          return "Voice settings" if message.include?("$.voice.")
+          return "Coaching instructions" if message.include?("$.coaching.")
+          return "Phrase details" if message.include?("$.phrases[")
+
+          "This field"
         end
 
         def render_api_error(message, code:, status:)

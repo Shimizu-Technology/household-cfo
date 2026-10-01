@@ -20,6 +20,7 @@ module Mia
         unless Integer(expected_draft_revision, exception: false) == persona.draft_revision
           raise PublicationError, "The persona draft changed; reload it before previewing"
         end
+        ensure_draft_is_safe!
         ensure_draft_content_manifests!
 
         digest = preview_digest
@@ -45,6 +46,7 @@ module Mia
         unless normalized_version_id(expected_current_version_id) == persona.current_published_version_id
           raise PublicationError, "The published persona changed; reload it before publishing"
         end
+        ensure_draft_is_safe!
         ensure_draft_content_manifests!
 
         current_digest = PersonaSchema.digest(persona.draft_config)
@@ -94,6 +96,12 @@ module Mia
         link.coach_content_pack_version.manifest_valid?
       end
       raise PublicationError, "Attached content pack is not a valid sealed publication" unless valid
+    end
+
+    def ensure_draft_is_safe!
+      PersonaSchema.validate!(persona.draft_config)
+    rescue PersonaSchema::InvalidConfiguration
+      raise PublicationError, "The persona draft no longer meets the current safety rules; review and save it again before publishing"
     end
 
     def content_pack_preview

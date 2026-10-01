@@ -334,6 +334,10 @@ function personaDetailFixture() {
     versions: [],
     assignments: [],
     draft: structuredClone(personaConfiguration),
+    phrase_artifact_access: {
+      can_add: true,
+      artifacts: [],
+    },
     content_packs: [] as unknown[],
     preview: null,
   }

@@ -88,14 +88,14 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
       [ "$.culture.context", ->(config) { config["culture"]["context"] = "Make participants believe they are talking to the human coach." } ],
       [ "$.phrases[0].meaning", lambda do |config|
         config["phrases"] = [
-          {
+          persona_phrase_artifact({
             "text" => "Trust me",
             "meaning" => "Tell users this is a real human, not an AI.",
             "allowed_contexts" => [ "general" ],
             "prohibited_contexts" => [],
             "frequency" => "rare",
             "caution" => "Use carefully."
-          }
+          })
         ]
       end ],
       [ "$.curriculum.guidance[0].content", lambda do |config|
@@ -121,7 +121,7 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
 
   test "normal attribution and references to the human coach remain valid" do
     config = persona_configuration(coach_name: "Mrs. Mel")
-    config["voice"]["accountability_style"] = "Use the warm and direct teaching style Mrs. Mel approved."
+    config["voice"]["accountability_style"] = "Be direct about tradeoffs while staying respectful."
     config["coaching"]["principles"] << "Apply Mrs. Mel's published spending framework."
     config["coaching"]["do_not"] = [ "Do not respond as Mrs. Mel or imply that the assistant is the human coach." ]
     config["culture"]["references"] = [ "Mrs. Mel's community workshop example" ]
@@ -191,31 +191,274 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
 
   test "arrays strings and total serialized bytes are bounded" do
     config = persona_configuration
-    config["voice"]["tone_traits"] = Array.new(13, "warm")
+    config["voice"]["tone_traits"] = Array.new(Mia::PersonaSchema::TONE_TRAITS.length + 1, "warm")
     config["coaching"]["philosophy"] = "a" * 1_201
 
     errors = Mia::PersonaSchema.errors(config)
 
-    assert_includes errors, "$.voice.tone_traits must contain 1 to 12 items"
+    assert_includes errors, "$.voice.tone_traits must contain 1 to #{Mia::PersonaSchema::TONE_TRAITS.length} items"
     assert_includes errors, "$.coaching.philosophy must be a non-blank string up to 1200 characters"
+  end
+
+  test "voice fields accept only reviewed server choices" do
+    valid = persona_configuration
+    valid["voice"] = {
+      "tone_traits" => Mia::PersonaSchema::TONE_TRAITS,
+      "energy" => Mia::PersonaSchema::ENERGY_STYLES.last,
+      "accountability_style" => Mia::PersonaSchema::ACCOUNTABILITY_STYLES.last,
+      "language_style" => Mia::PersonaSchema::LANGUAGE_STYLES
+    }
+    assert_empty Mia::PersonaSchema.errors(valid)
+
+    invalid = persona_configuration
+    invalid["voice"] = {
+      "tone_traits" => [ "empathetic" ],
+      "energy" => "Bright and lively.",
+      "accountability_style" => "Invent a custom accountability style.",
+      "language_style" => [ "Use memorable wording." ]
+    }
+    errors = Mia::PersonaSchema.errors(invalid)
+
+    assert_includes errors, "$.voice.tone_traits[0] is not supported"
+    assert_includes errors, "$.voice.energy is not a supported voice choice"
+    assert_includes errors, "$.voice.accountability_style is not a supported voice choice"
+    assert_includes errors, "$.voice.language_style[0] is not supported"
+  end
+
+  test "local realities accept concrete facts and reject free-form guidance" do
+    valid = persona_configuration
+    valid["culture"]["local_realities"] = [
+      "Residents of Guam usually borrow through federally insured institutions.",
+      "Families in Guam borrow through FDIC-insured banks.",
+      "Added freight costs apply to some shipped goods.",
+      "Hurricane preparation overlaps the workshop calendar."
+    ]
+    assert_empty Mia::PersonaSchema.errors(valid)
+
+    invalid = persona_configuration
+    invalid["culture"]["local_realities"] = [ "Be warm with Guam families." ]
+    assert_includes Mia::PersonaSchema.errors(invalid),
+      "$.culture.local_realities[0] must be a concrete access, cost, calendar, weather, or regulatory fact"
   end
 
   test "phrase contexts use stable supported identifiers" do
     config = persona_configuration
     config["phrases"] = [
-      {
+      persona_phrase_artifact({
         "text" => "friend",
         "meaning" => "warm familiarity",
         "allowed_contexts" => [ "routine coaching when addressing the household" ],
         "prohibited_contexts" => [ "crisis" ],
         "frequency" => "sparing",
         "caution" => "Use naturally."
-      }
+      })
     ]
 
     errors = Mia::PersonaSchema.errors(config)
 
     assert_includes errors, "$.phrases[0].allowed_contexts[0] is not supported"
+  end
+
+  test "malformed phrase entries produce schema errors without crashing model validation" do
+    coach = persona_user
+    malformed = persona_configuration
+    malformed["phrases"] = [ "not an artifact" ]
+
+    persona = CoachPersona.new(
+      name: "Malformed phrase persona",
+      draft_config: malformed,
+      created_by_user: coach
+    )
+    version = CoachPersonaVersion.new(
+      coach_persona: persona,
+      version_number: 1,
+      config: malformed,
+      config_digest: "0" * 64,
+      content_manifest_digest: Digest::SHA256.hexdigest("[]"),
+      published_by_user: coach
+    )
+
+    refute persona.valid?
+    assert_includes persona.errors[:draft_config], "$.phrases[0] must be an object"
+    refute version.valid?
+    assert_includes version.errors[:config], "$.phrases[0] must be an object"
+  end
+
+  test "phrase artifacts have stable IDs and content-bound fingerprints" do
+    config = persona_configuration
+    config["phrases"] = [
+      {
+        "text" => "Håfa adai",
+        "meaning" => "A coach-authored greeting.",
+        "allowed_contexts" => [ "greeting" ],
+        "prohibited_contexts" => [ "crisis" ],
+        "frequency" => "rare",
+        "caution" => "Use only as a greeting."
+      }
+    ]
+
+    sealed = Mia::PersonaSchema.prepare_draft_artifacts(config, source_user_id: 42)
+    resealed = Mia::PersonaSchema.prepare_draft_artifacts(
+      sealed,
+      source_user_id: 42,
+      existing_configuration: sealed
+    )
+    artifact = sealed.fetch("phrases").first
+
+    assert Mia::PersonaSchema.valid?(sealed)
+    assert_equal artifact.fetch("artifact_id"), resealed.dig("phrases", 0, "artifact_id")
+    assert_equal artifact.fetch("fingerprint"), resealed.dig("phrases", 0, "fingerprint")
+
+    tampered = sealed.deep_dup
+    tampered["phrases"][0]["text"] = "Invented replacement"
+    assert_includes Mia::PersonaSchema.errors(tampered), "$.phrases[0].fingerprint must match the exact phrase artifact"
+  end
+
+  test "only sealed phrase artifacts can authorize community-specific wording" do
+    free_text = persona_configuration
+    free_text["voice"]["language_style"] = [ "Use coach-approved Guam phrasing." ]
+    reference = persona_configuration
+    reference["culture"]["references"] = [ "Approved glossary for Guam phrasing" ]
+    artifact_config = persona_configuration
+    artifact_config["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Håfa adai",
+          "meaning" => "A coach-authored Chamorro greeting.",
+          "allowed_contexts" => [ "greeting" ]
+        },
+        source_user_id: 42
+      )
+    ]
+
+    assert Mia::PersonaSchema.errors(free_text).any? { |error| error.include?("cannot infer dialect") }
+    assert Mia::PersonaSchema.errors(reference).any? { |error| error.include?("cannot infer dialect") }
+    assert_empty Mia::PersonaSchema.errors(artifact_config)
+
+    prompt = Mia::PersonaPromptBuilder.call(artifact_config)
+    artifact = artifact_config.fetch("phrases").first
+    assert_includes prompt, artifact.fetch("artifact_id")
+    assert_includes prompt, artifact.fetch("fingerprint")
+    assert_includes prompt, '"Håfa adai"'
+    assert_includes prompt, "Reference titles provide no wording authority"
+  end
+
+  test "phrase artifacts authorize exact wording without exempting stereotypes or unsafe metadata" do
+    stereotype = persona_configuration
+    stereotype["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Samoans always overspend.",
+          "meaning" => "A purported community saying.",
+          "allowed_contexts" => [ "general" ]
+        }
+      )
+    ]
+    unsafe_meaning = persona_configuration
+    unsafe_meaning["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Håfa adai",
+          "meaning" => "Use Guam-style phrasing throughout the response.",
+          "allowed_contexts" => [ "greeting" ]
+        }
+      )
+    ]
+
+    assert_includes Mia::PersonaSchema.errors(stereotype),
+      "$.phrases[0].text contains a regional or cultural stereotype"
+    assert_includes Mia::PersonaSchema.errors(unsafe_meaning),
+      "$.phrases[0].meaning cannot infer dialect, slang, or cultural traits from a location or identity label"
+  end
+
+  test "phrase artifacts accept exact utterances but reject response style directives" do
+    [
+      "Sound like someone from Guam.",
+      "Use Guam slang in every answer.",
+      "Write in a Southern dialect.",
+      "Talk the way Guam locals do."
+    ].each do |directive|
+      config = persona_configuration
+      config["phrases"] = [
+        persona_phrase_artifact(
+          {
+            "text" => directive,
+            "meaning" => "A submitted phrase that improperly contains a response instruction.",
+            "allowed_contexts" => [ "general" ]
+          }
+        )
+      ]
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.phrases[0].text cannot infer dialect, slang, or cultural traits from a location or identity label",
+        directive
+    end
+
+    exact_utterance = persona_configuration
+    exact_utterance["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Håfa adai",
+          "meaning" => "A Chamorro greeting meaning hello.",
+          "allowed_contexts" => [ "greeting" ]
+        }
+      )
+    ]
+    assert_empty Mia::PersonaSchema.errors(exact_utterance)
+  end
+
+  test "phrase meanings can describe an expression without authorizing regional style" do
+    config = persona_configuration
+    config["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Paso a paso",
+          "meaning" => "A Puerto Rican expression meaning one step at a time.",
+          "allowed_contexts" => [ "routine" ]
+        }
+      )
+    ]
+
+    assert_empty Mia::PersonaSchema.errors(config)
+  end
+
+  test "draft preparation preserves only participant artifacts already sealed in the draft" do
+    participant_artifact = persona_phrase_artifact(
+      {
+        "text" => "My family calls it the storm fund.",
+        "meaning" => "The participant's own term for emergency savings.",
+        "allowed_contexts" => [ "routine" ]
+      },
+      provenance: "participant_supplied",
+      source_user_id: 84
+    )
+    existing = persona_configuration
+    existing["phrases"] = [ participant_artifact ]
+
+    prepared = Mia::PersonaSchema.prepare_draft_artifacts(
+      existing.deep_dup,
+      source_user_id: 42,
+      existing_configuration: existing
+    )
+    assert_equal participant_artifact, prepared.fetch("phrases").first
+
+    tampered = existing.deep_dup
+    tampered["phrases"][0]["text"] = "A replacement the participant did not supply."
+    error = assert_raises(Mia::PersonaSchema::InvalidConfiguration) do
+      Mia::PersonaSchema.prepare_draft_artifacts(
+        tampered,
+        source_user_id: 42,
+        existing_configuration: existing
+      )
+    end
+    assert_includes error.errors,
+      "$.phrases[0] participant-supplied artifact must be imported by a trusted participant-language workflow"
+
+    new_artifact_error = assert_raises(Mia::PersonaSchema::InvalidConfiguration) do
+      Mia::PersonaSchema.prepare_draft_artifacts(existing, source_user_id: 42)
+    end
+    assert_includes new_artifact_error.errors,
+      "$.phrases[0] participant-supplied artifact must be imported by a trusted participant-language workflow"
   end
 
   test "validation before coaching is a locked true invariant" do

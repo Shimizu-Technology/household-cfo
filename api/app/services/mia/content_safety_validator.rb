@@ -6,7 +6,7 @@ module Mia
       "unsafe_instruction" => "Remove instructions that try to control Mia, bypass safeguards, invoke tools, or change approval behavior.",
       "personal_information" => "Remove personal or identifying information such as contact, address, tax, account, routing, or card details.",
       "household_fact" => "Rewrite household-specific balances, income, debts, transactions, or personal circumstances as general coaching guidance.",
-      "regional_stereotype" => "Rewrite regional or cultural assumptions as coach-authored guidance that applies only in the stated context."
+      "regional_stereotype" => "Remove demographic generalizations and instructions that derive voice from a place or identity. Use verified facts or sealed phrase artifacts instead."
     }.freeze
 
     PII_PATTERNS = [
@@ -25,7 +25,6 @@ module Mia
       /\b[A-Z][a-z]+(?:\s+[A-Z][a-z]+)?\s+(?:owes?|earns?|makes?|paid|spent|saved)\b.{0,60}(?:\$\s?\d|\b\d[\d,]*(?:\.\d{1,2})?\b)/,
       /\b(?:my|our|we|i)\b.{0,50}\b(?:earn|make|income|salary|owe|debt|balance|saved)\b.{0,30}\b(?:zero|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety|hundred|thousand|million|six figures?)\b/i
     ].freeze
-    REGIONAL_STEREOTYPE_PATTERN = /\b(?:(?:people|families|women|men|households|clients)\s+(?:from|in)\s+[A-Z][A-Za-z.'\- ]{1,40}|Guamanians?|Southerners?|Chamorro(?:s| people)?)\s+(?:always|never|all|typically|usually|often|naturally|tend\s+to|are\s+(?:all|just|simply))\b/i
     LEGITIMATE_FINANCIAL_ACRONYMS = %w[APR APY CD DTI ETF ETFS FDIC HSA HYSA IRA IRS ROTH SIPC].freeze
     SPECIFIC_SECURITY_TOKEN = "(?-i:(?!(?:#{LEGITIMATE_FINANCIAL_ACRONYMS.join('|')})\\b)[A-Z]{2,5})"
     UNSAFE_INSTRUCTION_PATTERNS = [
@@ -63,7 +62,10 @@ module Mia
         text = [ title, content, *Array(topics) ].join("\n").unicode_normalize(:nfkc)
         raise UnsafeContent, "personal_information" if PII_PATTERNS.any? { |pattern| text.match?(pattern) } || valid_payment_card_number?(text)
         raise UnsafeContent, "household_fact" if HOUSEHOLD_FACT_PATTERNS.any? { |pattern| text.match?(pattern) }
-        raise UnsafeContent, "regional_stereotype" if text.match?(REGIONAL_STEREOTYPE_PATTERN)
+        cultural_violations = CulturalSafetyPolicy.violations(title, field: :reference_title) +
+          CulturalSafetyPolicy.violations(content, field: :instruction) +
+          Array(topics).flat_map { |topic| CulturalSafetyPolicy.violations(topic, field: :reference_title) }
+        raise UnsafeContent, "regional_stereotype" if cultural_violations.any?
 
         raise UnsafeContent, "unsafe_instruction" if unsafe_instruction?(text)
 

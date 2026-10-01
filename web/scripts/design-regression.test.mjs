@@ -14,6 +14,9 @@ const participantTabs = readFileSync(resolve(__dirname, '../src/components/Parti
 const button = readFileSync(resolve(__dirname, '../src/components/Button.tsx'), 'utf8')
 const chatHistory = readFileSync(resolve(__dirname, '../src/components/ChatHistory.tsx'), 'utf8')
 const safeMessageText = readFileSync(resolve(__dirname, '../src/components/SafeMessageText.tsx'), 'utf8')
+const coachStudio = readFileSync(resolve(__dirname, '../src/components/CoachStudio.tsx'), 'utf8')
+const coachStudioCss = readFileSync(resolve(__dirname, '../src/components/CoachStudio.css'), 'utf8')
+const personaDraft = readFileSync(resolve(__dirname, '../src/lib/personaDraft.ts'), 'utf8')
 const demoHouseholdData = readFileSync(resolve(__dirname, '../../api/app/services/demo/household_data.rb'), 'utf8')
 const html = readFileSync(resolve(__dirname, '../index.html'), 'utf8')
 
@@ -111,6 +114,55 @@ assert.ok(chatHistory.includes('<SafeMessageText') && safeMessageText.includes('
 assert.ok(css.includes('--emerald: #7b4a58'), 'primary brand token should shift from green to deep mauve')
 assert.ok(css.includes('--emerald-soft: #f1e2e3'), 'soft brand token should use dusty rose')
 assert.ok(!css.includes('#0f4c3a'), 'old masculine green should not remain in main app CSS')
+
+for (const structuredControl of [
+  '<ChoiceChips label="Tone traits"',
+  '<SelectChoice label="Energy"',
+  '<SelectChoice label="Accountability style"',
+  '<ChoiceChips label="Language style"',
+]) {
+  assert.ok(coachStudio.includes(structuredControl), `Persona Studio should use structured voice control ${structuredControl}`)
+}
+assert.ok(!coachStudio.includes('<LineList label="Tone traits"'), 'tone traits must not accept free-form style instructions')
+assert.ok(!coachStudio.includes('<TextInput label="Energy"'), 'persona energy must not accept free-form style instructions')
+assert.ok(coachStudio.includes('State a safe boundary without quoting or embedding cultural mimicry.'), 'Do not help must explain that embedded mimicry is still rejected')
+assert.ok(
+  coachStudio.includes('ref={errorAlertRef}')
+    && coachStudio.includes('ref={conflictAlertRef}')
+    && coachStudio.includes('role="alert" tabIndex={-1}'),
+  'Coach Studio mutation errors and conflicts should be programmatically focusable alerts',
+)
+assert.ok(
+  coachStudio.includes("alert.scrollIntoView({ block: 'center' })")
+    && coachStudio.includes('alert.focus({ preventScroll: true })'),
+  'Coach Studio should move mutation feedback into view and focus it',
+)
+assert.ok(coachStudio.includes('void loadPersonas(selectedPersona?.id)'), 'Coach Studio errors should preserve their retry action')
+assert.ok(
+  coachStudio.includes("capability?.can_edit === true")
+    && coachStudio.includes("capability?.can_move === true")
+    && coachStudio.includes("capability?.can_remove === true"),
+  'sealed phrase controls should use server-provided mutation capabilities',
+)
+assert.ok(
+  coachStudio.includes('aria-label="Locked phrase"')
+    && coachStudio.includes('<span>{sourceLabel}</span>')
+    && coachStudio.includes('{lockedReason}')
+    && coachStudio.includes('Only the owning coach can add or change approved phrases.'),
+  'Coach Studio should expose accessible provenance, locked, and ownership states',
+)
+assert.ok(
+  coachStudio.includes('disabled={!canEdit}')
+    && coachStudio.includes('disabled={!canMove || index === 0}')
+    && coachStudio.includes('disabled={!canRemove}'),
+  'locked phrase fields and actions should remain disabled on desktop and mobile',
+)
+assert.ok(
+  coachStudioCss.includes('.coach-phrase-provenance') && coachStudioCss.includes('flex-wrap: wrap'),
+  'phrase provenance and lock labels should wrap instead of overflowing narrow mobile cards',
+)
+assert.ok(personaDraft.includes("'Use light humor only when the situation is not sensitive.'"), 'reviewed voice choices should include situational light humor')
+assert.ok(personaDraft.includes("'Keep the tone professional and formal.'"), 'reviewed voice choices should include formal language')
 
 assert.ok(api.includes('budget'), 'API client type should expose budget data')
 assert.ok(api.includes('wealth'), 'API client type should expose wealth data')

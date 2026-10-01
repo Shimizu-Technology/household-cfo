@@ -2,12 +2,45 @@
 
 require "digest"
 require "json"
+require "securerandom"
 
 module Mia
   class PersonaSchema
-    MAX_BYTES = 32_768
+    MAX_AUTHORING_BYTES = 32_768
+    MAX_BYTES = 40_960
     FREQUENCIES = %w[very_rare rare sparing as_needed].freeze
     PHRASE_CONTEXTS = %w[greeting verified_milestone emotional_support repeated_pattern routine general crisis].freeze
+    PHRASE_PROVENANCE = %w[coach_authored participant_supplied].freeze
+    PHRASE_SOURCE_ROLES = %w[admin coach participant].freeze
+    ARTIFACT_ID_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
+    TONE_TRAITS = %w[
+      warm direct respectful calm encouraging candid patient concise practical reassuring lighthearted formal clear unhurried
+    ].freeze
+    ENERGY_STYLES = [
+      "Calm and focused.",
+      "Calm, clear, and concise.",
+      "Steady and reassuring.",
+      "Warm and encouraging.",
+      "Direct and energetic.",
+      "Quiet and unhurried."
+    ].freeze
+    ACCOUNTABILITY_STYLES = [
+      "Name choices and patterns clearly while protecting the participant's dignity.",
+      "Ask reflective questions before naming a pattern.",
+      "Be direct about tradeoffs while staying respectful.",
+      "Use gentle accountability and one practical next step.",
+      "Keep accountability firm, calm, and specific."
+    ].freeze
+    LANGUAGE_STYLES = [
+      "Use plain language.",
+      "Keep the next step concrete.",
+      "Use short sentences and concrete questions.",
+      "Prefer conversational language.",
+      "Keep the tone professional and formal.",
+      "Use light humor only when the situation is not sensitive.",
+      "Be concise and avoid unnecessary jargon.",
+      "Explain unfamiliar financial terms briefly."
+    ].freeze
     TOP_LEVEL_KEYS = %w[version identity voice coaching culture phrases curriculum response_shape].freeze
 
     class InvalidConfiguration < ArgumentError
@@ -98,6 +131,98 @@ module Mia
         Digest::SHA256.hexdigest(canonical_json(configuration).b)
       end
 
+      def prepare_draft_artifacts(configuration, source_user_id:, source_role_at_capture: "coach", existing_configuration: nil, allow_coach_artifact_edits: true)
+        config = normalize(configuration).deep_dup
+        existing_artifacts = Array(normalize(existing_configuration).to_h["phrases"]).index_by do |phrase|
+          phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["artifact_id"].present?
+        end.compact
+        unless allow_coach_artifact_edits
+          submitted_ids = Array(config["phrases"]).filter_map do |phrase|
+            phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["artifact_id"].present?
+          end
+          unless submitted_ids == existing_artifacts.keys
+            raise InvalidConfiguration,
+              [ "$.phrases artifact collection can be changed only by the persona owner" ]
+          end
+        end
+        config["phrases"] = Array(config["phrases"]).each_with_index.map do |phrase, index|
+          next phrase unless phrase.is_a?(Hash)
+
+          existing = existing_artifacts[phrase["artifact_id"]]
+          if existing.present?
+            unless phrase["provenance"] == existing["provenance"]
+              raise InvalidConfiguration,
+                [ "$.phrases[#{index}] provenance cannot change for an existing phrase artifact" ]
+            end
+
+            if existing["provenance"] == "participant_supplied"
+              unless artifacts_match?(phrase, existing)
+                raise InvalidConfiguration,
+                  [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+              end
+              next existing
+            end
+
+            next existing if artifacts_match?(phrase, existing)
+
+            unless allow_coach_artifact_edits
+              raise InvalidConfiguration,
+                [ "$.phrases[#{index}] coach-authored artifact can be edited only by the persona owner" ]
+            end
+
+            next build_phrase_artifact(
+              phrase,
+              artifact_id: existing.fetch("artifact_id"),
+              provenance: "coach_authored",
+              source_user_id: source_user_id,
+              source_role_at_capture: existing.fetch("source_role_at_capture")
+            )
+          end
+
+          if phrase["provenance"] == "participant_supplied"
+            raise InvalidConfiguration,
+              [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+          end
+          unless allow_coach_artifact_edits
+            raise InvalidConfiguration,
+              [ "$.phrases[#{index}] coach-authored artifact can be added only by the persona owner" ]
+          end
+
+          build_phrase_artifact(
+            phrase,
+            artifact_id: SecureRandom.uuid,
+            provenance: "coach_authored",
+            source_user_id: source_user_id,
+            source_role_at_capture: source_role_at_capture
+          )
+        end
+        config
+      end
+
+      def build_phrase_artifact(attributes, artifact_id: SecureRandom.uuid, provenance: "coach_authored", source_user_id:, source_role_at_capture: nil)
+        normalized = normalize(attributes)
+        captured_role = source_role_at_capture.presence || (provenance.to_s == "participant_supplied" ? "participant" : "coach")
+        artifact = {
+          "artifact_id" => artifact_id.to_s,
+          "provenance" => provenance.to_s,
+          "source_user_id" => Integer(source_user_id, exception: false),
+          "source_role_at_capture" => captured_role.to_s,
+          "text" => normalized["text"],
+          "meaning" => normalized["meaning"],
+          "allowed_contexts" => normalized["allowed_contexts"],
+          "prohibited_contexts" => normalized["prohibited_contexts"],
+          "frequency" => normalized["frequency"],
+          "caution" => normalized["caution"]
+        }
+        artifact["fingerprint"] = artifact_fingerprint(artifact)
+        artifact
+      end
+
+      def artifact_fingerprint(artifact)
+        normalized = normalize(artifact).except("fingerprint")
+        Digest::SHA256.hexdigest(JSON.generate(canonicalize(normalized)).b)
+      end
+
       def normalize(value)
         case value
         when Hash
@@ -110,6 +235,12 @@ module Mia
       end
 
       private
+
+      def artifacts_match?(left, right)
+        left_json = JSON.generate(canonicalize(left))
+        right_json = JSON.generate(canonicalize(right))
+        ActiveSupport::SecurityUtils.secure_compare(left_json, right_json)
+      end
 
       def canonicalize(value)
         case value
@@ -138,6 +269,8 @@ module Mia
 
         byte_size = JSON.generate(config).bytesize
         errors << "$ exceeds #{MAX_BYTES} bytes" if byte_size > MAX_BYTES
+        authoring_byte_size = JSON.generate(authoring_configuration(config)).bytesize
+        errors << "$ authored content exceeds #{MAX_AUTHORING_BYTES} bytes" if authoring_byte_size > MAX_AUTHORING_BYTES
         errors.first(40)
       rescue JSON::GeneratorError
         [ "$ must contain only JSON-compatible values" ]
@@ -162,10 +295,18 @@ module Mia
         return object_required(value, path, errors) unless value.is_a?(Hash)
 
         exact_keys(value, %w[tone_traits energy accountability_style language_style], path, errors)
-        string_array(value["tone_traits"], "#{path}.tone_traits", errors, range: 1..12, item_max: 80)
-        bounded_string(value["energy"], "#{path}.energy", errors, 160)
-        bounded_string(value["accountability_style"], "#{path}.accountability_style", errors, 400)
-        string_array(value["language_style"], "#{path}.language_style", errors, range: 1..8, item_max: 220)
+        enum_array(value["tone_traits"], "#{path}.tone_traits", errors, range: 1..TONE_TRAITS.length, values: TONE_TRAITS)
+        errors << "#{path}.energy is not a supported voice choice" unless value["energy"].in?(ENERGY_STYLES)
+        unless value["accountability_style"].in?(ACCOUNTABILITY_STYLES)
+          errors << "#{path}.accountability_style is not a supported voice choice"
+        end
+        enum_array(
+          value["language_style"],
+          "#{path}.language_style",
+          errors,
+          range: 1..LANGUAGE_STYLES.length,
+          values: LANGUAGE_STYLES
+        )
       end
 
       def validate_coaching(value, errors)
@@ -188,6 +329,12 @@ module Mia
         bounded_string(value["locale_label"], "#{path}.locale_label", errors, 120)
         bounded_string(value["context"], "#{path}.context", errors, 1_000)
         string_array(value["local_realities"], "#{path}.local_realities", errors, range: 0..16, item_max: 300)
+        Array(value["local_realities"]).each_with_index do |reality, index|
+          next unless reality.is_a?(String) && reality.strip.present?
+          next if CulturalSafetyPolicy.factual_local_reality?(reality)
+
+          errors << "#{path}.local_realities[#{index}] must be a concrete access, cost, calendar, weather, or regulatory fact"
+        end
         string_array(value["references"], "#{path}.references", errors, range: 0..16, item_max: 300)
       end
 
@@ -196,20 +343,43 @@ module Mia
         return array_required(value, path, errors) unless value.is_a?(Array)
 
         errors << "#{path} must contain at most 24 items" unless value.length.between?(0, 24)
+        artifact_ids = []
         value.each_with_index do |phrase, index|
           item_path = "#{path}[#{index}]"
           unless phrase.is_a?(Hash)
             errors << "#{item_path} must be an object"
             next
           end
-          exact_keys(phrase, %w[text meaning allowed_contexts prohibited_contexts frequency caution], item_path, errors)
+          exact_keys(
+            phrase,
+            %w[artifact_id provenance source_user_id source_role_at_capture text meaning allowed_contexts prohibited_contexts frequency caution fingerprint],
+            item_path,
+            errors
+          )
+          artifact_ids << phrase["artifact_id"]
+          errors << "#{item_path}.artifact_id must be a UUID" unless phrase["artifact_id"].to_s.match?(ARTIFACT_ID_PATTERN)
+          errors << "#{item_path}.provenance is not supported" unless phrase["provenance"].in?(PHRASE_PROVENANCE)
+          bounded_integer(phrase["source_user_id"], "#{item_path}.source_user_id", errors, 1..2_147_483_647)
+          captured_role = phrase["source_role_at_capture"]
+          errors << "#{item_path}.source_role_at_capture is not supported" unless captured_role.in?(PHRASE_SOURCE_ROLES)
+          if phrase["provenance"] == "participant_supplied" && captured_role != "participant"
+            errors << "#{item_path}.source_role_at_capture must be participant for participant-supplied wording"
+          elsif phrase["provenance"] == "coach_authored" && !captured_role.in?(%w[admin coach])
+            errors << "#{item_path}.source_role_at_capture must be coach or admin for coach-authored wording"
+          end
           bounded_string(phrase["text"], "#{item_path}.text", errors, 100)
           bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
           enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
           enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
           errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
           optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
+          expected_fingerprint = artifact_fingerprint(phrase)
+          unless phrase["fingerprint"].to_s.match?(/\A[0-9a-f]{64}\z/) &&
+              ActiveSupport::SecurityUtils.secure_compare(phrase["fingerprint"], expected_fingerprint)
+            errors << "#{item_path}.fingerprint must match the exact phrase artifact"
+          end
         end
+        errors << "#{path} artifact IDs must be unique" unless artifact_ids.compact.uniq.length == artifact_ids.compact.length
       end
 
       def validate_curriculum(value, errors)
@@ -220,6 +390,16 @@ module Mia
         titled_content_array(value["guidance"], "#{path}.guidance", errors)
         scripts_array(value["scripts"], "#{path}.scripts", errors)
         examples_array(value["examples"], "#{path}.examples", errors)
+      end
+
+      def authoring_configuration(config)
+        authored = config.deep_dup
+        authored["phrases"] = Array(authored["phrases"]).map do |phrase|
+          next phrase unless phrase.is_a?(Hash)
+
+          phrase.except("artifact_id", "provenance", "source_user_id", "source_role_at_capture", "fingerprint")
+        end
+        authored
       end
 
       def titled_content_array(value, path, errors)

@@ -174,7 +174,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_match(/\A[0-9a-f]{64}\z/, persona.reload.preview_digest)
 
-    changed_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and grounded." })
+    changed_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and concise." })
     patch "/api/v1/admin/personas/#{persona.id}",
       params: { persona: { draft_revision: 1, description: "Updated description.", draft_config: changed_draft } },
       headers: auth_headers(coach),
@@ -205,6 +205,220 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Auntie Ava", persona.reload.name
   end
 
+  test "update rejects community-wide voice mimicry in cultural context" do
+    coach = persona_user(role: "coach")
+    persona = CoachPersona.create!(
+      name: "Community context boundary",
+      draft_config: persona_configuration(assistant_name: "Community context boundary"),
+      created_by_user: coach
+    )
+    changed_draft = persona.draft_config.deep_dup
+    changed_draft["culture"]["context"] = "Make it sound exactly like everyone from Guam."
+
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: changed_draft } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_invalid", response.parsed_body.fetch("code")
+    expected_message = "Community context cannot ask Mia to imitate how a location or group sounds. Add only wording the coach has explicitly authored."
+    assert_equal expected_message, response.parsed_body.fetch("error")
+    assert_includes response.parsed_body.fetch("errors"), expected_message
+    refute_includes response.parsed_body.fetch("errors").join(" "), "$.culture.context"
+    persona.reload
+    assert_equal 1, persona.draft_revision
+    assert_equal "Use only cultural and community context explicitly approved by the human coach.",
+      persona.draft_config.dig("culture", "context")
+  end
+
+  test "persona API seals coach-authored phrase artifacts before draft validation" do
+    coach = persona_user(role: "coach")
+    client_artifact_id = SecureRandom.uuid
+    draft = persona_configuration(assistant_name: "Sealed phrase assistant")
+    draft["phrases"] = [
+      {
+        "artifact_id" => client_artifact_id,
+        "provenance" => "coach_authored",
+        "text" => "Håfa adai",
+        "meaning" => "The coach's greeting artifact.",
+        "allowed_contexts" => [ "greeting" ],
+        "prohibited_contexts" => [ "crisis" ],
+        "frequency" => "rare",
+        "caution" => "Use only as a greeting."
+      }
+    ]
+
+    post "/api/v1/admin/personas",
+      params: { persona: { name: "Sealed phrase assistant", draft_config: draft } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :created
+    persona = CoachPersona.find(response.parsed_body.dig("persona", "id"))
+    artifact = persona.draft_config.fetch("phrases").first
+    assert_match Mia::PersonaSchema::ARTIFACT_ID_PATTERN, artifact.fetch("artifact_id")
+    refute_equal client_artifact_id, artifact.fetch("artifact_id")
+    assert_equal "coach_authored", artifact.fetch("provenance")
+    assert_equal coach.id, artifact.fetch("source_user_id")
+    assert_equal "coach", artifact.fetch("source_role_at_capture")
+    assert_equal Mia::PersonaSchema.artifact_fingerprint(artifact), artifact.fetch("fingerprint")
+
+    original_id = artifact.fetch("artifact_id")
+    original_fingerprint = artifact.fetch("fingerprint")
+    edited = persona.draft_config.deep_dup
+    edited["phrases"][0]["meaning"] = "The coach's exact welcome greeting."
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: edited } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :success
+    revised = persona.reload.draft_config.fetch("phrases").first
+    assert_equal original_id, revised.fetch("artifact_id")
+    refute_equal original_fingerprint, revised.fetch("fingerprint")
+    assert_equal Mia::PersonaSchema.artifact_fingerprint(revised), revised.fetch("fingerprint")
+  end
+
+  test "admin can preserve owner phrase artifacts on unrelated edits but cannot rewrite them" do
+    coach = persona_user(role: "coach")
+    admin = persona_user(role: "admin")
+    config = persona_configuration(assistant_name: "Owner phrase assistant")
+    config["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Håfa adai",
+          "meaning" => "The owner's exact greeting.",
+          "allowed_contexts" => [ "greeting" ]
+        },
+        source_user_id: coach.id
+      )
+    ]
+    persona = CoachPersona.create!(
+      name: "Owner phrase assistant",
+      draft_config: config,
+      created_by_user: coach
+    )
+    original = persona.draft_config.fetch("phrases").first
+    unrelated_edit = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and concise." })
+
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: unrelated_edit } },
+      headers: auth_headers(admin),
+      as: :json
+
+    assert_response :success
+    assert_equal original, persona.reload.draft_config.fetch("phrases").first
+    access = response.parsed_body.dig("persona", "phrase_artifact_access")
+    assert_equal false, access.fetch("can_add")
+    capability = access.fetch("artifacts").sole
+    assert_equal "Coach authored", capability.fetch("source_label")
+    assert_equal false, capability.fetch("can_edit")
+    assert_equal false, capability.fetch("can_move")
+    assert_equal false, capability.fetch("can_remove")
+    assert_equal true, capability.fetch("locked")
+
+    phrase_edit = persona.draft_config.deep_dup
+    phrase_edit["phrases"][0]["meaning"] = "An administrator's replacement meaning."
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: phrase_edit } },
+      headers: auth_headers(admin),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").first, "only by the persona owner"
+    assert_equal original, persona.reload.draft_config.fetch("phrases").first
+
+    removed_phrase = persona.draft_config.deep_dup
+    removed_phrase["phrases"] = []
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: removed_phrase } },
+      headers: auth_headers(admin),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").first, "collection can be changed only by the persona owner"
+    assert_equal original, persona.reload.draft_config.fetch("phrases").first
+  end
+
+  test "persona API rejects provenance transitions for existing participant artifacts" do
+    coach = persona_user(role: "coach")
+    participant = persona_user(role: "participant")
+    config = persona_configuration(assistant_name: "Participant provenance assistant")
+    config["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "My family calls it the storm fund.",
+          "meaning" => "The participant's own term for emergency savings.",
+          "allowed_contexts" => [ "routine" ]
+        },
+        provenance: "participant_supplied",
+        source_user_id: participant.id
+      )
+    ]
+    persona = CoachPersona.create!(
+      name: "Participant provenance assistant",
+      draft_config: config,
+      created_by_user: coach
+    )
+    original = persona.draft_config.fetch("phrases").first
+    relabeled = persona.draft_config.deep_dup
+    relabeled["phrases"][0]["provenance"] = "coach_authored"
+    relabeled["phrases"][0]["text"] = "A coach replacement."
+
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: relabeled } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors").first, "provenance cannot change"
+    assert_equal original, persona.reload.draft_config.fetch("phrases").first
+
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(coach), as: :json
+
+    assert_response :success
+    access = response.parsed_body.dig("persona", "phrase_artifact_access")
+    assert_equal true, access.fetch("can_add")
+    capability = access.fetch("artifacts").sole
+    assert_equal "Participant supplied", capability.fetch("source_label")
+    assert_equal "participant", capability.fetch("source_role_at_capture")
+    assert_equal false, capability.fetch("can_edit")
+    assert_equal true, capability.fetch("can_move")
+    assert_equal true, capability.fetch("can_remove")
+    assert_equal true, capability.fetch("locked")
+  end
+
+  test "persona API cannot mint participant-supplied phrase provenance" do
+    coach = persona_user(role: "coach")
+    participant = persona_user(role: "participant")
+    draft = persona_configuration(assistant_name: "Untrusted participant phrase")
+    draft["phrases"] = [
+      Mia::PersonaSchema.build_phrase_artifact(
+        {
+          "text" => "My family calls it the storm fund.",
+          "meaning" => "The participant's own term for emergency savings.",
+          "allowed_contexts" => [ "routine" ],
+          "prohibited_contexts" => [ "crisis" ],
+          "frequency" => "rare",
+          "caution" => "Use only for the participant who supplied it."
+        },
+        provenance: "participant_supplied",
+        source_user_id: participant.id
+      )
+    ]
+
+    post "/api/v1/admin/personas",
+      params: { persona: { name: "Untrusted participant phrase", draft_config: draft } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_invalid", response.parsed_body.fetch("code")
+    assert_includes response.parsed_body.fetch("errors").first, "trusted participant-language workflow"
+    assert_nil CoachPersona.find_by(name: "Untrusted participant phrase")
+  end
+
   test "default draft never exposes a coach email when no public name is configured" do
     coach = persona_user(email: "private-coach-address@example.com")
 
@@ -231,7 +445,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     revised_draft = persona.reload.draft_config.deep_merge(
       "identity" => { "assistant_name" => "Second version assistant" },
-      "voice" => { "energy" => "Warm with firm accountability." }
+      "voice" => { "energy" => "Warm and encouraging." }
     )
     patch "/api/v1/admin/personas/#{persona.id}",
       params: { persona: { draft_revision: 1, draft_config: revised_draft } },
@@ -350,7 +564,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
   test "draft changes during behavioral preview cannot authorize the new revision" do
     coach = persona_user
     persona = persona_for(coach, assistant_name: "Draft assistant")
-    with_ready_preview(before_reply: -> { persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "New calm energy." })) }) do
+    with_ready_preview(before_reply: -> { persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." })) }) do
       post "/api/v1/admin/personas/#{persona.id}/preview",
         params: { preview: { draft_revision: 1, sample_prompt: "Can I afford this?" } },
         headers: auth_headers(coach),

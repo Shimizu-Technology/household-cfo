@@ -21,6 +21,7 @@ module Mia
           raise RollbackError, "The published persona changed; reload it before rolling back"
         end
         raise RollbackError, "Rollback target must belong to this persona" unless target_version.coach_persona_id == persona.id
+        ensure_target_is_safe!
         raise RollbackError, "Rollback target content manifest is invalid" unless target_version.content_manifest_valid?
 
         version = persona.versions.create!(
@@ -60,6 +61,12 @@ module Mia
 
     def ensure_staff!
       raise RollbackError, "Only a coach or admin can roll back a persona" unless actor&.staff?
+    end
+
+    def ensure_target_is_safe!
+      PersonaSchema.validate!(target_version.config)
+    rescue PersonaSchema::InvalidConfiguration
+      raise RollbackError, "Rollback target no longer meets the current persona safety rules"
     end
 
     def normalized_version_id(value)

@@ -1,4 +1,12 @@
-import type { PersonaConfiguration, PersonaPhraseContext, PersonaPhraseFrequency } from '../api'
+import type {
+  PersonaAccountabilityStyle,
+  PersonaConfiguration,
+  PersonaEnergyStyle,
+  PersonaLanguageStyle,
+  PersonaPhraseContext,
+  PersonaPhraseFrequency,
+  PersonaToneTrait,
+} from '../api'
 
 export type { PersonaConfiguration } from '../api'
 
@@ -12,6 +20,47 @@ export const PERSONA_PHRASE_CONTEXTS = [
   'general',
   'crisis',
 ] as const satisfies readonly PersonaPhraseContext[]
+export const PERSONA_TONE_TRAITS = [
+  'warm',
+  'direct',
+  'respectful',
+  'calm',
+  'encouraging',
+  'candid',
+  'patient',
+  'concise',
+  'practical',
+  'reassuring',
+  'lighthearted',
+  'formal',
+  'clear',
+  'unhurried',
+] as const satisfies readonly PersonaToneTrait[]
+export const PERSONA_ENERGY_STYLES = [
+  'Calm and focused.',
+  'Calm, clear, and concise.',
+  'Steady and reassuring.',
+  'Warm and encouraging.',
+  'Direct and energetic.',
+  'Quiet and unhurried.',
+] as const satisfies readonly PersonaEnergyStyle[]
+export const PERSONA_ACCOUNTABILITY_STYLES = [
+  "Name choices and patterns clearly while protecting the participant's dignity.",
+  'Ask reflective questions before naming a pattern.',
+  'Be direct about tradeoffs while staying respectful.',
+  'Use gentle accountability and one practical next step.',
+  'Keep accountability firm, calm, and specific.',
+] as const satisfies readonly PersonaAccountabilityStyle[]
+export const PERSONA_LANGUAGE_STYLES = [
+  'Use plain language.',
+  'Keep the next step concrete.',
+  'Use short sentences and concrete questions.',
+  'Prefer conversational language.',
+  'Keep the tone professional and formal.',
+  'Use light humor only when the situation is not sensitive.',
+  'Be concise and avoid unnecessary jargon.',
+  'Explain unfamiliar financial terms briefly.',
+] as const satisfies readonly PersonaLanguageStyle[]
 
 type PersonaPhrase = PersonaConfiguration['phrases'][number]
 type PersonaGuidance = PersonaConfiguration['curriculum']['guidance'][number]
@@ -39,7 +88,7 @@ export const PERSONA_GUIDED_STEPS: readonly PersonaGuidedStep[] = [
 ]
 
 export const PERSONA_LIST_LIMITS = {
-  tone_traits: 12,
+  tone_traits: PERSONA_TONE_TRAITS.length,
   language_style: 8,
   principles: 16,
   coaching_do: 16,
@@ -186,10 +235,10 @@ export function getGuidedStepCompleteness(configuration: PersonaConfiguration): 
   return {
     identity: allNonBlank(Object.values(identity)),
     voice:
-      nonBlankList(voice.tone_traits, 1) &&
-      isNonBlank(voice.energy) &&
-      isNonBlank(voice.accountability_style) &&
-      nonBlankList(voice.language_style, 1),
+      hasOnlyChoices(voice.tone_traits, PERSONA_TONE_TRAITS, 1) &&
+      PERSONA_ENERGY_STYLES.includes(voice.energy) &&
+      PERSONA_ACCOUNTABILITY_STYLES.includes(voice.accountability_style) &&
+      hasOnlyChoices(voice.language_style, PERSONA_LANGUAGE_STYLES, 1),
     coaching:
       isNonBlank(coaching.philosophy) &&
       isNonBlank(coaching.method) &&
@@ -253,6 +302,10 @@ function allNonBlank(values: readonly unknown[]): boolean {
 
 function nonBlankList(values: readonly string[], minimum = 0): boolean {
   return values.length >= minimum && values.every(isNonBlank)
+}
+
+function hasOnlyChoices<T extends string>(values: readonly string[], choices: readonly T[], minimum: number): values is T[] {
+  return values.length >= minimum && values.every((value) => choices.includes(value as T))
 }
 
 function validIndex<T>(items: readonly T[], index: number): boolean {
