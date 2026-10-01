@@ -153,6 +153,14 @@ class S3Service
       false
     end
 
+    def delete!(key)
+      raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
+      return true if key.blank?
+
+      s3_client.delete_object(bucket: bucket_name, key: key)
+      true
+    end
+
     private
 
     def default_prefix

@@ -6,6 +6,8 @@ import {
   createAdminContentItem,
   createAdminContentPack,
   createAdminPersona,
+  acceptAdminContentSourceCandidate,
+  deleteAdminContentSource,
   deleteAdminCohortPersonaAssignment,
   fetchAppData,
   fetchAdminCohortPersonaAssignment,
@@ -15,10 +17,15 @@ import {
   fetchAdminPersonaVersion,
   fetchAdminContentItems,
   fetchAdminContentPacks,
+  fetchAdminContentSource,
+  fetchAdminContentSources,
   previewAdminPersona,
   publishAdminPersona,
   publishAdminContentPack,
   restoreAdminPersona,
+  rejectAdminContentSourceCandidate,
+  reprocessAdminContentSource,
+  retryAdminContentSourceCleanups,
   rollbackAdminPersonaVersion,
   sendMiaMessage,
   setAuthTokenGetter,
@@ -26,8 +33,10 @@ import {
   updateAdminPersona,
   updateAdminContentItem,
   updateAdminContentPack,
+  updateAdminContentSourceCandidate,
   updateAdminPersonaContentPacks,
   uploadDocumentImport,
+  uploadAdminContentSource,
 } from './api'
 
 const completedPayload = {
@@ -214,6 +223,85 @@ describe('Persona Studio API contract', () => {
       errors: ['Reload the current assignment.'],
       conflicts: [{ participant_count: 3 }],
     })
+  })
+})
+
+describe('governed content source API contract', () => {
+  it('uses private direct upload and revision-bound candidate review endpoints', async () => {
+    const candidate = {
+      id: 9, source_id: 7, position: 0, status: 'proposed' as const, title: 'One step', kind: 'guidance' as const,
+      content: 'Choose one practical next step.', topics: ['planning'], evidence_locator: { type: 'text', segment: 1 },
+      evidence_excerpt: 'Choose one practical next step.', revision: 2, digest: 'candidate-digest', safety_code: null,
+      accepted_content_item_id: null, reviewed_at: null, updated_at: '2026-10-01T00:00:00Z',
+    }
+    const source = { id: 7, status: 'needs_review', candidates: [candidate] }
+    const item = { id: 12, title: 'One step' }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ sources: [source] }))
+      .mockResolvedValueOnce(jsonResponse({ source }))
+      .mockResolvedValueOnce(jsonResponse({ upload_url: 'https://private.example/source', upload_headers: { 'x-amz-server-side-encryption': 'AES256' }, upload_token: 'bound-token' }))
+      .mockResolvedValueOnce(new Response(null, { status: 200 }))
+      .mockResolvedValueOnce(jsonResponse({ source }, 201))
+      .mockResolvedValueOnce(jsonResponse({ candidate: { ...candidate, revision: 3 } }))
+      .mockResolvedValueOnce(jsonResponse({ candidate: { ...candidate, status: 'accepted' }, item }))
+      .mockResolvedValueOnce(jsonResponse({ candidate: { ...candidate, status: 'rejected' } }))
+      .mockResolvedValueOnce(jsonResponse({ source: { ...source, status: 'queued' } }))
+      .mockResolvedValueOnce(jsonResponse({ source: { ...source, status: 'deletion_pending' } }, 202))
+      .mockResolvedValueOnce(jsonResponse({ retried_count: 2 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    expect(await fetchAdminContentSources()).toEqual([source])
+    expect(await fetchAdminContentSource(7)).toEqual(source)
+    expect(await uploadAdminContentSource(new File(['lesson'], 'lesson.txt', { type: 'text/plain' }), 'coach')).toEqual(source)
+    await updateAdminContentSourceCandidate(7, candidate, { title: 'One next step', kind: 'guidance', content: candidate.content, topics: candidate.topics })
+    await acceptAdminContentSourceCandidate(7, candidate)
+    await rejectAdminContentSourceCandidate(7, candidate)
+    await reprocessAdminContentSource(7)
+    await deleteAdminContentSource(7)
+    expect(await retryAdminContentSourceCleanups()).toBe(2)
+
+    const paths = fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))
+    expect(paths).toEqual([
+      '/api/v1/admin/content_sources',
+      '/api/v1/admin/content_sources/7',
+      '/api/v1/admin/content_sources/presign',
+      'https://private.example/source',
+      '/api/v1/admin/content_sources/complete',
+      '/api/v1/admin/content_sources/7/candidates/9',
+      '/api/v1/admin/content_sources/7/candidates/9/accept',
+      '/api/v1/admin/content_sources/7/candidates/9/reject',
+      '/api/v1/admin/content_sources/7/reprocess',
+      '/api/v1/admin/content_sources/7/source',
+      '/api/v1/admin/content_sources/retry_upload_cleanups',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[5][1] as RequestInit).body))).toEqual({
+      candidate: { title: 'One next step', kind: 'guidance', content: candidate.content, topics: candidate.topics, revision: 2, digest: 'candidate-digest' },
+    })
+    expect((fetchMock.mock.calls[9][1] as RequestInit).method).toBe('DELETE')
+  })
+
+  it('keeps the current candidate payload on review conflicts and safety responses', async () => {
+    const candidate = {
+      id: 9, source_id: 7, position: 0, status: 'proposed' as const, title: 'Current server title', kind: 'guidance' as const,
+      content: 'Current server wording.', topics: [], evidence_locator: { type: 'text', segment: 1 }, evidence_excerpt: 'Evidence',
+      revision: 3, digest: 'server-digest', safety_code: null, accepted_content_item_id: null, reviewed_at: null,
+      updated_at: '2026-10-01T00:00:00Z',
+    }
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ error: 'Candidate changed.', code: 'content_candidate_conflict', candidate }, 409))
+      .mockResolvedValueOnce(jsonResponse({ error: 'Personal information found.', code: 'personal_information', candidate: { ...candidate, safety_code: 'personal_information' } }, 422)))
+
+    const conflict = await updateAdminContentSourceCandidate(7, { ...candidate, revision: 2, digest: 'stale' }, {
+      title: 'Local title', kind: 'guidance', content: 'Local wording.', topics: [],
+    }).catch((reason: unknown) => reason)
+    expect(conflict).toBeInstanceOf(ApiRequestError)
+    expect(conflict).toMatchObject({ status: 409, payload: { candidate } })
+
+    const unsafe = await updateAdminContentSourceCandidate(7, candidate, {
+      title: candidate.title, kind: candidate.kind, content: 'Contact jane@example.com.', topics: [],
+    }).catch((reason: unknown) => reason)
+    expect(unsafe).toBeInstanceOf(ApiRequestError)
+    expect(unsafe).toMatchObject({ status: 422, code: 'personal_information', payload: { candidate: { safety_code: 'personal_information' } } })
   })
 })
 

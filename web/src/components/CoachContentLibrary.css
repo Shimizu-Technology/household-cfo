@@ -247,5 +247,6 @@
   .coach-content-form-row { grid-template-columns: minmax(0, 1fr); }
   .coach-content-panel > header,
   .coach-content-actions { align-items: stretch; flex-direction: column; }
+  .coach-content-panel > header > .button--compact { min-height: 2.75rem; }
   .coach-content-actions .button { width: 100%; }
 }

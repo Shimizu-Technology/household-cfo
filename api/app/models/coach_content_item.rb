@@ -10,6 +10,7 @@ class CoachContentItem < ApplicationRecord
   belongs_to :current_approved_version, class_name: "CoachContentItemVersion", optional: true
   has_many :versions, -> { order(:version_number) }, class_name: "CoachContentItemVersion", dependent: :restrict_with_exception, inverse_of: :coach_content_item
   has_many :draft_pack_entries, class_name: "CoachContentPackDraftEntry", dependent: :restrict_with_exception
+  has_one :draft_source_provenance, class_name: "CoachContentItemDraftProvenance", dependent: :restrict_with_exception
 
   normalizes :title, with: ->(value) { value.to_s.squish }
   normalizes :draft_content, with: ->(value) { value.to_s.strip }
@@ -44,7 +45,11 @@ class CoachContentItem < ApplicationRecord
           ActiveSupport::SecurityUtils.secure_compare(expected_draft_digest.to_s, digest)
         raise ApprovalConflict, "The content draft changed; reload it before approving"
       end
-      if current_approved_version&.content_digest_valid? && current_approved_version.content_digest == digest
+      Mia::ContentSafetyValidator.validate!(title: title, content: draft_content)
+      if draft_source_provenance.present? && !draft_source_provenance.integrity_valid?
+        raise ArgumentError, "The source provenance failed integrity validation"
+      end
+      if current_approved_version&.integrity_valid? && current_approved_version.content_digest == digest
         return current_approved_version
       end
 
@@ -57,6 +62,7 @@ class CoachContentItem < ApplicationRecord
         content_digest: digest,
         approved_by_user: actor
       )
+      CoachContentItemVersionProvenance.create_from_draft!(draft: draft_source_provenance, version: version) if draft_source_provenance.present?
       update_columns(current_approved_version_id: version.id, updated_at: Time.current, lock_version: lock_version + 1)
       version
     end

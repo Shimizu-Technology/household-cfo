@@ -783,6 +783,54 @@ export type AdminPersonaVersion = {
 export type AdminContentItemKind = 'guidance' | 'script' | 'example' | 'phrase' | 'culture' | 'finance_reference'
 export type AdminContentPackKind = 'voice_culture' | 'coaching_method' | 'finance_reference'
 export type AdminContentScope = 'coach' | 'platform'
+export type AdminContentSourceStatus = 'upload_cleanup_failed' | 'queued' | 'processing' | 'needs_review' | 'failed' | 'deletion_pending' | 'deletion_failed' | 'source_deleted'
+
+export type AdminContentSourceCandidate = {
+  id: number
+  source_id: number
+  position: number
+  status: 'proposed' | 'accepted' | 'rejected' | 'superseded'
+  title: string
+  kind: AdminContentItemKind
+  content: string
+  topics: string[]
+  evidence_locator: Record<string, string | number>
+  evidence_excerpt: string
+  revision: number
+  digest: string
+  safety_code: string | null
+  accepted_content_item_id: number | null
+  reviewed_at: string | null
+  updated_at: string
+}
+
+export type AdminContentSource = {
+  id: number
+  scope: AdminContentScope
+  filename: string
+  content_type: string
+  byte_size: number
+  checksum_sha256: string
+  status: AdminContentSourceStatus
+  generation: number
+  source_available: boolean
+  error: string | null
+  error_code: string | null
+  source_delete_error_code: string | null
+  processing_metadata: Record<string, string | number>
+  processed_at: string | null
+  source_deleted_at: string | null
+  created_at: string
+  updated_at: string
+  current_attempt: null | {
+    id: number
+    generation: number
+    status: string
+    error: string | null
+    error_code: string | null
+  }
+  candidates: AdminContentSourceCandidate[]
+}
 
 export type AdminContentItemVersion = {
   id: number
@@ -1284,6 +1332,7 @@ export class ApiRequestError extends Error {
   readonly code: string | null
   readonly errors: string[]
   readonly conflicts: ApiErrorConflict[]
+  readonly payload: Record<string, unknown>
 
   constructor(
     message: string,
@@ -1292,6 +1341,7 @@ export class ApiRequestError extends Error {
       code?: string | null
       errors?: string[]
       conflicts?: ApiErrorConflict[]
+      payload?: Record<string, unknown>
     },
   ) {
     super(message)
@@ -1300,6 +1350,7 @@ export class ApiRequestError extends Error {
     this.code = options.code ?? null
     this.errors = options.errors ?? []
     this.conflicts = options.conflicts ?? []
+    this.payload = options.payload ?? {}
   }
 }
 
@@ -1515,6 +1566,7 @@ async function apiRequestError(response: Response, fallback: string) {
     code: typeof payload.code === 'string' ? payload.code : null,
     errors,
     conflicts,
+    payload,
   })
 }
 
@@ -1633,6 +1685,80 @@ export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
 export async function fetchAdminContentItems(): Promise<AdminContentItem[]> {
   const payload = await fetchJson<{ items: AdminContentItem[] }>('/api/v1/admin/content_items')
   return payload.items
+}
+
+export async function fetchAdminContentSources(): Promise<AdminContentSource[]> {
+  const payload = await fetchJson<{ sources: AdminContentSource[] }>('/api/v1/admin/content_sources')
+  return payload.sources
+}
+
+export async function fetchAdminContentSource(id: number): Promise<AdminContentSource> {
+  const payload = await fetchJson<{ source: AdminContentSource }>(`/api/v1/admin/content_sources/${id}`)
+  return payload.source
+}
+
+export async function uploadAdminContentSource(file: File, scope: AdminContentScope = 'coach'): Promise<AdminContentSource> {
+  const uploadRequestId = clientRequestId()
+  const contentType = contentSourceUploadType(file)
+  const checksumSha256 = await fileSha256(file)
+  if (!checksumSha256) throw new Error('This browser cannot verify a private upload safely.')
+  const presign = await postJson<{ upload_url: string; upload_headers: Record<string, string>; upload_token: string }>(
+    '/api/v1/admin/content_sources/presign',
+    {
+      filename: file.name,
+      content_type: contentType,
+      byte_size: file.size,
+      checksum_sha256: checksumSha256,
+      upload_request_id: uploadRequestId,
+      scope,
+    },
+    { timeoutMs: 30_000, timeoutMessage: 'Preparing the private source upload took too long.' },
+  )
+
+  let uploadResponse: Response
+  try {
+    uploadResponse = await fetchWithDeadline(presign.upload_url, { method: 'PUT', headers: presign.upload_headers, body: file }, FILE_UPLOAD_TIMEOUT_MS, 'The private source upload took too long.')
+  } catch (error) {
+    if (error instanceof ApiDeadlineError) throw error
+    throw new Error('The private source upload could not reach storage. Check your connection and try again.', { cause: error })
+  }
+  if (!uploadResponse.ok) throw new Error(`The private source upload failed (${uploadResponse.status}). Try again.`)
+
+  const payload = await postJson<{ source: AdminContentSource }>('/api/v1/admin/content_sources/complete', { upload_token: presign.upload_token }, { timeoutMs: 30_000, timeoutMessage: 'Registering the private source took too long. Your file is still selected; try again.' })
+  return payload.source
+}
+
+export async function reprocessAdminContentSource(id: number): Promise<AdminContentSource> {
+  const payload = await postJson<{ source: AdminContentSource }>(`/api/v1/admin/content_sources/${id}/reprocess`, {})
+  return payload.source
+}
+
+export async function deleteAdminContentSource(id: number): Promise<AdminContentSource> {
+  const payload = await fetchJson<{ source: AdminContentSource }>(`/api/v1/admin/content_sources/${id}/source`, { method: 'DELETE' })
+  return payload.source
+}
+
+export async function retryAdminContentSourceCleanups(): Promise<number> {
+  const payload = await postJson<{ retried_count: number }>('/api/v1/admin/content_sources/retry_upload_cleanups', {})
+  return payload.retried_count
+}
+
+export async function updateAdminContentSourceCandidate(sourceId: number, candidate: AdminContentSourceCandidate, values: Pick<AdminContentSourceCandidate, 'title' | 'kind' | 'content' | 'topics'>): Promise<AdminContentSourceCandidate> {
+  const payload = await fetchJson<{ candidate: AdminContentSourceCandidate }>(`/api/v1/admin/content_sources/${sourceId}/candidates/${candidate.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ candidate: { ...values, revision: candidate.revision, digest: candidate.digest } }),
+  })
+  return payload.candidate
+}
+
+export async function acceptAdminContentSourceCandidate(sourceId: number, candidate: AdminContentSourceCandidate): Promise<{ candidate: AdminContentSourceCandidate; item: AdminContentItem }> {
+  return postJson(`/api/v1/admin/content_sources/${sourceId}/candidates/${candidate.id}/accept`, { candidate: { revision: candidate.revision, digest: candidate.digest } })
+}
+
+export async function rejectAdminContentSourceCandidate(sourceId: number, candidate: AdminContentSourceCandidate): Promise<AdminContentSourceCandidate> {
+  const payload = await postJson<{ candidate: AdminContentSourceCandidate }>(`/api/v1/admin/content_sources/${sourceId}/candidates/${candidate.id}/reject`, { candidate: { revision: candidate.revision, digest: candidate.digest } })
+  return payload.candidate
 }
 
 export async function createAdminContentItem(values: {
@@ -2391,6 +2517,19 @@ function uploadContentType(file: File) {
     webp: 'image/webp',
     heic: 'image/heic',
     heif: 'image/heif',
+  }
+  return types[extension ?? ''] ?? (file.type || 'application/octet-stream')
+}
+
+function contentSourceUploadType(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  const types: Record<string, string> = {
+    pdf: 'application/pdf',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    txt: 'text/plain',
+    md: 'text/markdown',
+    vtt: 'text/vtt',
+    srt: 'application/x-subrip',
   }
   return types[extension ?? ''] ?? (file.type || 'application/octet-stream')
 }

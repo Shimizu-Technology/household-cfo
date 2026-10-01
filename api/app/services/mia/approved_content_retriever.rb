@@ -59,19 +59,30 @@ module Mia
 
     def content_pack_links
       if pack_versions
-        return Array(pack_versions).select(&:manifest_valid?).each_with_index.map { |version, position| Link.new(coach_content_pack_version: version, position: position) }
+        valid = Array(pack_versions).select(&:manifest_valid?)
+        @validated_pack_version_ids = valid.map(&:id).to_set
+        return valid.each_with_index.map { |version, position| Link.new(coach_content_pack_version: version, position: position) }
       end
       return [] unless persona.respond_to?(:version) && persona.version
-      return [] unless persona.version.content_manifest_valid?
+      links = persona.version.content_pack_links.includes(
+        coach_content_pack_version: {
+          entries: {
+            coach_content_item_version: [ :coach_content_item, {
+              source_provenance: [ :coach_content_source, :coach_content_source_attempt, { coach_content_source_candidate: :accepted_content_item } ]
+            } ]
+          }
+        }
+      ).order(:position).to_a
+      versions = links.map(&:coach_content_pack_version)
+      return [] unless persona.version.content_manifest_valid_with_versions?(versions)
 
-      persona.version.content_pack_links
-        .includes(coach_content_pack_version: { entries: { coach_content_item_version: :coach_content_item } })
-        .order(:position)
+      @validated_pack_version_ids = versions.map(&:id).to_set
+      links
     end
 
     def candidates_for_link(link)
       pack = link.coach_content_pack_version
-      return [] unless pack.manifest_valid?
+      return [] unless @validated_pack_version_ids&.include?(pack.id)
 
       pack.entries.sort_by(&:position).map do |entry|
         item = entry.coach_content_item_version

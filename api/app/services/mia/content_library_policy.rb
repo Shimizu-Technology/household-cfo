@@ -38,6 +38,17 @@ module Mia
       )
     end
 
+    def visible_sources
+      visible = CoachContentSource.where.not(status: %w[uploading verifying upload_cleanup])
+      return visible if user.admin?
+
+      visible.where.not(status: "upload_cleanup_failed").where(scope: "coach", created_by_user_id: user.id)
+    end
+
+    def editable_sources
+      visible_sources
+    end
+
     private
 
     attr_reader :user

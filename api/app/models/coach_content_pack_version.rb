@@ -3,6 +3,9 @@
 require "digest"
 
 class CoachContentPackVersion < ApplicationRecord
+  ITEM_INTEGRITY_INCLUDES = [ :coach_content_item, {
+    source_provenance: %i[coach_content_source coach_content_source_attempt coach_content_source_candidate]
+  } ].freeze
   belongs_to :coach_content_pack, inverse_of: :versions
   belongs_to :published_by_user, class_name: "User", inverse_of: :published_coach_content_pack_versions
   has_many :entries, -> { order(:position) }, class_name: "CoachContentPackVersionEntry", dependent: :restrict_with_exception, inverse_of: :coach_content_pack_version
@@ -25,23 +28,26 @@ class CoachContentPackVersion < ApplicationRecord
     end
 
     def draft_equivalent_digest(version)
-      draft_manifest_digest_for(version, version.entries.includes(:coach_content_item_version).order(:position))
+      draft_manifest_digest_for(version, version.entries.includes(coach_content_item_version: ITEM_INTEGRITY_INCLUDES).order(:position))
     end
 
     def content_digest_for(version)
-      payload = snapshot_payload(version, version.entries.includes(:coach_content_item_version).order(:position))
+      payload = snapshot_payload(version, version.entries.includes(coach_content_item_version: ITEM_INTEGRITY_INCLUDES).order(:position))
         .merge(pack_version_id: version.id, pack_version_number: version.version_number)
       Digest::SHA256.hexdigest(JSON.generate(payload).b)
     end
 
     def item_identity(item_version, position:)
-      {
+      identity = {
         position: position,
         item_version_id: item_version.id,
         item_id: item_version.coach_content_item_id,
         item_version_number: item_version.version_number,
         content_digest: item_version.content_digest
       }
+      provenance_digest = item_version.source_provenance_digest
+      identity[:source_provenance_digest] = provenance_digest if provenance_digest.present?
+      identity
     end
 
     private
@@ -66,7 +72,7 @@ class CoachContentPackVersion < ApplicationRecord
 
   def seal!
     raise ArgumentError, "Published content pack version is already sealed" if sealed?
-    unless entries.includes(:coach_content_item_version).all? { |entry| entry.coach_content_item_version.content_digest_valid? }
+    unless entries.includes(coach_content_item_version: ITEM_INTEGRITY_INCLUDES).all? { |entry| entry.coach_content_item_version.integrity_valid? }
       raise ArgumentError, "Content pack versions cannot seal invalid approved item versions"
     end
 
@@ -80,8 +86,8 @@ class CoachContentPackVersion < ApplicationRecord
   def manifest_valid?
     return false unless sealed?
 
-    linked_items = entries.includes(:coach_content_item_version).order(:position).map(&:coach_content_item_version)
-    return false unless linked_items.all?(&:content_digest_valid?)
+    linked_items = entries.includes(coach_content_item_version: ITEM_INTEGRITY_INCLUDES).order(:position).map(&:coach_content_item_version)
+    return false unless linked_items.all?(&:integrity_valid?)
 
     ActiveSupport::SecurityUtils.secure_compare(content_digest, self.class.content_digest_for(self))
   end
