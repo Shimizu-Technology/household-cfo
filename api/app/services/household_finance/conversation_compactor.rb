@@ -271,7 +271,8 @@ module HouseholdFinance
     end
 
     def text_looks_like_follow_up?(text)
-      normalize(text).match?(FOLLOW_UP_PATTERN)
+      normalize(text).match?(FOLLOW_UP_PATTERN) &&
+        !ConversationFollowupResolver.complete_conditional_income_question?(text)
     end
 
     def recall_request?

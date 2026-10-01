@@ -7,6 +7,8 @@ module HouseholdFinance
     ACKNOWLEDGMENT_PATTERN = /\A(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it)(?:[\s,!.]+(?:for sure|sounds good|got it|okay|ok|thanks|thank you|appreciate it|for that|for this|chelu|mia))*[\s,!.]*\z/i.freeze
     CONFIRMATION_PATTERN = /\A(?:yes|yeah|yep|yup|please|ok|okay|sure|for sure|go ahead)(?:[\s,!.]+(?:please|do that|do it|draft that|make that change|go ahead|yes|yeah|ok|okay|sure))*[\s,!.]*\z|\A(?:do that|do it|draft that|make that change|please do that|please do it)[\s,!.]*\z/i.freeze
     MONEY_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])/.freeze
+    CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN = /\b(?:if|given(?:\s+that)?|assuming|suppose|supposing|let['’]?s\s+say)\b.{0,120}\b(?:(?:our|my|the)\s+)?(?:monthly\s+income|income\s+(?:per|each)\s+month|take(?:\s|-)?home(?:\s+pay)?|bring\s+home)\b(?:\s+(?:is|was|were|equals?|of|became|becomes))?\s*(?:about|around|approximately|roughly)?\s*\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/i.freeze
+    SAVINGS_SURPLUS_QUESTION_PATTERN = /\b(?:save|saving|savings|surplus|left\s+over|leftover)\b/i.freeze
     SPENDING_REPORT_PATTERNS = [
       /\bhow much\s+(?:did|have)\s+(?:i|we)\s+(?:spend|spent|pay|paid)\b/i,
       /\bhow much\s+(?:was|were)\b.*\b(?:spent|spending|actuals?|transactions?)\b/i,
@@ -21,6 +23,11 @@ module HouseholdFinance
     def initialize(message, conversation_context: nil)
       @message = message.to_s.squish
       @conversation_context = (conversation_context || {}).deep_stringify_keys
+    end
+
+    def self.complete_conditional_income_question?(message)
+      text = message.to_s.squish
+      text.match?(CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN) && text.match?(SAVINGS_SURPLUS_QUESTION_PATTERN)
     end
 
     def call
@@ -164,7 +171,8 @@ module HouseholdFinance
 
     def strong_new_topic?
       normalized = message.downcase
-      normalized.match?(/\b(?:new question|different question|switch topics|unrelated)\b/) ||
+      self.class.complete_conditional_income_question?(message) ||
+        normalized.match?(/\b(?:new question|different question|switch topics|unrelated)\b/) ||
         normalized.match?(/\b(?:my cousin|car registration|car repair|payday loan|balance transfer|leave my job|business income|pending drafts?|i spent|we spent)\b/) ||
         spending_report_question?
     end

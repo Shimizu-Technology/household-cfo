@@ -296,6 +296,17 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       assert_nil result.direct_answer, message
     end
 
+    conditional_income_topics = [
+      "If our monthly income is $5,000, how much can we save?",
+      "Given our monthly income is $5,000, what is our surplus?"
+    ]
+    conditional_income_topics.each do |message|
+      result = HouseholdFinance::ConversationFollowupResolver.new(message, conversation_context: context).call
+      assert_not result.follow_up?, message
+      assert_equal message, result.message, message
+      assert_nil result.direct_answer, message
+    end
+
     acknowledgments = [
       "For sure, thank you for that chelu",
       "Thanks Mia",
@@ -308,7 +319,7 @@ class HouseholdFinanceMiaContextualMatrixTest < ActionDispatch::IntegrationTest
       assert_includes result.direct_answer, "approved household numbers", message
     end
 
-    followups.length + recalls.length + empty_recalls.length + new_topics.length + acknowledgments.length + 2
+    followups.length + recalls.length + empty_recalls.length + new_topics.length + conditional_income_topics.length + acknowledgments.length + 2
   end
 
   def run_transaction_draft_cases(household, manager)
