@@ -72,7 +72,7 @@ module Mia
     attr_reader :user_message, :history, :persona
 
     def custom_persona?
-      persona.respond_to?(:version_id) && persona.version_id.present?
+      persona.respond_to?(:all_cultural_phrases)
     end
 
     def sanitize_custom_persona(content)

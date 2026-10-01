@@ -15,21 +15,55 @@ module Mia
 
     attr_reader :version
 
-    def self.for_preview(config:, persona_id:, draft_revision:)
-      new(
-        nil,
-        config: config,
-        identifier: "coach_persona_#{persona_id}_draft_#{draft_revision}",
-        persona_id: persona_id
-      )
+    class << self
+      def for_preview(config:, persona_id:, draft_revision:)
+        new(
+          nil,
+          config: config,
+          identifier: "coach_persona_#{persona_id}_draft_#{draft_revision}",
+          persona_id: persona_id
+        )
+      end
+
+      def for_participant(version:, user:, cohort_membership:)
+        persisted_version = CoachPersonaVersion.includes(:coach_persona).find_by(id: version&.id)
+        return new(version) unless persisted_version
+
+        runtime = new(persisted_version)
+        participant_id = verified_participant_id(
+          version: persisted_version,
+          user: user,
+          cohort_membership: cohort_membership
+        )
+        runtime.instance_variable_set(:@participant_id, participant_id) if participant_id
+        runtime
+      end
+
+      private
+
+      def verified_participant_id(version:, user:, cohort_membership:)
+        persisted_user = User.find_by(id: user&.id, role: "participant", invitation_status: "accepted")
+        return unless persisted_user
+
+        membership = CohortMembership.includes(cohort: :cohort_persona_assignment).find_by(
+          id: cohort_membership&.id,
+          user_id: persisted_user.id,
+          role: "participant"
+        )
+        assignment = membership&.cohort&.cohort_persona_assignment
+        return unless assignment&.coach_persona_id == version.coach_persona_id
+        return unless assignment.coach_persona_version_id == version.id
+        return unless version.coach_persona.current_published_version_id == version.id
+
+        persisted_user.id
+      end
     end
 
-    def initialize(version, config: nil, identifier: nil, persona_id: nil, participant_id: nil)
+    def initialize(version, config: nil, identifier: nil, persona_id: nil)
       @version = version
       @config = PersonaSchema.validate!(config || version.config)
       @identifier = identifier
       @persona_id = persona_id
-      @participant_id = participant_id
     end
 
     def id

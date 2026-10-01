@@ -58,6 +58,7 @@ module Api
           session,
           persona_version_id: current_persona.version_id
         ).call
+        transcript = transcript_for_current_persona(transcript)
         transcript = intent_transcript_without_memory_commands(transcript)
         history = transcript.map { |message| message.slice(:role, :content) }
         @mia_conversation_messages = history
@@ -251,6 +252,18 @@ module Api
       end
 
       private
+
+      def transcript_for_current_persona(transcript)
+        Array(transcript).filter_map do |message|
+          content = ::Mia::LanguagePolicy.redact_unauthorized_phrase_artifacts(
+            message[:content],
+            persona: current_persona
+          )
+          next if content.blank?
+
+          message.merge(content: content)
+        end
+      end
 
       def intent_transcript_without_memory_commands(transcript)
         source_ids = current_household.household_memories

@@ -752,6 +752,75 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("errors"), "Mia request ID is invalid"
   end
 
+  test "mia intent provider transcript excludes another participant's legacy phrase" do
+    coach = create_user(email: "phrase-audience-coach@example.com", role: "coach")
+    user = create_user(email: "phrase-audience-current@example.com")
+    source_participant = create_user(email: "phrase-audience-source@example.com")
+    config = persona_configuration(assistant_name: "Coach Lila", coach_name: "Coach June")
+    config["phrases"] = [
+      persona_phrase_artifact(
+        { "text" => "Steady steps", "meaning" => "The coach's shared reminder." },
+        source_user_id: coach.id
+      ),
+      persona_phrase_artifact(
+        { "text" => "My grocery check", "meaning" => "The current participant's wording." },
+        source_user_id: user.id,
+        provenance: "participant_supplied"
+      ),
+      persona_phrase_artifact(
+        { "text" => "Auntie's grocery rule", "meaning" => "Another participant's private wording." },
+        source_user_id: source_participant.id,
+        provenance: "participant_supplied"
+      )
+    ]
+    persona = CoachPersona.create!(
+      name: "Coach Lila",
+      description: "Intent transcript audience fixture.",
+      draft_config: config,
+      created_by_user: coach
+    )
+    version = publish_persona(persona, actor: coach)
+    cohort = Cohort.create!(name: "Intent transcript cohort", status: "active", created_by_user: coach)
+    cohort.cohort_memberships.create!(user: user, role: "participant")
+    cohort.cohort_memberships.create!(user: source_participant, role: "participant")
+    CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: coach)
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    session.chat_messages.create!(
+      role: "assistant",
+      content: "Steady steps. My grocery check. Auntie's grocery rule. Review the list.",
+      coach_persona_version: version,
+      assistant_author: "Coach Lila"
+    )
+    captured_contexts = []
+    fake_resolver = lambda do |**kwargs|
+      captured_contexts << kwargs.fetch(:context)
+      Object.new.tap { |object| object.define_singleton_method(:call) { nil } }
+    end
+
+    with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+      post "/api/v1/mia/messages",
+           params: { message: "Please explain my budget options." },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :created
+    context = captured_contexts.sole
+    recent_content = context.dig(:conversation, :recent_messages).pluck(:content).join(" ")
+    assert_includes recent_content, "Steady steps"
+    assert_includes recent_content, "My grocery check"
+    refute_includes recent_content, "Auntie's grocery rule"
+
+    provider_payload = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Please explain my budget options.",
+      context: context
+    ).send(:payload).to_json
+    assert_includes provider_payload, "Steady steps"
+    assert_includes provider_payload, "My grocery check"
+    refute_includes provider_payload, "Auntie's grocery rule"
+  end
+
   test "mia chat routes deterministic coaching packets through Mia narrator" do
     user = create_user(email: "mia-narrator@example.com")
     patch "/api/v1/workspace/setup",

@@ -97,6 +97,54 @@ class MiaPhraseArtifactAudienceTest < ActiveSupport::TestCase
     end
   end
 
+  test "direct construction cannot forge participant audience with a numeric source id" do
+    assert_raises(ArgumentError) do
+      Mia::RuntimePersona.new(@version, participant_id: @participant.id)
+    end
+
+    forged_config = @version.config.deep_dup
+    forged_config["phrases"] = [
+      persona_phrase_artifact(
+        {
+          "text" => "Private family wording",
+          "meaning" => "Participant-supplied family language.",
+          "allowed_contexts" => [ "routine" ]
+        },
+        source_user_id: 4242,
+        provenance: "participant_supplied"
+      )
+    ]
+    direct_runtime = Mia::RuntimePersona.new(
+      nil,
+      config: forged_config,
+      identifier: "forged_runtime",
+      persona_id: @version.coach_persona_id
+    )
+
+    refute_includes direct_runtime.system_prompt, "Private family wording"
+    assert_equal "Review groceries today.",
+      policy(direct_runtime).sanitize("Private family wording, review groceries today.")
+  end
+
+  test "verified factory reloads persisted relationships before granting participant audience" do
+    runtime = Mia::RuntimePersona.for_participant(
+      version: @version,
+      user: @participant,
+      cohort_membership: @membership
+    )
+    forged_membership = @other_membership.dup
+    forged_membership.id = @membership.id
+    forged_membership.user = @participant
+    unverified = Mia::RuntimePersona.for_participant(
+      version: @version,
+      user: @other_participant,
+      cohort_membership: forged_membership
+    )
+
+    assert_includes runtime.system_prompt, PARTICIPANT_PHRASE
+    refute_includes unverified.system_prompt, PARTICIPANT_PHRASE
+  end
+
   test "built-in demo persona history remains unchanged" do
     content = "Håfa Adai, let us review the plan."
 

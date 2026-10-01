@@ -20,7 +20,11 @@ module Mia
       version = assignment.coach_persona_version
       return invalid_assignment_fallback(assignment) unless persona.current_published_version_id == version.id
 
-      RuntimePersona.new(version, participant_id: audience_participant_id)
+      RuntimePersona.for_participant(
+        version: version,
+        user: user,
+        cohort_membership: cohort_membership
+      )
     rescue PersonaSchema::InvalidConfiguration, ActiveRecord::RecordNotFound => error
       Rails.logger.warn("[Mia::PersonaResolver] using fallback: #{error.class}: #{error.message}")
       Persona.neutral
@@ -29,13 +33,6 @@ module Mia
     private
 
     attr_reader :user, :cohort_membership
-
-    def audience_participant_id
-      return unless user && cohort_membership
-      return unless cohort_membership.user_id == user.id && cohort_membership.role == "participant"
-
-      user.id
-    end
 
     def conflicting_persona_assignments?
       return false unless user
