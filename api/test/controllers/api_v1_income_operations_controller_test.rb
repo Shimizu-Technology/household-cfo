@@ -38,11 +38,35 @@ class ApiV1IncomeOperationsControllerTest < ActionDispatch::IntegrationTest
     entry_id = response.parsed_body.dig("income_schedule_entry", "id")
     assert_equal "2026-12-01", response.parsed_body.dig("income_schedule_entry", "effective_on")
     assert_equal 1, source.income_schedule_entries.where(id: entry_id).count
-    assert_equal 1, household.household_operation_executions.where(idempotency_key: "bonus-create").count
+    execution = household.household_operation_executions.find_by!(idempotency_key: "bonus-create")
+    assert_equal [ "IncomeSource", source.id ], execution.values_at(:subject_type, :subject_id)
+
+    update_body = { income_schedule_entry: { income_source_id: source.id, entry_type: "one_time", label: "Year-end bonus", amount: 450, effective_on: "2026-12-01" } }
+    update_headers = auth_headers(user).merge("Idempotency-Key" => "bonus-update")
+    patch "/api/v1/income_schedule_entries/#{entry_id}?year=2026", params: update_body, headers: update_headers, as: :json
+    assert_response :success
+    assert_equal "Year-end bonus", response.parsed_body.dig("income_schedule_entry", "label")
+    assert_equal 450, response.parsed_body.dig("income_schedule_entry", "amount")
+    update_execution = household.household_operation_executions.find_by!(idempotency_key: "bonus-update")
+    assert_equal [ "IncomeSource", source.id ], update_execution.values_at(:subject_type, :subject_id)
 
     delete "/api/v1/income_schedule_entries/#{entry_id}?year=2026", headers: auth_headers(user).merge("Idempotency-Key" => "bonus-delete"), as: :json
     assert_response :success
     assert_equal({ "id" => entry_id, "deleted" => true }, response.parsed_body.fetch("income_schedule_entry"))
+
+    post "/api/v1/income_schedule_entries?year=2026", params: body, headers: headers, as: :json
+    assert_response :created
+    assert_equal({
+      "id" => entry_id, "income_source_id" => source.id, "entry_type" => "one_time", "label" => "Bonus",
+      "amount" => 400.0, "cadence" => "one_time", "effective_on" => "2026-12-01", "retained_after_transition" => false
+    }, response.parsed_body.fetch("income_schedule_entry"))
+    assert_empty response.parsed_body.dig("budget", "annual_plan", "income_sources").sole.fetch("schedule_entries")
+
+    patch "/api/v1/income_schedule_entries/#{entry_id}?year=2026", params: update_body, headers: update_headers, as: :json
+    assert_response :success
+    assert_equal "Year-end bonus", response.parsed_body.dig("income_schedule_entry", "label")
+    assert_equal 450.0, response.parsed_body.dig("income_schedule_entry", "amount")
+    assert_empty response.parsed_body.dig("budget", "annual_plan", "income_sources").sole.fetch("schedule_entries")
   end
 
   test "income writes require an idempotency key" do

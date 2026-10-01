@@ -41,6 +41,7 @@ module HouseholdFinance
         setup_complete: status.complete?,
         setup_status: status.as_json,
         setup_values: setup_values,
+        income_sources: household_income_sources,
         debts: debt_records,
         cohort: cohort_context,
         capabilities: experience_capabilities
@@ -254,6 +255,10 @@ module HouseholdFinance
 
     def income_sources
       @income_sources ||= household.income_sources.includes(:income_schedule_entries).order(:source_type, :label).select { |source| source.effective_on?(Date.current) }
+    end
+
+    def household_income_sources
+      @household_income_sources ||= IncomeSourcePresenter.collection(household.income_sources)
     end
 
     def expense_items

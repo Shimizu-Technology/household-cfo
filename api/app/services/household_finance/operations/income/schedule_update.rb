@@ -36,7 +36,7 @@ module HouseholdFinance
             entry.merge(
               "entry_type" => input.fetch(:entry_type), "label" => input[:label], "amount_cents" => input.fetch(:amount_cents),
               "cadence" => input.fetch(:cadence), "effective_on" => input.fetch(:effective_on),
-              "retained_after_transition" => input.fetch(:retained_after_transition)
+              "retained_after_transition" => input.fetch(:retained_after_transition), "active" => true
             )
           end
           { source: before.fetch("source"), schedule_entries: entries, conflicting_source_ids: before.fetch("conflicting_source_ids") }
@@ -49,7 +49,7 @@ module HouseholdFinance
         def mutate!(source, input, prepared:)
           entry = source.income_schedule_entries.lock.find(input.fetch(:entry_id))
           entry.update!(entry_attributes_from_input(input))
-          entry
+          source
         end
       end
     end

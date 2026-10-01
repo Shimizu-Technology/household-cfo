@@ -26,9 +26,11 @@ module HouseholdFinance
         end
 
         def canonical_snapshot(_subject, input, lock:)
-          conflicts = household.income_sources.where(active: true, source_type: input.fetch(:source_type)).where("LOWER(label) = ?", input.fetch(:label).downcase)
-          conflicts = conflicts.lock if lock
-          { source: nil, schedule_entries: [], conflicting_source_ids: conflicts.order(:id).pluck(:id) }
+          conflicts = conflicting_source_ids(
+            label: input.fetch(:label), source_type: input.fetch(:source_type), starts_on: input.fetch(:starts_on),
+            ends_on: nil, active: true, lock: lock
+          )
+          { source: nil, schedule_entries: [], conflicting_source_ids: conflicts }
         end
 
         def predicted_after(before, input)
@@ -59,7 +61,9 @@ module HouseholdFinance
         end
 
         def conflicting_record(input)
-          household.income_sources.new(label: input.fetch(:label), source_type: input.fetch(:source_type)).tap(&:valid?)
+          household.income_sources.new(label: input.fetch(:label), source_type: input.fetch(:source_type)).tap do |record|
+            record.errors.add(:starts_on, "overlaps another income source with this name and type")
+          end
         end
 
         def stale_message

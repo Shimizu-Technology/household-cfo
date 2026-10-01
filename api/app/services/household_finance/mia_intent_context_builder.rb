@@ -135,11 +135,11 @@ module HouseholdFinance
     end
 
     def income_sources
-      serialize_income_sources(household.income_sources.select { |source| source.effective_on?(Date.current) })
+      serialize_income_sources(household.income_sources)
     end
 
     def archived_income_sources
-      serialize_income_sources(household.income_sources.select { |source| source.ends_on.present? })
+      serialize_income_sources(household.income_sources.select { |source| source.timeline_status(on: Date.current).in?(%w[ended archived]) })
     end
 
     def serialize_income_sources(scope)
@@ -158,6 +158,8 @@ module HouseholdFinance
           ends_on: source.ends_on&.iso8601,
           base_amount: Money.dollars(source.amount_cents),
           base_cadence: source.cadence,
+          active: source.effective_on?(Date.current),
+          timeline_status: source.timeline_status(on: Date.current),
           current_monthly_amount: Money.dollars(IncomeTimeline.recurring_monthly_cents(source, on: Date.current)),
           schedule_entries: source.income_schedule_entries.sort_by(&:effective_on).last(12).map do |entry|
             {
@@ -167,7 +169,8 @@ module HouseholdFinance
               amount: Money.dollars(entry.amount_cents),
               cadence: entry.cadence,
               effective_on: entry.effective_on.iso8601,
-              retained_after_transition: entry.retained_after_transition?
+              retained_after_transition: entry.retained_after_transition?,
+              active: source.schedule_entry_active?(entry)
             }
           end
         }

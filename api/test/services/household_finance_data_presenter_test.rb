@@ -494,6 +494,31 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal 6, @expanded_page.fetch(:messages).sum { |message| message.fetch(:citations).length }
   end
 
+  test "workspace keeps the full income source history while the annual plan stays year scoped" do
+    travel_to Date.new(2026, 10, 15) do
+      household, user = create_household
+      ended = household.income_sources.create!(
+        label: "Old contract", source_type: "business", amount_cents: 100_000, cadence: "monthly",
+        starts_on: Date.new(2025, 1, 1), ends_on: Date.new(2025, 12, 1), active: false
+      )
+      current = household.income_sources.create!(
+        label: "Current salary", source_type: "job", amount_cents: 500_000, cadence: "monthly", starts_on: Date.new(2026, 1, 1)
+      )
+      future = household.income_sources.create!(
+        label: "Future contract", source_type: "business", amount_cents: 200_000, cadence: "monthly", starts_on: Date.new(2027, 2, 1)
+      )
+
+      payload = HouseholdFinance::DataPresenter.new(household, user: user).app_data
+      collection = payload.dig(:workspace, :income_sources).index_by { |source| source.fetch(:id) }
+
+      assert_equal [ ended.id, current.id, future.id ].sort, collection.keys.sort
+      assert_equal "ended", collection.fetch(ended.id).fetch(:timeline_status)
+      assert_equal "current", collection.fetch(current.id).fetch(:timeline_status)
+      assert_equal "future", collection.fetch(future.id).fetch(:timeline_status)
+      assert_equal [ current.id ], payload.dig(:budget, :annual_plan, :income_sources).pluck(:id)
+    end
+  end
+
   private
 
   def citation_query_count(&block)

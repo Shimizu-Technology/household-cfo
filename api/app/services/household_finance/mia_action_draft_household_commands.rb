@@ -44,7 +44,7 @@ module HouseholdFinance
       return validation_result("Tell me which household number or goal you want to update. Nothing changed.") if requested.empty?
 
       ambiguous_income = { primary_income: "job", business_income: "business" }.find do |key, source_type|
-        requested.key?(key) && household.income_sources.where(active: true, source_type: source_type).count > 1
+        requested.key?(key) && household.income_sources.where(source_type: source_type).to_a.count { |source| source.effective_on?(Date.current) } > 1
       end
       if ambiguous_income
         return validation_result("That total includes multiple saved income sources. Name the specific income source you want to change. Nothing changed.")
@@ -196,7 +196,7 @@ module HouseholdFinance
 
     def structured_income_source_status_proposal(archive:)
       candidates = household.income_sources.to_a.select do |source|
-        archive ? source.ends_on.blank? && source.effective_on?(Date.current) : source.ends_on.present?
+        archive ? source.ends_on.blank? && (source.effective_on?(Date.current) || (source.active? && source.starts_on&.future?)) : source.ends_on.present?
       end
       source = if command[:income_source_id].to_i.positive?
         candidates.find { |candidate| candidate.id == command[:income_source_id].to_i }
@@ -211,11 +211,12 @@ module HouseholdFinance
       if archive
         ends_on = parsed_effective_month(command[:effective_on].presence || Date.current.iso8601)
         return validation_result("Tell me the first month when this income should be $0. Nothing changed.") unless ends_on
+        ends_on = source.starts_on if source.starts_on&.future? && ends_on <= source.starts_on
         payload[:ends_on] = ends_on.iso8601
       end
       item = MiaActionDraftBuilder::Item.new(
         action_type: action, label: "#{archive ? 'End' : 'Restore'} #{source.label}",
-        description: archive ? "End income beginning #{Date.iso8601(payload.fetch(:ends_on)).strftime('%B %Y')} while preserving earlier months." : "Restore this source only if its end month has not elapsed.",
+        description: archive ? "$0 beginning #{Date.iso8601(payload.fetch(:ends_on)).strftime('%B %Y')}, while preserving earlier months." : "Restore this source only if its end month has not elapsed.",
         target_record_type: "IncomeSource", target_record_id: source.id, payload: payload,
         before_snapshot: { active: source.active, ends_on: source.ends_on&.iso8601 }, after_snapshot: { active: !archive, ends_on: archive ? payload.fetch(:ends_on) : nil }
       )
@@ -329,7 +330,7 @@ module HouseholdFinance
     end
 
     def structured_income_source
-      candidates = household.income_sources.to_a.select { |source| source.effective_on?(Date.current) }
+      candidates = household.income_sources.to_a
       id = command[:income_source_id].to_i
       return candidates.find { |source| source.id == id } if id.positive?
 

@@ -1,6 +1,8 @@
 require "test_helper"
 
 class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
+  include ActiveSupport::Testing::TimeHelpers
+
   setup do
     @user = User.create!(
       clerk_id: "clerk_#{SecureRandom.hex(6)}",
@@ -205,6 +207,66 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_equal 0, source.income_schedule_entries.find_by!(effective_on: Date.new(2026, 11, 1)).amount_cents
   end
 
+  test "aggregate setup treats a future-ending source as current without creating a duplicate" do
+    travel_to Date.new(2026, 10, 15) do
+      source = @household.income_sources.find_by!(source_type: "job")
+      source.update!(active: false, ends_on: Date.new(2026, 12, 1))
+      result = build_command(type: "update_household_setup", setup_updates: { primary_income: "5500" })
+
+      apply = HouseholdFinance::MiaActionDraftApplier.new(persist(result.proposal), user: @user).call
+
+      assert apply.success?, apply.errors.to_sentence
+      assert_equal 1, @household.income_sources.where(source_type: "job").count
+      refute source.reload.active?
+      assert_equal Date.new(2026, 12, 1), source.ends_on
+      assert_equal 550_000, HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.current)
+    end
+  end
+
+  test "aggregate setup rejects ambiguity from multiple current sources including a future-ending one" do
+    travel_to Date.new(2026, 10, 15) do
+      @household.income_sources.create!(
+        label: "Temporary role", source_type: "job", amount_cents: 100_000, cadence: "monthly",
+        starts_on: Date.new(2026, 1, 1), ends_on: Date.new(2026, 12, 1), active: false
+      )
+
+      result = build_command(type: "update_household_setup", setup_updates: { primary_income: "6500" })
+
+      assert_nil result.proposal
+      assert_includes result.response, "multiple saved income sources"
+    end
+  end
+
+  test "Mia can update and cancel a future income source then apply the zero-length timeline" do
+    travel_to Date.new(2026, 10, 15) do
+      source = @household.income_sources.create!(
+        label: "Future contract", source_type: "business", amount_cents: 200_000, cadence: "monthly", starts_on: Date.new(2027, 2, 1)
+      )
+      update = build_command(
+        type: "update_income_source", income_source_id: source.id, income_source_name: source.label, amount: "2500"
+      )
+      update_apply = HouseholdFinance::MiaActionDraftApplier.new(persist(update.proposal), user: @user).call
+      assert update_apply.success?, update_apply.errors.to_sentence
+      assert_equal 250_000, source.reload.amount_cents
+
+      cancel = build_command(
+        type: "archive_income_source", income_source_id: 0, income_source_name: source.label, effective_on: "2026-10-01"
+      )
+      cancel_draft = persist(cancel.proposal)
+      item = cancel_draft.mia_action_items.sole
+      assert_equal source.starts_on.iso8601, item.prepared_operation.dig("normalized_input", "ends_on")
+      boundary = HouseholdFinance::MiaActionDraftPresenter.new(cancel_draft).call
+        .fetch(:items).sole.fetch(:review_fields).find { |field| field.fetch(:label) == "First $0 month" }
+      assert_equal "$0 beginning February 2027", boundary.fetch(:after)
+
+      cancel_apply = HouseholdFinance::MiaActionDraftApplier.new(cancel_draft, user: @user).call
+      assert cancel_apply.success?, cancel_apply.errors.to_sentence
+      refute source.reload.active?
+      assert_equal source.starts_on, source.ends_on
+      assert_equal "archived", source.timeline_status(on: Date.current)
+    end
+  end
+
   test "drafts one-time income without changing the recurring source amount" do
     source = @household.income_sources.find_by!(source_type: "job")
     result = build_command(
@@ -314,7 +376,7 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
   end
 
   def persist(proposal)
-    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    session = @household.chat_sessions.find_or_create_by!(user: @user) { |record| record.title = "Ask Mia" }
     user_message = session.chat_messages.create!(role: "user", content: "Please update my numbers")
     assistant_message = session.chat_messages.create!(role: "assistant", content: "I prepared a review")
     proposal.create_draft!(source_chat_message: user_message, assistant_chat_message: assistant_message)

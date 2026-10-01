@@ -924,7 +924,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.index ["household_id", "source_type"], name: "index_income_sources_on_household_id_and_source_type"
     t.index ["household_id"], name: "index_income_sources_on_household_id"
     t.check_constraint "amount_cents >= 0", name: "income_sources_amount_cents_non_negative"
-    t.check_constraint "starts_on IS NULL OR ends_on IS NULL OR starts_on < ends_on", name: "income_sources_temporal_bounds_valid"
+    t.check_constraint "starts_on IS NULL OR ends_on IS NULL OR starts_on <= ends_on", name: "income_sources_temporal_bounds_valid"
   end
 
   create_table "invitation_email_attempts", force: :cascade do |t|

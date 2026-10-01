@@ -24,7 +24,7 @@ module HouseholdFinance
         def predicted_after(before, input)
           entry = {
             entry_type: input.fetch(:entry_type), label: input[:label], amount_cents: input.fetch(:amount_cents), cadence: input.fetch(:cadence),
-            effective_on: input.fetch(:effective_on), retained_after_transition: input.fetch(:retained_after_transition)
+            effective_on: input.fetch(:effective_on), retained_after_transition: input.fetch(:retained_after_transition), active: true
           }
           {
             source: before.fetch("source"),
@@ -39,6 +39,7 @@ module HouseholdFinance
 
         def mutate!(source, input, prepared:)
           source.income_schedule_entries.create!(entry_attributes_from_input(input))
+          source
         end
       end
     end

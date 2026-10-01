@@ -57,22 +57,47 @@ module HouseholdFinance
           scope
         end
 
-        def source_snapshot(source, lock: false, additional_label: nil, additional_type: nil)
+        def source_snapshot(
+          source,
+          lock: false,
+          candidate_label: source.label,
+          candidate_type: source.source_type,
+          candidate_starts_on: source.starts_on,
+          candidate_ends_on: source.ends_on,
+          candidate_active: source.active?
+        )
           entries = source.income_schedule_entries.order(:effective_on, :entry_type, :id)
           entries = entries.lock if lock
-          label = additional_label.to_s.squish.presence || source.label
-          type = additional_type.to_s.presence || source.source_type
-          conflicts = household.income_sources
-            .where(active: true)
-            .where(source_type: type)
-            .where("LOWER(label) = ?", label.downcase)
-            .where.not(id: source.id)
-          conflicts = conflicts.lock if lock
           {
             source: source_attributes(source),
             schedule_entries: entries.map { |entry| entry_attributes(entry) },
-            conflicting_source_ids: conflicts.order(:id).pluck(:id)
+            conflicting_source_ids: conflicting_source_ids(
+              label: candidate_label,
+              source_type: candidate_type,
+              starts_on: candidate_starts_on,
+              ends_on: candidate_ends_on,
+              active: candidate_active,
+              exclude_id: source.id,
+              lock: lock
+            )
           }
+        end
+
+        def conflicting_source_ids(label:, source_type:, starts_on:, ends_on:, active:, exclude_id: nil, lock: false)
+          return [] unless active || ends_on.present?
+
+          start_date = starts_on.present? ? starts_on.to_date : nil
+          end_date = ends_on.present? ? ends_on.to_date : nil
+          return [] if !active && start_date && end_date == start_date
+          scope = household.income_sources
+            .where(source_type: source_type)
+            .where("LOWER(label) = ?", label.to_s.squish.downcase)
+            .where("active = TRUE OR ends_on IS NOT NULL")
+          scope = scope.where.not(id: exclude_id) if exclude_id.present?
+          scope = scope.where("starts_on IS NULL OR starts_on < ?", end_date) if end_date
+          scope = scope.where("ends_on IS NULL OR ends_on > ?", start_date) if start_date
+          scope = scope.lock if lock
+          scope.order(:id).pluck(:id)
         end
 
         def source_attributes(source)
@@ -97,8 +122,20 @@ module HouseholdFinance
             amount_cents: entry.amount_cents,
             cadence: entry.cadence,
             effective_on: entry.effective_on.iso8601,
-            retained_after_transition: entry.retained_after_transition?
+            retained_after_transition: entry.retained_after_transition?,
+            active: entry.income_source.schedule_entry_active?(entry)
           }
+        end
+
+        def schedule_entries_with_activity(entries, source_attributes)
+          entries.map do |entry|
+            value = entry.deep_stringify_keys
+            effective_on = Date.iso8601(value.fetch("effective_on"))
+            starts_on = source_attributes["starts_on"].present? ? Date.iso8601(source_attributes.fetch("starts_on")) : nil
+            ends_on = source_attributes["ends_on"].present? ? Date.iso8601(source_attributes.fetch("ends_on")) : nil
+            operational = source_attributes.fetch("active") || ends_on.present?
+            value.merge("active" => operational && (starts_on.nil? || effective_on >= starts_on) && (ends_on.nil? || effective_on < ends_on))
+          end
         end
 
         def verify_income_prediction!(predicted, actual)

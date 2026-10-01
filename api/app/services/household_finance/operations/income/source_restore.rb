@@ -14,7 +14,11 @@ module HouseholdFinance
 
         def predicted_after(before, _input)
           changed = before.fetch("source").merge("active" => true, "ends_on" => nil)
-          { source: changed, schedule_entries: before.fetch("schedule_entries"), conflicting_source_ids: before.fetch("conflicting_source_ids") }
+          { source: changed, schedule_entries: schedule_entries_with_activity(before.fetch("schedule_entries"), changed), conflicting_source_ids: before.fetch("conflicting_source_ids") }
+        end
+
+        def canonical_snapshot(source, _input, lock:)
+          source_snapshot(source, lock: lock, candidate_ends_on: nil, candidate_active: true)
         end
 
         def validate_execution!(subject, _input, prepared:, source:)

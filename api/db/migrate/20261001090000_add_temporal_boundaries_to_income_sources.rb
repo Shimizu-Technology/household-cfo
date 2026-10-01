@@ -6,7 +6,7 @@ class AddTemporalBoundariesToIncomeSources < ActiveRecord::Migration[8.1]
     add_column :income_sources, :starts_on, :date
     add_column :income_sources, :ends_on, :date
     add_check_constraint :income_sources,
-      "starts_on IS NULL OR ends_on IS NULL OR starts_on < ends_on",
+      "starts_on IS NULL OR ends_on IS NULL OR starts_on <= ends_on",
       name: "income_sources_temporal_bounds_valid"
 
     duplicate_groups = select_value(<<~SQL).to_i
@@ -41,17 +41,7 @@ class AddTemporalBoundariesToIncomeSources < ActiveRecord::Migration[8.1]
   end
 
   def down
-    remove_check_constraint :mia_action_items, name: "mia_action_items_action_type_valid"
-    add_check_constraint :mia_action_items,
-      "action_type IN ('create_category', 'update_category', 'update_allocation', 'archive_category', 'restore_category', 'update_setup_value', 'upsert_income_schedule_entry')",
-      name: "mia_action_items_action_type_valid"
-    remove_index :income_sources, name: NEW_INDEX
-    add_index :income_sources,
-      [ :household_id, :source_type, :label ],
-      unique: true,
-      name: OLD_INDEX
-    remove_check_constraint :income_sources, name: "income_sources_temporal_bounds_valid"
-    remove_column :income_sources, :ends_on
-    remove_column :income_sources, :starts_on
+    raise ActiveRecord::IrreversibleMigration,
+      "Income source dates and same-name timeline history cannot be removed without losing financial history"
   end
 end

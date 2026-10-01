@@ -14,6 +14,7 @@ class IncomeScheduleEntry < ApplicationRecord
   validate :recurring_cadence
   validate :continuing_transition_income
   validate :retained_income_belongs_to_job
+  validate :effective_month_is_within_source_timeline
 
   private
 
@@ -51,5 +52,12 @@ class IncomeScheduleEntry < ApplicationRecord
     return if income_source&.source_type == "job"
 
     errors.add(:retained_after_transition, "is available only for job income")
+  end
+
+  def effective_month_is_within_source_timeline
+    return if effective_on.blank? || income_source.blank?
+    return if income_source.effective_on?(effective_on)
+
+    errors.add(:effective_on, "must be within the income source timeline")
   end
 end

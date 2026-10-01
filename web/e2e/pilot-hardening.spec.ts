@@ -234,6 +234,7 @@ function realWorkspaceData(setupComplete = false) {
           { key: 'flexible_spend', label: 'Flexible spending', confirmed: false },
         ],
       },
+      income_sources: structuredClone(budget.annual_plan.income_sources),
       debts: [],
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
       capabilities: experienceCapabilities(),
@@ -1481,7 +1482,7 @@ test('profile summary edits focus the matching manual field', async ({ page }) =
   const expensesCard = page.locator('.profile-section').filter({ hasText: 'Expenses' })
   const savingsCard = page.locator('.profile-section').filter({ hasText: 'Savings & Debt' })
   await incomeCard.getByRole('button', { name: 'Edit', exact: true }).click()
-  await expect(page.getByLabel('Primary monthly income')).toBeFocused()
+  await expect(page.locator('.income-source-form').getByRole('textbox', { name: 'Name' })).toBeFocused()
   await expensesCard.getByRole('button', { name: 'Edit', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Editing household numbers' })).toBeVisible()
   await expect(page.getByLabel('Fixed essentials')).toBeFocused()
@@ -2119,6 +2120,34 @@ test('My Profile manages explicit income sources with stable keys on desktop and
     active: true,
   }
   const currentBudget = structuredClone(workspace.budget)
+  const futureSource = {
+    id: 3,
+    label: 'Future contract',
+    source_type: 'business',
+    base_amount: 2_000,
+    base_cadence: 'monthly',
+    starts_on: `${currentYear + 1}-02-01`,
+    ends_on: null,
+    active: false,
+    timeline_status: 'future' as const,
+    schedule_entries: [],
+  }
+  const legacyArchivedSource = {
+    id: 4,
+    label: 'Archived side work',
+    source_type: 'other',
+    base_amount: 600,
+    base_cadence: 'monthly',
+    starts_on: null,
+    ends_on: null,
+    active: false,
+    timeline_status: 'archived' as const,
+    schedule_entries: [],
+  }
+  const syncHouseholdSources = () => {
+    workspace.workspace.income_sources = [...structuredClone(currentBudget.annual_plan.income_sources), futureSource, legacyArchivedSource]
+  }
+  syncHouseholdSources()
   const requests: Array<{ method: string; key: string | null; body: Record<string, unknown> }> = []
 
   await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: { ...workspace, budget: currentBudget } }))
@@ -2177,6 +2206,7 @@ test('My Profile manages explicit income sources with stable keys on desktop and
       workspace.workspace.setup_values.business_income = 0
       workspace.dashboard.summary.monthly_income = 15_000
     }
+    syncHouseholdSources()
 
     return route.fulfill({ status: method === 'POST' && !url.pathname.endsWith('/restore') ? 201 : 200, json: { income_source: {}, budget: currentBudget } })
   })
@@ -2186,6 +2216,8 @@ test('My Profile manages explicit income sources with stable keys on desktop and
   await openSection(page, 'My Profile')
   await expect(page.getByRole('spinbutton', { name: 'Job income total (calculated)' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: 'Keep each source clear and editable.' })).toBeVisible()
+  await expect(page.locator('.income-source-manager-card').filter({ hasText: 'Future contract' })).toContainText(`Starts Feb ${currentYear + 1}`)
+  await expect(page.locator('.income-source-manager-card').filter({ hasText: 'Archived side work' })).toContainText('Archived')
   await expect(page.locator('.income-source-form').getByLabel('Starting month')).toHaveValue(`${currentYear}-10`)
 
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Side consulting')
@@ -2213,7 +2245,7 @@ test('My Profile manages explicit income sources with stable keys on desktop and
   await consulting.getByLabel('First $0 month').fill(`${currentYear}-10`)
   await consulting.getByRole('button', { name: 'Confirm stop for Side consulting' }).click()
   await expect(consulting).toBeFocused()
-  await expect(consulting).toContainText(`Stops Oct ${currentYear}`)
+  await expect(consulting).toContainText(`$0 beginning Oct ${currentYear}`)
   await expect(consulting).toContainText('None scheduled')
   await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('0')
   expect(requests[1].key).toBeTruthy()

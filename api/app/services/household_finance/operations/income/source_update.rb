@@ -26,12 +26,20 @@ module HouseholdFinance
         end
 
         def canonical_snapshot(source, input, lock:)
-          source_snapshot(source, lock: lock, additional_label: input[:label], additional_type: input[:source_type])
+          source_snapshot(
+            source,
+            lock: lock,
+            candidate_label: input[:label].presence || source.label,
+            candidate_type: input[:source_type].presence || source.source_type,
+            candidate_starts_on: input.key?(:starts_on) ? input.fetch(:starts_on) : source.starts_on,
+            candidate_ends_on: source.ends_on,
+            candidate_active: source.active?
+          )
         end
 
         def predicted_after(before, input)
           changed = before.fetch("source").merge(input.slice(:label, :source_type, :amount_cents, :cadence, :starts_on).stringify_keys)
-          { source: changed, schedule_entries: before.fetch("schedule_entries"), conflicting_source_ids: before.fetch("conflicting_source_ids") }
+          { source: changed, schedule_entries: schedule_entries_with_activity(before.fetch("schedule_entries"), changed), conflicting_source_ids: before.fetch("conflicting_source_ids") }
         end
 
         def validate_execution!(subject, input, prepared:, source:)
@@ -39,11 +47,17 @@ module HouseholdFinance
           if target_type != "job" && subject.income_schedule_entries.any?(&:retained_after_transition?)
             raise ArgumentError, "Clear continuing transition income before changing this source from job income. Nothing changed."
           end
+          if input.key?(:starts_on)
+            start_date = Date.iso8601(input.fetch(:starts_on))
+            if subject.income_schedule_entries.where("effective_on < ?", start_date).exists?
+              raise ArgumentError, "Income cannot start after one of its saved timeline changes. Move or remove that change first. Nothing changed."
+            end
+          end
         end
 
         def mutate!(source, input, prepared:)
-          if source.active? && prepared.before_snapshot.fetch("conflicting_source_ids").any?
-            source.errors.add(:label, "has already been taken")
+          if prepared.before_snapshot.fetch("conflicting_source_ids").any?
+            source.errors.add(:starts_on, "overlaps another income source with this name and type")
             raise ActiveRecord::RecordInvalid, source
           end
           attributes = input.slice(:label, :source_type, :amount_cents, :cadence)

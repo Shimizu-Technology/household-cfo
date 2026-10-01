@@ -35,6 +35,7 @@ export type WorkspaceData = {
   setup_complete: boolean
   setup_status: WorkspaceSetupStatus
   setup_values: WorkspaceSetupValues
+  income_sources: IncomeTimelineSource[]
   debts: DebtRecord[]
   cohort: null | {
     id: number
@@ -505,6 +506,7 @@ export type IncomeScheduleEntry = {
   cadence: string
   effective_on: string
   retained_after_transition?: boolean
+  active?: boolean
 }
 
 export type IncomeTimelineSource = {
@@ -516,6 +518,8 @@ export type IncomeTimelineSource = {
   starts_on?: string | null
   ends_on?: string | null
   active?: boolean
+  timeline_status?: 'current' | 'future' | 'ended' | 'archived'
+  current_monthly_amount?: number
   schedule_entries: IncomeScheduleEntry[]
 }
 
@@ -2177,6 +2181,7 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
         missing_fields: [],
       },
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
+      income_sources: budget.annual_plan?.income_sources ?? [],
       debts: [],
       cohort: null,
       capabilities: {

@@ -405,29 +405,7 @@ module HouseholdFinance
     end
 
     def income_sources_payload
-      scheduled_income_sources.map do |source|
-        {
-          id: source.id,
-          label: source.label,
-          source_type: source.source_type,
-          base_amount: Money.dollars(source.amount_cents),
-          base_cadence: source.cadence,
-          starts_on: source.starts_on&.iso8601,
-          ends_on: source.ends_on&.iso8601,
-          active: source.effective_on?(Date.current),
-          schedule_entries: source.income_schedule_entries.sort_by(&:effective_on).map do |entry|
-            {
-              id: entry.id,
-              entry_type: entry.entry_type,
-              label: entry.label,
-              amount: Money.dollars(entry.amount_cents),
-              cadence: entry.cadence,
-              effective_on: entry.effective_on.iso8601,
-              retained_after_transition: entry.retained_after_transition?
-            }
-          end
-        }
-      end
+      scheduled_income_sources.map { |source| IncomeSourcePresenter.new(source).as_json }
     end
 
     def annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums)

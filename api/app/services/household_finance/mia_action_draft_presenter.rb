@@ -61,7 +61,9 @@ module HouseholdFinance
           { label: "Starting amount", before: "$0.00", after: money_from_cents(source["amount_cents"]) },
           { label: "Starts", before: "—", after: month_from_date(source["starts_on"]) }
         ]
-      when "income.source.update", "income.source.archive", "income.source.restore"
+      when "income.source.archive"
+        income_source_archive_review_fields(before.fetch("source", {}), after.fetch("source", {}))
+      when "income.source.update", "income.source.restore"
         income_source_review_fields(before.fetch("source", {}), after.fetch("source", {}))
       when "income.schedule.create", "income.schedule.update", "income.schedule.delete"
         income_schedule_review_fields(item, before, after)
@@ -135,6 +137,18 @@ module HouseholdFinance
         next if old_value == new_value
         { label: label, before: income_review_value(key, old_value, missing: "Does not exist"), after: income_review_value(key, new_value, missing: "Removed") }
       end
+    end
+
+    def income_source_archive_review_fields(before, after)
+      fields = income_source_review_fields(before, after).reject { |field| field.fetch(:label) == "Ends" }
+      if before["ends_on"] != after["ends_on"]
+        fields << {
+          label: "First $0 month",
+          before: before["ends_on"].present? ? "$0 beginning #{month_from_date(before["ends_on"])}" : "Ongoing",
+          after: after["ends_on"].present? ? "$0 beginning #{month_from_date(after["ends_on"])}" : "Ongoing"
+        }
+      end
+      fields
     end
 
     def income_review_value(key, value, missing: "—")

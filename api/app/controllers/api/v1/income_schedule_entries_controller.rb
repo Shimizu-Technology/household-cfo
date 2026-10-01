@@ -10,7 +10,7 @@ module Api
           input: entry_params.to_h.merge(source_id: current_income_source.id, year: operation_year),
           idempotency_key: required_idempotency_key
         )
-        render_budget(serialize_entry(result.subject), year: operation_year, status: :created)
+        render_budget(entry_payload_from_result(result), year: operation_year, status: :created)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Income source not found" ] }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
@@ -22,13 +22,15 @@ module Api
       end
 
       def update
-        entry = current_entry
+        existing = existing_schedule_execution("income.schedule.update")
+        entry = current_entry unless existing
+        source_id = existing&.normalized_input&.fetch("source_id", nil)&.to_i || entry.income_source_id
         result = runner.run(
           operation_key: "income.schedule.update",
-          input: entry_params.to_h.merge(source_id: entry.income_source_id, entry_id: entry.id, year: operation_year),
+          input: entry_params.to_h.merge(source_id: source_id, entry_id: params[:id].to_i, year: operation_year),
           idempotency_key: required_idempotency_key
         )
-        render_budget(serialize_entry(result.subject), year: operation_year)
+        render_budget(entry_payload_from_result(result), year: operation_year)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Income schedule entry not found" ] }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
@@ -70,9 +72,13 @@ module Api
       end
 
       def existing_delete_execution
+        existing_schedule_execution("income.schedule.delete")
+      end
+
+      def existing_schedule_execution(operation_key)
         key = request.headers["Idempotency-Key"].to_s.strip
         return if key.blank?
-        execution = current_household.household_operation_executions.find_by(idempotency_key: key, operation_key: "income.schedule.delete")
+        execution = current_household.household_operation_executions.find_by(idempotency_key: key, operation_key: operation_key)
         execution if execution&.normalized_input&.fetch("entry_id", nil).to_i == params[:id].to_i
       end
 
@@ -109,11 +115,23 @@ module Api
         }, status: status
       end
 
-      def serialize_entry(entry)
+      def entry_payload_from_result(result)
+        input = result.execution.normalized_input
+        entry_id = input["entry_id"].to_i
+        entries = Array(result.after_snapshot["schedule_entries"])
+        if entry_id.zero?
+          before_ids = Array(result.execution.before_snapshot["schedule_entries"]).map { |entry| entry["id"].to_i }
+          entry_id = entries
+            .map { |entry| entry["id"].to_i }
+            .find { |id| id.positive? && !before_ids.include?(id) }
+        end
+        entry = entries.find { |candidate| candidate["id"].to_i == entry_id }
+        raise ActiveRecord::RecordNotFound, "Income schedule entry not found" unless entry
+
         {
-          id: entry.id, income_source_id: entry.income_source_id, entry_type: entry.entry_type,
-          label: entry.label, amount: HouseholdFinance::Money.dollars(entry.amount_cents), cadence: entry.cadence,
-          effective_on: entry.effective_on.iso8601, retained_after_transition: entry.retained_after_transition?
+          id: entry.fetch("id"), income_source_id: entry.fetch("income_source_id"), entry_type: entry.fetch("entry_type"),
+          label: entry["label"], amount: HouseholdFinance::Money.dollars(entry.fetch("amount_cents")), cadence: entry.fetch("cadence"),
+          effective_on: entry.fetch("effective_on"), retained_after_transition: ActiveModel::Type::Boolean.new.cast(entry["retained_after_transition"])
         }
       end
     end

@@ -2914,7 +2914,7 @@ function App() {
           {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
             <IncomeSourceManager
               sectionRef={incomeSourcesRef}
-              sources={data.budget.annual_plan.income_sources}
+              sources={data.workspace.income_sources ?? data.budget.annual_plan.income_sources}
               action={budgetAction}
               error={setupError}
               onSave={handleSaveIncomeSource}
@@ -7774,6 +7774,8 @@ function monthlyIncomeAmount(source: IncomeTimelineSource) {
 }
 
 function incomeSourceIsCurrent(source: IncomeTimelineSource) {
+  if (source.timeline_status) return source.timeline_status === 'current'
+  if (source.active === false && !source.ends_on) return false
   const currentMonth = guamCurrentMonthIso()
   return (!source.starts_on || source.starts_on.slice(0, 7) <= currentMonth)
     && (!source.ends_on || source.ends_on.slice(0, 7) > currentMonth)
@@ -7943,9 +7945,16 @@ function IncomeSourceManager({
         <div className="income-source-manager-list">
           {sources.map((source) => {
             const upcoming = nextIncomeChange(source)
-            const ended = Boolean(source.ends_on)
+            const archivedWithoutBoundary = source.timeline_status === 'archived' && !source.ends_on
+            const ended = Boolean(source.ends_on) || archivedWithoutBoundary
             const currentMonth = guamCurrentMonthIso()
             const canUndoEnd = Boolean(source.ends_on && source.ends_on.slice(0, 7) >= currentMonth)
+            const canceledBeforeStart = Boolean(
+              source.timeline_status === 'archived'
+              && source.starts_on
+              && source.ends_on
+              && source.starts_on.slice(0, 7) === source.ends_on.slice(0, 7),
+            )
             const effectiveTerms = effectiveIncomeTerms(source)
             return (
               <article
@@ -7966,7 +7975,7 @@ function IncomeSourceManager({
                 </div>
                 <dl>
                   <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
-                  <div><dt>Status</dt><dd>{source.ends_on ? `${canUndoEnd ? 'Stops' : 'Stopped'} ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
+                  <div><dt>Status</dt><dd>{archivedWithoutBoundary ? 'Archived' : canceledBeforeStart ? `Canceled before ${formatMonthYear(source.starts_on!)}` : source.ends_on ? `$0 beginning ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
                   <div><dt>Next change</dt><dd>{upcoming ? `${formatMonthYear(upcoming.effective_on)} · ${currency.format(upcoming.amount)}` : 'None scheduled'}</dd></div>
                 </dl>
                 <div className="income-source-manager-actions">
@@ -8192,11 +8201,12 @@ function AnnualIncomePlanner({
                 ) : (
                   <div className="income-schedule-list">
                     {source.schedule_entries.map((entry) => (
-                      <div className="income-schedule-row" key={entry.id}>
+                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} key={entry.id}>
                         <div>
                           <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'Recurring amount changes'}</strong>
                           <span>{formatMonthYear(entry.effective_on)} · {currency.format(entry.amount)}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
                           {entry.retained_after_transition && <small>Confirmed to continue after transition</small>}
+                          {entry.active === false && <small>Inactive because this change falls outside the source timeline.</small>}
                         </div>
                         {isRealWorkspace && (
                           <div>
