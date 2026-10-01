@@ -1127,7 +1127,22 @@ function App() {
     }
 
     const followBrowserLocation = () => {
-      if (!data) return
+      if (!data) {
+        if (hasPendingPlaidOAuthReturn()) {
+          const targetSection = 'My Profile'
+          const targetHash = sectionHash(targetSection)
+          if (window.location.hash !== targetHash) {
+            window.history.replaceState(
+              { section: targetSection },
+              '',
+              `${window.location.pathname}${window.location.search}${targetHash}`,
+            )
+          }
+          lastHandledLocationRef.current = `${window.location.pathname}${window.location.search}${window.location.hash}`
+          if (active !== targetSection) setActive(targetSection)
+        }
+        return
+      }
       const locationKey = `${window.location.pathname}${window.location.search}${window.location.hash}`
       if (lastHandledLocationRef.current === locationKey) return
 
