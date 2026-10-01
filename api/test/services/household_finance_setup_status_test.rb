@@ -50,9 +50,16 @@ class HouseholdFinanceSetupStatusTest < ActiveSupport::TestCase
   end
 
   test "optional asset setup keeps blanks unknown and refuses to overwrite detailed accounts" do
-    HouseholdFinance::SetupUpdater.new(@household, emergency_fund: "").call
+    HouseholdFinance::SetupUpdater.new(@household, emergency_fund: "0").call
     emergency = @household.accounts.find_by!(label: "Emergency fund", account_type: "emergency_fund")
-    assert_not emergency.balance_known?
+    assert emergency.balance_known?
+    assert_equal 0, emergency.balance_cents
+    assert_equal Date.current, emergency.balance_as_of_on
+    assert_includes @household.reload.confirmed_setup_fields, "emergency_fund"
+
+    HouseholdFinance::SetupUpdater.new(@household, emergency_fund: "").call
+    assert_not emergency.reload.balance_known?
+    assert_nil emergency.balance_as_of_on
     refute_includes @household.reload.confirmed_setup_fields, "emergency_fund"
 
     @household.accounts.create!(label: "Brokerage", account_type: "other", balance_cents: 25_000, balance_known: true)

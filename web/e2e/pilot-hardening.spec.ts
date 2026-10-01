@@ -1929,7 +1929,7 @@ test('a confirmed zero remains available when the rest of setup is completed man
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
   await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
   const setupRequest = await setupRequestPromise
-  expect(setupRequest.postDataJSON().workspace).toMatchObject({
+  expect(setupRequest.postDataJSON().workspace).toEqual({
     household_name: 'Zero Spend Household',
     primary_goal: 'Keep a calm plan.',
     primary_income: 6200,
@@ -3360,11 +3360,12 @@ test('incomplete participants get a short first session, private feedback, and a
   const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
   await page.getByRole('button', { name: 'Save and talk to Mia' }).click()
   const setupRequest = await setupRequestPromise
-  expect(setupRequest.postDataJSON().workspace).toMatchObject({
+  expect(setupRequest.postDataJSON().workspace).toEqual({
+    household_name: 'Test Participant Household',
+    primary_goal: 'Build a calm monthly plan.',
     primary_income: 7200,
     fixed_expenses: 2500,
     flexible_spend: 600,
-    business_income: 0,
   })
   await expect(page.locator('.shell-header')).toHaveCount(1)
   await expect(page.getByRole('heading', { name: 'Tell Mia what changed.' })).toBeVisible()
@@ -3378,6 +3379,28 @@ test('incomplete participants get a short first session, private feedback, and a
   expect(await advancedProfile.evaluate((element: HTMLDetailsElement) => element.open)).toBe(false)
 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('clearing a saved optional asset submits null so the balance becomes unknown', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.setup_values.emergency_fund = 1_200
+  workspace.workspace.setup_status.confirmed_fields = [...workspace.workspace.setup_status.confirmed_fields, 'emergency_fund']
+  await page.route('http://api.test/api/v1/workspace', (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: workspace })
+    return route.fallback()
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  await page.getByRole('button', { name: 'Edit profile' }).click()
+  await page.locator('.setup-optional-fields').getByText('Add details for a stronger CFO read').click()
+  const emergencyFund = page.getByLabel('Emergency fund')
+  await expect(emergencyFund).toHaveValue('1200')
+  await emergencyFund.fill('')
+
+  const setupRequestPromise = page.waitForRequest((request) => request.url().endsWith('/api/v1/workspace/setup') && request.method() === 'PATCH')
+  await page.getByRole('button', { name: 'Save numbers' }).click()
+  const setupRequest = await setupRequestPromise
+  expect(setupRequest.postDataJSON().workspace.emergency_fund).toBeNull()
 })
 
 test('Mia explains when starting numbers have not been approved yet', async ({ page }) => {

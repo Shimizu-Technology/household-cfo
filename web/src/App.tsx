@@ -339,6 +339,19 @@ const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
   'debt_payment',
   'target_runway_months',
 ]
+const nullableWorkspaceSetupMoneyKeys = new Set<WorkspaceSetupMoneyKey>([
+  'emergency_fund',
+  'other_assets',
+  'credit_card_debt',
+  'debt_payment',
+])
+const firstSessionSetupKeys = new Set<keyof WorkspaceSetupValues>([
+  'household_name',
+  'primary_goal',
+  'primary_income',
+  'fixed_expenses',
+  'flexible_spend',
+])
 
 function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: WorkspaceSetupStatus): WorkspaceSetupDraft {
   const draft = { ...values } as unknown as WorkspaceSetupDraft
@@ -353,7 +366,7 @@ function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSet
   const values = { ...draft } as unknown as WorkspaceSetupValues
   const moneyValues = values as unknown as Record<WorkspaceSetupMoneyKey, number | null>
   workspaceSetupMoneyKeys.forEach((key) => {
-    if ((key === 'credit_card_debt' || key === 'debt_payment') && draft[key].trim() === '') {
+    if (nullableWorkspaceSetupMoneyKeys.has(key) && draft[key].trim() === '') {
       moneyValues[key] = null
       return
     }
@@ -2397,10 +2410,11 @@ function App() {
     setSetupError(null)
     try {
       const setupValues = workspaceSetupValuesFromDraft(setupDraft)
-      const excludedSetupKeys = wasSetupComplete
-        ? ['primary_income', 'business_income', 'credit_card_debt', 'debt_payment']
-        : ['credit_card_debt', 'debt_payment']
-      const payload = await saveWorkspaceSetup(Object.fromEntries(Object.entries(setupValues).filter(([key]) => !excludedSetupKeys.includes(key))))
+      const excludedSetupKeys = ['primary_income', 'business_income', 'credit_card_debt', 'debt_payment']
+      const submittedSetupValues = Object.fromEntries(Object.entries(setupValues).filter(([key]) => (
+        wasSetupComplete ? !excludedSetupKeys.includes(key) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
+      )))
+      const payload = await saveWorkspaceSetup(submittedSetupValues)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {

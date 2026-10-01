@@ -182,6 +182,34 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
 
+  test "five-field first-session setup leaves optional assets unknown" do
+    user = create_user(email: "five-field-setup@example.com", first_name: "Mel")
+
+    patch "/api/v1/workspace/setup",
+      params: {
+        workspace: {
+          household_name: "Five Field Household",
+          primary_goal: "Build a calm monthly plan.",
+          primary_income: 6_200,
+          fixed_expenses: 2_800,
+          flexible_spend: 0
+        }
+      },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    body = response.parsed_body
+    household = user.households.first
+
+    assert_empty household.accounts
+    assert_nil body.dig("workspace", "setup_values", "emergency_fund")
+    assert_nil body.dig("workspace", "setup_values", "other_assets")
+    refute body.dig("workspace", "asset_portfolio", "liquid_balance_known")
+    assert_equal 0, body.dig("workspace", "asset_portfolio", "liquid_known_count")
+    assert_nil body.dig("dashboard", "summary", "runway_months")
+  end
+
   test "workspace setup audit failure rolls back changes and returns a safe retry response" do
     user = create_user(email: "setup-audit-failure@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
