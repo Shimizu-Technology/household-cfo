@@ -58,6 +58,7 @@ module Api
           session,
           persona_version_id: current_persona.version_id
         ).call
+        transcript = intent_transcript_without_memory_commands(transcript)
         history = transcript.map { |message| message.slice(:role, :content) }
         @mia_conversation_messages = history
 
@@ -248,6 +249,23 @@ module Api
       end
 
       private
+
+      def intent_transcript_without_memory_commands(transcript)
+        source_ids = current_household.household_memories
+          .where(owner_user: current_user, source_kind: "mia_command")
+          .where.not(source_chat_message_id: nil)
+          .pluck(:source_chat_message_id)
+        excluded_ids = source_ids.to_set
+        transcript.each_with_index do |message, index|
+          memory_command_turn = message[:role] == "user" && mia_memory_command(message[:content]).present?
+          next unless excluded_ids.include?(message[:id]) || memory_command_turn
+
+          excluded_ids << message[:id]
+          acknowledgement = transcript[index + 1]
+          excluded_ids << acknowledgement[:id] if acknowledgement&.dig(:role) == "assistant"
+        end
+        transcript.reject { |message| excluded_ids.include?(message[:id]) }
+      end
 
       def mia_memory_command(content)
         normalized = content.to_s.squish

@@ -4,7 +4,7 @@ module Api
       before_action :authenticate_user!
       before_action :require_memory_participant!
       before_action :require_writable_household!, except: :index
-      before_action :require_personalization_active!, only: %i[create update confirm]
+      before_action :require_personalization_active!, only: %i[update confirm]
       before_action :set_memory, only: %i[update destroy confirm reject]
 
       def index
@@ -13,31 +13,33 @@ module Api
       end
 
       def create
-        attributes = memory_params.to_h.symbolize_keys
-        attributes[:visibility] ||= "private"
-        request_key = attributes.delete(:request_key).presence
+        request_key = memory_params[:request_key].presence
+        attributes = normalized_create_attributes
         if request_key && (existing = current_household.household_memories.find_by(owner_user: current_user, request_key: request_key))
-          unless idempotent_create_matches?(existing, attributes)
-            return render json: { errors: [ "This memory request ID was already used for different content." ] }, status: :conflict
-          end
-          return render json: { memory: existing.as_api_json(viewer: current_user), personalization: personalization_payload }, status: :ok
+          return render_create_replay(existing, attributes)
         end
+        return render_personalization_paused if personalization_paused?
         if current_household.household_memories.where(owner_user: current_user).count >= HouseholdMemory::MAX_STORED_PER_OWNER
           return render json: { errors: [ "You can keep up to #{HouseholdMemory::MAX_STORED_PER_OWNER} Mia memories. Forget one before adding another." ] }, status: :unprocessable_entity
         end
 
-        status = requested_initial_status(attributes.delete(:confirmed))
-        memory = current_household.household_memories.create!(
+        memory = persist_household_memory!(
           attributes.merge(
             owner_user: current_user,
             request_key: request_key,
-            status: status,
-            confirmed_at: status == "user_confirmed" ? Time.current : nil,
+            confirmed_at: attributes.fetch(:status) == "user_confirmed" ? Time.current : nil,
             source_kind: "manual_profile"
           )
         )
         audit("mia_memory.created", memory)
         render json: { memory: memory.as_api_json(viewer: current_user), personalization: personalization_payload }, status: :created
+      rescue ActiveRecord::RecordNotUnique
+        raise if request_key.blank?
+
+        existing = current_household.household_memories.find_by(owner_user: current_user, request_key: request_key)
+        raise unless existing
+
+        render_create_replay(existing.reload, attributes)
       rescue ActiveRecord::RecordInvalid => error
         render json: { errors: error.record.errors.full_messages }, status: :unprocessable_entity
       end
@@ -117,22 +119,65 @@ module Api
         render json: { errors: [ "Mia memory is private to household participants." ] }, status: :forbidden
       end
 
-      def requested_initial_status(confirmed)
-        return "pending_confirmation" if memory_params[:sensitivity] == "sensitive"
-        ActiveModel::Type::Boolean.new.cast(confirmed) ? "user_confirmed" : "pending_confirmation"
+      def normalized_create_attributes
+        raw = memory_params.to_h.symbolize_keys
+        sensitivity = raw[:sensitivity].presence || "ordinary"
+        confirmed = ActiveModel::Type::Boolean.new.cast(raw[:confirmed])
+        {
+          category: raw[:category].to_s,
+          display_value: raw[:display_value].to_s.unicode_normalize(:nfkc).gsub(/[[:cntrl:]]/, " ").squish,
+          sensitivity: sensitivity,
+          visibility: "private",
+          status: sensitivity == "sensitive" || !confirmed ? "pending_confirmation" : "user_confirmed",
+          expires_at: HouseholdMemory.type_for_attribute("expires_at").cast(raw[:expires_at]),
+          structured_value: normalized_structured_value(raw[:structured_value]),
+          source_kind: "manual_profile"
+        }
       end
 
       def idempotent_create_matches?(memory, attributes)
-        %i[category display_value sensitivity visibility].all? do |key|
-          attributes[key].nil? || memory.public_send(key).to_s == attributes[key].to_s
+        memory_create_fingerprint(memory) == attributes
+      end
+
+      def memory_create_fingerprint(memory)
+        {
+          category: memory.category,
+          display_value: memory.display_value,
+          sensitivity: memory.sensitivity,
+          visibility: memory.visibility,
+          status: memory.status,
+          expires_at: memory.expires_at,
+          structured_value: normalized_structured_value(memory.structured_value),
+          source_kind: memory.source_kind
+        }
+      end
+
+      def normalized_structured_value(value)
+        JSON.parse(JSON.generate(value.presence || {}))
+      end
+
+      def render_create_replay(memory, attributes)
+        unless idempotent_create_matches?(memory, attributes)
+          return render json: { errors: [ "This memory request ID was already used for different content." ] }, status: :conflict
         end
+
+        render json: { memory: memory.as_api_json(viewer: current_user), personalization: personalization_payload }, status: :ok
+      end
+
+      def persist_household_memory!(attributes)
+        current_household.household_memories.create!(attributes)
+      end
+
+      def personalization_paused?
+        current_household.household_memberships.find_by!(user_id: current_user.id).mia_personalization_paused?
+      end
+
+      def render_personalization_paused
+        render json: { errors: [ "Resume personalization before adding or changing Mia memories." ] }, status: :conflict
       end
 
       def require_personalization_active!
-        membership = current_household.household_memberships.find_by!(user_id: current_user.id)
-        return unless membership.mia_personalization_paused?
-
-        render json: { errors: [ "Resume personalization before adding or changing Mia memories." ] }, status: :conflict
+        render_personalization_paused if personalization_paused?
       end
 
       def expire_stale_memories

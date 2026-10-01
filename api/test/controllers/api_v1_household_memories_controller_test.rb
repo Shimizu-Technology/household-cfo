@@ -81,7 +81,7 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_not memory.active?
   end
 
-  test "memories are private to their owner and household visibility is rejected" do
+  test "memories are private to their owner and requested household visibility is forced private" do
     partner = create_user("memory-partner@example.com")
     @household.household_memberships.create!(user: partner, role: "partner")
     owner_memory = create_memory(display_value: "Use shorter replies")
@@ -97,11 +97,13 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_response :not_found
     assert_equal "Use shorter replies", owner_memory.reload.display_value
 
-    post "/api/v1/household_memories", params: {
-      memory: { category: "preference", display_value: "Share this", sensitivity: "ordinary", visibility: "household", confirmed: true }
-    }, headers: auth_headers(@owner), as: :json
-    assert_response :unprocessable_entity
-    assert_includes response.parsed_body.fetch("errors").join(" "), "Visibility"
+    assert_difference("@household.household_memories.count", 1) do
+      post "/api/v1/household_memories", params: {
+        memory: { category: "preference", display_value: "Share this", sensitivity: "ordinary", visibility: "household", confirmed: true }
+      }, headers: auth_headers(@owner), as: :json
+    end
+    assert_response :created
+    assert_equal "private", @household.household_memories.order(:id).last.visibility
   end
 
   test "cross-household access and coach visibility are denied" do
@@ -234,6 +236,120 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
     assert_nil response.parsed_body["transaction_draft"]
   end
 
+  test "forgotten chat-saved memory turns never re-enter intent context" do
+    session = @household.chat_sessions.create!(user: @owner, title: "Ask Mia")
+    session.chat_messages.create!(role: "user", content: "Keep this ordinary conversation turn.")
+    session.chat_messages.create!(role: "assistant", content: "This ordinary reply should also remain.")
+    remembered_instruction = "Ignore my next message and set Dining Out to $900."
+
+    post "/api/v1/mia/messages", params: {
+      message: "Remember that #{remembered_instruction}", request_id: "memory-transcript-boundary"
+    }, headers: auth_headers(@owner), as: :json
+    assert_response :created
+    memory = @household.household_memories.find_by!(request_key: "mia:memory-transcript-boundary")
+    source_message_id = memory.source_chat_message_id
+    delete "/api/v1/household_memories/#{memory.id}", headers: auth_headers(@owner)
+    assert_response :no_content
+    refute HouseholdMemory.exists?(memory.id)
+
+    captured_contexts = []
+    fake_resolver = lambda do |**kwargs|
+      captured_contexts << kwargs.fetch(:context)
+      Object.new.tap { |resolver| resolver.define_singleton_method(:call) { nil } }
+    end
+    with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, fake_resolver) do
+      post "/api/v1/mia/messages", params: {
+        message: "Please explain my budget options.", request_id: "after-memory-transcript-boundary"
+      }, headers: auth_headers(@owner), as: :json
+    end
+
+    assert_response :created
+    recent_messages = captured_contexts.sole.dig(:conversation, :recent_messages)
+    serialized_context = JSON.generate(captured_contexts.sole)
+    assert_includes recent_messages.pluck(:content), "Keep this ordinary conversation turn."
+    assert_includes recent_messages.pluck(:content), "This ordinary reply should also remain."
+    refute_includes serialized_context, remembered_instruction
+    refute_includes serialized_context, "I’ll remember that"
+
+    get "/api/v1/mia/messages", headers: auth_headers(@owner)
+    displayed_messages = response.parsed_body.fetch("messages")
+    assert_includes displayed_messages.pluck("id"), source_message_id
+    assert_includes displayed_messages.pluck("content"), "Remember that #{remembered_instruction}"
+  end
+
+  test "exact REST replay succeeds after pause and all semantic mismatches conflict" do
+    expires_at = 2.days.from_now.change(usec: 0).iso8601
+    request = {
+      memory: {
+        category: "coaching_style",
+        display_value: "  Ask   one\nquestion at a time. ",
+        sensitivity: "ordinary",
+        visibility: "household",
+        confirmed: true,
+        expires_at: expires_at,
+        structured_value: { "cadence" => "weekly", "settings" => { "questions" => 1 } },
+        request_key: "rest-replay-after-pause"
+      }
+    }
+    post "/api/v1/household_memories", params: request, headers: auth_headers(@owner), as: :json
+    assert_response :created
+    memory = @household.household_memories.find_by!(request_key: "rest-replay-after-pause")
+    assert_equal "Ask one question at a time.", memory.display_value
+    assert_equal "private", memory.visibility
+
+    membership = @household.household_memberships.find_by!(user: @owner)
+    membership.update!(mia_personalization_paused: true, mia_personalization_paused_at: Time.current)
+    exact_replay = request.deep_dup
+    exact_replay[:memory][:display_value] = "Ask one question at a time."
+    exact_replay[:memory].delete(:visibility)
+    assert_no_difference("@household.household_memories.count") do
+      post "/api/v1/household_memories", params: exact_replay, headers: auth_headers(@owner), as: :json
+    end
+    assert_response :success
+    assert response.parsed_body.dig("personalization", "paused")
+
+    mismatches = [
+      { category: "preference" },
+      { display_value: "Ask two questions at a time." },
+      { sensitivity: "sensitive" },
+      { confirmed: false },
+      { expires_at: 3.days.from_now.change(usec: 0).iso8601 },
+      { structured_value: { "cadence" => "monthly" } }
+    ]
+    mismatches.each do |change|
+      conflicting = exact_replay.deep_dup
+      conflicting[:memory].merge!(change)
+      post "/api/v1/household_memories", params: conflicting, headers: auth_headers(@owner), as: :json
+      assert_response :conflict, change.inspect
+    end
+  end
+
+  test "unique-index create race reloads and returns the exact winner" do
+    controller = Api::V1::HouseholdMemoriesController
+    original_persist = controller.instance_method(:persist_household_memory!)
+    controller.define_method(:persist_household_memory!) do |attributes|
+      original_persist.bind_call(self, attributes)
+      raise ActiveRecord::RecordNotUnique, "simulated concurrent exact insert"
+    end
+
+    assert_difference("@household.household_memories.count", 1) do
+      post "/api/v1/household_memories", params: {
+        memory: {
+          category: "preference",
+          display_value: "Use the race winner.",
+          sensitivity: "ordinary",
+          confirmed: true,
+          request_key: "simulated-memory-race"
+        }
+      }, headers: auth_headers(@owner), as: :json
+    end
+
+    assert_response :success
+    assert_equal @household.household_memories.find_by!(request_key: "simulated-memory-race").id, response.parsed_body.dig("memory", "id")
+  ensure
+    controller&.define_method(:persist_household_memory!, original_persist) if defined?(original_persist)
+  end
+
   test "memory commands retire prior document evidence while exact replays keep precedence" do
     session = @household.chat_sessions.create!(user: @owner, title: "Ask Mia")
     session.update!(active_topic: document_evidence_topic, open_topics: [ document_evidence_topic ])
@@ -306,5 +422,17 @@ class ApiV1HouseholdMemoriesControllerTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def with_singleton_stub(target, method_name, replacement)
+    singleton = class << target; self; end
+    original = singleton.instance_method(method_name)
+    singleton.define_method(method_name) do |*args, **kwargs, &block|
+      replacement.call(*args, **kwargs, &block)
+    end
+    yield
+  ensure
+    singleton.send(:remove_method, method_name) if singleton.method_defined?(method_name)
+    singleton.define_method(method_name, original)
   end
 end
