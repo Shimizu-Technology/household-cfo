@@ -111,6 +111,25 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_equal 0, account.balance_cents
   end
 
+  test "a goal import updates the active record instead of archived history" do
+    archived = @household.goals.create!(
+      label: "Family trip", goal_type: "travel", target_amount_cents: 1_000_00,
+      active: false, archived_at: Time.current
+    )
+    active = @household.goals.create!(label: "Family trip", goal_type: "travel", target_amount_cents: 2_000_00)
+    item = @document_import.items.create!(
+      target_type: "goal", label: "family trip", amount_cents: 3_000_00,
+      metadata: { "goal_type" => "travel" }
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_equal 1_000_00, archived.reload.target_amount_cents
+    assert_equal 3_000_00, active.reload.target_amount_cents
+    assert_equal active, item.reload.applied_record
+  end
+
   test "matches existing household records case-insensitively when applying" do
     @household.income_sources.create!(label: "Primary Income", source_type: "job", amount_cents: 1_000_00, cadence: "monthly")
     @household.expense_items.create!(label: "Groceries", stack_key: "discretionary", amount_cents: 100_00, cadence: "monthly")

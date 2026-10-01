@@ -146,7 +146,7 @@ module HouseholdFinance
       record = if goal_type.in?(%w[runway transition])
         household.goals.policy.find_or_initialize_by(goal_type: goal_type)
       else
-        find_label_record_or_initialize(household.goals.tracked, item.label, goal_type: goal_type)
+        find_label_record_or_initialize(household.goals.tracked.active, item.label, goal_type: goal_type)
       end
       record.label = item.label
       record.target_amount_cents = item.amount_cents.to_i

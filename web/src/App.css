@@ -2630,7 +2630,8 @@ h3 {
 }
 
 .debt-empty,
-.account-empty {
+.account-empty,
+.goal-empty {
   padding: 15px;
   border: 1px dashed rgba(95, 125, 97, 0.36);
   border-radius: 16px;
@@ -2639,6 +2640,7 @@ h3 {
 
 .debt-empty p,
 .account-empty p,
+.goal-empty p,
 .debt-privacy-note {
   margin: 4px 0 0;
   color: var(--muted);

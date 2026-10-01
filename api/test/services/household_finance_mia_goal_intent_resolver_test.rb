@@ -66,11 +66,12 @@ class HouseholdFinanceMiaGoalIntentResolverTest < ActiveSupport::TestCase
     result = resolve(
       user_message: "Clear the target date for Family trip",
       context: { active_goals: [ { id: 31, label: "Family trip", goal_type: "travel" } ], archived_goals: [] },
-      action: { type: "update_goal", goal_id: 31, goal_name: "Family trip", target_on: "unknown" }
+      action: { type: "update_goal", goal_id: 31, goal_name: "Family trip", target_amount: "unknown", target_on: "unknown" }
     )
 
     assert result.actionable?
     assert_equal "unknown", result.action.fetch(:target_on)
+    assert_equal "", result.action.fetch(:target_amount)
   end
 
   test "drops an unrequested unknown amount" do
@@ -85,9 +86,34 @@ class HouseholdFinanceMiaGoalIntentResolverTest < ActiveSupport::TestCase
     assert_equal "Guam trip", result.action.fetch(:new_name)
   end
 
+  test "keeps participant-authored goal amounts through a type clarification" do
+    %i[target_amount current_amount].each do |field|
+      context = {
+        active_goals: [], archived_goals: [],
+        conversation: {
+          active_thread: {
+            schema_version: 2, type: "goal_plan", title: "Add tracked goal", subject: "Family trip",
+            status: "needs_clarification", action: { type: "create_goal", goal_name: "Family trip", field => "5000" }
+          },
+          recent_messages: []
+        }
+      }
+
+      result = resolve(
+        user_message: "It is a travel goal.",
+        context: context,
+        action: { type: "create_goal", goal_name: "Family trip", goal_type: "travel" },
+        continuation: true
+      )
+
+      assert result.actionable?, "expected #{field} clarification to remain actionable"
+      assert_equal "5000", result.action.fetch(field)
+    end
+  end
+
   private
 
-  def resolve(user_message:, context:, action:)
+  def resolve(user_message:, context:, action:, continuation: false)
     base_context = {
       budget_categories: [], archived_categories: [], active_debts: [], archived_debts: [],
       active_accounts: [], archived_accounts: [], eligible_plaid_accounts: [],
@@ -98,7 +124,7 @@ class HouseholdFinanceMiaGoalIntentResolverTest < ActiveSupport::TestCase
       user_message: user_message, context: base_context, api_key: "test-key",
       transport: ->(_payload) do
         {
-          intent: "goal_action", confidence: 0.99, continuation: false,
+          intent: "goal_action", confidence: 0.99, continuation: continuation,
           resolved_message: user_message, needs_clarification: false, clarification: "",
           topic: { type: "goal_plan", title: "Tracked goal", subject: action[:goal_name].to_s },
           action: DEFAULT_ACTION.merge(action), read_only_plan: { title: "", items: [] }

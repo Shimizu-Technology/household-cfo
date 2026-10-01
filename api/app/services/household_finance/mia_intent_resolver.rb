@@ -1437,7 +1437,7 @@ module HouseholdFinance
       return action unless action[:type].in?(%w[create_goal update_goal])
 
       filtered = action.dup
-      { target_amount: /target|goal amount/i, current_amount: /progress|saved|set aside|assigned/i }.each do |field, field_pattern|
+      { target_amount: /target amount|goal amount|amount (?:for|of) (?:the )?(?:target|goal)/i, current_amount: /progress|saved|set aside|assigned/i }.each do |field, field_pattern|
         next unless filtered[field].to_s.casecmp("unknown").zero?
         next if prior_action&.dig(field).to_s.casecmp("unknown").zero?
         next if participant_messages(history_scope: history_scope).any? { |text| goal_unknown_stated?(text, field_pattern) }
@@ -1537,6 +1537,13 @@ module HouseholdFinance
       if entry.fetch(:field) == :minimum_payment
         prior_minimum = cents_or_nil(prior_action[:minimum_payment])
         return prior_minimum == entry.fetch(:amount_cents) if prior_minimum
+
+        return false
+      end
+
+      if entry.fetch(:field).in?(%i[target_amount current_amount])
+        prior_value = cents_or_nil(prior_action[entry.fetch(:field)])
+        return prior_value == entry.fetch(:amount_cents) if prior_value
 
         return false
       end

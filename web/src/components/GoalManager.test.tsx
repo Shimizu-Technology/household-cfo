@@ -34,6 +34,12 @@ describe('GoalManager', () => {
     expect(screen.getByText(/never move money or change accounts/)).toBeTruthy()
   })
 
+  it('uses a goal-specific empty state selector', () => {
+    const { container } = render(<GoalManager goals={[]} portfolio={{ ...portfolio, active_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }} onChanged={vi.fn()} />)
+    expect(container.querySelector('.goal-empty')?.textContent).toContain('No tracked goals yet')
+    expect(container.querySelector('.debt-empty')).toBeNull()
+  })
+
   it('focuses invalid target and preserves blank as unknown', async () => {
     const user = userEvent.setup()
     render(<GoalManager goals={[]} portfolio={{ ...portfolio, active_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }} onChanged={vi.fn()} />)
