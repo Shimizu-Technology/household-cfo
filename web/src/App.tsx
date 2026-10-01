@@ -6611,6 +6611,16 @@ function MiaActionDraftReviewCard({
             <div className="mia-action-item" key={item.id}>
               <strong>{item.label}</strong>
               {item.description && <span>{item.description}</span>}
+              {item.review_fields.length > 0 && (
+                <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
+                  {item.review_fields.map((field) => (
+                    <div key={field.label}>
+                      <dt>{field.label}</dt>
+                      <dd><span><b>Before</b>{field.before}</span><span><b>After</b>{field.after}</span></dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
               {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
             </div>
           ))}

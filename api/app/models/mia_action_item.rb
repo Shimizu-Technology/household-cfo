@@ -10,12 +10,21 @@ class MiaActionItem < ApplicationRecord
   validates :position, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :label, presence: true, length: { maximum: 240 }
   validate :json_payloads_are_hashes
+  validate :operation_identity_is_complete
 
   private
 
   def json_payloads_are_hashes
-    %i[payload before_snapshot after_snapshot].each do |attribute|
+    %i[payload before_snapshot after_snapshot prepared_operation].each do |attribute|
       errors.add(attribute, "must be a JSON object") unless public_send(attribute).is_a?(Hash)
     end
+  end
+
+  def operation_identity_is_complete
+    values = [ operation_key, operation_version, prepared_operation_fingerprint ]
+    return if values.all?(&:blank?) && prepared_operation.blank?
+    return if values.all?(&:present?) && prepared_operation.present?
+
+    errors.add(:operation_key, "must be stored with its version and prepared fingerprint")
   end
 end

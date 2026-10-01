@@ -17,6 +17,7 @@ class Household < ApplicationRecord
   has_many :budget_categories, dependent: :destroy
   has_many :financial_document_imports, dependent: :destroy
   has_many :mia_action_drafts, dependent: :destroy
+  has_many :household_operation_executions, dependent: :destroy
   has_many :household_audit_events, dependent: :destroy
   has_many :household_memories, dependent: :destroy
   has_many :plaid_items, dependent: :destroy

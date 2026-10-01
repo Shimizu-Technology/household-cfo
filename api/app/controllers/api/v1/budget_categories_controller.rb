@@ -5,57 +5,80 @@ module Api
       before_action :require_writable_household!
 
       def create
-        category = budget_manager.create_category!(
-          name: category_params[:name],
-          stack_key: category_params[:stack_key],
-          monthly_amount: category_params[:monthly_amount]
+        result = operation_runner.run(
+          operation_key: "budget.category.create",
+          input: category_params.to_h.merge(year: budget_year_param),
+          idempotency_key: request_idempotency_key
         )
-
+        category = result.subject || current_household.budget_categories.find(result.execution.subject_id)
         render_category_response(category, status: :created)
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       rescue ArgumentError => e
-        render json: { errors: [ e.message ] }, status: :unprocessable_entity
+        render_operation_error(e)
       end
 
       def update
-        category = budget_manager.update_category!(
-          scoped_category,
-          name: category_params[:name],
-          stack_key: category_params[:stack_key]
+        category = scoped_category
+        result = operation_runner.run(
+          operation_key: "budget.category.update",
+          input: category_params.to_h.merge(category_id: category.id, year: budget_year_param),
+          idempotency_key: request_idempotency_key
         )
-
+        category = result.subject || category.reload
         render_category_response(category)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Budget category not found" ] }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue ArgumentError => e
+        render_operation_error(e)
       end
 
       def destroy
-        category = budget_manager.archive_category!(scoped_category)
+        category = scoped_category
+        result = operation_runner.run(
+          operation_key: "budget.category.archive",
+          input: { category_id: category.id, year: budget_year_param },
+          idempotency_key: request_idempotency_key
+        )
+        category = result.subject || category.reload
 
         render_category_response(category)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Budget category not found" ] }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue ArgumentError => e
+        render_operation_error(e)
       end
 
       def restore
-        category = budget_manager.restore_category!(scoped_category)
+        category = scoped_category
+        result = operation_runner.run(
+          operation_key: "budget.category.restore",
+          input: { category_id: category.id, year: budget_year_param },
+          idempotency_key: request_idempotency_key
+        )
+        category = result.subject || category.reload
 
         render_category_response(category)
       rescue ActiveRecord::RecordNotFound
         render json: { errors: [ "Budget category not found" ] }, status: :not_found
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
+      rescue ArgumentError => e
+        render_operation_error(e)
       end
 
       private
 
       def budget_manager
         @budget_manager ||= HouseholdFinance::AnnualBudgetManager.new(current_household, year: budget_year_param)
+      end
+
+      def operation_runner
+        @operation_runner ||= HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
       end
 
       def budget_year_param

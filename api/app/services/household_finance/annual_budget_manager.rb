@@ -69,70 +69,105 @@ module HouseholdFinance
       }
     end
 
-    def create_category!(name:, stack_key:, monthly_amount: 0)
-      budget_year = ensure_plan!
+    def create_category!(name:, stack_key:, monthly_amount: 0, plan_prepared: false)
+      ensure_plan! unless plan_prepared
       category = nil
       household.with_lock do
-        bounded = bounded_name(name)
-        monthly_cents = parsed_monthly_amount_cents(monthly_amount)
-        if (existing_category = household.budget_categories.where("LOWER(name) = ?", bounded.downcase).first)
-          existing_category.errors.add(:name, "already exists. Edit the existing category instead.")
-          raise ActiveRecord::RecordInvalid, existing_category
+        category = create_category_inside_household_lock!(name: name, stack_key: stack_key, monthly_amount: monthly_amount)
+      end
+      category
+    end
+
+    def create_category_inside_household_lock!(name:, stack_key:, monthly_amount: 0)
+      budget_year = household.budget_years.find_by!(year: year)
+      bounded = bounded_name(name)
+      monthly_cents = parsed_monthly_amount_cents(monthly_amount)
+      if (existing_category = household.budget_categories.where("LOWER(name) = ?", bounded.downcase).first)
+        existing_category.errors.add(:name, "already exists. Edit the existing category instead.")
+        raise ActiveRecord::RecordInvalid, existing_category
+      end
+
+      category = household.budget_categories.new(
+        name: bounded,
+        stack_key: stack_key.presence || "discretionary",
+        active: true,
+        sort_order: next_sort_order
+      )
+      category.save!
+      sync_expense_item!(category, monthly_cents)
+      apply_monthly_amount!(budget_year, category, monthly_cents, source: "manual")
+      category
+    end
+
+    def update_category!(category, name:, stack_key:, plan_prepared: false)
+      ensure_plan! unless plan_prepared
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      household.with_lock do
+        update_category_inside_household_lock!(category, name: name, stack_key: stack_key)
+      end
+      category
+    end
+
+    def update_category_inside_household_lock!(category, name:, stack_key:)
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      category.lock!
+      old_name = category.name
+      old_stack_key = category.stack_key
+      category.assign_attributes(
+        name: category_update_name(name, fallback: category.name),
+        stack_key: stack_key.presence || category.stack_key
+      )
+      category.save!
+      sync_expense_item_after_category_change!(category, old_name, old_stack_key)
+      category
+    end
+
+    def archive_category!(category, plan_prepared: false)
+      ensure_plan! unless plan_prepared
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      household.with_lock do
+        archive_category_inside_household_lock!(category)
+      end
+      category
+    end
+
+    def archive_category_inside_household_lock!(category)
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      category.lock!
+      ensure_category_can_archive!(category)
+      category.update!(active: false)
+      archive_synced_expense_item!(category)
+      category
+    end
+
+    def restore_category!(category, plan_prepared: false)
+      budget_year = plan_prepared ? household.budget_years.find_by!(year: year) : ensure_plan!
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+
+      household.with_lock do
+        restore_category_inside_household_lock!(category, budget_year: budget_year)
+      end
+      category
+    end
+
+    def restore_category_inside_household_lock!(category, budget_year: household.budget_years.find_by!(year: year))
+      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
+      raise ActiveRecord::RecordNotFound unless budget_year.household_id == household.id && budget_year.year == year
+
+      category.lock!
+      category.update!(active: true, sort_order: category.sort_order.to_i.positive? ? category.sort_order : next_sort_order)
+      sync_expense_item_after_category_change!(category, category.name, category.stack_key)
+      budget_year.budget_periods.find_each do |period|
+        BudgetAllocation.find_or_create_by!(budget_period: period, budget_category: category) do |allocation|
+          allocation.planned_amount_cents = 0
+          allocation.source = "manual"
         end
-
-        category = household.budget_categories.new(
-          name: bounded,
-          stack_key: stack_key.presence || "discretionary",
-          active: true,
-          sort_order: next_sort_order
-        )
-        category.save!
-        sync_expense_item!(category, monthly_cents)
-        apply_monthly_amount!(budget_year, category, monthly_cents, source: "manual")
-      end
-      category
-    end
-
-    def update_category!(category, name:, stack_key:)
-      ensure_plan!
-      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
-
-      household.with_lock do
-        category.lock!
-        old_name = category.name
-        old_stack_key = category.stack_key
-        category.assign_attributes(
-          name: category_update_name(name, fallback: category.name),
-          stack_key: stack_key.presence || category.stack_key
-        )
-        category.save!
-        sync_expense_item_after_category_change!(category, old_name, old_stack_key)
-      end
-      category
-    end
-
-    def archive_category!(category)
-      ensure_plan!
-      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
-
-      household.with_lock do
-        category.lock!
-        ensure_category_can_archive!(category)
-        category.update!(active: false)
-        archive_synced_expense_item!(category)
-      end
-      category
-    end
-
-    def restore_category!(category)
-      budget_year = ensure_plan!
-      raise ActiveRecord::RecordNotFound unless category.household_id == household.id
-
-      household.with_lock do
-        category.lock!
-        category.update!(active: true, sort_order: category.sort_order.to_i.positive? ? category.sort_order : next_sort_order)
-        sync_expense_item_after_category_change!(category, category.name, category.stack_key)
-        ensure_allocations_for_active_categories!(budget_year)
+      rescue ActiveRecord::RecordNotUnique
+        next
       end
       category
     end

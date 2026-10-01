@@ -447,6 +447,13 @@ export type MiaActionItem = {
   payload: Record<string, unknown>
   before_snapshot: Record<string, unknown>
   after_snapshot: Record<string, unknown>
+  operation_key: string | null
+  operation_version: number | null
+  review_fields: Array<{
+    label: string
+    before: string
+    after: string
+  }>
 }
 
 export type MiaActionDraft = {

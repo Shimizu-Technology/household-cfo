@@ -58,6 +58,15 @@ module Api
         render json: current_workspace_data
       end
 
+      def request_idempotency_key
+        request.headers["Idempotency-Key"].to_s.strip.presence || SecureRandom.uuid
+      end
+
+      def render_operation_error(error)
+        status = error.is_a?(HouseholdFinance::Operations::Runner::IdempotencyConflict) ? :conflict : :unprocessable_entity
+        render json: { errors: [ error.message ] }, status: status
+      end
+
       def current_workspace_data
         current_data_presenter.app_data
       end
