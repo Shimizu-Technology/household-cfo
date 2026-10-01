@@ -2841,6 +2841,41 @@ test('mobile Ask Mia prioritizes conversation and keeps full-screen chat above i
   await expect(page.getByRole('button', { name: 'Expand Ask Mia chat' })).toBeFocused()
 })
 
+test('compact Ask Mia header keeps its title and controls separate at 320px', async ({ page }, testInfo) => {
+  test.skip(!testInfo.project.name.includes('mobile'), 'mobile-only compact header assertion')
+  await page.setViewportSize({ width: 320, height: 700 })
+  await page.goto('/#Ask%20Mia')
+
+  const layout = await page.locator('.chat-shell-header').evaluate((header) => {
+    const headerBox = header.getBoundingClientRect()
+    const copyBox = header.querySelector('.chat-shell-copy')?.getBoundingClientRect()
+    const actionsBox = header.querySelector('.chat-actions')?.getBoundingClientRect()
+    const actionBoxes = Array.from(header.querySelectorAll<HTMLButtonElement>('.chat-actions button'))
+      .map((button) => {
+        const box = button.getBoundingClientRect()
+        return { left: box.left, right: box.right, width: box.width, height: box.height }
+      })
+      .filter((box) => box.width > 0 && box.height > 0)
+    return {
+      header: { left: headerBox.left, right: headerBox.right },
+      copyBottom: copyBox?.bottom ?? Number.POSITIVE_INFINITY,
+      actionsTop: actionsBox?.top ?? Number.NEGATIVE_INFINITY,
+      actionBoxes,
+      pageFits: document.documentElement.scrollWidth <= document.documentElement.clientWidth,
+    }
+  })
+
+  expect(layout.copyBottom).toBeLessThanOrEqual(layout.actionsTop + 1)
+  expect(layout.pageFits).toBe(true)
+  expect(layout.actionBoxes.length).toBeGreaterThanOrEqual(2)
+  for (const [index, box] of layout.actionBoxes.entries()) {
+    expect(box.left).toBeGreaterThanOrEqual(layout.header.left - 1)
+    expect(box.right).toBeLessThanOrEqual(layout.header.right + 1)
+    expect(box.height).toBeGreaterThanOrEqual(40)
+    if (index > 0) expect(box.left).toBeGreaterThanOrEqual(layout.actionBoxes[index - 1].right)
+  }
+})
+
 test('expanded desktop Ask Mia blocks background interaction and restores its trigger', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name.includes('mobile'), 'desktop-only modal boundary assertion')
   await page.goto('/#Ask%20Mia')

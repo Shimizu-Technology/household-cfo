@@ -5709,6 +5709,7 @@ h3 {
   background: white;
 }
 
+.chat-memory-button,
 .chat-clear-button,
 .chat-suggestions-button,
 .chat-expand-button,
@@ -5724,6 +5725,7 @@ h3 {
   text-transform: uppercase;
 }
 
+.chat-memory-button,
 .chat-clear-button,
 .chat-suggestions-button,
 .chat-expand-button {
@@ -5732,6 +5734,7 @@ h3 {
   justify-content: center;
 }
 
+.chat-memory-button,
 .chat-clear-button {
   min-height: 38px;
   padding: 7px 10px;
@@ -6758,6 +6761,10 @@ h3 {
     gap: 6px;
   }
 
+  .chat-memory-button {
+    min-height: 44px;
+  }
+
   .chat-clear-button {
     display: none;
   }
@@ -6956,6 +6963,18 @@ h3 {
 
   .mia-answer-scenario dd {
     text-align: left;
+  }
+}
+
+@media (max-width: 350px) {
+  .chat-shell-header {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .chat-shell-header .chat-actions {
+    grid-column: 1 / -1;
+    width: 100%;
+    justify-content: flex-end;
   }
 }
 
