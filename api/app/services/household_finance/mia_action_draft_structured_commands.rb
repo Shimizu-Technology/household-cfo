@@ -38,6 +38,18 @@ module HouseholdFinance
         structured_household_setup_proposal
       when "schedule_income_change"
         structured_income_schedule_proposal
+      when "create_income_source"
+        structured_income_source_create_proposal
+      when "update_income_source"
+        structured_income_source_update_proposal
+      when "archive_income_source"
+        structured_income_source_status_proposal(archive: true)
+      when "restore_income_source"
+        structured_income_source_status_proposal(archive: false)
+      when "update_income_schedule_entry"
+        structured_income_schedule_update_proposal
+      when "delete_income_schedule_entry"
+        structured_income_schedule_delete_proposal
       else
         validation_result("I could not safely resolve that change. Nothing changed. Tell me the value and when it should take effect.")
       end

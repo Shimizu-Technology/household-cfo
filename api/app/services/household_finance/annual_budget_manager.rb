@@ -393,7 +393,11 @@ module HouseholdFinance
     end
 
     def scheduled_income_sources
-      @scheduled_income_sources ||= household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).to_a
+      @scheduled_income_sources ||= household.income_sources
+        .where(active: true).or(household.income_sources.where.not(ends_on: nil))
+        .includes(:income_schedule_entries)
+        .order(:source_type, :label)
+        .select { |source| source.intersects_year?(year) }
     end
 
     def income_source_cents_for_period(source, period)
@@ -401,26 +405,7 @@ module HouseholdFinance
     end
 
     def income_sources_payload
-      scheduled_income_sources.map do |source|
-        {
-          id: source.id,
-          label: source.label,
-          source_type: source.source_type,
-          base_amount: Money.dollars(source.amount_cents),
-          base_cadence: source.cadence,
-          schedule_entries: source.income_schedule_entries.sort_by(&:effective_on).map do |entry|
-            {
-              id: entry.id,
-              entry_type: entry.entry_type,
-              label: entry.label,
-              amount: Money.dollars(entry.amount_cents),
-              cadence: entry.cadence,
-              effective_on: entry.effective_on.iso8601,
-              retained_after_transition: entry.retained_after_transition?
-            }
-          end
-        }
-      end
+      scheduled_income_sources.map { |source| IncomeSourcePresenter.new(source).as_json }
     end
 
     def annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums)

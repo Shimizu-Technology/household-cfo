@@ -1,6 +1,8 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
+  include ActiveSupport::Testing::TimeHelpers
+
   test "builds bounded intent context from the selected month, transcript, and pending reviews" do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "intent-context@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Intent Context Household")
@@ -113,5 +115,31 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     refute context.key?(:personalization_memory)
     refute_includes JSON.generate(context), adversarial_value
     refute_includes JSON.generate(context), "$900"
+  end
+
+  test "exposes current future and archived income sources with timeline status" do
+    travel_to Date.new(2026, 10, 15) do
+      user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "income-context@example.com", role: "participant", invitation_status: "accepted")
+      household = Household.create!(created_by_user: user, name: "Income Context Household")
+      household.household_memberships.create!(user: user, role: "owner")
+      ended = household.income_sources.create!(
+        label: "Old contract", source_type: "business", amount_cents: 100_000, cadence: "monthly",
+        starts_on: Date.new(2025, 1, 1), ends_on: Date.new(2025, 12, 1), active: false
+      )
+      current = household.income_sources.create!(label: "Salary", source_type: "job", amount_cents: 500_000, cadence: "monthly", starts_on: Date.new(2026, 1, 1))
+      future = household.income_sources.create!(label: "New contract", source_type: "business", amount_cents: 200_000, cadence: "monthly", starts_on: Date.new(2027, 2, 1))
+      manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+
+      context = HouseholdFinance::MiaIntentContextBuilder.new(
+        household, annual_plan: manager.plan_data, conversation_context: {}, transcript: [], selected_month: 10
+      ).call
+      sources = context.fetch(:income_sources).index_by { |source| source.fetch(:id) }
+
+      assert_equal [ current.id, future.id ].sort, sources.keys.sort
+      refute sources.key?(ended.id)
+      assert_equal "current", sources.fetch(current.id).fetch(:timeline_status)
+      assert_equal "future", sources.fetch(future.id).fetch(:timeline_status)
+      assert_equal [ ended.id ], context.fetch(:archived_income_sources).pluck(:id)
+    end
   end
 end

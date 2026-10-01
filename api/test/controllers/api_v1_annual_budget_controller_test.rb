@@ -1981,7 +1981,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
   end
 
   def auth_headers(user)
-    { "Authorization" => "Bearer test_token_#{user.id}" }
+    { "Authorization" => "Bearer test_token_#{user.id}", "Idempotency-Key" => SecureRandom.uuid }
   end
 
   private

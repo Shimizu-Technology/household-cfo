@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_080100) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -913,15 +913,18 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_080100) do
     t.integer "amount_cents", default: 0, null: false
     t.string "cadence", default: "monthly", null: false
     t.datetime "created_at", null: false
+    t.date "ends_on"
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.string "source_type", default: "other", null: false
+    t.date "starts_on"
     t.datetime "updated_at", null: false
+    t.index "household_id, source_type, lower((label)::text)", name: "index_income_sources_on_household_type_lower_label", unique: true, where: "(active = true)"
     t.index ["household_id", "active"], name: "index_income_sources_on_household_id_and_active"
-    t.index ["household_id", "source_type", "label"], name: "index_income_sources_on_household_source_type_label", unique: true
     t.index ["household_id", "source_type"], name: "index_income_sources_on_household_id_and_source_type"
     t.index ["household_id"], name: "index_income_sources_on_household_id"
     t.check_constraint "amount_cents >= 0", name: "income_sources_amount_cents_non_negative"
+    t.check_constraint "starts_on IS NULL OR ends_on IS NULL OR starts_on <= ends_on", name: "income_sources_temporal_bounds_valid"
   end
 
   create_table "invitation_email_attempts", force: :cascade do |t|
@@ -1017,7 +1020,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_080100) do
     t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
-    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying::text, 'update_category'::character varying::text, 'update_allocation'::character varying::text, 'archive_category'::character varying::text, 'restore_category'::character varying::text, 'update_setup_value'::character varying::text, 'upsert_income_schedule_entry'::character varying::text])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying::text, 'update_category'::character varying::text, 'update_allocation'::character varying::text, 'archive_category'::character varying::text, 'restore_category'::character varying::text, 'update_setup_value'::character varying::text, 'upsert_income_schedule_entry'::character varying::text, 'create_income_source'::character varying::text, 'update_income_source'::character varying::text, 'archive_income_source'::character varying::text, 'restore_income_source'::character varying::text, 'create_income_schedule_entry'::character varying::text, 'update_income_schedule_entry'::character varying::text, 'delete_income_schedule_entry'::character varying::text])", name: "mia_action_items_action_type_valid"
     t.check_constraint "jsonb_typeof(prepared_operation) = 'object'::text", name: "mia_action_items_prepared_operation_object"
     t.check_constraint "operation_key IS NULL AND operation_version IS NULL AND prepared_operation_fingerprint IS NULL AND prepared_operation = '{}'::jsonb OR operation_key IS NOT NULL AND operation_version > 0 AND prepared_operation_fingerprint IS NOT NULL AND prepared_operation <> '{}'::jsonb", name: "mia_action_items_operation_identity_complete"
   end

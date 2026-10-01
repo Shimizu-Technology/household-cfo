@@ -108,9 +108,9 @@ module HouseholdFinance
     def active_income_sources
       @active_income_sources ||= begin
         sources = if association_loaded?(:income_sources)
-          household.income_sources.select(&:active?)
+          household.income_sources.select { |source| source.effective_on?(reference_date) }
         else
-          household.income_sources.where(active: true).to_a
+          household.income_sources.to_a.select { |source| source.effective_on?(reference_date) }
         end
 
         ActiveRecord::Associations::Preloader.new(

@@ -90,20 +90,26 @@ module HouseholdFinance
     def upsert_income(label, source_type, value)
       records = household.income_sources.where(source_type: source_type).order(:id).to_a
       monthly_total_cents = setup_money_cents(value, label: label)
-      active_records = records.select(&:active?)
-      return if current_income_total(active_records) == monthly_total_cents
-      return distribute_current_income_total!(active_records, monthly_total_cents) if active_records.many?
+      current_records = records.select { |record| record.effective_on?(Date.current) }
+      return if current_income_total(current_records) == monthly_total_cents
+      if current_records.many?
+        raise ArgumentError, "#{label} has multiple saved sources. Edit a specific income source so no detailed amount changes silently"
+      end
 
-      aggregate = records.find { |record| record.label == label }
-      record = amount_record_for_single_update(aggregate, active_records, records) || household.income_sources.new(source_type: source_type)
+      aggregate = current_records.find { |record| record.label == label }
+      record = aggregate || current_records.first || household.income_sources.new(source_type: source_type)
       return if record.new_record? && monthly_total_cents.zero?
 
       if record.new_record?
-        record.assign_attributes(amount_cents: monthly_total_cents, cadence: "monthly", active: true)
+        record.assign_attributes(
+          amount_cents: monthly_total_cents,
+          cadence: "monthly",
+          active: true,
+          starts_on: records.any? ? Date.current.beginning_of_month : nil
+        )
         record.label = label
         record.save!
       else
-        record.update!(active: true) unless record.active?
         set_current_income_amount!(record, monthly_total_cents)
       end
     end
@@ -210,13 +216,6 @@ module HouseholdFinance
       records.each_with_index do |record, index|
         amount_cents = allocations.fetch(index)
         record.update!(amount_cents: amount_cents, cadence: "monthly", active: amount_cents.positive?)
-      end
-    end
-
-    def distribute_current_income_total!(records, monthly_total_cents)
-      allocations = allocate_cents(monthly_total_cents, records.map { |record| current_income_cents(record) })
-      records.each_with_index do |record, index|
-        set_current_income_amount!(record, allocations.fetch(index))
       end
     end
 

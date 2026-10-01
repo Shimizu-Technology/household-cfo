@@ -280,7 +280,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 6_000, mastercard.minimum_payment_cents
   end
 
-  test "workspace setup distributes aggregate income and expense edits across detailed rows" do
+  test "workspace setup rejects ambiguous aggregate income without changing detailed rows" do
     user = create_user(email: "document-detail-distribution@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     salary = household.income_sources.create!(label: "Primary salary", source_type: "job", amount_cents: 620_000, cadence: "monthly")
@@ -297,7 +297,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       end
     end
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").join, "multiple saved sources"
     assert_nil household.income_sources.find_by(label: "Primary income")
     assert_nil household.expense_items.find_by(label: "Fixed essentials")
     assert_equal "Primary salary", salary.reload.label
@@ -311,10 +312,10 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     current_income = household.income_sources.where(source_type: "job", active: true).sum do |source|
       HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.current)
     end
-    assert_equal 600_000, current_income
+    assert_equal 720_000, current_income
     assert_equal 620_000, salary.amount_cents
     assert_equal 100_000, overtime.amount_cents
-    assert_equal 200_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
+    assert_equal 256_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
   end
 
   test "workspace income edits take effect now without rewriting the historical baseline" do
@@ -1721,6 +1722,76 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes content, "$200"
     refute_includes content, "I do not see confirmed Dining Out spending"
     assert_equal "family_support", session.reload.active_topic.fetch("type")
+  end
+
+  test "a complete conditional income question ignores a conflicting active topic without writing financial data" do
+    user = create_user(email: "mia-conditional-income-new-topic@example.com")
+    patch "/api/v1/workspace/setup",
+          params: {
+            workspace: {
+              primary_income: 8_500,
+              fixed_expenses: 6_925,
+              flexible_spend: 0,
+              emergency_fund: 25_090,
+              credit_card_debt: 10_000,
+              debt_payment: 920
+            }
+          },
+          headers: auth_headers(user),
+          as: :json
+    assert_response :ok
+    confirm_setup_for_test(user)
+
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
+    prior_topic = {
+      schema_version: 2,
+      id: SecureRandom.uuid,
+      type: "bill_triage",
+      title: "Bills before payday",
+      subject: "rent and utilities",
+      status: "open",
+      latest_user_context: "I only have $1,200 and several bills due before payday.",
+      latest_mia_summary: "Protect rent and utilities before optional spending.",
+      next_move: "List each bill and pay the highest-consequence essential first."
+    }
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: prior_topic, open_topics: [ prior_topic ])
+    session.chat_messages.create!(role: "user", content: prior_topic.fetch(:latest_user_context))
+    session.chat_messages.create!(role: "assistant", content: prior_topic.fetch(:latest_mia_summary))
+    financial_state_before = {
+      income: household.income_sources.order(:id).pluck(:id, :amount_cents, :cadence, :starts_on, :ends_on, :active),
+      expenses: household.expense_items.order(:id).pluck(:id, :amount_cents, :cadence, :active),
+      debts: household.debts.order(:id).pluck(:id, :balance_cents, :minimum_payment_cents)
+    }
+    message = "If our monthly income is $5,000, how much can we save?"
+    nil_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { nil } } }
+
+    assert_no_difference([ "MiaActionDraft.count", "HouseholdTransaction.count", "TransactionDraft.count" ]) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, nil_resolver) do
+        post "/api/v1/mia/messages",
+             params: { message: message },
+             headers: auth_headers(user),
+             as: :json
+      end
+    end
+
+    assert_response :created
+    body = response.parsed_body
+    content = body.dig("assistant_message", "content")
+    assert_includes content, "Assumption only"
+    assert_includes content, "monthly income were $5,000"
+    assert_includes content, "approved monthly outflow stayed $7,845"
+    assert_includes content, "$2,845 monthly shortfall"
+    assert_includes content, "approved recurring monthly income remains $8,500"
+    assert_includes content, "did not save this scenario or change any household data"
+    assert_not_includes content, "Start with the bill"
+    assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("transaction_draft")
+    assert_equal message, session.chat_messages.where(role: "user").order(:id).last.content
+    assert_equal prior_topic.fetch(:latest_user_context), session.reload.active_topic.fetch("latest_user_context")
+    assert_equal financial_state_before.fetch(:income), household.reload.income_sources.order(:id).pluck(:id, :amount_cents, :cadence, :starts_on, :ends_on, :active)
+    assert_equal financial_state_before.fetch(:expenses), household.expense_items.order(:id).pluck(:id, :amount_cents, :cadence, :active)
+    assert_equal financial_state_before.fetch(:debts), household.debts.order(:id).pluck(:id, :balance_cents, :minimum_payment_cents)
   end
 
   test "mia chat can resume compacted context across requests and clear it" do

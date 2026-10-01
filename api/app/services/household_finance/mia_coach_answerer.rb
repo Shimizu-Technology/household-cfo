@@ -55,7 +55,7 @@ module HouseholdFinance
     def call
       return nil if transaction_report?
 
-      guardrail_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || planned_purchase_detail_answer || purchase_decision_answer
+      guardrail_answer || external_fact_answer || memory_recall_answer || prompt_injection_answer || investment_boundary_answer || debt_strategy_answer || ambiguous_help_answer || account_coverage_answer || money_movement_boundary_answer || paycheck_plan_answer || safe_to_spend_formula_answer || compound_purchase_debt_answer || debt_decision_answer || bill_triage_answer || extra_money_answer || car_repair_answer || sinking_fund_answer || car_registration_answer || readiness_status_answer || monthly_focus_answer || readiness_plan_answer || family_support_answer || lending_answer || debt_vs_savings_answer || job_transition_answer || emotional_stress_answer || overwhelmed_answer || purchase_impact_answer || conditional_monthly_income_answer || planned_purchase_detail_answer || purchase_decision_answer
     end
 
     def prepared_annual_plan
@@ -120,7 +120,7 @@ module HouseholdFinance
         EMOTIONAL_STRESS_PATTERN
       ].any? { |pattern| normalized_message.match?(pattern) }
 
-      purchase_question? || readiness_coaching || debt_strategy || matched_guardrail || tax_context
+      purchase_question? || readiness_coaching || debt_strategy || matched_guardrail || tax_context || conditional_monthly_income_question?
     end
 
     def debt_strategy_answer
@@ -612,6 +612,30 @@ module HouseholdFinance
       "Start with the baseline, not the whole mountain. Based on approved household numbers, readiness is #{snapshot.fetch(:readiness_label)}, so the first pass is roof, food, utilities, debt minimums, and any bill due before the next paycheck. Do not solve shoes, extra debt, family requests, or dreams until those are named. Next CFO move: list the next three due dates and amounts; then we decide what gets paid, paused, or moved."
     end
 
+    def conditional_monthly_income_answer
+      return nil unless conditional_monthly_income_question?
+
+      match = message.match(ConversationFollowupResolver::CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN)
+
+      assumed_income_cents = Money.cents(match[1].delete(","))
+
+      approved_outflow_cents = snapshot.fetch(:total_outflow_cents)
+      modeled_surplus_cents = assumed_income_cents - approved_outflow_cents
+      result = if modeled_surplus_cents.positive?
+        "a #{money(modeled_surplus_cents)} monthly surplus"
+      elsif modeled_surplus_cents.negative?
+        "a #{money(modeled_surplus_cents.abs)} monthly shortfall"
+      else
+        "monthly break-even with a $0 surplus"
+      end
+
+      "Assumption only: if monthly income were #{money(assumed_income_cents)} and your approved monthly outflow stayed #{money(approved_outflow_cents)}, the modeled result would be #{result}. Your approved recurring monthly income remains #{money(snapshot.fetch(:monthly_income_cents))}. I did not save this scenario or change any household data. Next CFO move: use this scenario to decide whether the income change would cover the approved plan before committing money elsewhere."
+    end
+
+    def conditional_monthly_income_question?
+      ConversationFollowupResolver.complete_conditional_income_question?(message)
+    end
+
     def planned_purchase_detail_answer
       return nil unless amount_from_message_cents&.positive?
       return nil unless normalized_message.match?(PLANNED_PURCHASE_DETAIL_PATTERN)
@@ -715,7 +739,11 @@ module HouseholdFinance
     end
 
     def amount_from_message_cents
-      match = message.match(AMOUNT_PATTERN)
+      conditional_income = message.match(ConversationFollowupResolver::CONDITIONAL_MONTHLY_INCOME_AMOUNT_PATTERN)
+      match = message.to_enum(:scan, AMOUNT_PATTERN).filter_map do
+        amount_match = Regexp.last_match
+        amount_match unless conditional_income && amount_match.begin(1) == conditional_income.begin(1)
+      end.first
       return unless match
 
       Money.cents(match[1].delete(","))

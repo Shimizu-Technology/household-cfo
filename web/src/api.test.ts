@@ -7,6 +7,8 @@ import {
   createAdminContentPack,
   createAdminPersona,
   createBudgetCategory,
+  createIncomeScheduleEntry,
+  createIncomeSource,
   acceptAdminContentSourceCandidate,
   deleteAdminContentSource,
   deleteAdminCohortPersonaAssignment,
@@ -39,6 +41,11 @@ import {
   uploadDocumentImport,
   uploadAdminContentSource,
   updateBudgetAllocation,
+  updateIncomeScheduleEntry,
+  updateIncomeSource,
+  archiveIncomeSource,
+  restoreIncomeSource,
+  deleteIncomeScheduleEntry,
 } from './api'
 
 const completedPayload = {
@@ -71,6 +78,37 @@ describe('budget operation idempotency contract', () => {
 
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'category-attempt' })
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'allocation-attempt' })
+  })
+})
+
+describe('income operation idempotency contract', () => {
+  it('sends stable keys for source and schedule writes', async () => {
+    const fetchMock = vi.fn()
+      .mockImplementation(async () => jsonResponse({ income_source: {}, income_schedule_entry: {}, budget: { monthly_income: 5000 } }, 200))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const source = { label: 'Primary salary', source_type: 'job', amount: '5000', cadence: 'monthly', starts_on: '2026-10-01' }
+    const schedule = { income_source_id: 7, entry_type: 'recurring_change' as const, amount: '5500', cadence: 'monthly', effective_on: '2027-01-01' }
+    await createIncomeSource(source, 2026, 'source-create')
+    await updateIncomeSource(7, source, 2026, 'source-update')
+    await archiveIncomeSource(7, '2026-12-01', 2026, 'source-archive')
+    await restoreIncomeSource(7, 2026, 'source-restore')
+    await createIncomeScheduleEntry(schedule, 2026, 'schedule-create')
+    await updateIncomeScheduleEntry(9, schedule, 2026, 'schedule-update')
+    await deleteIncomeScheduleEntry(9, 2026, 'schedule-delete')
+
+    expect(fetchMock.mock.calls.map((call) => ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'source-create', 'source-update', 'source-archive', 'source-restore', 'schedule-create', 'schedule-update', 'schedule-delete',
+    ])
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/income_sources?year=2026',
+      '/api/v1/income_sources/7?year=2026',
+      '/api/v1/income_sources/7?year=2026',
+      '/api/v1/income_sources/7/restore?year=2026',
+      '/api/v1/income_schedule_entries?year=2026',
+      '/api/v1/income_schedule_entries/9?year=2026',
+      '/api/v1/income_schedule_entries/9?year=2026',
+    ])
   })
 })
 
