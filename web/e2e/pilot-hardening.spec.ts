@@ -2110,13 +2110,120 @@ test('Budget explains scheduled income changes and upcoming annual pressure', as
   await expect(diningDraft).toContainText('Actuals stay unchanged until you confirm.')
 })
 
+test('My Profile manages explicit income sources with stable keys on desktop and mobile', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.income_sources[0] = {
+    ...workspace.budget.annual_plan.income_sources[0],
+    starts_on: `${currentYear}-01-01`,
+    ends_on: null,
+    active: true,
+  }
+  const currentBudget = structuredClone(workspace.budget)
+  const requests: Array<{ method: string; key: string | null; body: Record<string, unknown> }> = []
+
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: { ...workspace, budget: currentBudget } }))
+  await page.route('http://api.test/api/v1/income_sources**', (route) => {
+    const request = route.request()
+    const method = request.method()
+    const body = request.postDataJSON() as Record<string, unknown>
+    requests.push({ method, key: request.headers()['idempotency-key'] ?? null, body })
+    const url = new URL(request.url())
+    const match = url.pathname.match(/\/income_sources\/(\d+)/)
+    const sourceId = match ? Number(match[1]) : null
+    const input = (body.income_source ?? {}) as Record<string, string>
+
+    if (method === 'POST' && url.pathname.endsWith('/restore') && sourceId) {
+      currentBudget.annual_plan.income_sources = currentBudget.annual_plan.income_sources.map((source) => source.id === sourceId ? { ...source, ends_on: null, active: true } : source)
+    } else if (method === 'POST') {
+      currentBudget.annual_plan.income_sources.push({
+        id: 2,
+        label: input.label,
+        source_type: input.source_type,
+        base_amount: Number(input.amount),
+        base_cadence: input.cadence,
+        starts_on: input.starts_on,
+        ends_on: null,
+        active: true,
+        schedule_entries: [],
+      })
+      workspace.workspace.setup_values.primary_income = 15_000
+      workspace.workspace.setup_values.business_income = Number(input.amount)
+      workspace.dashboard.summary.monthly_income = 15_000 + Number(input.amount)
+    } else if (method === 'PATCH' && sourceId) {
+      currentBudget.annual_plan.income_sources = currentBudget.annual_plan.income_sources.map((source) => source.id === sourceId ? {
+        ...source,
+        label: input.label,
+        source_type: input.source_type,
+        base_amount: Number(input.amount),
+        base_cadence: input.cadence,
+        starts_on: input.starts_on,
+      } : source)
+    } else if (method === 'DELETE' && sourceId) {
+      currentBudget.annual_plan.income_sources = currentBudget.annual_plan.income_sources.map((source) => source.id === sourceId ? {
+        ...source,
+        ends_on: input.ends_on,
+        active: false,
+      } : source)
+      workspace.workspace.setup_values.business_income = 0
+      workspace.dashboard.summary.monthly_income = 15_000
+    }
+
+    return route.fulfill({ status: method === 'POST' && !url.pathname.endsWith('/restore') ? 201 : 200, json: { income_source: {}, budget: currentBudget } })
+  })
+
+  await page.clock.setFixedTime(new Date('2026-09-30T15:30:00Z'))
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'My Profile')
+  await expect(page.getByRole('spinbutton', { name: 'Job income total (calculated)' })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Keep each source clear and editable.' })).toBeVisible()
+
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Side consulting')
+  await page.locator('.income-source-form label').filter({ hasText: 'Type' }).locator('select').selectOption('business')
+  await page.getByRole('spinbutton', { name: 'Starting amount' }).fill('1200')
+  await page.getByRole('button', { name: 'Add source' }).click()
+
+  const consulting = page.locator('.income-source-manager-card').filter({ hasText: 'Side consulting' })
+  await expect(consulting).toContainText('$1,200.00')
+  await page.getByText('Add details for a stronger CFO read').click()
+  await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('1200')
+  expect(requests[0].key).toBeTruthy()
+  expect(requests[0].body).toMatchObject({ income_source: { label: 'Side consulting', source_type: 'business', amount: '1200' } })
+
+  await consulting.getByRole('button', { name: 'Edit Side consulting' }).click()
+  await expect(page.getByRole('textbox', { name: 'Name', exact: true })).toBeFocused()
+  await page.locator('.income-source-form').getByRole('button', { name: 'Cancel' }).click()
+  await expect(consulting.getByRole('button', { name: 'Edit Side consulting' })).toBeFocused()
+
+  await consulting.getByRole('button', { name: 'End Side consulting' }).click()
+  await expect(consulting.getByLabel('First $0 month')).toBeFocused()
+  await consulting.getByLabel('First $0 month').fill(`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
+  await consulting.getByRole('button', { name: 'Confirm stop for Side consulting' }).click()
+  await expect(consulting).toContainText(`Stops ${currentShortMonth} ${currentYear}`)
+  await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('0')
+  expect(requests[1].key).toBeTruthy()
+  expect(requests[1].key).not.toBe(requests[0].key)
+
+  for (const width of [390, 320]) {
+    await page.setViewportSize({ width, height: 844 })
+    await expect(page.getByRole('heading', { name: 'Keep each source clear and editable.' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  }
+})
+
 test('continuing job income is never assumed and requires explicit participant approval', async ({ page }) => {
   const submittedChanges: Array<{ retained_after_transition?: boolean }> = []
-  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  const workspace = realWorkspaceData(true)
+  const sources = workspace.budget.annual_plan.income_sources as unknown as Array<Record<string, unknown>>
+  sources[0] = { ...sources[0], starts_on: `${currentYear}-01-01`, ends_on: null, active: true }
+  sources.push(
+    { id: 2, label: 'Ended seasonal work', source_type: 'other', base_amount: 900, base_cadence: 'monthly', starts_on: `${currentYear}-01-01`, ends_on: `${currentYear}-06-01`, active: false, schedule_entries: [] },
+    { id: 3, label: 'Future contract', source_type: 'business', base_amount: 2000, base_cadence: 'monthly', starts_on: `${currentYear}-12-01`, ends_on: null, active: true, schedule_entries: [] },
+  )
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
   await page.route('http://api.test/api/v1/income_schedule_entries**', (route) => {
     const submitted = route.request().postDataJSON().income_schedule_entry as { retained_after_transition?: boolean; amount: string; effective_on: string }
     submittedChanges.push(submitted)
-    const updatedBudget = structuredClone(realWorkspaceData(true).budget)
+    const updatedBudget = structuredClone(workspace.budget)
     updatedBudget.annual_plan.income_sources[0].schedule_entries = [{
       id: 27,
       entry_type: 'recurring_change',
@@ -2126,6 +2233,7 @@ test('continuing job income is never assumed and requires explicit participant a
       effective_on: submitted.effective_on,
       retained_after_transition: submitted.retained_after_transition === true,
     }]
+    workspace.budget = updatedBudget
     return route.fulfill({ status: route.request().method() === 'POST' ? 201 : 200, json: { budget: updatedBudget } })
   })
 
@@ -2133,6 +2241,11 @@ test('continuing job income is never assumed and requires explicit participant a
   await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await page.getByRole('button', { name: 'Manage manually' }).click()
   await page.getByRole('button', { name: 'Schedule income' }).click()
+  const sourceSelect = page.locator('.income-schedule-form label').filter({ hasText: 'Income source' }).locator('select')
+  await expect(sourceSelect.locator('option')).toHaveText(['Primary income'])
+  await page.locator('.income-schedule-form label').filter({ hasText: 'Starting month' }).locator('input').fill(`${currentYear}-12`)
+  await expect(sourceSelect.locator('option')).toHaveText(['Primary income', 'Future contract'])
+  await page.locator('.income-schedule-form label').filter({ hasText: 'Starting month' }).locator('input').fill(`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
   await page.getByRole('spinbutton', { name: 'Amount' }).fill('7500')
 
   const retention = page.getByRole('checkbox', { name: /This job income will continue after my transition/ })

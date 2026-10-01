@@ -513,7 +513,18 @@ export type IncomeTimelineSource = {
   source_type: string
   base_amount: number
   base_cadence: string
+  starts_on?: string | null
+  ends_on?: string | null
+  active?: boolean
   schedule_entries: IncomeScheduleEntry[]
+}
+
+export type IncomeSourceInput = {
+  label: string
+  source_type: string
+  amount: number | string
+  cadence: string
+  starts_on: string
 }
 
 export type AnnualOutlookMonth = {
@@ -2189,7 +2200,7 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
   }
 }
 
-export async function saveWorkspaceSetup(values: WorkspaceSetupValues): Promise<AppData> {
+export async function saveWorkspaceSetup(values: Partial<WorkspaceSetupValues>): Promise<AppData> {
   return fetchJson<AppData>('/api/v1/workspace/setup', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -2351,22 +2362,65 @@ export async function updateBudgetAllocation(id: number, plannedAmount: number |
   return payload.budget
 }
 
-export async function createIncomeScheduleEntry(values: IncomeScheduleEntryInput, year?: number): Promise<BudgetData> {
-  const payload = await postJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries${yearQuery(year)}`, { income_schedule_entry: values })
+export async function createIncomeSource(values: IncomeSourceInput, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_sources${yearQuery(year)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ income_source: values }),
+  })
   return payload.budget
 }
 
-export async function updateIncomeScheduleEntry(id: number, values: IncomeScheduleEntryInput, year?: number): Promise<BudgetData> {
-  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries/${id}${yearQuery(year)}`, {
+export async function updateIncomeSource(id: number, values: IncomeSourceInput, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_sources/${id}${yearQuery(year)}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ income_source: values }),
+  })
+  return payload.budget
+}
+
+export async function archiveIncomeSource(id: number, endsOn: string, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_sources/${id}${yearQuery(year)}`, {
+    method: 'DELETE',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ income_source: { ends_on: endsOn } }),
+  })
+  return payload.budget
+}
+
+export async function restoreIncomeSource(id: number, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_sources/${id}/restore${yearQuery(year)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({}),
+  })
+  return payload.budget
+}
+
+export async function createIncomeScheduleEntry(values: IncomeScheduleEntryInput, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries${yearQuery(year)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ income_schedule_entry: values }),
   })
   return payload.budget
 }
 
-export async function deleteIncomeScheduleEntry(id: number, year?: number): Promise<BudgetData> {
-  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries/${id}${yearQuery(year)}`, { method: 'DELETE' })
+export async function updateIncomeScheduleEntry(id: number, values: IncomeScheduleEntryInput, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries/${id}${yearQuery(year)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ income_schedule_entry: values }),
+  })
+  return payload.budget
+}
+
+export async function deleteIncomeScheduleEntry(id: number, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+  const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/income_schedule_entries/${id}${yearQuery(year)}`, {
+    method: 'DELETE',
+    headers: { 'Idempotency-Key': idempotencyKey },
+  })
   return payload.budget
 }
 

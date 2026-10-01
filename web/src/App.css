@@ -175,6 +175,15 @@
   font-size: 0.76rem;
 }
 
+.income-remove-question {
+  align-self: center;
+  color: var(--ink);
+  font-size: 0.76rem;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
 .income-schedule-form {
   display: grid;
   gap: 18px;
@@ -2137,6 +2146,158 @@ h3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.income-source-manager,
+.income-source-form {
+  display: grid;
+  gap: 18px;
+}
+
+.income-source-manager-heading,
+.income-source-manager-card-heading,
+.income-source-form-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.income-source-manager-heading h3,
+.income-source-manager-heading p,
+.income-source-form-heading p {
+  margin-bottom: 0;
+}
+
+.income-source-manager-heading > strong {
+  flex: 0 0 auto;
+  padding: 9px 12px;
+  border-radius: 999px;
+  background: var(--emerald-soft);
+  color: var(--plum);
+  font-size: 0.78rem;
+}
+
+.income-source-manager-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 12px;
+}
+
+.income-source-manager-card {
+  display: grid;
+  min-width: 0;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--paper);
+}
+
+.income-source-manager-card.is-ended {
+  background: color-mix(in srgb, var(--paper) 84%, var(--paper-deep));
+}
+
+.income-source-manager-card-heading > div,
+.income-source-form-heading > div {
+  display: grid;
+  gap: 3px;
+}
+
+.income-source-manager-card-heading span,
+.income-source-form-heading span,
+.income-source-end-confirmation label > span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 800;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+}
+
+.income-source-manager-card-heading b {
+  font-family: var(--number-font);
+  font-size: 0.86rem;
+  text-align: right;
+}
+
+.income-source-manager-card dl {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+}
+
+.income-source-manager-card dl > div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.income-source-manager-card dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.income-source-manager-card dd {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 750;
+  text-align: right;
+}
+
+.income-source-manager-actions,
+.income-source-form-actions,
+.income-source-end-confirmation {
+  display: flex;
+  align-items: end;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.income-source-manager-actions button,
+.income-source-form-actions button,
+.income-source-end-confirmation button {
+  min-height: 44px;
+}
+
+.income-source-end-confirmation {
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.income-source-end-confirmation label {
+  display: grid;
+  flex: 1 1 150px;
+  gap: 5px;
+}
+
+.income-source-form {
+  padding: clamp(16px, 2.5vw, 22px);
+  border: 1px solid rgba(123, 74, 88, 0.18);
+  border-radius: 20px;
+  background: linear-gradient(180deg, rgba(255, 253, 248, 0.96), rgba(248, 238, 233, 0.72));
+}
+
+.income-source-fields {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.income-source-fields > label {
+  display: grid;
+  min-width: 0;
+  gap: 6px;
+}
+
+.income-source-fields > label > span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.income-source-empty {
+  margin: 0;
+  color: var(--muted);
+}
+
 .setup-form {
   display: grid;
   gap: 16px;
@@ -3593,6 +3754,10 @@ h3 {
   .home-welcome-panel {
     grid-template-columns: 1fr;
   }
+
+  .income-source-fields {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 620px) {
@@ -3725,6 +3890,37 @@ h3 {
   .ask-row button {
     min-height: 40px;
     padding: 10px 14px;
+  }
+
+  .income-source-manager-heading,
+  .income-source-manager-card-heading,
+  .income-source-form-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .income-source-manager-heading > strong {
+    align-self: flex-start;
+  }
+
+  .income-source-manager-list,
+  .income-source-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .income-source-manager-actions,
+  .income-source-form-actions,
+  .income-source-end-confirmation {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    width: 100%;
+  }
+
+  .income-source-manager-actions button,
+  .income-source-form-actions button,
+  .income-source-end-confirmation button,
+  .income-source-end-confirmation label {
+    width: 100%;
   }
 
   .tabs {

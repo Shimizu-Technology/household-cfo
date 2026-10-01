@@ -32,6 +32,7 @@ import {
   applyDocumentImport,
   applyMiaActionDraft,
   archiveBudgetCategory,
+  archiveIncomeSource,
   bulkConfirmTransactionDrafts,
   bulkIgnoreTransactionDrafts,
   cancelMiaActionDraft,
@@ -41,6 +42,7 @@ import {
   createAdminUser,
   createBudgetCategory,
   createDebt,
+  createIncomeSource,
   createIncomeScheduleEntry,
   deleteDocumentImport,
   deleteDocumentImportSource,
@@ -63,6 +65,7 @@ import {
   reopenTransactionDraft,
   resendAdminUserInvitation,
   restoreBudgetCategory,
+  restoreIncomeSource,
   saveWorkspaceSetup,
   sendMiaMessage,
   submitPilotFeedback,
@@ -73,6 +76,7 @@ import {
   updateDebt,
   updateAdminUser,
   updateDocumentImportItem,
+  updateIncomeSource,
   updateIncomeScheduleEntry,
   updateTransactionDraft,
   uploadDocumentImport,
@@ -104,6 +108,8 @@ import type {
   InvitationStatus,
   IncomeScheduleEntry,
   IncomeScheduleEntryInput,
+  IncomeSourceInput,
+  IncomeTimelineSource,
   MiaActionDraft,
   MiaActionItem,
   MiaMessage,
@@ -410,6 +416,7 @@ function App() {
   const [previewImport, setPreviewImport] = useState<FinancialDocumentImport | null>(null)
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
+  const incomeSourcesRef = useRef<HTMLElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -1523,6 +1530,32 @@ function App() {
     }
   }
 
+  async function refreshWorkspaceAfterIncomeChange(fallbackBudget: BudgetData, errorTarget: 'budget' | 'profile') {
+    setData((current) => current ? { ...current, budget: fallbackBudget } : current)
+    refreshSpendingReportForBudget(fallbackBudget)
+    try {
+      const payload = await fetchAppData(true)
+      setData(payload)
+      const refreshedDraft = payload.workspace?.setup_values
+        ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status)
+        : null
+      setSetupDraft((current) => {
+        if (!refreshedDraft) return current
+        if (!isProfileEditing || !current) return refreshedDraft
+        return {
+          ...current,
+          primary_income: refreshedDraft.primary_income,
+          business_income: refreshedDraft.business_income,
+        }
+      })
+      replaceMiaHistory(payload.mia)
+    } catch {
+      const message = 'The income change was saved, but the latest totals could not be refreshed. Reload to see the canonical workspace.'
+      if (errorTarget === 'profile') setSetupError(message)
+      else setBudgetError(message)
+    }
+  }
+
   async function handleSaveIncomeScheduleEntry(values: IncomeScheduleEntryInput, entryId?: number) {
     if (!isRealWorkspace || !data) {
       setBudgetError('Sign in to a real workspace before editing the income timeline.')
@@ -1531,12 +1564,13 @@ function App() {
 
     setBudgetAction(entryId ? `update-income:${entryId}` : 'create-income')
     setBudgetError(null)
+    const signature = `${entryId ? `update-income-schedule:${entryId}` : 'create-income-schedule'}:${selectedBudgetYear}:${JSON.stringify(values)}`
     try {
       const budget = entryId
-        ? await updateIncomeScheduleEntry(entryId, values, selectedBudgetYear)
-        : await createIncomeScheduleEntry(values, selectedBudgetYear)
-      setData((current) => current ? { ...current, budget } : current)
-      refreshSpendingReportForBudget(budget)
+        ? await updateIncomeScheduleEntry(entryId, values, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+        : await createIncomeScheduleEntry(values, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
+      await refreshWorkspaceAfterIncomeChange(budget, 'budget')
       captureAnalyticsEvent(entryId ? 'income_schedule_updated' : 'income_schedule_created', { entry_type: values.entry_type })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'The income timeline could not be saved.')
@@ -1551,13 +1585,76 @@ function App() {
 
     setBudgetAction(`delete-income:${entry.id}`)
     setBudgetError(null)
+    const signature = `delete-income-schedule:${selectedBudgetYear}:${entry.id}`
     try {
-      const budget = await deleteIncomeScheduleEntry(entry.id, selectedBudgetYear)
-      setData((current) => current ? { ...current, budget } : current)
-      refreshSpendingReportForBudget(budget)
+      const budget = await deleteIncomeScheduleEntry(entry.id, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
+      await refreshWorkspaceAfterIncomeChange(budget, 'budget')
       captureAnalyticsEvent('income_schedule_deleted', { entry_type: entry.entry_type })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'The income timeline entry could not be removed.')
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleSaveIncomeSource(values: IncomeSourceInput, sourceId?: number) {
+    if (!isRealWorkspace || !data) {
+      setSetupError('Sign in to a real workspace before editing income sources.')
+      return
+    }
+
+    const action = sourceId ? `update-income-source:${sourceId}` : 'create-income-source'
+    const signature = `${action}:${selectedBudgetYear}:${JSON.stringify(values)}`
+    setBudgetAction(action)
+    setSetupError(null)
+    try {
+      const budget = sourceId
+        ? await updateIncomeSource(sourceId, values, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+        : await createIncomeSource(values, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
+      await refreshWorkspaceAfterIncomeChange(budget, 'profile')
+      captureAnalyticsEvent(sourceId ? 'income_source_updated' : 'income_source_created', { source_type: values.source_type })
+    } catch (caught) {
+      setSetupError(caught instanceof Error ? caught.message : 'The income source could not be saved.')
+      throw caught
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleArchiveIncomeSource(source: IncomeTimelineSource, endsOn: string) {
+    if (!isRealWorkspace || !data) return
+
+    const signature = `archive-income-source:${selectedBudgetYear}:${source.id}:${endsOn}`
+    setBudgetAction(`archive-income-source:${source.id}`)
+    setSetupError(null)
+    try {
+      const budget = await archiveIncomeSource(source.id, endsOn, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
+      await refreshWorkspaceAfterIncomeChange(budget, 'profile')
+      captureAnalyticsEvent('income_source_archived', { source_type: source.source_type })
+    } catch (caught) {
+      setSetupError(caught instanceof Error ? caught.message : 'The income source could not be ended.')
+      throw caught
+    } finally {
+      setBudgetAction(null)
+    }
+  }
+
+  async function handleRestoreIncomeSource(source: IncomeTimelineSource) {
+    if (!isRealWorkspace || !data) return
+
+    const signature = `restore-income-source:${selectedBudgetYear}:${source.id}`
+    setBudgetAction(`restore-income-source:${source.id}`)
+    setSetupError(null)
+    try {
+      const budget = await restoreIncomeSource(source.id, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
+      await refreshWorkspaceAfterIncomeChange(budget, 'profile')
+      captureAnalyticsEvent('income_source_restored', { source_type: source.source_type })
+    } catch (caught) {
+      setSetupError(caught instanceof Error ? caught.message : 'The income source could not be restored.')
     } finally {
       setBudgetAction(null)
     }
@@ -2218,7 +2315,10 @@ function App() {
     setSetupSaving(true)
     setSetupError(null)
     try {
-      const payload = await saveWorkspaceSetup(workspaceSetupValuesFromDraft(setupDraft))
+      const setupValues = workspaceSetupValuesFromDraft(setupDraft)
+      const payload = await saveWorkspaceSetup(wasSetupComplete
+        ? Object.fromEntries(Object.entries(setupValues).filter(([key]) => !['primary_income', 'business_income'].includes(key)))
+        : setupValues)
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
@@ -2271,6 +2371,14 @@ function App() {
 
   function handleProfileSectionEdit(sectionLabel: string) {
     if (!isRealWorkspace) return
+
+    if (sectionLabel.toLowerCase().includes('income')) {
+      requestAnimationFrame(() => {
+        incomeSourcesRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        incomeSourcesRef.current?.querySelector<HTMLInputElement>('[name="income_source_label"]')?.focus({ preventScroll: true })
+      })
+      return
+    }
 
     const fieldName = setupFocusFieldForSection(sectionLabel)
     setIsProfileEditing(true)
@@ -2800,6 +2908,18 @@ function App() {
               onChange={updateSetupDraft}
               onSubmit={handleSetupSubmit}
               firstSession={isFirstSessionSetup}
+            />
+          )}
+
+          {isRealWorkspace && !isFirstSessionSetup && data.budget.annual_plan && (
+            <IncomeSourceManager
+              sectionRef={incomeSourcesRef}
+              sources={data.budget.annual_plan.income_sources}
+              action={budgetAction}
+              error={setupError}
+              onSave={handleSaveIncomeSource}
+              onArchive={handleArchiveIncomeSource}
+              onRestore={handleRestoreIncomeSource}
             />
           )}
 
@@ -6191,6 +6311,18 @@ function formatMonthYear(value: string) {
   return new Intl.DateTimeFormat('en-US', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(Date.UTC(year, month - 1, 1)))
 }
 
+function guamTodayIso() {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Pacific/Guam', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date())
+  const value = Object.fromEntries(parts.map((part) => [part.type, part.value]))
+  return `${value.year}-${value.month}-${value.day}`
+}
+
+function guamCurrentMonthIso() {
+  return guamTodayIso().slice(0, 7)
+}
+
 function monthIndexFromIsoDate(value: string) {
   const date = new Date(`${value}T00:00:00Z`)
   return Number.isNaN(date.getTime()) ? new Date().getMonth() : date.getUTCMonth()
@@ -6262,7 +6394,7 @@ function WorkspaceSetupForm({
             <textarea name="primary_goal" rows={3} value={values.primary_goal} required={firstSession} disabled={!editing} onChange={(event) => onChange('primary_goal', event.target.value)} />
             <small>Write the goal, worry, or decision Mia should coach around.</small>
           </label>
-          <MoneyInput disabled={!editing} required={firstSession} name="primary_income" label="Primary monthly income" value={values.primary_income} help="Regular take-home income from jobs or steady paychecks, after taxes if possible." onChange={(value) => onChange('primary_income', value)} />
+          <MoneyInput disabled={!editing || !firstSession} required={firstSession} name="primary_income" label={firstSession ? 'Primary monthly income' : 'Job income total (calculated)'} value={values.primary_income} help={firstSession ? 'Regular take-home income from jobs or steady paychecks, after taxes if possible.' : 'Edit individual income sources below. The total updates automatically without redistributing money across hidden records.'} onChange={(value) => onChange('primary_income', value)} />
           <MoneyInput disabled={!editing} required={firstSession} name="fixed_expenses" label="Fixed essentials" value={values.fixed_expenses} help="Monthly must-pay bills: rent or mortgage, utilities, insurance, phone, transportation, and basic household needs." onChange={(value) => onChange('fixed_expenses', value)} />
           <MoneyInput disabled={!editing} required={firstSession} name="flexible_spend" label="Flexible spending" value={values.flexible_spend} help="Monthly spending you can shape: groceries, dining out, shopping, subscriptions, activities, and other wants." onChange={(value) => onChange('flexible_spend', value)} />
         </div>
@@ -6272,7 +6404,7 @@ function WorkspaceSetupForm({
         <summary><span>Add details for a stronger CFO read</span><small>Business income, sinking funds, emergency savings, assets, debt, and runway target</small></summary>
         <p>Enter zero when a category does not apply. Do not delay your first session to find perfect numbers.</p>
         <div className="setup-field-grid">
-          <MoneyInput disabled={!editing} name="business_income" label="Business monthly income" value={values.business_income} help="Average monthly net income from side work, business, rental, or self-employment." onChange={(value) => onChange('business_income', value)} />
+          <MoneyInput disabled name="business_income" label="Business income total (calculated)" value={values.business_income} help="Edit individual income sources below. This total is calculated from the saved business records." onChange={(value) => onChange('business_income', value)} />
           <MoneyInput disabled={!editing} name="expected_sinking_fund" label="Expected sinking fund" value={values.expected_sinking_fund} help="Monthly set-aside for known irregular costs like car registration, holidays, tuition, travel, or back-to-school." onChange={(value) => onChange('expected_sinking_fund', value)} />
           <MoneyInput disabled={!editing} name="unexpected_sinking_fund" label="Unexpected sinking fund" value={values.unexpected_sinking_fund} help="Monthly buffer for life-happens costs like repairs, medical bills, family support, or emergency travel." onChange={(value) => onChange('unexpected_sinking_fund', value)} />
           <MoneyInput disabled={!editing} name="emergency_fund" label="Emergency fund" value={values.emergency_fund} help="Current cash set aside for emergencies or runway, not your monthly contribution." onChange={(value) => onChange('emergency_fund', value)} />
@@ -7593,6 +7725,305 @@ function CategoryEditCell({
   )
 }
 
+const incomeSourceTypeOptions = ['job', 'business', 'rental', 'passive', 'bonus', 'other']
+
+type IncomeSourceDraft = {
+  label: string
+  source_type: string
+  amount: string
+  cadence: string
+  starts_on: string
+}
+
+function blankIncomeSourceDraft(): IncomeSourceDraft {
+  const currentMonth = guamCurrentMonthIso()
+  return {
+    label: '',
+    source_type: 'job',
+    amount: '',
+    cadence: 'monthly',
+    starts_on: `${currentMonth}-01`,
+  }
+}
+
+function incomeSourceDraftFor(source: IncomeTimelineSource): IncomeSourceDraft {
+  return {
+    label: source.label,
+    source_type: source.source_type,
+    amount: String(source.base_amount),
+    cadence: source.base_cadence,
+    starts_on: source.starts_on || blankIncomeSourceDraft().starts_on,
+  }
+}
+
+function effectiveIncomeTerms(source: IncomeTimelineSource) {
+  const today = guamTodayIso()
+  const latest = source.schedule_entries
+    .filter((entry) => entry.entry_type === 'recurring_change' && entry.effective_on <= today)
+    .sort((left, right) => right.effective_on.localeCompare(left.effective_on))[0]
+  return {
+    amount: latest?.amount ?? source.base_amount,
+    cadence: latest?.cadence ?? source.base_cadence,
+  }
+}
+
+function monthlyIncomeAmount(source: IncomeTimelineSource) {
+  const terms = effectiveIncomeTerms(source)
+  const multipliers: Record<string, number> = { weekly: 52 / 12, biweekly: 26 / 12, semi_monthly: 2, monthly: 1, annual: 1 / 12 }
+  return terms.amount * (multipliers[terms.cadence] ?? 1)
+}
+
+function incomeSourceIsCurrent(source: IncomeTimelineSource) {
+  const currentMonth = guamCurrentMonthIso()
+  return (!source.starts_on || source.starts_on.slice(0, 7) <= currentMonth)
+    && (!source.ends_on || source.ends_on.slice(0, 7) > currentMonth)
+}
+
+function nextIncomeChange(source: IncomeTimelineSource) {
+  const today = guamTodayIso()
+  return source.schedule_entries
+    .filter((entry) => entry.effective_on > today)
+    .sort((left, right) => left.effective_on.localeCompare(right.effective_on))[0] ?? null
+}
+
+function incomeSourceEffectiveInMonth(source: IncomeTimelineSource, value: string) {
+  const month = value.slice(0, 7)
+  if (!month) return false
+  if (source.active === false && !source.ends_on) return false
+  return (!source.starts_on || source.starts_on.slice(0, 7) <= month)
+    && (!source.ends_on || source.ends_on.slice(0, 7) > month)
+}
+
+function IncomeSourceManager({
+  sectionRef,
+  sources,
+  action,
+  error,
+  onSave,
+  onArchive,
+  onRestore,
+}: {
+  sectionRef?: Ref<HTMLElement>
+  sources: IncomeTimelineSource[]
+  action: string | null
+  error: string | null
+  onSave: (values: IncomeSourceInput, sourceId?: number) => Promise<void>
+  onArchive: (source: IncomeTimelineSource, endsOn: string) => Promise<void>
+  onRestore: (source: IncomeTimelineSource) => Promise<void>
+}) {
+  const [draft, setDraft] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
+  const [editingId, setEditingId] = useState<number | null>(null)
+  const [endingId, setEndingId] = useState<number | null>(null)
+  const [endingMonth, setEndingMonth] = useState('')
+  const [formError, setFormError] = useState<string | null>(null)
+  const sourceFormRef = useRef<HTMLFormElement | null>(null)
+  const sourceNameRef = useRef<HTMLInputElement | null>(null)
+  const endMonthRef = useRef<HTMLInputElement | null>(null)
+  const lastActionTriggerRef = useRef<HTMLButtonElement | null>(null)
+
+  function resetForm() {
+    setDraft(blankIncomeSourceDraft())
+    setEditingId(null)
+    setFormError(null)
+    lastActionTriggerRef.current = null
+  }
+
+  function beginEdit(source: IncomeTimelineSource, trigger: HTMLButtonElement) {
+    lastActionTriggerRef.current = trigger
+    setEndingId(null)
+    setEditingId(source.id)
+    setDraft(incomeSourceDraftFor(source))
+    setFormError(null)
+    requestAnimationFrame(() => {
+      sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      sourceNameRef.current?.focus({ preventScroll: true })
+      sourceNameRef.current?.select()
+    })
+  }
+
+  function cancelEdit() {
+    const trigger = lastActionTriggerRef.current
+    resetForm()
+    requestAnimationFrame(() => trigger?.focus())
+  }
+
+  function beginEnd(sourceId: number, trigger: HTMLButtonElement) {
+    lastActionTriggerRef.current = trigger
+    setEditingId(null)
+    setEndingId(sourceId)
+    setEndingMonth('')
+    setFormError(null)
+    requestAnimationFrame(() => endMonthRef.current?.focus())
+  }
+
+  function cancelEnd() {
+    const trigger = lastActionTriggerRef.current
+    setEndingId(null)
+    setEndingMonth('')
+    setFormError(null)
+    requestAnimationFrame(() => trigger?.focus())
+  }
+
+  function updateSourceDraft(values: Partial<IncomeSourceDraft>) {
+    setDraft((current) => ({ ...current, ...values }))
+  }
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!draft.label.trim() || !draft.amount || !draft.starts_on) {
+      setFormError('Add a name, amount, and starting month.')
+      return
+    }
+
+    setFormError(null)
+    try {
+      await onSave({
+        label: draft.label.trim(),
+        source_type: draft.source_type,
+        amount: draft.amount,
+        cadence: draft.cadence,
+        starts_on: `${draft.starts_on.slice(0, 7)}-01`,
+      }, editingId ?? undefined)
+      resetForm()
+    } catch {
+      // The server-owned validation message is shown above this manager.
+    }
+  }
+
+  async function confirmEnd(source: IncomeTimelineSource) {
+    if (!endingMonth) {
+      setFormError('Choose the final month for this income source.')
+      return
+    }
+
+    setFormError(null)
+    try {
+      await onArchive(source, `${endingMonth.slice(0, 7)}-01`)
+      setEndingId(null)
+      setEndingMonth('')
+      lastActionTriggerRef.current = null
+    } catch {
+      // The server-owned validation message is shown above this manager.
+    }
+  }
+
+  const saving = action === 'create-income-source' || (editingId !== null && action === `update-income-source:${editingId}`)
+
+  return (
+    <section ref={sectionRef} className="panel income-source-manager" aria-labelledby="income-source-manager-title">
+      <div className="income-source-manager-heading">
+        <div>
+          <p className="eyebrow">Income sources</p>
+          <h3 id="income-source-manager-title">Keep each source clear and editable.</h3>
+          <p>Totals are calculated from these records. Choose the first month an ending source should be $0 so prior plans remain accurate.</p>
+        </div>
+        <strong>{currency.format(sources.filter(incomeSourceIsCurrent).reduce((total, source) => total + monthlyIncomeAmount(source), 0))} current monthly</strong>
+      </div>
+
+      {error && <p className="setup-error" role="alert">{error}</p>}
+
+      {sources.length === 0 ? (
+        <p className="income-source-empty">No income sources yet. Add the first one below.</p>
+      ) : (
+        <div className="income-source-manager-list">
+          {sources.map((source) => {
+            const upcoming = nextIncomeChange(source)
+            const ended = Boolean(source.ends_on)
+            const currentMonth = guamCurrentMonthIso()
+            const canUndoEnd = Boolean(source.ends_on && source.ends_on.slice(0, 7) >= currentMonth)
+            const effectiveTerms = effectiveIncomeTerms(source)
+            return (
+              <article className={`income-source-manager-card${ended && !incomeSourceIsCurrent(source) ? ' is-ended' : ''}`} key={source.id}>
+                <div className="income-source-manager-card-heading">
+                  <div>
+                    <span>{titleize(source.source_type)}</span>
+                    <strong>{source.label}</strong>
+                  </div>
+                  <b>{currency.format(effectiveTerms.amount)} · {titleize(effectiveTerms.cadence)}</b>
+                </div>
+                <dl>
+                  <div><dt>Started</dt><dd>{source.starts_on ? formatMonthYear(source.starts_on) : 'Before timeline'}</dd></div>
+                  <div><dt>Status</dt><dd>{source.ends_on ? `${canUndoEnd ? 'Stops' : 'Stopped'} ${formatMonthYear(source.ends_on)}` : source.starts_on && source.starts_on.slice(0, 7) > currentMonth ? `Starts ${formatMonthYear(source.starts_on)}` : 'Current'}</dd></div>
+                  <div><dt>Next change</dt><dd>{upcoming ? `${formatMonthYear(upcoming.effective_on)} · ${currency.format(upcoming.amount)}` : 'None scheduled'}</dd></div>
+                </dl>
+                <div className="income-source-manager-actions">
+                  {ended && canUndoEnd ? (
+                    <button type="button" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={action === `restore-income-source:${source.id}`} onClick={() => void onRestore(source)}>
+                      {action === `restore-income-source:${source.id}` ? 'Restoring' : 'Restore source'}
+                    </button>
+                  ) : ended ? (
+                    <small>To resume this income after its final month, add it as a new source below.</small>
+                  ) : endingId === source.id ? (
+                    <div className="income-source-end-confirmation">
+                      <label>
+                        <span>First $0 month</span>
+                        <input ref={endMonthRef} type="month" min="2000-01" max="2100-12" value={endingMonth} onChange={(event) => setEndingMonth(event.currentTarget.value)} />
+                      </label>
+                      <button type="button" className="secondary-button" aria-label={`Cancel ending ${source.label}`} onClick={cancelEnd}>Cancel</button>
+                      <button type="button" aria-label={`Confirm stop for ${source.label}`} disabled={action === `archive-income-source:${source.id}`} onClick={() => void confirmEnd(source)}>
+                        {action === `archive-income-source:${source.id}` ? 'Ending' : 'Confirm stop'}
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <button type="button" className="secondary-button" aria-label={`Edit ${source.label}`} onClick={(event) => beginEdit(source, event.currentTarget)}>Edit</button>
+                      <button type="button" className="secondary-button" aria-label={`End ${source.label}`} onClick={(event) => beginEnd(source.id, event.currentTarget)}>End source</button>
+                    </>
+                  )}
+                </div>
+              </article>
+            )
+          })}
+        </div>
+      )}
+
+      <form ref={sourceFormRef} className="income-source-form" onSubmit={(event) => void submit(event)}>
+        <div className="income-source-form-heading">
+          <div>
+            <span>{editingId === null ? 'Add income source' : 'Edit income source'}</span>
+            <strong>{editingId === null ? 'What money comes into this household?' : 'Update this source only.'}</strong>
+          </div>
+          <p>Changes apply only after you save.</p>
+        </div>
+        <div className="income-source-fields">
+          <label>
+            <span>Name</span>
+            <input ref={sourceNameRef} name="income_source_label" maxLength={120} value={draft.label} placeholder="Primary salary" onChange={(event) => updateSourceDraft({ label: event.currentTarget.value })} />
+          </label>
+          <label>
+            <span>Type</span>
+            <select value={draft.source_type} onChange={(event) => updateSourceDraft({ source_type: event.currentTarget.value })}>
+              {incomeSourceTypeOptions.map((type) => <option value={type} key={type}>{titleize(type)}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Starting amount</span>
+            <div className="income-schedule-money-input">
+              <span aria-hidden="true">$</span>
+              <input aria-label="Starting amount" type="number" min="0" step="0.01" value={draft.amount} placeholder="5000" onChange={(event) => updateSourceDraft({ amount: event.currentTarget.value })} />
+            </div>
+          </label>
+          <label>
+            <span>Cadence</span>
+            <select value={draft.cadence} onChange={(event) => updateSourceDraft({ cadence: event.currentTarget.value })}>
+              {cadenceOptions.filter((cadence) => cadence !== 'one_time').map((cadence) => <option value={cadence} key={cadence}>{titleize(cadence)}</option>)}
+            </select>
+          </label>
+          <label>
+            <span>Starting month</span>
+            <input type="month" min="2000-01" max="2100-12" value={draft.starts_on.slice(0, 7)} onChange={(event) => updateSourceDraft({ starts_on: `${event.currentTarget.value}-01` })} />
+          </label>
+        </div>
+        {formError && <p className="setup-error" role="alert">{formError}</p>}
+        <div className="income-source-form-actions">
+          {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
+          <button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === null ? 'Add source' : 'Save source'}</button>
+        </div>
+      </form>
+    </section>
+  )
+}
+
 type IncomeScheduleDraft = {
   income_source_id: string
   entry_type: 'recurring_change' | 'one_time'
@@ -7604,14 +8035,17 @@ type IncomeScheduleDraft = {
 }
 
 function blankIncomeScheduleDraft(plan: AnnualBudgetPlan): IncomeScheduleDraft {
-  const currentMonth = plan.year === new Date().getFullYear() ? new Date().getMonth() + 1 : 1
+  const [guamYear, guamMonth] = guamCurrentMonthIso().split('-').map(Number)
+  const currentMonth = plan.year === guamYear ? guamMonth : 1
+  const effectiveOn = `${plan.year}-${String(currentMonth).padStart(2, '0')}-01`
+  const firstEligibleSource = plan.income_sources.find((source) => incomeSourceEffectiveInMonth(source, effectiveOn))
   return {
-    income_source_id: plan.income_sources[0] ? String(plan.income_sources[0].id) : '',
+    income_source_id: firstEligibleSource ? String(firstEligibleSource.id) : '',
     entry_type: 'recurring_change',
     label: '',
     amount: '',
     cadence: 'monthly',
-    effective_on: `${plan.year}-${String(currentMonth).padStart(2, '0')}-01`,
+    effective_on: effectiveOn,
     retained_after_transition: false,
   }
 }
@@ -7631,9 +8065,11 @@ function AnnualIncomePlanner({
 }) {
   const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [removingId, setRemovingId] = useState<number | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
 
   function editEntry(sourceId: number, entry: IncomeScheduleEntry) {
+    setRemovingId(null)
     setEditingId(entry.id)
     setFormError(null)
     setDraft({
@@ -7659,8 +8095,8 @@ function AnnualIncomePlanner({
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    if (!draft.income_source_id || !draft.amount || !draft.effective_on) {
-      setFormError('Choose an income source, amount, and starting month.')
+    if (!draft.income_source_id || !draft.amount || !draft.effective_on || !selectedSource || !incomeSourceEffectiveInMonth(selectedSource, draft.effective_on)) {
+      setFormError('Choose an income source that is active for that month, an amount, and a starting month.')
       return
     }
 
@@ -7685,7 +8121,8 @@ function AnnualIncomePlanner({
   }
 
   const saving = action === 'create-income' || (editingId !== null && action === `update-income:${editingId}`)
-  const selectedSource = plan.income_sources.find((source) => String(source.id) === draft.income_source_id)
+  const eligibleSources = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, draft.effective_on))
+  const selectedSource = eligibleSources.find((source) => String(source.id) === draft.income_source_id)
   const numericAmount = Number(draft.amount)
   const hasPreviewAmount = draft.amount.trim() !== '' && Number.isFinite(numericAmount)
   const previewMonth = draft.effective_on ? formatMonthYear(draft.effective_on) : 'the selected month'
@@ -7728,7 +8165,7 @@ function AnnualIncomePlanner({
                   <small>{currency.format(source.base_amount)} · {titleize(source.base_cadence)} base</small>
                 </div>
                 {source.schedule_entries.length === 0 ? (
-                  <p>No scheduled changes. The base amount continues through the year.</p>
+                  <p>No scheduled changes. The base amount applies while this source is active{source.starts_on ? ` from ${formatMonthYear(source.starts_on)}` : ''}{source.ends_on ? `; it becomes $0 in ${formatMonthYear(source.ends_on)}` : ''}.</p>
                 ) : (
                   <div className="income-schedule-list">
                     {source.schedule_entries.map((entry) => (
@@ -7740,10 +8177,20 @@ function AnnualIncomePlanner({
                         </div>
                         {isRealWorkspace && (
                           <div>
-                            <button type="button" className="secondary-button" onClick={() => editEntry(source.id, entry)}>Edit</button>
-                            <button type="button" className="secondary-button" disabled={action === `delete-income:${entry.id}`} onClick={() => onDelete(entry)}>
-                              {action === `delete-income:${entry.id}` ? 'Removing' : 'Remove'}
-                            </button>
+                            {removingId === entry.id ? (
+                              <>
+                                <span className="income-remove-question">Remove this change?</span>
+                                <button type="button" className="secondary-button" onClick={() => setRemovingId(null)}>Keep</button>
+                                <button type="button" disabled={action === `delete-income:${entry.id}`} onClick={() => { onDelete(entry); setRemovingId(null) }}>
+                                  {action === `delete-income:${entry.id}` ? 'Removing' : 'Confirm remove'}
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button type="button" className="secondary-button" onClick={() => editEntry(source.id, entry)}>Edit</button>
+                                <button type="button" className="secondary-button" onClick={() => { setEditingId(null); setRemovingId(entry.id) }}>Remove</button>
+                              </>
+                            )}
                           </div>
                         )}
                       </div>
@@ -7767,8 +8214,9 @@ function AnnualIncomePlanner({
               <div className="income-schedule-fields">
                 <label>
                   <span>Income source</span>
-                  <select value={draft.income_source_id} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
-                    {plan.income_sources.map((source) => <option value={source.id} key={source.id}>{source.label}</option>)}
+                  <select value={draft.income_source_id} disabled={editingId !== null || eligibleSources.length === 0} onChange={(event) => updateIncomeDraft({ income_source_id: event.currentTarget.value })}>
+                    {eligibleSources.length === 0 && <option value="">No source active this month</option>}
+                    {eligibleSources.map((source) => <option value={source.id} key={source.id}>{source.label}</option>)}
                   </select>
                 </label>
                 <label>
@@ -7783,7 +8231,12 @@ function AnnualIncomePlanner({
                 </label>
                 <label>
                   <span>{draft.entry_type === 'one_time' ? 'Payment month' : 'Starting month'}</span>
-                  <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => updateIncomeDraft({ effective_on: `${event.currentTarget.value}-01` })} />
+                  <input type="month" min="2000-01" max="2100-12" value={draft.effective_on.slice(0, 7)} onChange={(event) => {
+                    const effectiveOn = `${event.currentTarget.value}-01`
+                    const nextEligible = plan.income_sources.filter((source) => incomeSourceEffectiveInMonth(source, effectiveOn))
+                    const keepsSource = nextEligible.some((source) => String(source.id) === draft.income_source_id)
+                    updateIncomeDraft({ effective_on: effectiveOn, income_source_id: keepsSource ? draft.income_source_id : String(nextEligible[0]?.id ?? '') })
+                  }} />
                 </label>
                 <label>
                   <span>Amount</span>
@@ -7830,7 +8283,7 @@ function AnnualIncomePlanner({
                 </div>
                 <div className="income-schedule-form-actions">
                   {editingId !== null && <button type="button" className="secondary-button" onClick={cancelEdit}>Cancel</button>}
-                  <button type="submit" className="income-schedule-submit" disabled={saving}>{submitLabel}</button>
+                  <button type="submit" className="income-schedule-submit" disabled={saving || eligibleSources.length === 0}>{submitLabel}</button>
                 </div>
               </div>
             </form>
