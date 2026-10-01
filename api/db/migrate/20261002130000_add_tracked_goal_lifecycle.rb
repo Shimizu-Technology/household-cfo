@@ -27,6 +27,7 @@ class AddTrackedGoalLifecycle < ActiveRecord::Migration[8.1]
           SET current_amount_known = TRUE
           WHERE current_amount_cents <> 0
         SQL
+        archive_duplicate_active_tracked_goals!
       end
     end
 
@@ -46,5 +47,26 @@ class AddTrackedGoalLifecycle < ActiveRecord::Migration[8.1]
     add_check_constraint :goals,
       "current_amount_known = TRUE OR current_amount_cents = 0",
       name: "goals_unknown_current_is_zero"
+  end
+
+  def archive_duplicate_active_tracked_goals!
+    execute <<~SQL.squish
+      WITH ranked_goals AS (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY household_id, LOWER(label), goal_type
+                 ORDER BY priority ASC, created_at ASC, id ASC
+               ) AS duplicate_rank
+        FROM goals
+        WHERE record_kind = 'tracked' AND active = TRUE
+      )
+      UPDATE goals
+      SET active = FALSE,
+          archived_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      FROM ranked_goals
+      WHERE goals.id = ranked_goals.id
+        AND ranked_goals.duplicate_rank > 1
+    SQL
   end
 end

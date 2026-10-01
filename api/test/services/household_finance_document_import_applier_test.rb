@@ -130,6 +130,24 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_equal active, item.reload.applied_record
   end
 
+  test "a goal import without an amount preserves an existing approved target" do
+    goal = @household.goals.create!(
+      label: "Family trip", goal_type: "travel", target_amount_cents: 2_000_00,
+      target_amount_known: true
+    )
+    item = @document_import.items.create!(
+      target_type: "goal", label: "family trip", amount_cents: nil,
+      metadata: { "goal_type" => "travel" }
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_equal 2_000_00, goal.reload.target_amount_cents
+    assert goal.target_amount_known?
+    assert_equal goal, item.reload.applied_record
+  end
+
   test "matches existing household records case-insensitively when applying" do
     @household.income_sources.create!(label: "Primary Income", source_type: "job", amount_cents: 1_000_00, cadence: "monthly")
     @household.expense_items.create!(label: "Groceries", stack_key: "discretionary", amount_cents: 100_00, cadence: "monthly")

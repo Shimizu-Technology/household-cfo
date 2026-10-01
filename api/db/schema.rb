@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_130100) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -777,6 +777,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130100) do
     t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "goals_archive_state_valid"
     t.check_constraint "current_amount_cents >= 0", name: "goals_current_amount_cents_non_negative"
     t.check_constraint "current_amount_known = true OR current_amount_cents = 0", name: "goals_unknown_current_is_zero"
+    t.check_constraint "jsonb_typeof(source_metadata) = 'object'::text", name: "goals_source_metadata_object"
     t.check_constraint "record_kind::text = ANY (ARRAY['tracked'::character varying, 'policy'::character varying]::text[])", name: "goals_record_kind_valid"
     t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying]::text[])", name: "goals_source_type_valid"
     t.check_constraint "target_amount_cents >= 0", name: "goals_target_amount_cents_non_negative"

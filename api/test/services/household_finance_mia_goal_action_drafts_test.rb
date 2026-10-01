@@ -1,6 +1,20 @@
 require "test_helper"
 
 class HouseholdFinanceMiaGoalActionDraftsTest < ActiveSupport::TestCase
+  DEFAULT_ACTION = {
+    type: "none", category_id: 0, category_name: "", target_category_id: 0,
+    target_category_name: "", new_name: "", stack_key: "", amount: "", months: [],
+    year: 0, draft_id: 0, occurred_on: "", merchant: "", all_pending: false,
+    splits: [], setup_updates: {}, income_source_id: 0, income_source_name: "",
+    income_schedule_entry_id: 0, source_type: "", cadence: "",
+    retained_after_transition: false, entry_type: "", effective_on: "",
+    schedule_label: "", debt_id: 0, debt_name: "", debt_type: "",
+    minimum_payment: "", interest_rate_percent: "", debt_tracking_mode: "",
+    account_id: 0, account_name: "", account_type: "", balance_as_of_on: "",
+    plaid_account_id: 0, reconcile_decision: "", goal_id: 0, goal_name: "",
+    goal_type: "", target_amount: "", current_amount: "", target_on: ""
+  }.freeze
+
   setup do
     @user = User.create!(clerk_id: "mia_goal_#{SecureRandom.hex(4)}", email: "mia-goal-#{SecureRandom.hex(4)}@example.com", role: "participant", invitation_status: "accepted")
     @household = HouseholdFinance::WorkspaceResolver.new(@user).household
@@ -36,6 +50,24 @@ class HouseholdFinanceMiaGoalActionDraftsTest < ActiveSupport::TestCase
     draft = persist(build(type: "update_goal", goal_id: goal.id, goal_name: goal.label, current_amount: "0").proposal)
     field = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:items).sole.fetch(:review_fields).find { |item| item.fetch(:label) == "Current progress" }
     assert_equal [ "Not entered", "$0.00" ], field.values_at(:before, :after)
+  end
+
+  test "a full Mia action preserves a saved target date unless clear is explicit" do
+    goal = @household.goals.create!(
+      label: "Family trip", goal_type: "travel", target_amount_cents: 5_000_00,
+      target_amount_known: true, target_on: Date.new(2027, 6, 1)
+    )
+
+    update = build(DEFAULT_ACTION.merge(type: "update_goal", goal_id: goal.id, goal_name: goal.label, current_amount: "750"))
+    update_payload = update.proposal.items.sole.payload
+    assert_not_includes update_payload.keys, :target_on
+    update_draft = persist(update.proposal)
+    applied = HouseholdFinance::MiaActionDraftApplier.new(update_draft, user: @user).call
+    assert applied.success?, applied.errors.to_sentence
+    assert_equal Date.new(2027, 6, 1), goal.reload.target_on
+
+    clear = build(DEFAULT_ACTION.merge(type: "update_goal", goal_id: goal.id, goal_name: goal.label, target_on: "unknown"))
+    assert_nil clear.proposal.items.sole.payload.fetch(:target_on)
   end
 
   test "Mia archive uses a locked prepared operation and preserves history" do

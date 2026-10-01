@@ -41,6 +41,7 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
 
   useEffect(() => {
     if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
+    handledFocusKeyRef.current = focusRequest.key
     const goal = goals.find((candidate) => candidate.id === focusRequest.goalId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_goal') {
@@ -62,7 +63,6 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
         setError('That goal is no longer available to edit. Refresh the review before making a change.')
         addButtonRef.current?.focus()
       }
-      handledFocusKeyRef.current = focusRequest.key
       onFocusRequestHandled?.()
     })
   }, [focusRequest, goals, onFocusRequestHandled])

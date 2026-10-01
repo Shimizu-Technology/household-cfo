@@ -149,8 +149,13 @@ module HouseholdFinance
         find_label_record_or_initialize(household.goals.tracked.active, item.label, goal_type: goal_type)
       end
       record.label = item.label
-      record.target_amount_cents = item.amount_cents.to_i
-      record.target_amount_known = item.amount_cents.present?
+      if item.amount_cents.present?
+        record.target_amount_cents = item.amount_cents
+        record.target_amount_known = true
+      elsif record.new_record?
+        record.target_amount_cents = 0
+        record.target_amount_known = false
+      end
       record.current_amount_cents = 0 if record.new_record?
       record.current_amount_known = false if record.new_record?
       record.record_kind = goal_type.in?(%w[runway transition]) ? "policy" : "tracked"

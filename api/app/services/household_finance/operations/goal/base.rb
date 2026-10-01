@@ -27,6 +27,7 @@ module HouseholdFinance
             return { known_key => true, cents_key => Money.cents!(value, message: "#{label} must be a number with no more than two decimal places") }
           end
           return {} unless input.key?(cents_key)
+          raise ArgumentError, "#{label} known flag is required with cents" unless input.key?(known_key)
           known = input.fetch(known_key)
           raise ArgumentError, "#{label} known flag must be true or false" unless known == true || known == false
           cents = Integer(input.fetch(cents_key))

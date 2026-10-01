@@ -32,7 +32,7 @@ module HouseholdFinance
       payload[:goal_type] = command[:goal_type] if command[:goal_type].to_s.in?(::Goal::TRACKED_GOAL_TYPES)
       add_goal_amount!(payload, :target_amount, :target_amount_cents, :target_amount_known) if command.key?(:target_amount) && command[:target_amount].present?
       add_goal_amount!(payload, :current_amount, :current_amount_cents, :current_amount_known) if command.key?(:current_amount) && command[:current_amount].present?
-      payload[:target_on] = parsed_goal_date(command[:target_on]) if command.key?(:target_on)
+      payload[:target_on] = parsed_goal_date(command[:target_on]) if command[:target_on].present?
       return validation_result("Tell me which goal detail to update. Nothing changed.") if payload.one?
       before = goal_action_snapshot(goal)
       item = MiaActionDraftBuilder::Item.new(

@@ -61,6 +61,16 @@ describe('GoalManager', () => {
     expect(handled).toHaveBeenCalledOnce()
   })
 
+  it('schedules one focus action when the same request rerenders before the frame runs', async () => {
+    const handled = vi.fn()
+    const request = { key: 7, actionType: 'update_goal' as const, goalId: 1 }
+    const { rerender } = render(<GoalManager goals={[goal()]} portfolio={portfolio} onChanged={vi.fn()} focusRequest={request} onFocusRequestHandled={handled} />)
+    rerender(<GoalManager goals={[goal()]} portfolio={portfolio} onChanged={vi.fn()} focusRequest={request} onFocusRequestHandled={handled} />)
+
+    await screen.findByDisplayValue('Family trip')
+    await waitFor(() => expect(handled).toHaveBeenCalledOnce())
+  })
+
   it('explains a stale Mia goal reference and returns focus to a safe control', async () => {
     const handled = vi.fn()
     render(<GoalManager goals={[]} portfolio={{ ...portfolio, active_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }} onChanged={vi.fn()} focusRequest={{ key: 2, actionType: 'update_goal', goalId: 99 }} onFocusRequestHandled={handled} />)

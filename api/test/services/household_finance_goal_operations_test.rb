@@ -74,6 +74,33 @@ class HouseholdFinanceGoalOperationsTest < ActiveSupport::TestCase
     assert_equal 1, @household.goals.tracked.count
   end
 
+  test "raw cents require an explicit known flag" do
+    error = assert_raises(ArgumentError) do
+      @runner.run(
+        operation_key: "goal.record.create",
+        input: { label: "College", goal_type: "education", target_amount_cents: 50_000 },
+        idempotency_key: "missing-target-known"
+      )
+    end
+
+    assert_equal "Target amount known flag is required with cents", error.message
+    assert_empty @household.goals.tracked
+  end
+
+  test "raw cents accept explicit unknown and canonicalize them to zero" do
+    goal = @runner.run(
+      operation_key: "goal.record.create",
+      input: {
+        label: "College", goal_type: "education",
+        target_amount_cents: 50_000, target_amount_known: false
+      },
+      idempotency_key: "explicit-target-unknown"
+    ).subject
+
+    assert_not goal.target_amount_known?
+    assert_equal 0, goal.target_amount_cents
+  end
+
   private
 
   def create_goal(label, goal_type: "savings", target_amount: nil, current_amount: nil, key:)
