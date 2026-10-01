@@ -421,6 +421,49 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal "mia", debt.source_type
   end
 
+  test "model resolved asset intent creates a review card and changes an account only after apply" do
+    user = create_user(email: "mia-model-asset-action@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "asset_action",
+      confidence: 0.98,
+      continuation: false,
+      resolved_message: "Add my savings account with a $1,250 balance",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "asset_plan", title: "Add savings", subject: "Savings" },
+      action: {
+        type: "create_account", account_id: 0, account_name: "Savings", new_name: "",
+        account_type: "savings", amount: "1250.00", balance_as_of_on: Date.current.iso8601,
+        plaid_account_id: 0, reconcile_decision: ""
+      },
+      source: "model"
+    )
+
+    with_intent_resolver(Struct.new(:result) { def call = result }.new(intent)) do
+      post "/api/v1/mia/messages",
+        params: { message: "Add my savings account with a $1,250 balance" },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :created
+    draft_payload = response.parsed_body.fetch("mia_action_draft")
+    assert_equal "asset_plan", draft_payload.fetch("draft_type")
+    assert_equal "create_account", draft_payload.fetch("items").sole.fetch("action_type")
+    assert_empty household.accounts
+
+    post "/api/v1/mia_action_drafts/#{draft_payload.fetch('id')}/apply",
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    account = household.accounts.find_by!(label: "Savings")
+    assert_equal 125_000, account.balance_cents
+    assert account.balance_known?
+    assert_equal "mia", account.source_type
+  end
+
   test "model general question still routes recognized readiness language through approved coaching facts" do
     user = create_user(email: "mia-model-readiness-question@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -501,6 +544,7 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
       debt_tracking_mode: "summary", debt_summary_balance_known: true,
       debt_summary_minimum_payment_known: true
     )
+    household.accounts.create!(label: "Known checking", account_type: "checking", balance_cents: 0, balance_known: true)
     intent = HouseholdFinance::MiaIntentResolver::Result.new(
       intent: "coaching",
       confidence: 0.96,

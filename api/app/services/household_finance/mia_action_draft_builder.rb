@@ -3,6 +3,7 @@ module HouseholdFinance
     include MiaActionDraftStructuredCommands
     include MiaActionDraftHouseholdCommands
     include MiaActionDraftDebtCommands
+    include MiaActionDraftAssetCommands
 
     MONEY_PATTERN = /\$?\s*\d[\d,]*(?:\.\d{1,2})?/.freeze
     ACTION_TERMS = /\b(set|change|update|adjust|make|increase|raise|decrease|lower|reduce|move|transfer|shift|add|create|rename|reclassify|recategorize|archive|delete|remove|restore)\b/i

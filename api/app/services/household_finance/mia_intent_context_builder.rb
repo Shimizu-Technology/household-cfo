@@ -33,6 +33,9 @@ module HouseholdFinance
         active_debts: serialized_debts(household.debts.active.order(:id)),
         archived_debts: serialized_debts(household.debts.archived.order(:id)),
         debt_tracking: DebtPortfolio.new(household).as_json,
+        active_accounts: serialized_accounts(household.accounts.active.order(:id)),
+        archived_accounts: serialized_accounts(household.accounts.archived.order(:id)),
+        eligible_plaid_accounts: eligible_plaid_accounts,
         conversation: {
           active_thread: validated_active_thread,
           open_threads: validated_open_threads,
@@ -50,6 +53,7 @@ module HouseholdFinance
           archive_income_source restore_income_source update_income_schedule_entry delete_income_schedule_entry
           review_pending_action
           create_debt update_debt archive_debt restore_debt update_debt_tracking
+          create_account update_account archive_account restore_account link_plaid_account reconcile_plaid_account unlink_plaid_account
         ],
         supported_household_setup_fields: MiaActionDraftHouseholdCommands::SETUP_KEYS.map(&:to_s),
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
@@ -194,6 +198,38 @@ module HouseholdFinance
           active: debt.active?
         }
       end
+    end
+
+    def serialized_accounts(scope)
+      scope.first(MAX_CATEGORIES).map do |account|
+        {
+          id: account.id,
+          label: bounded(account.label, 120),
+          account_type: account.account_type,
+          balance: account.balance_known? ? Money.dollars(account.balance_cents) : nil,
+          balance_known: account.balance_known?,
+          balance_as_of_on: account.balance_as_of_on&.iso8601,
+          plaid_account_id: account.plaid_account_id,
+          active: account.active?
+        }
+      end
+    end
+
+    def eligible_plaid_accounts
+      ::PlaidAccount.joins(:plaid_item).includes(:account, :plaid_item)
+        .where(plaid_items: { household_id: household.id }).first(MAX_CATEGORIES).filter_map do |observation|
+          eligibility = PlaidIntegration::AccountEligibility.new(observation)
+          next unless eligibility.eligible? && eligibility.active_observation? && observation.account.nil?
+          {
+            id: observation.id,
+            institution_name: bounded(observation.plaid_item.institution_name, 120),
+            name: bounded(observation.name, 120),
+            mask: observation.mask,
+            allowed_account_types: eligibility.allowed_account_types,
+            current_balance: observation.current_balance_cents.nil? ? nil : Money.dollars(observation.current_balance_cents),
+            canonical_account_id: observation.account&.id
+          }
+        end
     end
 
     def bounded(value, limit)

@@ -447,7 +447,7 @@ module FinancialDocuments
         target_type: target_type,
         label: sanitized_text(item["label"], max_length: 120).presence || default_label(target_type),
         amount_cents: cents_or_nil(item["amount"]),
-        balance_cents: cents_or_nil(item["balance"]),
+        balance_cents: cents_or_nil(item["balance"], allow_negative: target_type == "account"),
         payment_cents: cents_or_nil(item["payment"]),
         interest_rate_percent: percentage_or_nil(item["interest_rate_percent"]),
         cadence: normalized_value(item["cadence"], IncomeSource::CADENCES, fallback: "monthly"),
@@ -587,8 +587,8 @@ module FinancialDocuments
       normalized.in?(allowed) ? normalized : fallback
     end
 
-    def cents_or_nil(value)
-      HouseholdFinance::Money.document_cents(value)
+    def cents_or_nil(value, allow_negative: false)
+      HouseholdFinance::Money.document_cents(value, allow_negative: allow_negative)
     end
 
     def parsed_date(value)

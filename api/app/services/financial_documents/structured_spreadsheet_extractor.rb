@@ -268,7 +268,7 @@ module FinancialDocuments
       return if label.blank? && type != "profile_note"
 
       amount = cell(values, header_map, "amount").presence || cell(values, header_map, "balance")
-      amount_cents = money_cents(amount, negative_as_magnitude: accounting_negative_as_magnitude?(type))
+      amount_cents = money_cents(amount, negative_as_magnitude: accounting_negative_as_magnitude?(type), allow_negative: type == "account")
       category = normalized_token(cell(values, header_map, "category"))
       cadence = normalized_cadence(cell(values, header_map, "cadence"))
       notes = clean_text(cell(values, header_map, "notes"), max_length: 1000)
@@ -487,8 +487,8 @@ module FinancialDocuments
       nil
     end
 
-    def money_cents(value, negative_as_magnitude: false)
-      HouseholdFinance::Money.document_cents(value, negative_as_magnitude: negative_as_magnitude)
+    def money_cents(value, negative_as_magnitude: false, allow_negative: false)
+      HouseholdFinance::Money.document_cents(value, negative_as_magnitude: negative_as_magnitude, allow_negative: allow_negative)
     end
 
     def clean_text(value, max_length:)

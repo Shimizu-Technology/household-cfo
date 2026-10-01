@@ -28,6 +28,14 @@ Rails.application.routes.draw do
         member { post :restore }
         collection { patch :tracking }
       end
+      resources :accounts, only: %i[create update destroy] do
+        member do
+          post :restore
+          post :plaid_link
+          post :plaid_reconcile
+          delete :plaid_link, action: :plaid_unlink
+        end
+      end
       resources :income_sources, only: %i[create update destroy] do
         post :restore, on: :member
       end

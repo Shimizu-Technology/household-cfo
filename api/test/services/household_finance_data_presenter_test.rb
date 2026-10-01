@@ -588,6 +588,7 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
       debt_summary_minimum_payment_cents: 0,
       debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
     )
+    household.accounts.create!(label: "Known checking", account_type: "checking", balance_cents: 0, balance_known: true)
 
     [ household, user ]
   end

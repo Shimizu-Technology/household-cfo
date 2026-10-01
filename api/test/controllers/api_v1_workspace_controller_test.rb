@@ -602,6 +602,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     user = create_user(email: "liquid@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 10_000_000)
+    household.accounts.create!(label: "Known other assets", account_type: "other", balance_cents: 0, balance_known: true)
     household.debts.create!(label: "Credit card debt", debt_type: "credit_card", balance_cents: 2_000_000)
     household.debts.create!(label: "Mortgage", debt_type: "mortgage", balance_cents: 50_000_000)
 

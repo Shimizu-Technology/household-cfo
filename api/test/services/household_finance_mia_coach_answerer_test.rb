@@ -578,6 +578,7 @@ class HouseholdFinanceMiaCoachAnswererTest < ActiveSupport::TestCase
       primary_goal: "Protect the household plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
+    household.accounts.create!(label: "Known checking", account_type: "checking", balance_cents: 0, balance_known: true) unless household.accounts.active.any?(&:liquid?)
     if household.debts.active.exists?
       household.household_profile.update!(debt_tracking_mode: "individual")
     else

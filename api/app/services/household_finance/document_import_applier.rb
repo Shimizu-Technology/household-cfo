@@ -102,8 +102,19 @@ module HouseholdFinance
 
     def apply_account(item)
       account_type = item.account_type.presence_in(Account::ACCOUNT_TYPES) || "other"
-      record = find_label_record_or_initialize(household.accounts, item.label, account_type: account_type)
-      record.update!(balance_cents: item.balance_cents.to_i)
+      label = item.label.to_s.squish
+      record = household.accounts.active.where(account_type: account_type).where("LOWER(label) = ?", label.downcase).first ||
+        household.accounts.new(label: label, account_type: account_type)
+      existing_record = record.persisted?
+      record.update!(
+        balance_cents: item.balance_cents.to_i,
+        balance_known: true,
+        balance_as_of_on: document_import.document_date || document_import.period_end_on || Date.current,
+        active: true,
+        archived_at: nil,
+        source_type: existing_record ? record.source_type : "document_import",
+        source_metadata: (record.source_metadata || {}).merge("document_import_id" => document_import.id, "document_import_item_id" => item.id)
+      )
       record
     end
 

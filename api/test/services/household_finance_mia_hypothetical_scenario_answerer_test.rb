@@ -7,6 +7,7 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
     @household.income_sources.create!(label: "Income", source_type: "job", amount_cents: 500_000, cadence: "monthly")
     @household.expense_items.create!(label: "Essentials", stack_key: "non_discretionary", amount_cents: 300_000, cadence: "monthly")
     @household.debts.create!(label: "Card", debt_type: "credit_card", balance_cents: 200_000, minimum_payment_cents: 20_000)
+    @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 100_000, balance_known: true)
     @household.goals.create!(label: "Runway", goal_type: "runway", target_months: 6, priority: 1)
     @household.update!(confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
     @manager = HouseholdFinance::AnnualBudgetManager.new(@household)
@@ -36,6 +37,15 @@ class HouseholdFinanceMiaHypotheticalScenarioAnswererTest < ActiveSupport::TestC
       result = answer("extra_debt_payment", 500, "Extra card payment")
       assert_includes result.body, "not scheduled, paid, or deducted"
     end
+  end
+
+  test "runway-dependent scenarios explain a missing liquid account picture" do
+    @household.accounts.delete_all
+    result = answer("purchase", 800, "Laptop")
+
+    assert_includes result.body, "liquid account picture is incomplete"
+    assert_includes result.body, "enter every active liquid balance"
+    assert_includes result.body, "not saved or approved"
   end
 
   test "unresolved timing is declined instead of using the selected month" do

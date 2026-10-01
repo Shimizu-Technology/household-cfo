@@ -8,6 +8,7 @@ import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
+import { AccountManager } from './components/AccountManager'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import { CoachStudio } from './components/CoachStudio'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
@@ -427,6 +428,7 @@ function App() {
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
+  const accountManagerRef = useRef<HTMLElement | null>(null)
   const debtManagerRef = useRef<HTMLElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
@@ -1253,13 +1255,19 @@ function App() {
   }
 
   function openManualControls(draft: MiaActionDraft) {
-    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' ? 'My Profile' : 'Budget')
+    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' ? 'My Profile' : 'Budget')
     if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
+    if (draft.draft_type === 'asset_plan') window.setTimeout(focusAccountManager, 80)
   }
 
   function focusDebtManager() {
     debtManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     debtManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+  }
+
+  function focusAccountManager() {
+    accountManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    accountManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function startManualFirstSession() {
@@ -2444,6 +2452,11 @@ function App() {
       return
     }
 
+    if (sectionLabel.toLowerCase().includes('saving') || sectionLabel.toLowerCase().includes('asset')) {
+      requestAnimationFrame(focusAccountManager)
+      return
+    }
+
     const fieldName = setupFocusFieldForSection(sectionLabel)
     setIsProfileEditing(true)
     requestAnimationFrame(() => {
@@ -2996,6 +3009,16 @@ function App() {
             />
           )}
 
+
+          {isRealWorkspace && !isFirstSessionSetup && (
+            <AccountManager
+              sectionRef={accountManagerRef}
+              key={`${data.workspace.asset_portfolio.active_count}:${data.workspace.asset_portfolio.archived_count}:${data.workspace.asset_portfolio.total_balance}:${data.workspace.asset_portfolio.total_balance_known}`}
+              accounts={data.workspace.accounts}
+              portfolio={data.workspace.asset_portfolio}
+              onChanged={refreshWorkspaceAfterDebtChange}
+            />
+          )}
 
           {isRealWorkspace && !isFirstSessionSetup && (
             <DebtManager

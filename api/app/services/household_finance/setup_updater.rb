@@ -78,7 +78,7 @@ module HouseholdFinance
       confirmed = Array(household.confirmed_setup_fields).map(&:to_s)
       submitted = attributes.keys.map(&:to_s)
       submitted.each do |field|
-        if field.in?(%w[credit_card_debt debt_payment]) && attributes.fetch(field.to_sym).to_s.strip.blank?
+        if field.in?(%w[credit_card_debt debt_payment emergency_fund other_assets]) && attributes.fetch(field.to_sym).to_s.strip.blank?
           confirmed.delete(field)
         elsif field == "primary_goal" && household.primary_goal.blank?
           confirmed.delete(field)
@@ -124,9 +124,30 @@ module HouseholdFinance
     end
 
     def upsert_account(label, account_type, value)
-      cents = setup_money_cents(value, label: label)
-      record = household.accounts.find_or_initialize_by(label: label, account_type: account_type)
-      record.update!(balance_cents: cents)
+      active_records = household.accounts.active.where(account_type: account_type).order(:id).to_a
+      aggregate = active_records.find { |account| account.label.casecmp?(label) }
+      detailed_records = active_records - Array(aggregate)
+      requested_known = value.to_s.strip.present?
+      requested_cents = requested_known ? setup_money_cents(value, label: label) : 0
+
+      if detailed_records.any?
+        current_known = active_records.all?(&:balance_known?)
+        current_total = active_records.select(&:balance_known?).sum(&:balance_cents)
+        return if requested_known == current_known && (!requested_known || requested_cents == current_total)
+
+        raise ArgumentError, "#{label} is tracked by detailed accounts. Edit a specific account so saved balances do not change silently"
+      end
+
+      record = aggregate || household.accounts.new(label: label, account_type: account_type)
+      record.update!(
+        balance_cents: requested_cents,
+        balance_known: requested_known,
+        balance_as_of_on: requested_known ? Date.current : nil,
+        active: true,
+        archived_at: nil,
+        source_type: record.persisted? ? record.source_type : "setup",
+        source_metadata: record.persisted? ? record.source_metadata : { "setup_field" => account_type == "emergency_fund" ? "emergency_fund" : "other_assets" }
+      )
     end
 
     def upsert_credit_card_debt
