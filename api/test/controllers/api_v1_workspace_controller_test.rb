@@ -233,7 +233,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 800_000, household.income_sources.find_by!(source_type: "job").amount_cents
     assert_equal 450_000, household.expense_items.find_by!(stack_key: "non_discretionary").amount_cents
     assert_equal 1_800_000, household.accounts.find_by!(account_type: "emergency_fund").balance_cents
-    assert_equal 700_000, household.debts.find_by!(debt_type: "credit_card").balance_cents
+    profile = household.household_profile.reload
+    assert_equal "summary", profile.debt_tracking_mode
+    assert_equal 700_000, profile.debt_summary_balance_cents
     assert_equal 12, household.goals.find_by!(goal_type: "runway").target_months
 
     patch "/api/v1/workspace/setup",
@@ -242,9 +244,9 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
           as: :json
 
     assert_response :success
-    debt = household.debts.find_by!(debt_type: "credit_card")
-    assert_equal 700_000, debt.balance_cents
-    assert_equal 90_000, debt.minimum_payment_cents
+    profile.reload
+    assert_equal 700_000, profile.debt_summary_balance_cents
+    assert_equal 90_000, profile.debt_summary_minimum_payment_cents
   end
 
   test "workspace setup does not duplicate document-derived detail rows when values are unchanged" do
@@ -410,7 +412,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty household.goals.where(goal_type: "runway")
   end
 
-  test "workspace setup updates document-derived debt payment instead of duplicating debt" do
+  test "workspace setup rejects aggregate edits while individual debt tracking is active" do
     user = create_user(email: "document-debt-payment@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     debt = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 0)
@@ -420,13 +422,14 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       headers: auth_headers(user),
       as: :json
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").first, "tracked by individual records"
     assert_equal 1, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, debt.reload.balance_cents
-    assert_equal 17_500, debt.minimum_payment_cents
+    assert_equal 0, debt.minimum_payment_cents
   end
 
-  test "workspace setup applies aggregate debt edits across multiple detailed debts" do
+  test "workspace setup rejects aggregate edits across multiple detailed debts" do
     user = create_user(email: "multi-document-debt@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
@@ -439,14 +442,12 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").first, "tracked by individual records"
     assert_equal 2, household.debts.where(debt_type: "credit_card").count
-    assert_equal "Visa card", visa.reload.label
-    assert_equal "Mastercard", mastercard.reload.label
-    assert_equal 400_000, household.debts.where(debt_type: "credit_card").sum(:balance_cents)
-    assert_equal 20_000, household.debts.where(debt_type: "credit_card").sum(:minimum_payment_cents)
-    assert_operator visa.balance_cents, :<, 340_000
-    assert_operator mastercard.balance_cents, :<, 120_000
+    assert_equal 340_000, visa.reload.balance_cents
+    assert_equal 120_000, mastercard.reload.balance_cents
+    assert_equal 23_500, household.debts.where(debt_type: "credit_card").sum(:minimum_payment_cents)
   end
 
   test "workspace setup removes cleared credit card debt" do
@@ -595,6 +596,44 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     wealth = JSON.parse(response.body).fetch("wealth").fetch("summary")
     assert_equal(-420_000, wealth.fetch("net_worth"))
     assert_equal 80_000, wealth.fetch("liquid_net_worth")
+  end
+
+  test "dashboard account rows use only the canonical debt portfolio" do
+    user = create_user(email: "canonical-dashboard-debt@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 2_000_00, minimum_payment_cents: 90_00)
+    household.debts.create!(
+      label: "Archived loan", debt_type: "personal_loan", balance_cents: 5_000_00,
+      minimum_payment_cents: 200_00, active: false, archived_at: Time.current
+    )
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 9_000_00,
+      debt_summary_minimum_payment_cents: 375_00,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+
+    assert_response :success
+    debt_rows = JSON.parse(response.body).dig("dashboard", "accounts").select { |row| row.fetch("type") == "debt" }
+    assert_equal [ { "name" => "Household debt summary", "type" => "debt", "balance" => -9_000 } ], debt_rows
+  end
+
+  test "editing profile text preserves unknown summary debt values" do
+    user = create_user(email: "profile-preserves-unknown-debt@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    profile = household.household_profile
+    profile.update!(debt_tracking_mode: "summary", debt_summary_balance_known: false, debt_summary_minimum_payment_known: false)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { household_name: "Renamed household" } },
+      headers: auth_headers(user),
+      as: :json
+
+    assert_response :success
+    assert_equal "Renamed household", household.reload.name
+    assert_not profile.reload.debt_summary_balance_known?
+    assert_not profile.debt_summary_minimum_payment_known?
   end
 
   test "mia chat uses real workspace context and persists messages" do
@@ -2501,10 +2540,21 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
   end
 
   def confirm_setup_for_test(user)
-    HouseholdFinance::WorkspaceResolver.new(user).household.update!(
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.update!(
       primary_goal: "Build a stable plan",
       confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s)
     )
+    profile = household.household_profile
+    summary_confirmed = profile.debt_tracking_mode == "summary" &&
+      profile.debt_summary_balance_known? && profile.debt_summary_minimum_payment_known?
+    unless household.debts.active.exists? || summary_confirmed
+      profile.update!(
+        debt_tracking_mode: "summary", debt_summary_balance_cents: 0,
+        debt_summary_minimum_payment_cents: 0,
+        debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+      )
+    end
   end
 
   def create_mia_attachment_import(household, user, key)

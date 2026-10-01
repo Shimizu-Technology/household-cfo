@@ -109,10 +109,23 @@ module HouseholdFinance
 
     def apply_debt(item)
       debt_type = item.debt_type.presence_in(Debt::DEBT_TYPES) || "other"
-      record = find_label_record_or_initialize(household.debts, item.label, debt_type: debt_type)
+      label = item.label.to_s.squish
+      record = household.debts.active.where(debt_type: debt_type).where("LOWER(label) = ?", label.downcase).first ||
+        household.debts.new(label: label, debt_type: debt_type)
+      existing_record = record.persisted?
       balance_cents = item.balance_cents || record.balance_cents || 0
       payment_cents = item.payment_cents || record.minimum_payment_cents || 0
-      record.update!(balance_cents: balance_cents, minimum_payment_cents: payment_cents, interest_rate_percent: item.interest_rate_percent || record.interest_rate_percent)
+      record.update!(
+        balance_cents: balance_cents,
+        balance_known: item.balance_cents.present? || (existing_record && record.balance_known?),
+        minimum_payment_cents: payment_cents,
+        minimum_payment_known: item.payment_cents.present? || (existing_record && record.minimum_payment_known?),
+        interest_rate_percent: item.interest_rate_percent || record.interest_rate_percent,
+        active: true,
+        archived_at: nil,
+        source_type: "document_import",
+        source_metadata: (record.source_metadata || {}).merge("document_import_id" => document_import.id, "document_import_item_id" => item.id)
+      )
       record
     end
 

@@ -13,7 +13,12 @@ module HouseholdFinance
         "restore_income_source" => "income.source.restore",
         "create_income_schedule_entry" => "income.schedule.create",
         "update_income_schedule_entry" => "income.schedule.update",
-        "delete_income_schedule_entry" => "income.schedule.delete"
+        "delete_income_schedule_entry" => "income.schedule.delete",
+        "create_debt" => "debt.record.create",
+        "update_debt" => "debt.record.update",
+        "archive_debt" => "debt.record.archive",
+        "restore_debt" => "debt.record.restore",
+        "update_debt_tracking" => "debt.tracking_mode.update"
       }.freeze
 
       def self.operation_key(item)

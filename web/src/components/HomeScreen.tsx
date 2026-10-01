@@ -66,6 +66,7 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
           safeToSpend={dashboard.summary.next_safe_to_spend_amount}
           baselineSurplus={budget.baseline_surplus}
           debtMinimums={currentPlan?.monthly_debt_minimums ?? dashboard.summary.debt_payments}
+          debtMinimumsKnown={currentPlan?.monthly_debt_minimums_known !== false && dashboard.summary.readiness_available}
         />
       </section>
 
@@ -105,14 +106,14 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
         </summary>
 
         <div className="home-detail-content">
-          {currentPlan && (
+          {currentPlan && currentPlan.monthly_debt_minimums_known !== false && (
             <section className="home-financial-visuals" aria-label="Monthly and annual financial position">
               <CategoryPressureList positions={currentPositions} limit={4} />
               <AnnualCashFlowChart plan={currentPlan} compact selectedMonthIndex={currentMonthIndex} />
             </section>
           )}
 
-          {(upcomingSpike || nextIrregular) && (
+          {currentPlan?.monthly_debt_minimums_known !== false && (upcomingSpike || nextIrregular) && (
             <section className="home-look-ahead" aria-label="Annual plan look ahead">
               <div>
                 <span>Look ahead</span>
@@ -143,16 +144,20 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
               </div>
               <p>Yellow is the halfway runway checkpoint. Green is the full runway target. They are planning signals, not grades.</p>
             </div>
-            <div className="readiness-current-row">
-              <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
-              <Metric label="Current runway" value={`${dashboard.readiness_path.current_runway_months} months`} />
-              <Metric label="Monthly surplus" value={currency.format(dashboard.readiness_path.monthly_surplus)} />
-              <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
-            </div>
-            <div className="readiness-milestone-grid">
-              <ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} />
-              <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
-            </div>
+            {dashboard.readiness_path.available === false ? (
+              <p className="setup-error" role="status">{dashboard.readiness_path.unavailable_reason}</p>
+            ) : <>
+              <div className="readiness-current-row">
+                <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
+                <Metric label="Current runway" value={`${dashboard.readiness_path.current_runway_months} months`} />
+                <Metric label="Monthly surplus" value={currency.format(dashboard.readiness_path.monthly_surplus ?? 0)} />
+                <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
+              </div>
+              <div className="readiness-milestone-grid">
+                <ReadinessMilestoneCard label="Yellow checkpoint" milestone={dashboard.readiness_path.yellow} />
+                <ReadinessMilestoneCard label="Green target" milestone={dashboard.readiness_path.green} />
+              </div>
+            </>}
           </section>
 
           <article className="next-steps">

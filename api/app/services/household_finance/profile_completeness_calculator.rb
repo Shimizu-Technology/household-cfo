@@ -16,7 +16,7 @@ module HouseholdFinance
         end,
         active_records(:expense_items).any? { |expense| expense.amount_cents.positive? },
         records(:accounts).any? { |account| account.balance_cents.positive? },
-        records(:debts).any? || records(:accounts).any?,
+        debt_information_present? || records(:accounts).any?,
         records(:goals).any?
       ]
 
@@ -38,6 +38,13 @@ module HouseholdFinance
     def records(name)
       association = household.association(name)
       association.loaded? ? association.target : household.public_send(name).to_a
+    end
+
+    def debt_information_present?
+      portfolio = DebtPortfolio.new(household)
+      return portfolio.balance_known? && portfolio.minimum_payment_known? if portfolio.mode == "summary"
+
+      portfolio.active_debts.any?
     end
   end
 end

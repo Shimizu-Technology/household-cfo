@@ -234,4 +234,29 @@ class HouseholdFinanceConversationContextBuilderTest < ActiveSupport::TestCase
     assert_equal "Keep the minimum protected first.", context.dig(:active_topic, :latest_mia_summary)
     assert_equal "Confirm the interest rate.", context.dig(:active_topic, :next_move)
   end
+
+  test "continuity preserves bounded debt action details for an exact follow-up" do
+    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "debt-continuity@example.com", role: "participant", invitation_status: "accepted")
+    household = Household.create!(created_by_user: user, name: "Debt Continuity Household")
+    session = household.chat_sessions.create!(
+      user: user,
+      title: "Ask Mia",
+      active_topic: {
+        schema_version: 2, type: "debt_plan", title: "Visa update", subject: "Visa",
+        action: {
+          type: "update_debt", debt_id: 77, debt_name: "Visa", debt_type: "credit_card",
+          amount: "2900", minimum_payment: "160", interest_rate_percent: "27.5"
+        }
+      }
+    )
+
+    action = HouseholdFinance::ConversationContextBuilder.new(session).call.dig(:active_topic, :action)
+
+    assert_equal "update_debt", action.fetch(:type)
+    assert_equal 77, action.fetch(:debt_id)
+    assert_equal "Visa", action.fetch(:debt_name)
+    assert_equal "2900", action.fetch(:amount)
+    assert_equal "160", action.fetch(:minimum_payment)
+    assert_equal "27.5", action.fetch(:interest_rate_percent)
+  end
 end

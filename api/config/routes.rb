@@ -24,7 +24,10 @@ Rails.application.routes.draw do
         post :restore, on: :member
       end
       resources :budget_allocations, only: :update
-      resources :debts, only: %i[create update destroy]
+      resources :debts, only: %i[create update destroy] do
+        member { post :restore }
+        collection { patch :tracking }
+      end
       resources :income_sources, only: %i[create update destroy] do
         post :restore, on: :member
       end

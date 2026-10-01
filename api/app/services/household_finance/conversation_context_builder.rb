@@ -10,7 +10,7 @@ module HouseholdFinance
       none set_allocation increase_allocation decrease_allocation move_allocation create_category
       rename_category reclassify_category archive_category restore_category review_pending_action
       create_transaction_draft update_transaction_draft ignore_transaction_drafts update_household_setup
-      schedule_income_change
+      schedule_income_change create_debt update_debt archive_debt restore_debt update_debt_tracking
     ].freeze
     SETUP_UPDATE_LIMITS = {
       "household_name" => 120,
@@ -184,7 +184,14 @@ module HouseholdFinance
         income_source_name: sanitized_text(action["income_source_name"], max_length: 120),
         entry_type: sanitized_text(action["entry_type"], max_length: 40),
         effective_on: sanitized_text(action["effective_on"], max_length: 20),
-        schedule_label: sanitized_text(action["schedule_label"], max_length: 80)
+        schedule_label: sanitized_text(action["schedule_label"], max_length: 80),
+        debt_id: bounded_integer(action["debt_id"], 0..MAX_RECORD_ID),
+        debt_name: sanitized_text(action["debt_name"], max_length: 120),
+        debt_type: sanitized_text(action["debt_type"], max_length: 40),
+        balance: sanitized_text(action["balance"], max_length: 40),
+        minimum_payment: sanitized_text(action["minimum_payment"], max_length: 40),
+        interest_rate_percent: sanitized_text(action["interest_rate_percent"], max_length: 20),
+        debt_tracking_mode: sanitized_text(action["debt_tracking_mode"], max_length: 20)
       }.compact
     end
 

@@ -48,6 +48,8 @@ module HouseholdFinance
         liquid_assets_cents: liquid_assets_cents,
         total_assets_cents: total_assets_cents,
         total_debt_cents: total_debt_cents,
+        debt_balance_known: debt_portfolio.balance_known?,
+        debt_minimums_known: debt_portfolio.minimum_payment_known?,
         net_worth_cents: net_worth_cents,
         runway_months: runway_months,
         target_runway_months: target_runway_months,
@@ -121,8 +123,8 @@ module HouseholdFinance
       end
     end
 
-    def debts
-      @debts ||= association_records(:debts)
+    def debt_portfolio
+      @debt_portfolio ||= DebtPortfolio.new(household)
     end
 
     def accounts
@@ -187,7 +189,7 @@ module HouseholdFinance
     end
 
     def debt_payments_cents
-      @debt_payments_cents ||= debts.sum(&:minimum_payment_cents)
+      @debt_payments_cents ||= debt_portfolio.monthly_minimum_cents
     end
 
     def total_outflow_cents
@@ -207,7 +209,7 @@ module HouseholdFinance
     end
 
     def total_debt_cents
-      @total_debt_cents ||= debts.sum(&:balance_cents)
+      @total_debt_cents ||= debt_portfolio.total_balance_cents
     end
 
     def net_worth_cents

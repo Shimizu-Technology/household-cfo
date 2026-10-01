@@ -30,6 +30,9 @@ module HouseholdFinance
         setup_status: SetupStatus.new(household).as_json,
         income_sources: income_sources,
         archived_income_sources: archived_income_sources,
+        active_debts: serialized_debts(household.debts.active.order(:id)),
+        archived_debts: serialized_debts(household.debts.archived.order(:id)),
+        debt_tracking: DebtPortfolio.new(household).as_json,
         conversation: {
           active_thread: validated_active_thread,
           open_threads: validated_open_threads,
@@ -46,6 +49,7 @@ module HouseholdFinance
           update_household_setup schedule_income_change create_income_source update_income_source
           archive_income_source restore_income_source update_income_schedule_entry delete_income_schedule_entry
           review_pending_action
+          create_debt update_debt archive_debt restore_debt update_debt_tracking
         ],
         supported_household_setup_fields: MiaActionDraftHouseholdCommands::SETUP_KEYS.map(&:to_s),
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
@@ -174,6 +178,20 @@ module HouseholdFinance
               active: source.schedule_entry_active?(entry)
             }
           end
+        }
+      end
+    end
+
+    def serialized_debts(scope)
+      scope.first(MAX_CATEGORIES).map do |debt|
+        {
+          id: debt.id,
+          label: bounded(debt.label, 120),
+          debt_type: debt.debt_type,
+          balance: debt.balance_known? ? Money.dollars(debt.balance_cents) : nil,
+          minimum_payment: debt.minimum_payment_known? ? Money.dollars(debt.minimum_payment_cents) : nil,
+          interest_rate_percent: debt.interest_rate_percent&.to_f,
+          active: debt.active?
         }
       end
     end

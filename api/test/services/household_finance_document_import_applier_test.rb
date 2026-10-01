@@ -228,4 +228,77 @@ class HouseholdFinanceDocumentImportApplierTest < ActiveSupport::TestCase
     assert_includes notes, "Document observation"
     assert_includes notes, "useful coaching note"
   end
+
+
+  test "a reviewed import never rewrites an archived debt" do
+    archived = @household.debts.create!(
+      label: "Visa", debt_type: "credit_card", balance_cents: 900_00,
+      minimum_payment_cents: 25_00, active: false, archived_at: 1.day.ago
+    )
+    item = @document_import.items.create!(
+      target_type: "debt", label: "Visa", balance_cents: 4_820_00,
+      payment_cents: 150_00, debt_type: "credit_card"
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_not archived.reload.active?
+    assert_equal 900_00, archived.balance_cents
+    active = @household.debts.active.find_by!(label: "Visa")
+    assert_equal 4_820_00, active.balance_cents
+    assert_equal "document_import", active.source_type
+    assert_equal @document_import.id, active.source_metadata.fetch("document_import_id")
+    assert_equal active, item.reload.applied_record
+    assert_equal "individual", @household.household_profile.reload.debt_tracking_mode
+  end
+
+  test "a reviewed debt import preserves summary tracking until the household explicitly switches modes" do
+    profile = @household.household_profile
+    profile.update!(
+      debt_tracking_mode: "summary",
+      debt_summary_balance_cents: 12_000_00,
+      debt_summary_minimum_payment_cents: 475_00,
+      debt_summary_balance_known: true,
+      debt_summary_minimum_payment_known: true
+    )
+    @document_import.items.create!(
+      target_type: "debt", label: "Visa", balance_cents: 4_820_00,
+      payment_cents: 150_00, debt_type: "credit_card"
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    assert_equal "summary", profile.reload.debt_tracking_mode
+    portfolio = HouseholdFinance::DebtPortfolio.new(@household.reload)
+    assert_equal 12_000_00, portfolio.total_balance_cents
+    assert_equal 475_00, portfolio.monthly_minimum_cents
+    imported = @household.debts.active.find_by!(label: "Visa")
+    assert_equal 4_820_00, imported.balance_cents
+    assert_equal "document_import", imported.source_type
+  end
+
+  test "a new partial debt import keeps omitted amounts unknown" do
+    @document_import.items.create!(
+      target_type: "debt", label: "Payment only", payment_cents: 80_00,
+      debt_type: "medical"
+    )
+    @document_import.items.create!(
+      target_type: "debt", label: "Balance only", balance_cents: 2_400_00,
+      debt_type: "personal_loan"
+    )
+
+    result = HouseholdFinance::DocumentImportApplier.new(@document_import, user: @user).call
+
+    assert result.success?, result.errors.join(", ")
+    payment_only = @household.debts.find_by!(label: "Payment only")
+    assert_not payment_only.balance_known?
+    assert payment_only.minimum_payment_known?
+    assert_equal 80_00, payment_only.minimum_payment_cents
+    balance_only = @household.debts.find_by!(label: "Balance only")
+    assert balance_only.balance_known?
+    assert_not balance_only.minimum_payment_known?
+    assert_equal 2_400_00, balance_only.balance_cents
+  end
 end

@@ -128,32 +128,29 @@ module HouseholdFinance
     end
 
     def upsert_credit_card_debt
-      upsert_debt(
-        "Credit card debt",
-        "credit_card",
-        attributes.fetch(:credit_card_debt, MISSING_VALUE),
-        attributes.fetch(:debt_payment, MISSING_VALUE)
-      )
-    end
+      profile = household.household_profile || household.create_household_profile!
+      portfolio = DebtPortfolio.new(household)
+      balance = attributes.fetch(:credit_card_debt, MISSING_VALUE)
+      payment = attributes.fetch(:debt_payment, MISSING_VALUE)
 
-    def upsert_debt(label, debt_type, balance, payment)
-      records = household.debts.where(debt_type: debt_type).order(:id).to_a
-      aggregate = records.find { |record| record.label == label }
-      current_balance_cents = records.sum(&:balance_cents)
-      current_payment_cents = records.sum(&:minimum_payment_cents)
-      balance_cents = missing_value?(balance) ? (aggregate ? existing_cents(aggregate, :balance_cents) : current_balance_cents) : setup_money_cents(balance, label: "Credit card debt")
-      payment_cents = missing_value?(payment) ? (aggregate ? existing_cents(aggregate, :minimum_payment_cents) : current_payment_cents) : setup_money_cents(payment, label: "Debt payment")
-      return if current_balance_cents == balance_cents && current_payment_cents == payment_cents
+      if profile.debt_tracking_mode == "individual" && household.debts.active.exists?
+        requested_balance = missing_value?(balance) ? portfolio.total_balance_cents : setup_money_cents(balance, label: "Debt balance")
+        requested_payment = missing_value?(payment) ? portfolio.monthly_minimum_cents : setup_money_cents(payment, label: "Debt payment")
+        return if requested_balance == portfolio.total_balance_cents && requested_payment == portfolio.monthly_minimum_cents
 
-      return distribute_debt_totals!(records, balance_cents, payment_cents) if records.many?
+        raise ArgumentError, "Debt is tracked by individual records. Edit a specific debt or switch to summary tracking so detailed balances do not change silently"
+      end
 
-      record = aggregate || records.first || household.debts.new(label: label, debt_type: debt_type)
-      return record.destroy! if record.persisted? && balance_cents.zero?
-      return if balance_cents.zero?
-
-      record.assign_attributes(debt_type: debt_type, balance_cents: balance_cents, minimum_payment_cents: payment_cents)
-      record.label = label if record.new_record? || record.label.blank?
-      record.save!
+      updates = { debt_tracking_mode: "summary" }
+      unless missing_value?(balance)
+        updates[:debt_summary_balance_cents] = setup_money_cents(balance, label: "Debt balance")
+        updates[:debt_summary_balance_known] = true
+      end
+      unless missing_value?(payment)
+        updates[:debt_summary_minimum_payment_cents] = setup_money_cents(payment, label: "Debt payment")
+        updates[:debt_summary_minimum_payment_known] = true
+      end
+      profile.update!(updates)
     end
 
     def upsert_runway_goal

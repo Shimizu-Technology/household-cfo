@@ -56,8 +56,8 @@ module HouseholdFinance
       when Account
         item.balance_cents = record.balance_cents if item.balance_cents.nil?
       when Debt
-        item.balance_cents = record.balance_cents if item.balance_cents.nil?
-        item.payment_cents = record.minimum_payment_cents if item.payment_cents.nil?
+        item.balance_cents = record.balance_cents if item.balance_cents.nil? && record.balance_known? && !attributes.key?(:balance_cents)
+        item.payment_cents = record.minimum_payment_cents if item.payment_cents.nil? && record.minimum_payment_known? && !attributes.key?(:payment_cents)
         item.interest_rate_percent = record.interest_rate_percent if item.interest_rate_percent.nil? && !attributes.key?(:interest_rate_percent)
       when Goal
         item.amount_cents = record.target_amount_cents if item.amount_cents.nil?
@@ -127,8 +127,20 @@ module HouseholdFinance
         label: item.label,
         debt_type: item.debt_type.presence_in(Debt::DEBT_TYPES) || record.debt_type || "other"
       }
-      updates[:balance_cents] = item.balance_cents unless item.balance_cents.nil?
-      updates[:minimum_payment_cents] = item.payment_cents unless item.payment_cents.nil?
+      if attributes.key?(:balance_cents) && item.balance_cents.nil?
+        updates[:balance_cents] = 0
+        updates[:balance_known] = false
+      elsif !item.balance_cents.nil?
+        updates[:balance_cents] = item.balance_cents
+        updates[:balance_known] = true
+      end
+      if attributes.key?(:payment_cents) && item.payment_cents.nil?
+        updates[:minimum_payment_cents] = 0
+        updates[:minimum_payment_known] = false
+      elsif !item.payment_cents.nil?
+        updates[:minimum_payment_cents] = item.payment_cents
+        updates[:minimum_payment_known] = true
+      end
       updates[:interest_rate_percent] = item.interest_rate_percent if attributes.key?(:interest_rate_percent)
       record.update!(updates)
     end

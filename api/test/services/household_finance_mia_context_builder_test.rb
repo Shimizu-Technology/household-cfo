@@ -79,6 +79,10 @@ class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
     household.income_sources.create!(label: "Salary", source_type: "job", amount_cents: 8_500_00, cadence: "monthly", active: true)
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 50_000_00)
     household.update!(primary_goal: "Protect the plan", confirmed_setup_fields: HouseholdFinance::SetupStatus::REQUIRED_FIELDS.map(&:to_s))
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_known: true,
+      debt_summary_minimum_payment_known: true
+    )
     manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year + 1)
     manager.create_category!(name: "Future essentials", stack_key: "non_discretionary", monthly_amount: 0)
     plan = manager.plan_data
