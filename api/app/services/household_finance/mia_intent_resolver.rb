@@ -1207,6 +1207,10 @@ module HouseholdFinance
         [ [ prior_action[:new_name], prior_action[:category_name] ], [ action[:new_name], action[:category_name] ] ]
       when "rename_category"
         [ [ prior_action[:new_name] ], [ action[:new_name] ] ]
+      when "create_goal"
+        [ [ prior_action[:goal_name] ], [ action[:goal_name] ] ]
+      when "update_goal"
+        [ [ prior_action[:new_name] ], [ action[:new_name] ] ]
       when "create_transaction_draft", "update_transaction_draft"
         [ [ prior_action[:merchant] ], [ action[:merchant] ] ]
       else
@@ -1969,6 +1973,7 @@ module HouseholdFinance
       return "I could not safely match that income change to an active income source. Name the job or business income you mean." if action[:type] == "schedule_income_change"
       return "I could not safely match that request to one income source. Name the income source or choose it by id." if action[:type].in?(%w[update_income_source archive_income_source restore_income_source])
       return "I could not safely match that request to a scheduled income entry. Choose the exact scheduled change you mean." if action[:type].in?(%w[update_income_schedule_entry delete_income_schedule_entry])
+      return "I could not safely match that request to one tracked goal. Name the goal exactly or choose it by id." if action[:type].in?(%w[update_goal archive_goal restore_goal])
 
       "I could not safely match that request to the current budget. Please name the category, amount, and month."
     end

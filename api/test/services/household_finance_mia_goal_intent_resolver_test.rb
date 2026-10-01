@@ -138,6 +138,28 @@ class HouseholdFinanceMiaGoalIntentResolverTest < ActiveSupport::TestCase
     assert_equal "", result.action.fetch(:goal_name)
   end
 
+  test "does not carry a prior new-goal name through a participant rename" do
+    result = resolve(
+      user_message: "Actually call it Tuition.",
+      context: {
+        active_goals: [], archived_goals: [],
+        conversation: {
+          active_thread: {
+            schema_version: 2, type: "goal_plan", title: "Add tracked goal", subject: "Family trip",
+            status: "needs_clarification", action: { type: "create_goal", goal_name: "Family trip" }
+          },
+          recent_messages: []
+        }
+      },
+      action: { type: "create_goal", goal_type: "education" },
+      continuation: true
+    )
+
+    assert result.clarification?
+    assert_equal "create_goal", result.action.fetch(:type)
+    assert_equal "", result.action.fetch(:goal_name)
+  end
+
   private
 
   def resolve(user_message:, context:, action:, continuation: false)
