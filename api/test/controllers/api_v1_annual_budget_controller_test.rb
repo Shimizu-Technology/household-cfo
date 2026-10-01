@@ -1920,7 +1920,25 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
       params: { transaction_draft_ids: [ first.id, second.id ], year: Date.current.year }, headers: headers, as: :json
     assert_response :unprocessable_entity
     assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
-    assert_equal %w[pending pending], [ first.reload.status, second.reload.status ]
+
+    post "/api/v1/transaction_drafts/#{first.id}/confirm", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/bulk_confirm",
+      params: { transaction_draft_ids: [ first.id, second.id ], year: Date.current.year, confirmation: "CONFIRM 2" }, headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/#{first.id}/match", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    first.update!(status: "ignored")
+    post "/api/v1/transaction_drafts/#{first.id}/reopen", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+    assert_equal %w[ignored pending], [ first.reload.status, second.reload.status ]
   end
 
   test "transaction update ignore and bulk ignore replay stable keys and conflict on changed requests" do
@@ -1963,6 +1981,82 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_response :conflict
     assert_equal %w[ignored ignored], [ second.reload.status, third.reload.status ]
     assert_equal 3, household.household_operation_executions.where(idempotency_key: %w[update-replay ignore-replay bulk-ignore-replay]).count
+  end
+
+  test "confirm match reopen and bulk confirm replay stable keys and conflict on changed requests" do
+    user = create_user(email: "transaction-resolution-replay@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    category = manager.create_category!(name: "Resolution", stack_key: "discretionary", monthly_amount: 100)
+
+    confirmed = create_pending_draft(household, category, merchant: "Confirm once", amount_cents: 1_100)
+    confirm_headers = auth_headers(user).merge("Idempotency-Key" => "confirm-replay")
+    assert_difference("HouseholdTransaction.count", 1) do
+      2.times do
+        post "/api/v1/transaction_drafts/#{confirmed.id}/confirm", headers: confirm_headers, as: :json
+        assert_response :success
+      end
+    end
+    post "/api/v1/transaction_drafts/#{confirmed.id}/confirm",
+      params: { transaction_draft: { merchant: "Different confirmation" } }, headers: confirm_headers, as: :json
+    assert_response :conflict
+
+    match_draft = create_pending_draft(household, category, merchant: "Match once", amount_cents: 2_200)
+    period = manager.current_period_for(match_draft.occurred_on)
+    transaction = household.household_transactions.create!(
+      budget_period: period, occurred_on: match_draft.occurred_on, merchant: "Existing Match",
+      total_amount_cents: 2_200, source_type: "manual_ui", status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_200)
+    primary_match = match_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, status: "proposed", match_reason: "primary")
+    other_transaction = household.household_transactions.create!(
+      budget_period: period, occurred_on: match_draft.occurred_on, merchant: "Other Match",
+      total_amount_cents: 2_200, source_type: "manual_ui", status: "confirmed"
+    )
+    other_transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_200)
+    secondary_match = match_draft.transaction_draft_matches.create!(household_transaction: other_transaction, confidence: 0.80, status: "proposed", match_reason: "secondary")
+    match_headers = auth_headers(user).merge("Idempotency-Key" => "match-replay")
+    2.times do
+      post "/api/v1/transaction_drafts/#{match_draft.id}/match", params: { match_id: primary_match.id }, headers: match_headers, as: :json
+      assert_response :success
+    end
+    post "/api/v1/transaction_drafts/#{match_draft.id}/match", params: { match_id: secondary_match.id }, headers: match_headers, as: :json
+    assert_response :conflict
+
+    reopen_draft = create_pending_draft(household, category, merchant: "Reopen once", amount_cents: 3_300)
+    other_reopen = create_pending_draft(household, category, merchant: "Other reopen", amount_cents: 4_400)
+    reopen_draft.update!(status: "ignored")
+    other_reopen.update!(status: "ignored")
+    reopen_headers = auth_headers(user).merge("Idempotency-Key" => "reopen-replay")
+    2.times do
+      post "/api/v1/transaction_drafts/#{reopen_draft.id}/reopen", headers: reopen_headers, as: :json
+      assert_response :success
+    end
+    post "/api/v1/transaction_drafts/#{other_reopen.id}/reopen", headers: reopen_headers, as: :json
+    assert_response :conflict
+    assert_equal "ignored", other_reopen.reload.status
+
+    first_bulk = create_pending_draft(household, category, merchant: "Bulk confirm one", amount_cents: 5_500)
+    second_bulk = create_pending_draft(household, category, merchant: "Bulk confirm two", amount_cents: 6_600)
+    third_bulk = create_pending_draft(household, category, merchant: "Bulk confirm three", amount_cents: 7_700)
+    bulk_headers = auth_headers(user).merge("Idempotency-Key" => "bulk-confirm-replay")
+    bulk_params = { transaction_draft_ids: [ first_bulk.id, second_bulk.id ], year: Date.current.year, confirmation: "CONFIRM 2" }
+    assert_difference("HouseholdTransaction.count", 2) do
+      2.times do
+        post "/api/v1/transaction_drafts/bulk_confirm", params: bulk_params, headers: bulk_headers, as: :json
+        assert_response :success
+      end
+    end
+    post "/api/v1/transaction_drafts/bulk_confirm",
+      params: { transaction_draft_ids: [ first_bulk.id, third_bulk.id ], year: Date.current.year, confirmation: "CONFIRM 2" },
+      headers: bulk_headers,
+      as: :json
+    assert_response :conflict
+    assert_equal "pending", third_bulk.reload.status
+
+    executions = household.household_operation_executions.where(idempotency_key: %w[confirm-replay match-replay reopen-replay bulk-confirm-replay])
+    assert_equal 4, executions.count
+    assert_equal 4, executions.joins(:household_audit_event).count
   end
 
   test "bulk resolution rejects more than five hundred reviews" do

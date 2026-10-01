@@ -4442,7 +4442,7 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await expect(page.locator('.transaction-draft-card').filter({ hasText: 'Storm supplies' })).toContainText('Mia')
   const confirmRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/91/confirm') && request.method() === 'POST')
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
-  await confirmRequest
+  expect((await confirmRequest).headers()['idempotency-key']).toBeTruthy()
 
   const miaCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await expect(miaCard.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()

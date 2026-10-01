@@ -95,6 +95,57 @@ module HouseholdFinance
           }
         end
 
+        def normalized_update_splits(draft, values, total_cents:)
+          raw = Array(values)
+          raise ArgumentError, "Transaction splits are required" if raw.empty?
+          raise ArgumentError, "Add no more than #{MAX_SPLITS} transaction splits" if raw.length > MAX_SPLITS
+
+          existing_by_id = draft.transaction_draft_splits.index_by(&:id)
+          seen_ids = []
+          splits = raw.map.with_index do |value, index|
+            split = value.to_h.deep_symbolize_keys
+            split_id = normalized_split_id(split[:id])
+            existing = existing_by_id[split_id] if split_id
+            raise ArgumentError, "Split #{index + 1} does not belong to this transaction review" if split_id && !existing
+            raise ArgumentError, "A transaction split can only be included once" if split_id && seen_ids.include?(split_id)
+
+            seen_ids << split_id if split_id
+            category = if split.key?(:budget_category_id) || split.key?(:category_id)
+              active_category(split[:budget_category_id] || split[:category_id])
+            else
+              existing&.budget_category
+            end
+            amount_cents = split.key?(:amount_cents) ? Integer(split.fetch(:amount_cents)) : parsed_amount_cents(split[:amount], message: "Split #{index + 1} amount must be a number")
+            raise ArgumentError, "Split #{index + 1} amount must be greater than $0" unless amount_cents.positive?
+
+            {
+              id: existing&.id,
+              budget_category_id: category&.id,
+              category_name: category&.name || (split.key?(:category_name) ? bounded_text(split[:category_name], 120).presence : existing&.category_name),
+              stack_key: category&.stack_key || (split.key?(:stack_key) ? split[:stack_key].to_s.presence_in(BudgetCategory::STACK_KEYS) : existing&.stack_key),
+              amount_cents: amount_cents,
+              notes: split.key?(:notes) ? bounded_text(split[:notes], 500).presence : existing&.notes,
+              confidence: existing&.confidence,
+              metadata: existing ? existing.metadata : { "human_reviewed_replacement" => true }
+            }
+          rescue TypeError, ArgumentError => e
+            raise e if e.message.match?(/split|budget category/i)
+
+            raise ArgumentError, "Split #{index + 1} amount must be a number"
+          end
+          raise ArgumentError, "Transaction splits must equal transaction total" unless splits.sum { |split| split.fetch(:amount_cents) } == total_cents
+
+          splits
+        end
+
+        def normalized_split_id(value)
+          return if value.blank?
+
+          Integer(value)
+        rescue ArgumentError, TypeError
+          raise ArgumentError, "Transaction split id is invalid"
+        end
+
         def draft_snapshot(draft, lock: false)
           draft.lock! if lock && draft.persisted?
           {
@@ -120,6 +171,34 @@ module HouseholdFinance
               }
             end
           }
+        end
+
+        def resolution_snapshot(draft, lock: false)
+          snapshot = draft_snapshot(draft, lock: lock)
+          snapshot[:draft][:confirmed_transaction_id] = draft.confirmed_transaction_id
+          snapshot[:draft][:matched_transaction_id] = draft.matched_transaction_id
+          snapshot[:matches] = draft.transaction_draft_matches.order(:id).map do |match|
+            {
+              id: match.id,
+              household_transaction_id: match.household_transaction_id,
+              status: match.status,
+              confidence: match.confidence,
+              match_reason: match.match_reason
+            }
+          end
+          transaction = draft.confirmed_transaction
+          snapshot[:transaction] = transaction && {
+            id: transaction.id,
+            status: transaction.status,
+            occurred_on: transaction.occurred_on.iso8601,
+            merchant: transaction.merchant,
+            total_amount_cents: transaction.total_amount_cents,
+            source_type: transaction.source_type,
+            splits: transaction.transaction_splits.order(:id).map do |split|
+              { id: split.id, budget_category_id: split.budget_category_id, amount_cents: split.amount_cents, notes: split.notes }
+            end
+          }
+          snapshot
         end
 
         def verify_after!(predicted, actual)

@@ -1890,7 +1890,9 @@ function App() {
     setBudgetError(null)
     setDocumentsError(null)
     try {
-      const workspace = await confirmTransactionDraft(draft.id)
+      const signature = `transaction:confirm:${draft.id}`
+      const workspace = await confirmTransactionDraft(draft.id, {}, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
@@ -1963,11 +1965,11 @@ function App() {
     setDocumentsError(null)
     setMiaError(null)
     try {
-      const ignoreSignature = `transaction:bulk-ignore:${ids.slice().sort((a, b) => a - b).join(',')}`
+      const signature = `transaction:bulk-${resolution}:${selectedBudgetYear}:${ids.slice().sort((a, b) => a - b).join(',')}`
       const workspace = resolution === 'confirm'
-        ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`)
-        : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear, transactionOperationKeysRef.current.keyFor(ignoreSignature))
-      if (resolution === 'ignore') transactionOperationKeysRef.current.complete(ignoreSignature)
+        ? await bulkConfirmTransactionDrafts(ids, selectedBudgetYear, `CONFIRM ${ids.length}`, transactionOperationKeysRef.current.keyFor(signature))
+        : await bulkIgnoreTransactionDrafts(ids, selectedBudgetYear, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
@@ -1995,7 +1997,9 @@ function App() {
     setBudgetError(null)
     setDocumentsError(null)
     try {
-      const workspace = await matchTransactionDraft(draft.id, matchId)
+      const signature = `transaction:match:${draft.id}:${matchId ?? 'best'}`
+      const workspace = await matchTransactionDraft(draft.id, matchId, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })
@@ -2024,7 +2028,9 @@ function App() {
     setBudgetError(null)
     setDocumentsError(null)
     try {
-      const workspace = await reopenTransactionDraft(draft.id)
+      const signature = `transaction:reopen:${draft.id}`
+      const workspace = await reopenTransactionDraft(draft.id, transactionOperationKeysRef.current.keyFor(signature))
+      transactionOperationKeysRef.current.complete(signature)
       const draftMonthIndex = monthIndexFromIsoDate(draft.occurred_on)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: draftMonthIndex })

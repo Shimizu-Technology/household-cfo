@@ -44,8 +44,12 @@ import {
   updateIncomeScheduleEntry,
   updateIncomeSource,
   archiveIncomeSource,
+  bulkConfirmTransactionDrafts,
+  confirmTransactionDraft,
   restoreIncomeSource,
   deleteIncomeScheduleEntry,
+  matchTransactionDraft,
+  reopenTransactionDraft,
 } from './api'
 
 const completedPayload = {
@@ -108,6 +112,32 @@ describe('income operation idempotency contract', () => {
       '/api/v1/income_schedule_entries?year=2026',
       '/api/v1/income_schedule_entries/9?year=2026',
       '/api/v1/income_schedule_entries/9?year=2026',
+    ])
+  })
+})
+
+describe('transaction resolution idempotency contract', () => {
+  it('sends caller-owned stable keys for confirm, bulk confirm, match, and reopen', async () => {
+    const fetchMock = vi.fn()
+      .mockImplementation(async () => jsonResponse({ workspace: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await confirmTransactionDraft(11, { amount: '24.50' }, 'transaction-confirm-attempt')
+    await bulkConfirmTransactionDrafts([13, 12], 2026, 'CONFIRM 2', 'transaction-bulk-confirm-attempt')
+    await matchTransactionDraft(14, 91, 'transaction-match-attempt')
+    await reopenTransactionDraft(15, 'transaction-reopen-attempt')
+
+    expect(fetchMock.mock.calls.map((call) => ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'transaction-confirm-attempt',
+      'transaction-bulk-confirm-attempt',
+      'transaction-match-attempt',
+      'transaction-reopen-attempt',
+    ])
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/transaction_drafts/11/confirm',
+      '/api/v1/transaction_drafts/bulk_confirm',
+      '/api/v1/transaction_drafts/14/match',
+      '/api/v1/transaction_drafts/15/reopen',
     ])
   })
 })

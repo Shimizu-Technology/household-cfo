@@ -74,6 +74,28 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     assert_includes result.response, "category from Dining Out to Groceries"
   end
 
+  test "Mia amount correction preserves imported receipt split provenance" do
+    @draft.update!(source_type: "receipt")
+    split = @draft.transaction_draft_splits.sole
+    split.update!(confidence: BigDecimal("0.77"), metadata: { "page" => 3, "bbox" => [ 10, 20, 30, 40 ] })
+
+    result = HouseholdFinance::MiaTransactionDraftEditor.new(
+      @household,
+      command: { draft_id: @draft.id, amount: "15.25" },
+      idempotency_key: "mia-receipt-amount"
+    ).call
+
+    assert result.success?, result.errors.to_sentence
+    persisted = result.draft.transaction_draft_splits.sole
+    assert_equal split.id, persisted.id
+    assert_equal 15_25, persisted.amount_cents
+    assert_equal BigDecimal("0.77"), persisted.confidence
+    assert_equal({ "page" => 3, "bbox" => [ 10, 20, 30, 40 ] }, persisted.metadata)
+    execution = @household.household_operation_executions.find_by!(idempotency_key: "mia-receipt-amount")
+    assert_equal split.id, execution.after_snapshot.dig("splits", 0, "id")
+    assert_equal "0.77", execution.after_snapshot.dig("splits", 0, "confidence")
+  end
+
   test "applies explicit category splits only when they equal the transaction total" do
     result = HouseholdFinance::MiaTransactionDraftEditor.new(
       @household,
@@ -89,6 +111,41 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     assert result.success?
     assert_equal [ 5_00, 7_34 ], result.draft.transaction_draft_splits.order(:amount_cents).pluck(:amount_cents)
     assert_includes result.response, "category splits"
+  end
+
+  test "Mia explicit split correction preserves owned provenance and rejects a foreign split id" do
+    @draft.update!(source_type: "receipt")
+    split = @draft.transaction_draft_splits.sole
+    split.update!(confidence: BigDecimal("0.77"), metadata: { "page" => 3 })
+    foreign_draft = @household.transaction_drafts.create!(
+      occurred_on: @draft.occurred_on,
+      merchant: "Other receipt",
+      total_amount_cents: 12_34,
+      source_type: "receipt",
+      status: "pending"
+    )
+    foreign_split = foreign_draft.transaction_draft_splits.create!(amount_cents: 12_34)
+
+    rejected = HouseholdFinance::MiaTransactionDraftEditor.new(
+      @household,
+      command: { draft_id: @draft.id, splits: [ { id: foreign_split.id, category_id: @groceries.id, amount: "12.34" } ] },
+      idempotency_key: "mia-foreign-receipt-split"
+    ).call
+    refute rejected.success?
+    assert_includes rejected.response, "does not belong to this transaction review"
+
+    result = HouseholdFinance::MiaTransactionDraftEditor.new(
+      @household,
+      command: { draft_id: @draft.id, splits: [ { id: split.id, category_id: @groceries.id, amount: "12.34" } ] },
+      idempotency_key: "mia-owned-receipt-split"
+    ).call
+
+    assert result.success?, result.errors.to_sentence
+    persisted = result.draft.transaction_draft_splits.sole
+    assert_equal split.id, persisted.id
+    assert_equal @groceries.id, persisted.budget_category_id
+    assert_equal BigDecimal("0.77"), persisted.confidence
+    assert_equal({ "page" => 3 }, persisted.metadata)
   end
 
   test "rejects an amount-only correction for a multi-split draft without changing it" do

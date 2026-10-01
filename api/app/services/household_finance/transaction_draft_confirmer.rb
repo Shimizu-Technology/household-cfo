@@ -115,13 +115,9 @@ module HouseholdFinance
           raise InvalidDraftCorrection, result.errors.to_sentence unless result.success?
         end
       elsif selected_category
-        draft.transaction_draft_splits.destroy_all
-        draft.transaction_draft_splits.create!(
-          budget_category: selected_category,
-          amount_cents: draft.total_amount_cents,
-          category_name: selected_category.name,
-          stack_key: selected_category.stack_key
-        )
+        TransactionDraftUpdater.new(draft, { budget_category_id: selected_category.id }, refresh_matches: false).call.tap do |result|
+          raise InvalidDraftCorrection, result.errors.to_sentence unless result.success?
+        end
       elsif draft.transaction_draft_splits.exists? && draft.transaction_draft_splits.sum(:amount_cents) != draft.total_amount_cents
         if attributes[:amount].present? && draft.transaction_draft_splits.one?
           draft.transaction_draft_splits.sole.update!(amount_cents: draft.total_amount_cents)

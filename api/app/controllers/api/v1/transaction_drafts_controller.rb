@@ -37,20 +37,28 @@ module Api
       end
 
       def confirm
-        result = HouseholdFinance::TransactionDraftConfirmer.new(@draft, confirm_params).call
-        unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
+        result = operation_runner.run(
+          operation_key: "transaction.draft.confirm",
+          input: confirm_params.to_h.merge(draft_id: @draft.id, source_type: "manual_ui"),
+          idempotency_key: required_idempotency_key
+        )
+        draft = result.subject.reload
+        transaction = draft.confirmed_transaction
+        raise ArgumentError, "Confirmed transaction not found" unless transaction
+
+        status_message = confirmed_message(draft)
+        unless result.replayed?
+          append_chat_status_message(status_message)
+          update_conversation_draft_status("confirmed", status_message)
         end
 
-        status_message = confirmed_message(result.draft)
-        append_chat_status_message(status_message)
-        update_conversation_draft_status("confirmed", status_message)
-
         render json: {
-          transaction_draft: serialize_draft(result.draft),
-          transaction: serialize_transaction(result.transaction),
-          workspace: workspace_payload_for(result.transaction.budget_period.budget_year.year)
+          transaction_draft: serialize_draft(draft),
+          transaction: serialize_transaction(transaction),
+          workspace: workspace_payload_for(transaction.budget_period.budget_year.year)
         }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
       end
 
       def ignore
@@ -98,35 +106,48 @@ module Api
       end
 
       def match
-        result = HouseholdFinance::TransactionDraftMatchAccepter.new(@draft, match_id: params[:match_id]).call
-        unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
+        result = operation_runner.run(
+          operation_key: "transaction.draft.match",
+          input: { draft_id: @draft.id, match_id: params[:match_id], source_type: "manual_ui" },
+          idempotency_key: required_idempotency_key
+        )
+        draft = result.subject.reload
+        match = draft.transaction_draft_matches.accepted.find_by(id: result.execution.normalized_input["match_id"])
+        raise ArgumentError, "Accepted transaction match not found" unless match
+
+        status_message = matched_message(draft, match)
+        unless result.replayed?
+          append_chat_status_message(status_message)
+          update_conversation_draft_status("matched", status_message)
         end
 
-        status_message = matched_message(result.draft, result.match)
-        append_chat_status_message(status_message)
-        update_conversation_draft_status("matched", status_message)
-
         render json: {
-          transaction_draft: serialize_draft(result.draft),
-          workspace: workspace_payload_for(result.draft.occurred_on.year)
+          transaction_draft: serialize_draft(draft),
+          workspace: workspace_payload_for(draft.occurred_on.year)
         }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
       end
 
       def reopen
-        result = HouseholdFinance::TransactionDraftReopener.new(@draft).call
-        unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
+        result = operation_runner.run(
+          operation_key: "transaction.draft.reopen",
+          input: { draft_id: @draft.id, source_type: "manual_ui" },
+          idempotency_key: required_idempotency_key
+        )
+        draft = result.subject.reload
+        status_message = reopened_message(draft)
+        unless result.replayed?
+          append_chat_status_message(status_message)
+          update_conversation_draft_status("pending_review", status_message)
         end
 
-        status_message = reopened_message(result.draft)
-        append_chat_status_message(status_message)
-        update_conversation_draft_status("pending_review", status_message)
-
         render json: {
-          transaction_draft: serialize_draft(result.draft),
-          workspace: workspace_payload_for(result.draft.occurred_on.year)
+          transaction_draft: serialize_draft(draft),
+          workspace: workspace_payload_for(draft.occurred_on.year)
         }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
       end
 
       private
@@ -140,29 +161,33 @@ module Api
           return render json: { errors: [ "Type CONFIRM #{draft_ids.length} to approve this bulk actuals update" ] }, status: :unprocessable_entity
         end
 
-        result = HouseholdFinance::TransactionDraftBulkResolver.new(
-          current_household,
-          draft_ids: draft_ids,
-          action: action
-        ).call
-        unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
-        end
-
-        count = result.drafts.length
-        total_cents = result.drafts.sum(&:total_amount_cents)
+        operation = operation_runner.run(
+          operation_key: "transaction.drafts.bulk_confirm",
+          input: {
+            draft_ids: draft_ids,
+            source_type: "manual_ui",
+            year: params[:year],
+            confirmation: params[:confirmation]
+          },
+          idempotency_key: required_idempotency_key
+        )
+        drafts = current_household.transaction_drafts.where(id: draft_ids).to_a
+        count = drafts.length
+        total_cents = drafts.sum(&:total_amount_cents)
         status_message = if action == "confirm"
           "Confirmed #{count} pending transaction #{'review'.pluralize(count)} totaling #{money(total_cents)}. Actuals were updated only after this bulk approval."
         else
           "Ignored #{count} pending transaction #{'review'.pluralize(count)} totaling #{money(total_cents)}. Actuals did not change."
         end
-        append_chat_status_message(status_message)
+        append_chat_status_message(status_message) unless operation.replayed?
 
         render json: {
           resolved_count: count,
-          resolved_ids: result.drafts.map(&:id),
+          resolved_ids: drafts.map(&:id),
           workspace: workspace_payload_for(params[:year])
         }
+      rescue ArgumentError, ActiveRecord::RecordInvalid => e
+        render_operation_error(e)
       end
 
       def requested_draft_ids

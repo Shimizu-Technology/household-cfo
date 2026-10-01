@@ -118,6 +118,74 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
     end
   end
 
+  test "confirm and reopen are audited idempotent operations" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("confirm-source")
+      input = { draft_id: draft.id, source_type: "manual_ui" }
+
+      assert_difference("HouseholdTransaction.count", 1) do
+        first = @runner.run(operation_key: "transaction.draft.confirm", input: input, idempotency_key: "confirm-one")
+        replay = @runner.run(operation_key: "transaction.draft.confirm", input: input, idempotency_key: "confirm-one")
+        assert replay.replayed?
+        assert_equal first.subject.id, replay.subject.id
+      end
+      assert_equal "confirmed", draft.reload.status
+      transaction = draft.confirmed_transaction
+
+      reopen = @runner.run(operation_key: "transaction.draft.reopen", input: input, idempotency_key: "reopen-one")
+      replay = @runner.run(operation_key: "transaction.draft.reopen", input: input, idempotency_key: "reopen-one")
+      assert replay.replayed?
+      assert_equal reopen.subject.id, replay.subject.id
+      assert_equal "pending", draft.reload.status
+      assert_equal "ignored", transaction.reload.status
+      assert_equal 2, @household.household_operation_executions.where(idempotency_key: %w[confirm-one reopen-one]).count
+    end
+  end
+
+  test "match is audited and replays the exact accepted candidate" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("match-source")
+      period = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).current_period_for(draft.occurred_on)
+      transaction = @household.household_transactions.create!(
+        budget_period: period, occurred_on: draft.occurred_on, merchant: draft.merchant,
+        total_amount_cents: draft.total_amount_cents, source_type: "manual_ui", status: "confirmed"
+      )
+      transaction.transaction_splits.create!(budget_category: @category, amount_cents: draft.total_amount_cents)
+      candidate = draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.99, status: "proposed", match_reason: "same purchase")
+      input = { draft_id: draft.id, match_id: candidate.id, source_type: "manual_ui" }
+
+      @runner.run(operation_key: "transaction.draft.match", input: input, idempotency_key: "match-one")
+      replay = @runner.run(operation_key: "transaction.draft.match", input: input, idempotency_key: "match-one")
+
+      assert replay.replayed?
+      assert_equal "matched", draft.reload.status
+      assert_equal transaction.id, draft.matched_transaction_id
+      assert_equal "accepted", candidate.reload.status
+      assert_equal "transaction.draft.match", replay.execution.operation_key
+    end
+  end
+
+  test "bulk confirm is atomic audited and replay safe" do
+    travel_to Date.new(2026, 10, 1) do
+      first = create_draft("bulk-confirm-first")
+      second = create_draft("bulk-confirm-second", merchant: "Second Confirm")
+      input = {
+        draft_ids: [ first.id, second.id ], source_type: "manual_ui", year: 2026,
+        confirmation: "CONFIRM 2"
+      }
+
+      assert_difference("HouseholdTransaction.count", 2) do
+        @runner.run(operation_key: "transaction.drafts.bulk_confirm", input: input, idempotency_key: "bulk-confirm")
+        replay = @runner.run(operation_key: "transaction.drafts.bulk_confirm", input: input, idempotency_key: "bulk-confirm")
+        assert replay.replayed?
+      end
+      assert_equal %w[confirmed confirmed], [ first.reload.status, second.reload.status ]
+      execution = @household.household_operation_executions.find_by!(idempotency_key: "bulk-confirm")
+      assert_equal "transaction.drafts.bulk_confirm", execution.operation_key
+      assert_equal [ first.id, second.id ].sort, execution.normalized_input.fetch("draft_ids")
+    end
+  end
+
   test "receipt edits preserve the existing split id and server extraction provenance" do
     travel_to Date.new(2026, 10, 1) do
       draft = @household.transaction_drafts.create!(

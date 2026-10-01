@@ -52,16 +52,18 @@ module HouseholdFinance
         category_id = resolved_category_id(command[:category_id], command[:category_name])
         attributes[:budget_category_id] = category_id if category_id
 
-        explicit_splits = normalized_splits(command[:splits])
+        explicit_splits = normalized_splits(command[:splits], draft)
         if explicit_splits.any?
           attributes[:splits] = explicit_splits
         elsif command[:amount].present? && draft.transaction_draft_splits.size == 1
           split = draft.transaction_draft_splits.first
           attributes[:splits] = [
             {
+              id: split.id,
               budget_category_id: category_id || split.budget_category_id,
               category_name: category_id ? nil : split.category_name,
-              amount: command[:amount]
+              amount: command[:amount],
+              notes: split.notes
             }
           ]
         elsif command[:amount].present? && draft.transaction_draft_splits.many?
@@ -70,16 +72,37 @@ module HouseholdFinance
       end
     end
 
-    def normalized_splits(values)
-      Array(values).first(DocumentTransactionDraftPersister::MAX_SPLITS).map do |raw_split|
+    def normalized_splits(values, draft)
+      raw_values = Array(values)
+      raise ArgumentError, "Add no more than #{DocumentTransactionDraftPersister::MAX_SPLITS} transaction splits" if raw_values.length > DocumentTransactionDraftPersister::MAX_SPLITS
+
+      existing = draft.transaction_draft_splits.ordered.to_a
+      existing_by_id = existing.index_by(&:id)
+      raw_values.map.with_index do |raw_split, index|
         split = raw_split.to_h.deep_symbolize_keys
+        split_id = normalized_split_id(split[:id])
+        if split_id
+          raise ArgumentError, "Split #{index + 1} does not belong to this transaction review" unless existing_by_id.key?(split_id)
+        elsif raw_values.length == existing.length
+          split_id = existing[index]&.id
+        end
         category_id = resolved_category_id(split[:category_id], split[:category_name])
         {
+          id: split_id,
           budget_category_id: category_id,
           category_name: split[:category_name],
-          amount: split[:amount]
+          amount: split[:amount],
+          notes: split.key?(:notes) ? split[:notes] : existing_by_id[split_id]&.notes
         }.compact
       end
+    end
+
+    def normalized_split_id(value)
+      return if value.blank?
+
+      Integer(value)
+    rescue ArgumentError, TypeError
+      raise ArgumentError, "Transaction split id is invalid"
     end
 
     def resolved_category_id(id, name)

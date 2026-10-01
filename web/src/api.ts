@@ -2492,8 +2492,12 @@ export async function updateTransactionDraft(id: number, values: TransactionDraf
   })
 }
 
-export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput = {}): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, { transaction_draft: values })
+export async function confirmTransactionDraft(id: number, values: TransactionDraftUpdateInput, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/confirm`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft: values }),
+  })
   return payload.workspace
 }
 
@@ -2506,8 +2510,12 @@ export async function ignoreTransactionDraft(id: number, idempotencyKey: string)
   return payload.workspace
 }
 
-export async function bulkConfirmTransactionDrafts(ids: number[], year: number, confirmation: string): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_confirm', { transaction_draft_ids: ids, year, confirmation })
+export async function bulkConfirmTransactionDrafts(ids: number[], year: number, confirmation: string, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>('/api/v1/transaction_drafts/bulk_confirm', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ transaction_draft_ids: ids, year, confirmation }),
+  })
   return payload.workspace
 }
 
@@ -2520,13 +2528,21 @@ export async function bulkIgnoreTransactionDrafts(ids: number[], year: number, i
   return payload.workspace
 }
 
-export async function matchTransactionDraft(id: number, matchId?: number): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/match`, matchId ? { match_id: matchId } : {})
+export async function matchTransactionDraft(id: number, matchId: number | undefined, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/match`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(matchId ? { match_id: matchId } : {}),
+  })
   return payload.workspace
 }
 
-export async function reopenTransactionDraft(id: number): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/reopen`, {})
+export async function reopenTransactionDraft(id: number, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/transaction_drafts/${id}/reopen`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: '{}',
+  })
   return payload.workspace
 }
 
