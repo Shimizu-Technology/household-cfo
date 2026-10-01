@@ -8,8 +8,12 @@ module HouseholdFinance
         @household = household
       end
 
+      def normalized_input(raw_input)
+        normalize(raw_input.to_h.deep_symbolize_keys).deep_symbolize_keys
+      end
+
       def prepare(raw_input)
-        input = normalize(raw_input.to_h.deep_symbolize_keys).deep_symbolize_keys
+        input = normalized_input(raw_input)
         ensure_plan!(input)
         subject = subject_for(input, lock: false)
         before = canonical_snapshot(subject, input, lock: false).deep_stringify_keys
@@ -25,10 +29,11 @@ module HouseholdFinance
         )
       end
 
-      def execute!(prepared)
+      def execute!(prepared, source:)
         input = prepared.normalized_input.deep_symbolize_keys
         @stale_input = input
         subject = subject_for(input, lock: true)
+        validate_execution!(subject, input, prepared: prepared, source: source)
         current = canonical_snapshot(subject, input, lock: true).deep_stringify_keys
         unless ActiveSupport::SecurityUtils.secure_compare(
           PreparedOperation.fingerprint(current), prepared.before_fingerprint
@@ -59,6 +64,10 @@ module HouseholdFinance
 
       def ensure_plan!(input)
         manager(input).ensure_plan_inside_household_lock!
+      end
+
+      def validate_execution!(_subject, _input, prepared:, source:)
+        true
       end
 
       def subject_locator(subject)

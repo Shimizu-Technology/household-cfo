@@ -35,7 +35,6 @@ module HouseholdFinance
         end
 
         def canonical_snapshot(category, input, lock:)
-          raise StaleOperation, stale_message unless category.active?
           ids = input.fetch(:changes).map { |change| change.fetch(:allocation_id) }
           scope = scoped_allocations.where(id: ids).order(:id)
           scope = scope.lock if lock
@@ -48,6 +47,10 @@ module HouseholdFinance
             category: category_snapshot(category),
             allocations: allocations.map { |allocation| allocation_snapshot(allocation) }
           }
+        end
+
+        def validate_execution!(category, _input, prepared:, source:)
+          raise StaleOperation, stale_message if source == "mia" && !category.active?
         end
 
         def predicted_after(before, input)

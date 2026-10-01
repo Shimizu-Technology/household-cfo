@@ -14,6 +14,10 @@ export function createOperationIdempotencyKey() {
   return `operation-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
 }
 
+export function budgetAllocationOperationSignature(year: number, allocationId: number, amount: number | string) {
+  return `set-allocation:${year}:${allocationId}:${String(amount)}`
+}
+
 export class OperationIdempotencyKeys {
   private readonly pending = new Map<string, string>()
 

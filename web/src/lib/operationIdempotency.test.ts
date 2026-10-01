@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { OperationIdempotencyKeys } from './operationIdempotency'
+import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './operationIdempotency'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -20,6 +20,12 @@ describe('OperationIdempotencyKeys', () => {
   it('uses different keys when the operation input changes', () => {
     const keys = new OperationIdempotencyKeys()
     expect(keys.keyFor('allocation:1:500')).not.toBe(keys.keyFor('allocation:1:600'))
+  })
+
+  it('binds allocation attempts to the selected budget year', () => {
+    expect(budgetAllocationOperationSignature(2026, 44, 325))
+      .not.toBe(budgetAllocationOperationSignature(2027, 44, 325))
+    expect(budgetAllocationOperationSignature(2026, 44, 325)).toBe('set-allocation:2026:44:325')
   })
 
   it('falls back to random bytes when randomUUID unexpectedly returns blank', () => {

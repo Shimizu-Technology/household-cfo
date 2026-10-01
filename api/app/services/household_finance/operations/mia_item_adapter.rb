@@ -20,7 +20,7 @@ module HouseholdFinance
       def self.normalized_input(household, item, year:)
         key = ACTION_KEYS.fetch(item.action_type.to_s)
         input = item.payload.to_h.deep_symbolize_keys.merge(year: year)
-        Registry.fetch(key).new(household).send(:normalize, input).deep_stringify_keys
+        Registry.fetch(key).new(household).normalized_input(input).deep_stringify_keys
       end
     end
   end

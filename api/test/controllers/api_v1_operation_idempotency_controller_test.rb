@@ -52,6 +52,25 @@ class ApiV1OperationIdempotencyControllerTest < ActionDispatch::IntegrationTest
     assert_equal 65_000, category.budget_allocations.joins(:budget_period).find_by!(budget_periods: { starts_on: Date.new(Date.current.year, 8, 1) }).planned_amount_cents
   end
 
+  test "manual allocation endpoint preserves archived-category editability" do
+    user = create_user
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 250)
+    allocation = category.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(2026, 8, 1) })
+    manager.archive_category!(category)
+
+    patch "/api/v1/budget_allocations/#{allocation.id}",
+      params: { allocation: { planned_amount: 325 } },
+      headers: auth_headers(user).merge("Idempotency-Key" => "archived-allocation-api"),
+      as: :json
+
+    assert_response :success
+    assert_equal 325.0, response.parsed_body.dig("allocation", "planned")
+    assert_equal 32_500, allocation.reload.planned_amount_cents
+  end
+
   private
 
   def create_user

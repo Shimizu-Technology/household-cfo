@@ -1,5 +1,3 @@
-require_relative "budget/category_create"
-
 module HouseholdFinance
   module Operations
     class Registry

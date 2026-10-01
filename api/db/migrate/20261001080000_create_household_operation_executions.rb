@@ -41,7 +41,11 @@ class CreateHouseholdOperationExecutions < ActiveRecord::Migration[8.1]
     add_check_constraint :mia_action_items,
       "(operation_key IS NULL AND operation_version IS NULL AND prepared_operation_fingerprint IS NULL AND prepared_operation = '{}'::jsonb) OR " \
         "(operation_key IS NOT NULL AND operation_version > 0 AND prepared_operation_fingerprint IS NOT NULL AND prepared_operation <> '{}'::jsonb)",
-      name: "mia_action_items_operation_identity_complete"
-    add_check_constraint :mia_action_items, "jsonb_typeof(prepared_operation) = 'object'", name: "mia_action_items_prepared_operation_object"
+      name: "mia_action_items_operation_identity_complete",
+      validate: false
+    add_check_constraint :mia_action_items,
+      "jsonb_typeof(prepared_operation) = 'object'",
+      name: "mia_action_items_prepared_operation_object",
+      validate: false
   end
 end

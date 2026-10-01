@@ -27,7 +27,7 @@ import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import { changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
-import { OperationIdempotencyKeys } from './lib/operationIdempotency'
+import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -1604,7 +1604,7 @@ function App() {
       }
       for (const change of changes.allocations) {
         const amount = change.planned_amount || 0
-        const signature = `set-allocation:${change.allocation_id}:${String(amount)}`
+        const signature = budgetAllocationOperationSignature(selectedBudgetYear, change.allocation_id, amount)
         latestBudget = await updateBudgetAllocation(change.allocation_id, amount, budgetOperationKeysRef.current.keyFor(signature))
         budgetOperationKeysRef.current.complete(signature)
         appliedChanges += 1

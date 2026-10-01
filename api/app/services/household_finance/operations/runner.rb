@@ -48,7 +48,7 @@ module HouseholdFinance
         end
 
         operation = operation_class.new(household)
-        subject = operation.execute!(prepared)
+        subject = operation.execute!(prepared, source: source)
         after_snapshot = operation.after_snapshot(subject, prepared)
         operation.send(:verify_after!, prepared.predicted_after_snapshot, after_snapshot)
         audit_attributes = {

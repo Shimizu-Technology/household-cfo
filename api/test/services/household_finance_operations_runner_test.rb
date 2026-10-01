@@ -117,6 +117,105 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
     assert_equal 8_000, active_duplicate.amount_cents
   end
 
+  test "manual allocation updates remain editable when the category is archived while Mia fails closed" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 250)
+    allocation = category.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(2026, 8, 1) })
+    manager.archive_category!(category)
+    runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
+
+    manual = runner.run(
+      operation_key: "budget.allocation.set",
+      input: { allocation_id: allocation.id, category_id: category.id, year: 2026, planned_amount: 325 },
+      idempotency_key: "archived-manual-allocation"
+    )
+    assert_equal 32_500, allocation.reload.planned_amount_cents
+    assert_equal false, manual.after_snapshot.dig("category", "active")
+
+    prepared = nil
+    @household.with_lock do
+      prepared = HouseholdFinance::Operations::Budget::AllocationSet.new(@household).prepare(
+        allocation_id: allocation.id, category_id: category.id, year: 2026, planned_amount: 400
+      )
+    end
+    error = assert_raises(HouseholdFinance::Operations::Base::StaleOperation) do
+      runner.run_prepared(
+        prepared: prepared.as_json,
+        prepared_fingerprint: prepared.fingerprint,
+        idempotency_key: "archived-mia-allocation",
+        source: "mia"
+      )
+    end
+    assert_includes error.message, "Ask Mia to draft a fresh edit"
+    assert_equal 32_500, allocation.reload.planned_amount_cents
+    refute @household.household_operation_executions.exists?(idempotency_key: "archived-mia-allocation")
+  end
+
+  test "a completed Mia allocation operation replays after its category is archived" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 250)
+    allocation = category.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(2026, 8, 1) })
+    prepared = nil
+    @household.with_lock do
+      prepared = HouseholdFinance::Operations::Budget::AllocationSet.new(@household).prepare(
+        allocation_id: allocation.id, category_id: category.id, year: 2026, planned_amount: 325
+      )
+    end
+    runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
+    original = runner.run_prepared(
+      prepared: prepared.as_json,
+      prepared_fingerprint: prepared.fingerprint,
+      idempotency_key: "mia-allocation-lost-response",
+      source: "mia"
+    )
+    manager.archive_category!(category)
+
+    replay = runner.run_prepared(
+      prepared: prepared.as_json,
+      prepared_fingerprint: prepared.fingerprint,
+      idempotency_key: "mia-allocation-lost-response",
+      source: "mia"
+    )
+
+    assert replay.replayed?
+    assert_equal original.execution.id, replay.execution.id
+    assert_equal 32_500, allocation.reload.planned_amount_cents
+    assert_equal 1, @household.household_operation_executions.where(idempotency_key: "mia-allocation-lost-response").count
+  end
+
+  test "renaming an archived category without an expense predicts the synthesized inactive row" do
+    manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+    category = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 250)
+    manager.archive_category!(category)
+    @household.expense_items.where("LOWER(label) = ?", "dining").delete_all
+
+    result = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: "budget.category.update",
+      input: { category_id: category.id, name: "Restaurants", stack_key: "discretionary", year: 2026 },
+      idempotency_key: "rename-archived-without-expense"
+    )
+
+    assert_equal "Restaurants", result.subject.name
+    expense = @household.expense_items.find_by!(label: "Restaurants")
+    refute expense.active?
+    assert_equal 25_000, expense.amount_cents
+    expected_expenses = result.execution.predicted_after_snapshot.fetch("expenses")
+      .map { |row| row.slice("label", "stack_key", "amount_cents", "cadence", "active") }
+    actual_expenses = result.after_snapshot.fetch("expenses")
+      .map { |row| row.slice("label", "stack_key", "amount_cents", "cadence", "active") }
+    assert_equal expected_expenses, actual_expenses
+
+    restored = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: "budget.category.restore",
+      input: { category_id: category.id, year: 2026 },
+      idempotency_key: "restore-renamed-archived-category"
+    )
+    assert restored.subject.active?
+    assert expense.reload.active?
+  end
+
   test "reusing an idempotency key with different normalized input fails closed" do
     runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
     runner.run(
