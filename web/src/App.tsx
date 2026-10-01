@@ -2736,6 +2736,7 @@ function App() {
                         compact
                         categories={activeBudgetPlan?.rows ?? []}
                         plan={activeBudgetPlan}
+                        queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                         onUpdate={handleUpdateTransactionDraft}
                         onMatch={handleMatchTransactionDraft}
                         onConfirm={handleConfirmTransactionDraft}
@@ -2861,6 +2862,7 @@ function App() {
                     action={budgetAction}
                     categories={activeBudgetPlan?.rows ?? []}
                     plan={activeBudgetPlan}
+                    queueMeta={activeBudgetPlan?.pending_transaction_drafts_meta}
                     eyebrow="Household review"
                     title="Review every transaction before it becomes an actual"
                     description="Mia, manual entries, bank activity, and uploads share this queue. Check the source, merchant, amount, category, and splits before confirming."
@@ -6988,6 +6990,7 @@ function TransactionDraftReviewStack({
   disabledReason,
   categories = [],
   plan,
+  queueMeta,
   onUpdate,
   onMatch,
   onConfirm,
@@ -7007,6 +7010,7 @@ function TransactionDraftReviewStack({
   disabledReason?: string
   categories?: BudgetCategoryRow[]
   plan?: AnnualBudgetPlan
+  queueMeta?: AnnualBudgetPlan['pending_transaction_drafts_meta']
   onUpdate?: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatch?: (draft: TransactionDraft, matchId?: number) => void
   onConfirm: (draft: TransactionDraft) => void
@@ -7077,8 +7081,14 @@ function TransactionDraftReviewStack({
           {(compact || description) && <p>{description ?? 'Confirm only if the merchant, amount, split, and category are right. Actuals do not change until you approve.'}</p>}
           {disabledReason && <p className="transaction-draft-disabled-reason">{disabledReason}</p>}
         </div>
-        <strong>{drafts.length} review{drafts.length === 1 ? '' : 's'}</strong>
+        <strong>{queueMeta?.total_count ?? drafts.length} review{(queueMeta?.total_count ?? drafts.length) === 1 ? '' : 's'}</strong>
       </div>
+
+      {queueMeta?.truncated && (
+        <p className="transaction-draft-queue-disclosure" role="status">
+          Showing the newest {queueMeta.returned_count} of {queueMeta.total_count} pending reviews. Resolve a batch to load the rest.
+        </p>
+      )}
 
       {drafts.length > 5 && (
         <div className="transaction-draft-queue-controls" aria-label="Transaction review queue controls">
@@ -7124,7 +7134,7 @@ function TransactionDraftReviewStack({
             Ignore selected
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set(filteredPendingDrafts.map((draft) => draft.id)))}>
-            Select all {filteredPendingDrafts.length} results
+            Select all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' shown' : ' results'}
           </button>
           {selectedDrafts.length > 0 && (
             <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => setSelectedIds(new Set())}>
@@ -7135,7 +7145,7 @@ function TransactionDraftReviewStack({
             Confirm categorized {confirmableDrafts.length}
           </button>
           <button type="button" className="secondary-button" disabled={anyActionBusy} onClick={() => onBulkIgnore(filteredPendingDrafts)}>
-            Ignore all {filteredPendingDrafts.length}
+            Ignore all {filteredPendingDrafts.length}{queueMeta?.truncated ? ' shown' : ''}
           </button>
           {filteredDraftsNeedingCategory.length > 0 && (
             <p className="transaction-draft-bulk-warning" role="status">
@@ -7327,8 +7337,6 @@ function TransactionDraftReviewCard({
           category_name: split.category_name || null,
           stack_key: split.stack_key || null,
           notes: split.notes || null,
-          confidence: split.confidence,
-          metadata: split.metadata,
         })),
       })
       setEditing(false)
@@ -8929,6 +8937,7 @@ function AnnualBudgetPlanner({
           disabledReason={isEditingBudget ? 'Finish saving or canceling annual budget edits before confirming transaction drafts.' : undefined}
           categories={plan.rows}
           plan={plan}
+          queueMeta={plan.pending_transaction_drafts_meta}
           onUpdate={onUpdateDraft}
           onMatch={onMatchDraft}
           onConfirm={onConfirmDraft}

@@ -602,8 +602,13 @@ module HouseholdFinance
       action = merge_prior_action(action, prior_action)
       action = apply_budget_year_default(action)
       if intent == "transaction_report" && action[:type] == "create_transaction_draft" && user_message.match?(NON_EXPENSE_TRANSACTION_PATTERN)
-        action = action.merge(type: "none")
-        parsed = parsed.merge(needs_clarification: true, clarification: "I only add already incurred expenses to transaction review. Tell me the merchant or purchase if part of that movement was an expense.")
+        purchase = TransactionDraftBuilder.explicit_purchase_details(user_message)
+        if purchase
+          action = action.merge(merchant: purchase.fetch(:merchant), amount: purchase.fetch(:amount), splits: [])
+        else
+          action = action.merge(type: "none")
+          parsed = parsed.merge(needs_clarification: true, clarification: "I only add already incurred expenses to transaction review. Tell me the merchant or purchase if part of that movement was an expense.")
+        end
       end
       confidence = parsed.fetch(:confidence).to_f.clamp(0, 1)
       needs_clarification = ActiveModel::Type::Boolean.new.cast(parsed.fetch(:needs_clarification))

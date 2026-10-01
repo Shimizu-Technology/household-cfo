@@ -1586,6 +1586,31 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_includes result.clarification, "already incurred expenses"
   end
 
+  test "isolates an explicit purchase when a reported expense also describes a money movement" do
+    message = "I paid my Visa $200 and spent $30 at Pay-Less."
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "transaction_report",
+          continuation: false,
+          resolved_message: "Create a pending review for the Pay-Less purchase",
+          topic: { type: "transaction_report", title: "Pay-Less expense", subject: "Pay-Less" },
+          action: default_action.merge(type: "create_transaction_draft", merchant: "Visa", amount: "200", occurred_on: "2026-07-10")
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal "Pay-Less", result.action.fetch(:merchant)
+    assert_equal "30", result.action.fetch(:amount)
+    assert_equal [], result.action.fetch(:splits)
+  end
+
   test "resolves a date correction for an allowed pending transaction review" do
     context = intent_context.deep_dup
     context[:pending_transaction_reviews] = [

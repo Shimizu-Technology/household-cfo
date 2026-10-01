@@ -118,6 +118,86 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
     end
   end
 
+  test "receipt edits preserve the existing split id and server extraction provenance" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = @household.transaction_drafts.create!(
+        occurred_on: Date.new(2026, 9, 28), merchant: "Extracted Market", total_amount_cents: 4_217,
+        budget_category: @category, source_type: "receipt", status: "pending", raw_input: "Receipt upload"
+      )
+      split = draft.transaction_draft_splits.create!(
+        budget_category: @category, amount_cents: 4_217, category_name: @category.name,
+        confidence: BigDecimal("0.87"), metadata: { "page" => 2, "bbox" => [ 1, 2, 3, 4 ] }
+      )
+
+      result = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: {
+          draft_id: draft.id, merchant: "Extracted Market Guam", occurred_on: "2026-09-29", source_type: "manual_ui",
+          splits: [ { id: split.id, amount: "42.17", budget_category_id: @category.id, confidence: "0.01", metadata: { "page" => 99 } } ]
+        },
+        idempotency_key: "receipt-provenance"
+      )
+
+      persisted = result.subject.transaction_draft_splits.sole
+      assert_equal split.id, persisted.id
+      assert_equal BigDecimal("0.87"), persisted.confidence
+      assert_equal({ "page" => 2, "bbox" => [ 1, 2, 3, 4 ] }, persisted.metadata)
+      assert_equal "Extracted Market Guam", result.subject.merchant
+      execution = result.execution.reload
+      assert_equal "0.87", execution.before_snapshot.dig("splits", 0, "confidence")
+      assert_equal({ "page" => 2, "bbox" => [ 1, 2, 3, 4 ] }, execution.after_snapshot.dig("splits", 0, "metadata"))
+    end
+  end
+
+  test "statement category edits preserve multi-split granularity and reject foreign split ids" do
+    travel_to Date.new(2026, 10, 1) do
+      dining = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026).create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 200)
+      draft = @household.transaction_drafts.create!(
+        occurred_on: Date.new(2026, 9, 28), merchant: "Statement Store", total_amount_cents: 5_000,
+        budget_category: @category, source_type: "statement", status: "pending", raw_input: "Statement row"
+      )
+      first = draft.transaction_draft_splits.create!(budget_category: @category, amount_cents: 3_000, confidence: 0.78, metadata: { "row" => 4 })
+      second = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_000, confidence: 0.66, metadata: { "row" => 5 })
+
+      error = assert_raises(ArgumentError) do
+        @runner.run(
+          operation_key: "transaction.draft.update",
+          input: { draft_id: draft.id, budget_category_id: dining.id, source_type: "manual_ui" },
+          idempotency_key: "multi-collapse"
+        )
+      end
+      assert_includes error.message, "Edit each split category"
+      assert_equal [ [ first.id, 3_000 ], [ second.id, 2_000 ] ], draft.reload.transaction_draft_splits.order(:id).pluck(:id, :amount_cents)
+
+      other = create_draft("foreign-split").transaction_draft_splits.sole
+      assert_raises(ArgumentError) do
+        @runner.run(
+          operation_key: "transaction.draft.update",
+          input: { draft_id: draft.id, source_type: "manual_ui", splits: [ { id: other.id, amount: "30", budget_category_id: dining.id }, { id: second.id, amount: "20", budget_category_id: dining.id } ] },
+          idempotency_key: "foreign-split-update"
+        )
+      end
+
+      @runner.run(
+        operation_key: "transaction.draft.update",
+        input: {
+          draft_id: draft.id, source_type: "manual_ui",
+          splits: [
+            { id: first.id, amount: "30", budget_category_id: dining.id },
+            { id: second.id, amount: "20", budget_category_id: dining.id }
+          ]
+        },
+        idempotency_key: "multi-category-update"
+      )
+      persisted = draft.reload.transaction_draft_splits.order(:id).to_a
+      assert_equal [ first.id, second.id ], persisted.map(&:id)
+      assert_equal [ 3_000, 2_000 ], persisted.map(&:amount_cents)
+      assert_equal [ dining.id, dining.id ], persisted.map(&:budget_category_id)
+      assert_equal [ { "row" => 4 }, { "row" => 5 } ], persisted.map(&:metadata)
+      assert_equal [ BigDecimal("0.78"), BigDecimal("0.66") ], persisted.map(&:confidence)
+    end
+  end
+
   private
 
   def create_draft(key, merchant: "Village Market")

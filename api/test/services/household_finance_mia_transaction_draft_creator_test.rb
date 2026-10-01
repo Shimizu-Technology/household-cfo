@@ -88,4 +88,25 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
       assert_includes result.errors, "Only already incurred purchases can become transaction reviews"
     end
   end
+
+  test "mixed money movements isolate only the explicitly reported purchase" do
+    cases = [
+      [ "I withdrew $100 and spent $20 at Pay-Less on groceries.", 2_000 ],
+      [ "I paid my Visa $200 and spent $30 at Pay-Less.", 3_000 ]
+    ]
+
+    cases.each_with_index do |(message, expected_cents), index|
+      result = HouseholdFinance::MiaTransactionDraftCreator.new(
+        @household,
+        command: { merchant: "Visa", amount: index.zero? ? "100" : "200", occurred_on: "2026-07-10", splits: [] },
+        raw_input: message,
+        idempotency_key: "mixed-purchase-#{index}"
+      ).call
+
+      assert result.success?, result.errors.to_sentence
+      assert_equal "Pay-Less", result.draft.merchant
+      assert_equal expected_cents, result.draft.total_amount_cents
+    end
+    assert_equal [ 2_000, 3_000 ], @household.transaction_drafts.where(merchant: "Pay-Less").order(:id).pluck(:total_amount_cents)
+  end
 end

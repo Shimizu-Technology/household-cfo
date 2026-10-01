@@ -126,6 +126,35 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal [ "Prior Cafe" ], prior_plan.fetch(:pending_transaction_drafts).map { |draft| draft.fetch(:merchant) }
   end
 
+  test "plan data discloses when the pending transaction queue is capped" do
+    household = create_household
+    timestamp = Time.current
+    TransactionDraft.insert_all!(
+      501.times.map do |index|
+        {
+          household_id: household.id,
+          occurred_on: Date.new(2026, 7, 1),
+          merchant: "Queue Merchant #{index}",
+          total_amount_cents: 100 + index,
+          source_type: index.even? ? "receipt" : "manual_chat",
+          status: "pending",
+          raw_input: "Queue fixture #{index}",
+          created_at: timestamp + index.seconds,
+          updated_at: timestamp + index.seconds
+        }
+      end
+    )
+
+    plan = HouseholdFinance::AnnualBudgetManager.new(household, year: 2026).plan_data
+
+    assert_equal 500, plan.fetch(:pending_transaction_drafts).length
+    assert_equal(
+      { total_count: 501, returned_count: 500, limit: 500, truncated: true },
+      plan.fetch(:pending_transaction_drafts_meta)
+    )
+    assert_equal "Queue Merchant 500", plan.fetch(:pending_transaction_drafts).first.fetch(:merchant)
+  end
+
   test "household reviews stay visible across budget years while plan-specific reviews stay scoped" do
     household = create_household
     user = household.created_by_user

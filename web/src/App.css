@@ -7396,6 +7396,18 @@ h3 {
   line-height: 1;
 }
 
+.transaction-draft-queue-disclosure {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid rgba(143, 74, 95, 0.18);
+  border-radius: 14px;
+  background: #fff7ed;
+  color: var(--ink);
+  font-size: 0.86rem;
+  font-weight: 750;
+  line-height: 1.45;
+}
+
 .transaction-draft-queue-controls {
   display: grid;
   grid-template-columns: minmax(220px, 1fr) auto;

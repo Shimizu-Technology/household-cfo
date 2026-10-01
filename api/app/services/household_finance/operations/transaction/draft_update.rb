@@ -31,22 +31,36 @@ module HouseholdFinance
           end
           if input.key?(:splits)
             total_cents = normalized[:amount_cents] || draft.total_amount_cents
-            normalized[:splits] = normalized_splits(input[:splits], total_cents: total_cents)
+            normalized[:splits] = normalized_update_splits(draft, input[:splits], total_cents: total_cents)
           elsif normalized[:amount_cents] && draft.transaction_draft_splits.one?
             split = draft.transaction_draft_splits.sole
-            normalized[:splits] = normalized_splits(
+            normalized[:splits] = normalized_update_splits(
+              draft,
               [ {
+                id: split.id,
                 budget_category_id: normalized[:budget_category_id] || split.budget_category_id,
                 category_name: normalized[:budget_category_id] ? nil : split.category_name,
                 stack_key: normalized[:budget_category_id] ? nil : split.stack_key,
                 amount_cents: normalized.fetch(:amount_cents),
-                notes: split.notes,
-                metadata: split.metadata
+                notes: split.notes
               } ],
               total_cents: normalized.fetch(:amount_cents)
             )
           elsif normalized[:amount_cents] && draft.transaction_draft_splits.many?
             raise ArgumentError, "This review has multiple category splits, so provide the new amount for each split"
+          elsif normalized[:budget_category_id]
+            splits = draft.transaction_draft_splits.order(:id).to_a
+            if splits.many?
+              raise ArgumentError, "This review has multiple category splits. Edit each split category so the receipt or statement amounts stay intact."
+            end
+            if splits.one?
+              split = splits.first
+              normalized[:splits] = normalized_update_splits(
+                draft,
+                [ { id: split.id, budget_category_id: normalized.fetch(:budget_category_id), amount_cents: split.amount_cents, notes: split.notes } ],
+                total_cents: draft.total_amount_cents
+              )
+            end
           end
           raise ArgumentError, "Tell me what to change on that pending transaction review" if normalized.keys == %i[draft_id source_type year]
 
@@ -78,7 +92,7 @@ module HouseholdFinance
             draft[:budget_category_id] = input.fetch(:splits).first[:budget_category_id]
           elsif input.key?(:budget_category_id)
             category = active_category(input.fetch(:budget_category_id))
-            after[:splits] = [ split_attributes(category, draft.fetch(:total_amount_cents)) ]
+            after[:splits] = [ split_attributes(category, draft.fetch(:total_amount_cents)).merge(confidence: nil) ]
             draft[:budget_category_id] = category.id
           end
           after
@@ -100,6 +114,57 @@ module HouseholdFinance
           raise ArgumentError, result.errors.to_sentence unless result.success?
 
           result.draft
+        end
+
+        def normalized_update_splits(draft, values, total_cents:)
+          raw = Array(values)
+          raise ArgumentError, "Transaction splits are required" if raw.empty?
+          raise ArgumentError, "Add no more than #{MAX_SPLITS} transaction splits" if raw.length > MAX_SPLITS
+
+          existing_by_id = draft.transaction_draft_splits.index_by(&:id)
+          seen_ids = []
+          splits = raw.map.with_index do |value, index|
+            split = value.to_h.deep_symbolize_keys
+            split_id = normalized_split_id(split[:id])
+            existing = existing_by_id[split_id] if split_id
+            raise ArgumentError, "Split #{index + 1} does not belong to this transaction review" if split_id && !existing
+            raise ArgumentError, "A transaction split can only be included once" if split_id && seen_ids.include?(split_id)
+
+            seen_ids << split_id if split_id
+            category = if split.key?(:budget_category_id) || split.key?(:category_id)
+              active_category(split[:budget_category_id] || split[:category_id])
+            else
+              existing&.budget_category
+            end
+            amount_cents = split.key?(:amount_cents) ? Integer(split.fetch(:amount_cents)) : parsed_amount_cents(split[:amount], message: "Split #{index + 1} amount must be a number")
+            raise ArgumentError, "Split #{index + 1} amount must be greater than $0" unless amount_cents.positive?
+
+            {
+              id: existing&.id,
+              budget_category_id: category&.id,
+              category_name: category&.name || (split.key?(:category_name) ? bounded_text(split[:category_name], 120).presence : existing&.category_name),
+              stack_key: category&.stack_key || (split.key?(:stack_key) ? split[:stack_key].to_s.presence_in(BudgetCategory::STACK_KEYS) : existing&.stack_key),
+              amount_cents: amount_cents,
+              notes: split.key?(:notes) ? bounded_text(split[:notes], 500).presence : existing&.notes,
+              confidence: existing&.confidence,
+              metadata: existing ? existing.metadata : { "human_reviewed_replacement" => true }
+            }
+          rescue TypeError, ArgumentError => e
+            raise e if e.message.start_with?("Split ") || e.message.include?("Budget category") || e.message.include?("transaction split")
+
+            raise ArgumentError, "Split #{index + 1} amount must be a number"
+          end
+          raise ArgumentError, "Transaction splits must equal transaction total" unless splits.sum { |split| split.fetch(:amount_cents) } == total_cents
+
+          splits
+        end
+
+        def normalized_split_id(value)
+          return if value.blank?
+
+          Integer(value)
+        rescue ArgumentError, TypeError
+          raise ArgumentError, "Transaction split id is invalid"
         end
 
         def canonical_after_snapshot(draft, _input, prepared:)

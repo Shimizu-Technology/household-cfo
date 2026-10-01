@@ -15,9 +15,19 @@ module HouseholdFinance
     end
 
     def call
-      raise ArgumentError, "Only already incurred purchases can become transaction reviews" if TransactionDraftBuilder.non_expense_movement?(raw_input)
+      movement = TransactionDraftBuilder.non_expense_movement?(raw_input)
+      purchase = TransactionDraftBuilder.explicit_purchase_details(raw_input) if movement
+      if movement && purchase.blank?
+        raise ArgumentError, "Only already incurred purchases can become transaction reviews"
+      end
 
-      input = command.slice(:occurred_on, :merchant, :amount, :category_id, :category_name, :stack_key, :splits, :resolved_message).merge(
+      safe_command = command.slice(:occurred_on, :merchant, :amount, :category_id, :category_name, :stack_key, :splits, :resolved_message)
+      if purchase
+        safe_command[:merchant] = purchase.fetch(:merchant)
+        safe_command[:amount] = purchase.fetch(:amount)
+        safe_command[:splits] = []
+      end
+      input = safe_command.merge(
         source_type: "manual_chat",
         raw_input: raw_input,
         category_context: [ raw_input, command[:resolved_message] ].compact.join(" ")

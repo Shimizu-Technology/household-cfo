@@ -498,6 +498,7 @@ export type AnnualBudgetPlan = {
   income_sources: IncomeTimelineSource[]
   annual_outlook: AnnualOutlook
   pending_transaction_drafts: TransactionDraft[]
+  pending_transaction_drafts_meta?: { total_count: number; returned_count: number; limit: number; truncated: boolean }
   pending_mia_action_drafts?: MiaActionDraft[]
   recent_transactions: RecentTransaction[]
   archived_categories?: ArchivedBudgetCategory[]
@@ -2470,7 +2471,7 @@ export async function cancelMiaActionDraft(id: number): Promise<AppData> {
 }
 
 export type TransactionDraftUpdateInput = Partial<{ occurred_on: string; merchant: string; amount: number | string; budget_category_id: number | null }> & {
-  splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null; confidence: number | string | null; metadata: Record<string, unknown> }>>
+  splits?: Array<Partial<{ id: number; amount: number | string; budget_category_id: number | null; category_name: string | null; stack_key: BudgetStackKey | null; notes: string | null }>>
 }
 
 export type TransactionDraftCreateInput = { occurred_on: string; merchant: string; amount: number | string; budget_category_id?: number | null }

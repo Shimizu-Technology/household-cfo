@@ -49,13 +49,14 @@ module HouseholdFinance
         end
 
         def predicted_after(_before, input)
+          confidence = input.fetch(:source_type) == "manual_ui" ? BigDecimal("1.0") : BigDecimal("0.90")
           {
             draft: {
               id: nil,
               occurred_on: input.fetch(:occurred_on), merchant: input.fetch(:merchant), total_amount_cents: input.fetch(:amount_cents),
               budget_category_id: input.fetch(:splits).first[:budget_category_id], source_type: input.fetch(:source_type), status: "pending"
             },
-            splits: input.fetch(:splits)
+            splits: input.fetch(:splits).map { |split| split.merge(confidence: confidence) }
           }
         end
 

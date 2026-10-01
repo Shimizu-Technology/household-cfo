@@ -61,6 +61,36 @@ class HouseholdFinanceMiaTransactionDraftIgnorerTest < ActiveSupport::TestCase
     assert_equal %w[pending pending], [ first.reload.status, second.reload.status ]
   end
 
+  test "ignore all reports the five hundred review boundary without mutating a larger queue" do
+    timestamp = Time.current
+    TransactionDraft.insert_all!(
+      501.times.map do |index|
+        {
+          household_id: @household.id,
+          occurred_on: Date.current,
+          merchant: "Bounded queue #{index}",
+          total_amount_cents: 100,
+          source_type: "manual_chat",
+          status: "pending",
+          raw_input: "Bounded queue",
+          created_at: timestamp + index.seconds,
+          updated_at: timestamp + index.seconds
+        }
+      end
+    )
+
+    result = HouseholdFinance::MiaTransactionDraftIgnorer.new(
+      @household,
+      command: { type: "ignore_transaction_drafts", all_pending: true },
+      raw_input: "Ignore all pending reviews"
+    ).call
+
+    refute result.success?
+    assert_includes result.response, "safely ignore at most 500"
+    assert_includes result.response, "nothing changed"
+    assert_equal 501, @household.transaction_drafts.pending.count
+  end
+
   private
 
   def create_draft(merchant, amount_cents)

@@ -63,6 +63,7 @@ module HouseholdFinance
         income_sources: income_sources_payload,
         annual_outlook: annual_outlook_payload(periods, rows, monthly_income, monthly_debt_minimums),
         pending_transaction_drafts: pending_drafts_payload(budget_year),
+        pending_transaction_drafts_meta: pending_drafts_meta(budget_year),
         pending_mia_action_drafts: pending_mia_action_drafts_payload(budget_year),
         recent_transactions: recent_transactions_payload(periods),
         archived_categories: archived_categories_payload
@@ -282,6 +283,7 @@ module HouseholdFinance
         income_sources: income_sources_payload,
         annual_outlook: { typical_monthly_outflow: 0, months: [], upcoming_spikes: [], next_irregular_month: nil },
         pending_transaction_drafts: [],
+        pending_transaction_drafts_meta: { total_count: 0, returned_count: 0, limit: MAX_PENDING_TRANSACTION_DRAFTS, truncated: false },
         pending_mia_action_drafts: [],
         recent_transactions: [],
         archived_categories: archived_categories_payload,
@@ -519,11 +521,26 @@ module HouseholdFinance
     end
 
     def pending_drafts_payload(budget_year)
-      household.transaction_drafts.pending.includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
-        .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
+      pending_drafts_scope(budget_year)
+        .includes(:budget_category, transaction_draft_splits: :budget_category, transaction_draft_matches: { household_transaction: { transaction_splits: :budget_category } })
         .recent_first
         .limit(MAX_PENDING_TRANSACTION_DRAFTS)
         .map { |draft| draft_payload(draft) }
+    end
+
+    def pending_drafts_meta(budget_year)
+      total_count = pending_drafts_scope(budget_year).count
+      {
+        total_count: total_count,
+        returned_count: [ total_count, MAX_PENDING_TRANSACTION_DRAFTS ].min,
+        limit: MAX_PENDING_TRANSACTION_DRAFTS,
+        truncated: total_count > MAX_PENDING_TRANSACTION_DRAFTS
+      }
+    end
+
+    def pending_drafts_scope(budget_year)
+      household.transaction_drafts.pending
+        .where(occurred_on: Date.new(budget_year.year, 1, 1)..Date.new(budget_year.year, 12, 31))
     end
 
     def pending_mia_action_drafts_payload(budget_year)

@@ -9,7 +9,7 @@ module Api
         result = operation_runner.run(
           operation_key: "transaction.draft.create",
           input: update_params.to_h.merge(source_type: "manual_ui"),
-          idempotency_key: request_idempotency_key
+          idempotency_key: required_idempotency_key
         )
         draft = result.subject
         render json: {
@@ -24,7 +24,7 @@ module Api
         result = operation_runner.run(
           operation_key: "transaction.draft.update",
           input: update_params.to_h.merge(draft_id: @draft.id, source_type: "manual_ui"),
-          idempotency_key: request_idempotency_key
+          idempotency_key: required_idempotency_key
         )
         draft = result.subject
 
@@ -57,7 +57,7 @@ module Api
         result = operation_runner.run(
           operation_key: "transaction.draft.ignore",
           input: { draft_id: @draft.id, source_type: "manual_ui" },
-          idempotency_key: request_idempotency_key
+          idempotency_key: required_idempotency_key
         )
         draft = result.subject
         status_message = ignored_message(draft)
@@ -83,7 +83,7 @@ module Api
         result = operation_runner.run(
           operation_key: "transaction.drafts.bulk_ignore",
           input: { draft_ids: draft_ids, source_type: "manual_ui", year: params[:year] },
-          idempotency_key: request_idempotency_key
+          idempotency_key: required_idempotency_key
         )
         drafts = current_household.transaction_drafts.where(id: draft_ids).to_a
         status_message = "Ignored #{drafts.length} pending transaction #{'review'.pluralize(drafts.length)} totaling #{money(drafts.sum(&:total_amount_cents))}. Actuals did not change."
@@ -173,16 +173,20 @@ module Api
         HouseholdFinance::Operations::Runner.new(current_household, user: current_user)
       end
 
+      def required_idempotency_key
+        request.headers["Idempotency-Key"].to_s.strip.presence || raise(ArgumentError, "Idempotency-Key header is required")
+      end
+
       def set_draft
         @draft = current_household.transaction_drafts.find(params[:id])
       end
 
       def confirm_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes, :confidence, { metadata: {} } ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def update_params
-        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes, :confidence, { metadata: {} } ])
+        permitted_draft_params.permit(:occurred_on, :merchant, :amount, :budget_category_id, splits: [ :id, :amount, :budget_category_id, :category_name, :stack_key, :notes ])
       end
 
       def permitted_draft_params

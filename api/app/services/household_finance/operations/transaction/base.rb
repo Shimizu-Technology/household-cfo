@@ -109,11 +109,13 @@ module HouseholdFinance
             },
             splits: draft.transaction_draft_splits.order(:id).map do |split|
               {
+                id: split.id,
                 budget_category_id: split.budget_category_id,
                 category_name: split.budget_category&.name || split.category_name,
                 stack_key: split.budget_category&.stack_key || split.stack_key,
                 amount_cents: split.amount_cents,
                 notes: split.notes.presence,
+                confidence: split.confidence,
                 metadata: split.metadata || {}
               }
             end

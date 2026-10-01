@@ -109,7 +109,7 @@ const budget = {
     pending_transaction_drafts: [
       { id: 91, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-12`, merchant: 'Dinner with friends', amount: 75, amount_cents: 7_500, status: 'pending', source_type: 'receipt', category_id: 2, category_name: 'Dining out' },
       { id: 92, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-15`, merchant: 'Storm supplies', amount: 40, amount_cents: 4_000, status: 'pending', source_type: 'manual_chat', category_id: 4, category_name: 'Unexpected sinking fund' },
-    ], pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
+    ], pending_transaction_drafts_meta: { total_count: 2, returned_count: 2, limit: 500, truncated: false }, pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
   },
 }
 
@@ -4438,6 +4438,8 @@ test('real review controls keep transaction and Mia changes behind explicit part
 
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await expect(transactionCard).toContainText('Actuals stay unchanged until you confirm.')
+  await expect(transactionCard).toContainText('Receipt')
+  await expect(page.locator('.transaction-draft-card').filter({ hasText: 'Storm supplies' })).toContainText('Mia')
   const confirmRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/91/confirm') && request.method() === 'POST')
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
   await confirmRequest
@@ -4500,6 +4502,24 @@ test('manual transaction capture joins the unified review queue without changing
   await expect(card.getByRole('button', { name: 'Confirm' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: 'Review every transaction before it becomes an actual' })).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Review discloses a bounded queue and labels bulk actions as applying only to shown results', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_transaction_drafts = Array.from({ length: 500 }, (_, index) => ({
+    ...workspace.budget.annual_plan.pending_transaction_drafts[0],
+    id: 1_000 + index,
+    merchant: `Bounded queue merchant ${index + 1}`,
+  }))
+  workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: 501, returned_count: 500, limit: 500, truncated: true }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Review')
+
+  await expect(page.getByText('Showing the newest 500 of 501 pending reviews. Resolve a batch to load the rest.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Select all 500 shown' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Ignore all 500 shown' })).toBeVisible()
 })
 
 test('uncertain receipt splits stay reviewable and cannot be confirmed until categorized on mobile', async ({ page }) => {
@@ -4581,7 +4601,13 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   const updateRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/191') && request.method() === 'PATCH')
   await card.getByRole('button', { name: 'Save draft' }).click()
   const request = await updateRequest
-  expect(request.postDataJSON().transaction_draft.splits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 4, 2])
+  const submittedSplits = request.postDataJSON().transaction_draft.splits
+  expect(submittedSplits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 4, 2])
+  expect(submittedSplits.map((split: { id: number }) => split.id)).toEqual([501, 502, 503, 504])
+  submittedSplits.forEach((split: Record<string, unknown>) => {
+    expect(split).not.toHaveProperty('confidence')
+    expect(split).not.toHaveProperty('metadata')
+  })
   await expect(card.getByText(/splits? need/)).toHaveCount(0)
   await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)

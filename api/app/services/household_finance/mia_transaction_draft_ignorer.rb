@@ -22,6 +22,9 @@ module HouseholdFinance
 
       drafts = matching_drafts
       return failure("I could not find a matching pending transaction review. Nothing changed.") if drafts.empty?
+      if command[:all_pending] && drafts.length > TransactionDraftBulkResolver::MAX_DRAFTS
+        return failure("You have more than #{TransactionDraftBulkResolver::MAX_DRAFTS} pending transaction reviews. I can safely ignore at most #{TransactionDraftBulkResolver::MAX_DRAFTS} at once, so nothing changed. Open Review and resolve them in batches.")
+      end
       if !command[:all_pending] && drafts.length > 1
         return failure("I found #{drafts.length} matching pending reviews. Name the merchant with its date or amount so I do not ignore the wrong one. Nothing changed.")
       end

@@ -4,6 +4,7 @@ module HouseholdFinance
     BARE_SPEND_AMOUNT_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\s+((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?![\d,])(?:\s+(?:at|from|to|for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     SPEND_PATTERN = /\b(?:i|we)\s+(?:spent|paid|charged|bought)\b/i.freeze
     NON_EXPENSE_MOVEMENT_PATTERN = /\b(?:transfer(?:red|ring)?|withdr(?:aw|ew|awn|awal)|deposit(?:ed)?|refund(?:ed)?|reimburse(?:d|ment)?|(?:credit\s*card|card|loan|debt)\s+payment|balance\s+(?:adjustment|correction))\b|\bpaid\b.{0,50}\b(?:visa|mastercard|amex|credit\s*card|loan)\b/i.freeze
+    EXPLICIT_PURCHASE_PATTERN = /\b(?:(?:i|we)\s+)?(?:spent|charged|bought|purchased)\s+\$?\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)\s+(?:at|from)\s+([^.,;!?$]+?)(?=\s+(?:for|on|today|yesterday)\b|[.,;!?]|\z)/i.freeze
     MERCHANT_PATTERNS = [
       /\b(?:at|from|to)\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i,
       /\b(?:spent|paid|charged|bought)\s+\$?\s*\d[\d,.]*\s+([^.,;!?$]+?)(?:\s+(?:for|on|today|yesterday)|[.,;!?]|\z)/i
@@ -13,11 +14,22 @@ module HouseholdFinance
       value.to_s.match?(NON_EXPENSE_MOVEMENT_PATTERN)
     end
 
+    def self.explicit_purchase_details(value)
+      match = value.to_s.match(EXPLICIT_PURCHASE_PATTERN)
+      return unless match
+
+      merchant = match[2].to_s.squish.truncate(120, omission: "…")
+      return if merchant.blank?
+
+      { amount: match[1].delete(","), merchant: merchant }
+    end
+
     def initialize(household, message, annual_budget_manager: nil, plan_prepared: false, raw_input: nil, user: nil, idempotency_key: nil)
       @household = household
       @message = message.to_s.squish
       @raw_input = raw_input.to_s.squish.presence || @message
       @draft_text = current_follow_up_text.presence || @raw_input
+      @explicit_purchase = self.class.explicit_purchase_details(@raw_input) if self.class.non_expense_movement?(@raw_input)
       @user = user || household.household_memberships.includes(:user).order(:id).first&.user
       @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
@@ -46,7 +58,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :message, :raw_input, :draft_text
+    attr_reader :household, :message, :raw_input, :draft_text, :explicit_purchase
 
     def log_invalid_draft(record)
       Rails.logger.warn(
@@ -76,7 +88,7 @@ module HouseholdFinance
     end
 
     def transaction_like?
-      return false if self.class.non_expense_movement?(raw_input)
+      return false if self.class.non_expense_movement?(raw_input) && explicit_purchase.blank?
 
       explicit_spend = amount_match.present? && draft_text.match?(SPEND_PATTERN)
       tab_total = draft_text.match?(AMOUNT_PATTERN) && draft_text.match?(/\bmy\s+tab\s+(?:is|was)\b/i)
@@ -86,7 +98,11 @@ module HouseholdFinance
     end
 
     def amount_match
-      @amount_match ||= draft_text.match(AMOUNT_PATTERN) || draft_text.match(BARE_SPEND_AMOUNT_PATTERN) || message.match(BARE_SPEND_AMOUNT_PATTERN)
+      @amount_match ||= if explicit_purchase
+        "$#{explicit_purchase.fetch(:amount)}".match(AMOUNT_PATTERN)
+      else
+        draft_text.match(AMOUNT_PATTERN) || draft_text.match(BARE_SPEND_AMOUNT_PATTERN) || message.match(BARE_SPEND_AMOUNT_PATTERN)
+      end
     end
 
     def amount_cents
@@ -103,6 +119,8 @@ module HouseholdFinance
 
     def merchant
       @merchant ||= begin
+        return explicit_purchase.fetch(:merchant) if explicit_purchase
+
         MERCHANT_PATTERNS.each do |pattern|
           match = draft_text.match(pattern) || raw_input.match(pattern)
           next unless match
