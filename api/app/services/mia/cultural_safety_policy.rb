@@ -13,13 +13,21 @@ module Mia
       mothers|fathers|parents|children|youth|elders|workers|students|couples|spouses|someone|somebody
     )/ix.freeze
     PLACE_PATTERN = /(?:the\s+)?[[:alpha:]][[:alpha:].'’\-]*(?:\s+[[:alpha:]][[:alpha:].'’\-]*){0,3}/i.freeze
-    DEMOGRAPHIC_TERM_PATTERN = /(?!(?:human|individual|participant|client|user)\b)[[:alpha:]'’\-]{3,}(?:ians?|eans?|icans?|inos?|ese|ish|anders?|landers?|orros?|ans?|erners?|inx)/i.freeze
-    PROPER_IDENTITY_PATTERN = /(?-i:(?!(?:The|Use|Give|Make|Match|Mirror|Copy|Adopt|Write|Talk|Speak|Reply|Answer|Sound|Choose|Channel|Example|Reviewed|Community|Participant|Coach|Assistant|Mia|Approved|Exact|Plain|Warm|Direct|Respectful)\b)[[:upper:]][[:alpha:]'’\-]+(?:\s+[[:upper:]][[:alpha:]'’\-]+){0,2})/.freeze
+    CURATED_IDENTITY_PATTERN = /(?:
+      guam|guamanians?|chamorros?|puerto\s+ricans?|filipinos?|samoans?|palauans?|tongans?|japanese|
+      southerners?|southern|northerners?|northern|easterners?|eastern|westerners?|western|
+      pacific\s+islanders?|indigenous|black|latinx|queer|gen\s+[[:alnum:]]+
+    )/ix.freeze
+    CURATED_GROUP_IDENTITY_PATTERN = /(?:
+      guamanians?|chamorros?|puerto\s+ricans?|filipinos?|samoans?|palauans?|tongans?|japanese|
+      southerners?|northerners?|easterners?|westerners?|pacific\s+islanders?|
+      indigenous|black|latinx|queer|gen\s+[[:alnum:]]+
+    )/ix.freeze
     QUALIFIED_GROUP_PATTERNS = [
       /\b#{HUMAN_GROUP_PATTERN}\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}\b/ix,
       /\b#{HUMAN_GROUP_PATTERN}\s+(?:(?:who|that)\s+)?(?:live|lives|living|reside|resides|residing)\s+(?:in|on)\s+#{PLACE_PATTERN}\b/ix,
-      /\b(?:a|an|every|all)\s+#{DEMOGRAPHIC_TERM_PATTERN}\b/i,
-      /\b#{DEMOGRAPHIC_TERM_PATTERN}\b/i
+      /\b(?:a|an|every|all)\s+#{CURATED_GROUP_IDENTITY_PATTERN}\b/ix,
+      /\b#{CURATED_GROUP_IDENTITY_PATTERN}(?:\s+#{HUMAN_GROUP_PATTERN})?\b/ix
     ].freeze
 
     RESPONSE_STYLE_PATTERN = /\b(?:
@@ -32,10 +40,9 @@ module Mia
       /\b(?:locals?|regional|cultural|community[\s-]specific|island(?:[\s-]style)?)\b/i,
       /\b(?:location|locale|region|address|where\s+(?:they|the\s+participant)\s+(?:live|are\s+from))\b/i,
       /\b(?:locals?|residents?|people|families|users|participants|everyone|everybody|someone|somebody)\s+(?:of|from|in|on)\s+#{PLACE_PATTERN}\b/i,
-      /\b#{PROPER_IDENTITY_PATTERN}\s+(?:locals?|residents?|people|families|users|participants)\b/x,
-      /\b#{DEMOGRAPHIC_TERM_PATTERN}\b/i,
-      /\b(?:southern|northern|eastern|western)\b/i,
-      /\b#{PROPER_IDENTITY_PATTERN}[\s-]*(?:style|#{RESPONSE_STYLE_PATTERN})\b/x,
+      /\b#{CURATED_IDENTITY_PATTERN}\s+(?:locals?|residents?|people|families|users|participants)\b/ix,
+      /\b#{CURATED_IDENTITY_PATTERN}\b/ix,
+      /\b#{CURATED_IDENTITY_PATTERN}[\s-]*(?:style|#{RESPONSE_STYLE_PATTERN})\b/ix,
       /\b#{RESPONSE_STYLE_PATTERN}\s+(?:of|from|for|like|based\s+on)\s+#{PLACE_PATTERN}\b/ix,
       /\bas\s+(?:if|though)\s+(?:you(?:'re|\s+are|\s+were)?|the\s+assistant(?:\s+is|\s+were)?|mia(?:\s+is|\s+were)?)?.{0,30}\b(?:from|grew\s+up\s+in)\s+#{PLACE_PATTERN}\b/ix,
       /\bread\s+like\s+.{0,30}\b(?:came|comes)\s+from\s+#{PLACE_PATTERN}\b/ix,
@@ -162,7 +169,7 @@ module Mia
         return false if normalized.match?(NONPERSON_SUBJECT_PATTERN)
 
         normalized.match?(/\b#{HUMAN_GROUP_PATTERN}\z/ix) ||
-          normalized.match?(/\b#{DEMOGRAPHIC_TERM_PATTERN}\z/i) ||
+          normalized.match?(/\b#{CURATED_GROUP_IDENTITY_PATTERN}\z/ix) ||
           normalized.match?(CURATED_HUMAN_IDENTITY_PATTERN) ||
           normalized.match?(/\Agen\s+[[:alnum:]]+\z/i)
       end

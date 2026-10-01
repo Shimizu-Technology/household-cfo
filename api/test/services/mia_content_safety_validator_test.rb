@@ -246,6 +246,17 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     end
   end
 
+  test "ordinary coaching instructions are not mistaken for identity claims or regional voice" do
+    [
+      "Finish your budget before payday.",
+      "Every answer must end with one next step.",
+      "Answer briefly and finish with one next step."
+    ].each do |content|
+      assert_empty Mia::CulturalSafetyPolicy.violations(content, field: :instruction), content
+      assert Mia::ContentSafetyValidator.validate!(title: "General coaching instruction", content: content), content
+    end
+  end
+
   test "cultural safety covers regional mimicry grammar and preserves explicit boundaries" do
     mimicry = [
       "Sound like a Guamanian.",
