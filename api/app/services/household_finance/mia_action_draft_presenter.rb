@@ -53,6 +53,18 @@ module HouseholdFinance
       before = prepared.fetch("before_snapshot", {})
       after = prepared.fetch("predicted_after_snapshot", {})
       case item.operation_key
+      when "income.source.create"
+        source = after.fetch("source", {})
+        [
+          { label: "Income source", before: "Does not exist", after: source["label"].to_s },
+          { label: "Source type", before: "—", after: source["source_type"].to_s.humanize },
+          { label: "Starting amount", before: "$0.00", after: money_from_cents(source["amount_cents"]) },
+          { label: "Starts", before: "—", after: month_from_date(source["starts_on"]) }
+        ]
+      when "income.source.update", "income.source.archive", "income.source.restore"
+        income_source_review_fields(before.fetch("source", {}), after.fetch("source", {}))
+      when "income.schedule.create", "income.schedule.update", "income.schedule.delete"
+        income_schedule_review_fields(item, before, after)
       when "budget.allocation.set"
         before_rows = Array(before["allocations"]).index_by { |row| row["id"] }
         Array(after["allocations"]).map do |row|
@@ -88,6 +100,57 @@ module HouseholdFinance
 
     def money_from_cents(value)
       ActiveSupport::NumberHelper.number_to_currency(Money.dollars(value.to_i), precision: 2)
+    end
+
+    def income_source_review_fields(before, after)
+      labels = {
+        "label" => "Income source", "source_type" => "Source type", "amount_cents" => "Base amount",
+        "cadence" => "Cadence", "active" => "Status", "starts_on" => "Starts", "ends_on" => "Ends"
+      }
+      labels.filter_map do |key, label|
+        next if key == "active" && before["ends_on"] != after["ends_on"]
+        next if before[key] == after[key]
+        { label: label, before: income_review_value(key, before[key]), after: income_review_value(key, after[key]) }
+      end
+    end
+
+    def income_schedule_review_fields(item, before, after)
+      entry_id = item.payload.to_h["entry_id"].to_i
+      before_entries = Array(before["schedule_entries"])
+      after_entries = Array(after["schedule_entries"])
+      old_entry = entry_id.positive? ? before_entries.find { |entry| entry["id"].to_i == entry_id } : nil
+      new_entry = if item.operation_key == "income.schedule.create"
+        input = item.prepared_operation.to_h.fetch("normalized_input", {})
+        after_entries.find do |entry|
+          entry["entry_type"] == input["entry_type"] && entry["effective_on"] == input["effective_on"] &&
+            entry["amount_cents"].to_i == input["amount_cents"].to_i && entry["label"].to_s == input["label"].to_s
+        end
+      elsif entry_id.positive?
+        after_entries.find { |entry| entry["id"].to_i == entry_id }
+      end
+      keys = { "entry_type" => "Change type", "label" => "Label", "amount_cents" => "Amount", "cadence" => "Cadence", "effective_on" => "Effective month", "retained_after_transition" => "Continues after transition" }
+      keys.filter_map do |key, label|
+        old_value = old_entry&.[](key)
+        new_value = new_entry&.[](key)
+        next if old_value == new_value
+        { label: label, before: income_review_value(key, old_value, missing: "Does not exist"), after: income_review_value(key, new_value, missing: "Removed") }
+      end
+    end
+
+    def income_review_value(key, value, missing: "—")
+      return missing if value.nil?
+      return money_from_cents(value) if key == "amount_cents"
+      return month_from_date(value) if key.in?(%w[starts_on ends_on effective_on])
+      return value ? "Active" : "Ended" if key == "active"
+      return value ? "Yes" : "No" if key == "retained_after_transition"
+      value.to_s.humanize
+    end
+
+    def month_from_date(value)
+      return "—" if value.blank?
+      Date.iso8601(value.to_s).strftime("%B %Y")
+    rescue Date::Error
+      value.to_s
     end
 
     def month_label(value)

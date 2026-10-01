@@ -7782,7 +7782,7 @@ function incomeSourceIsCurrent(source: IncomeTimelineSource) {
 function nextIncomeChange(source: IncomeTimelineSource) {
   const today = guamTodayIso()
   return source.schedule_entries
-    .filter((entry) => entry.effective_on > today)
+    .filter((entry) => entry.effective_on > today && incomeSourceEffectiveInMonth(source, entry.effective_on))
     .sort((left, right) => left.effective_on.localeCompare(right.effective_on))[0] ?? null
 }
 
@@ -7820,6 +7820,11 @@ function IncomeSourceManager({
   const sourceNameRef = useRef<HTMLInputElement | null>(null)
   const endMonthRef = useRef<HTMLInputElement | null>(null)
   const lastActionTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const sourceCardRefs = useRef(new Map<number, HTMLElement>())
+
+  function focusSourceCard(sourceId: number) {
+    requestAnimationFrame(() => sourceCardRefs.current.get(sourceId)?.focus())
+  }
 
   function resetForm() {
     setDraft(blankIncomeSourceDraft())
@@ -7902,6 +7907,16 @@ function IncomeSourceManager({
       setEndingId(null)
       setEndingMonth('')
       lastActionTriggerRef.current = null
+      focusSourceCard(source.id)
+    } catch {
+      // The server-owned validation message is shown above this manager.
+    }
+  }
+
+  async function restoreSource(source: IncomeTimelineSource) {
+    try {
+      await onRestore(source)
+      focusSourceCard(source.id)
     } catch {
       // The server-owned validation message is shown above this manager.
     }
@@ -7933,7 +7948,15 @@ function IncomeSourceManager({
             const canUndoEnd = Boolean(source.ends_on && source.ends_on.slice(0, 7) >= currentMonth)
             const effectiveTerms = effectiveIncomeTerms(source)
             return (
-              <article className={`income-source-manager-card${ended && !incomeSourceIsCurrent(source) ? ' is-ended' : ''}`} key={source.id}>
+              <article
+                ref={(node) => {
+                  if (node) sourceCardRefs.current.set(source.id, node)
+                  else sourceCardRefs.current.delete(source.id)
+                }}
+                className={`income-source-manager-card${ended && !incomeSourceIsCurrent(source) ? ' is-ended' : ''}`}
+                key={source.id}
+                tabIndex={-1}
+              >
                 <div className="income-source-manager-card-heading">
                   <div>
                     <span>{titleize(source.source_type)}</span>
@@ -7948,7 +7971,7 @@ function IncomeSourceManager({
                 </dl>
                 <div className="income-source-manager-actions">
                   {ended && canUndoEnd ? (
-                    <button type="button" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={action === `restore-income-source:${source.id}`} onClick={() => void onRestore(source)}>
+                    <button type="button" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={action === `restore-income-source:${source.id}`} onClick={() => void restoreSource(source)}>
                       {action === `restore-income-source:${source.id}` ? 'Restoring' : 'Restore source'}
                     </button>
                   ) : ended ? (

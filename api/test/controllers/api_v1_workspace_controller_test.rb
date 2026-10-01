@@ -280,7 +280,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 6_000, mastercard.minimum_payment_cents
   end
 
-  test "workspace setup distributes aggregate income and expense edits across detailed rows" do
+  test "workspace setup rejects ambiguous aggregate income without changing detailed rows" do
     user = create_user(email: "document-detail-distribution@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     salary = household.income_sources.create!(label: "Primary salary", source_type: "job", amount_cents: 620_000, cadence: "monthly")
@@ -297,7 +297,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       end
     end
 
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors").join, "multiple saved sources"
     assert_nil household.income_sources.find_by(label: "Primary income")
     assert_nil household.expense_items.find_by(label: "Fixed essentials")
     assert_equal "Primary salary", salary.reload.label
@@ -311,10 +312,10 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     current_income = household.income_sources.where(source_type: "job", active: true).sum do |source|
       HouseholdFinance::IncomeTimeline.recurring_monthly_cents(source, on: Date.current)
     end
-    assert_equal 600_000, current_income
+    assert_equal 720_000, current_income
     assert_equal 620_000, salary.amount_cents
     assert_equal 100_000, overtime.amount_cents
-    assert_equal 200_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
+    assert_equal 256_000, household.expense_items.where(stack_key: "non_discretionary", active: true).sum(:amount_cents)
   end
 
   test "workspace income edits take effect now without rewriting the historical baseline" do

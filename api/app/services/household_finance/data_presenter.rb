@@ -253,7 +253,7 @@ module HouseholdFinance
     end
 
     def income_sources
-      @income_sources ||= household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).to_a
+      @income_sources ||= household.income_sources.includes(:income_schedule_entries).order(:source_type, :label).select { |source| source.effective_on?(Date.current) }
     end
 
     def expense_items

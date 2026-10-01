@@ -92,10 +92,12 @@ module HouseholdFinance
       monthly_total_cents = setup_money_cents(value, label: label)
       active_records = records.select(&:active?)
       return if current_income_total(active_records) == monthly_total_cents
-      return distribute_current_income_total!(active_records, monthly_total_cents) if active_records.many?
+      if active_records.many?
+        raise ArgumentError, "#{label} has multiple saved sources. Edit a specific income source so no detailed amount changes silently"
+      end
 
-      aggregate = records.find { |record| record.label == label }
-      record = amount_record_for_single_update(aggregate, active_records, records) || household.income_sources.new(source_type: source_type)
+      aggregate = active_records.find { |record| record.label == label }
+      record = aggregate || active_records.first || household.income_sources.new(source_type: source_type)
       return if record.new_record? && monthly_total_cents.zero?
 
       if record.new_record?

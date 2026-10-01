@@ -46,4 +46,33 @@ class HouseholdFinanceOperationsConcurrencyTest < ActiveSupport::TestCase
     assert_equal 1, @household.household_operation_executions.where(idempotency_key: "concurrent-create").count
     assert_equal 1, @household.household_audit_events.where(event_type: "household_operation.executed").count
   end
+
+  test "concurrent income source retries create one source and replay the second request" do
+    ready = Queue.new
+    release = Queue.new
+    threads = 2.times.map do
+      Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          ready << true
+          release.pop
+          household = Household.find(@household.id)
+          user = User.find(@user.id)
+          HouseholdFinance::Operations::Runner.new(household, user: user).run(
+            operation_key: "income.source.create",
+            input: { label: "Consulting", source_type: "business", amount: 1_200, cadence: "monthly", starts_on: "2026-10-01", year: 2026 },
+            idempotency_key: "concurrent-income-create"
+          )
+        end
+      end
+    end
+    2.times { ready.pop }
+    2.times { release << true }
+    results = threads.map(&:value)
+
+    assert_equal 1, results.count(&:replayed?)
+    assert_equal 1, results.count { |result| !result.replayed? }
+    assert_equal 1, @household.income_sources.where(label: "Consulting").count
+    assert_equal 1, @household.household_operation_executions.where(idempotency_key: "concurrent-income-create").count
+    assert_equal 1, @household.household_audit_events.where(event_type: "household_operation.executed").count
+  end
 end

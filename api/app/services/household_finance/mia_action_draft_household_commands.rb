@@ -43,6 +43,13 @@ module HouseholdFinance
         .select { |_key, value| value.to_s.strip.present? }
       return validation_result("Tell me which household number or goal you want to update. Nothing changed.") if requested.empty?
 
+      ambiguous_income = { primary_income: "job", business_income: "business" }.find do |key, source_type|
+        requested.key?(key) && household.income_sources.where(active: true, source_type: source_type).count > 1
+      end
+      if ambiguous_income
+        return validation_result("That total includes multiple saved income sources. Name the specific income source you want to change. Nothing changed.")
+      end
+
       normalized = normalize_setup_updates(requested)
       return normalized if normalized.is_a?(MiaActionDraftBuilder::Result)
 
@@ -142,6 +149,110 @@ module HouseholdFinance
       validation_result("#{e.message}. Nothing changed.")
     end
 
+    def structured_income_source_create_proposal
+      label = command[:income_source_name].to_s.squish.truncate(120, omission: "…")
+      return validation_result("Tell me what this income source should be called. Nothing changed.") if label.blank?
+      source_type = command[:source_type].to_s.presence_in(IncomeSource::SOURCE_TYPES) || "other"
+      cadence = command[:cadence].to_s.presence_in(IncomeSource::CADENCES - [ "one_time" ]) || "monthly"
+      starts_on = parsed_effective_month(command[:effective_on])
+      return validation_result("Tell me which month this income begins. Nothing changed.") unless starts_on
+      amount_cents = Money.cents!(command[:amount], message: "Income amount must be a number")
+      item = MiaActionDraftBuilder::Item.new(
+        action_type: "create_income_source", label: "Add #{label}",
+        description: "Add #{label} at #{money(amount_cents)} #{cadence.humanize.downcase}, beginning #{starts_on.strftime('%B %Y')}.",
+        target_record_type: "IncomeSource", target_record_id: nil,
+        payload: { label: label, source_type: source_type, amount_cents: amount_cents, cadence: cadence, starts_on: starts_on.iso8601 },
+        before_snapshot: {}, after_snapshot: { label: label, source_type: source_type, amount_cents: amount_cents, cadence: cadence, starts_on: starts_on.iso8601 }
+      )
+      proposal_result(draft_type: "income_schedule", year: starts_on.year, title: "Add income source", summary: "I prepared #{label} for your review.", rationale: "This source changes household income only after approval.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+    rescue ArgumentError => e
+      validation_result("#{e.message}. Nothing changed.")
+    end
+
+    def structured_income_source_update_proposal
+      source = structured_income_source
+      return validation_result("I could not safely match that income source. Nothing changed.") unless source
+      payload = { source_id: source.id }
+      payload[:label] = command[:new_name].to_s.squish.truncate(120, omission: "…") if command[:new_name].present?
+      payload[:source_type] = command[:source_type] if command[:source_type].to_s.in?(IncomeSource::SOURCE_TYPES)
+      payload[:amount_cents] = Money.cents!(command[:amount], message: "Income amount must be a number") if command[:amount].present?
+      payload[:cadence] = command[:cadence] if command[:cadence].to_s.in?(IncomeSource::CADENCES - [ "one_time" ])
+      if command[:effective_on].present?
+        starts_on = parsed_effective_month(command[:effective_on])
+        return validation_result("Tell me a valid month for this income source. Nothing changed.") unless starts_on
+        payload[:starts_on] = starts_on.iso8601
+      end
+      return validation_result("Tell me which income source detail to update. Nothing changed.") if payload.one?
+      item = MiaActionDraftBuilder::Item.new(
+        action_type: "update_income_source", label: "Update #{source.label}", description: "Review the exact income-source fields before applying.",
+        target_record_type: "IncomeSource", target_record_id: source.id, payload: payload,
+        before_snapshot: { label: source.label, source_type: source.source_type, amount_cents: source.amount_cents, cadence: source.cadence, starts_on: source.starts_on&.iso8601 },
+        after_snapshot: { label: payload[:label] || source.label, source_type: payload[:source_type] || source.source_type, amount_cents: payload[:amount_cents] || source.amount_cents, cadence: payload[:cadence] || source.cadence, starts_on: payload[:starts_on] || source.starts_on&.iso8601 }
+      )
+      proposal_result(draft_type: "income_schedule", title: "Update income source", summary: "I prepared an update to #{source.label} for your review.", rationale: "The saved source stays unchanged until approval.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+    rescue ArgumentError => e
+      validation_result("#{e.message}. Nothing changed.")
+    end
+
+    def structured_income_source_status_proposal(archive:)
+      candidates = household.income_sources.to_a.select do |source|
+        archive ? source.ends_on.blank? && source.effective_on?(Date.current) : source.ends_on.present?
+      end
+      source = if command[:income_source_id].to_i.positive?
+        candidates.find { |candidate| candidate.id == command[:income_source_id].to_i }
+      else
+        normalized_name = command[:income_source_name].to_s.squish.downcase
+        matches = candidates.select { |candidate| candidate.label.downcase == normalized_name }
+        matches.one? ? matches.first : nil
+      end
+      return validation_result("I could not safely match that income source. Nothing changed.") unless source
+      action = archive ? "archive_income_source" : "restore_income_source"
+      payload = { source_id: source.id }
+      if archive
+        ends_on = parsed_effective_month(command[:effective_on].presence || Date.current.iso8601)
+        return validation_result("Tell me the first month when this income should be $0. Nothing changed.") unless ends_on
+        payload[:ends_on] = ends_on.iso8601
+      end
+      item = MiaActionDraftBuilder::Item.new(
+        action_type: action, label: "#{archive ? 'End' : 'Restore'} #{source.label}",
+        description: archive ? "End income beginning #{Date.iso8601(payload.fetch(:ends_on)).strftime('%B %Y')} while preserving earlier months." : "Restore this source only if its end month has not elapsed.",
+        target_record_type: "IncomeSource", target_record_id: source.id, payload: payload,
+        before_snapshot: { active: source.active, ends_on: source.ends_on&.iso8601 }, after_snapshot: { active: !archive, ends_on: archive ? payload.fetch(:ends_on) : nil }
+      )
+      proposal_result(draft_type: "income_schedule", title: "#{archive ? 'End' : 'Restore'} income source", summary: "I prepared #{source.label} for your review.", rationale: "Earlier income history stays intact.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+    rescue ArgumentError => e
+      validation_result("#{e.message}. Nothing changed.")
+    end
+
+    def structured_income_schedule_update_proposal
+      entry = structured_income_schedule_entry
+      return validation_result("I could not safely match that scheduled income entry. Nothing changed.") unless entry
+      source = entry.income_source
+      effective_on = parsed_effective_month(command[:effective_on].presence || entry.effective_on.iso8601)
+      type = command[:entry_type].to_s.presence_in(IncomeScheduleEntry::ENTRY_TYPES) || entry.entry_type
+      amount_cents = command[:amount].present? ? Money.cents!(command[:amount], message: "Income amount must be a number") : entry.amount_cents
+      cadence = type == "one_time" ? "one_time" : command[:cadence].to_s.presence_in(IncomeSource::CADENCES - [ "one_time" ]) || entry.cadence
+      payload = { source_id: source.id, entry_id: entry.id, entry_type: type, label: command[:schedule_label].presence || entry.label, amount_cents: amount_cents, cadence: cadence, effective_on: effective_on.iso8601, retained_after_transition: command.key?(:retained_after_transition) ? command[:retained_after_transition] : entry.retained_after_transition? }
+      item = MiaActionDraftBuilder::Item.new(action_type: "update_income_schedule_entry", label: "Update scheduled #{source.label}", description: "Review the amount, cadence, and effective month.", target_record_type: "IncomeScheduleEntry", target_record_id: entry.id, payload: payload, before_snapshot: { amount_cents: entry.amount_cents, cadence: entry.cadence, effective_on: entry.effective_on.iso8601 }, after_snapshot: payload.slice(:amount_cents, :cadence, :effective_on))
+      proposal_result(draft_type: "income_schedule", year: effective_on.year, title: "Update scheduled income", summary: "I prepared the scheduled #{source.label} change for review.", rationale: "The timeline stays unchanged until approval.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+    rescue ArgumentError => e
+      validation_result("#{e.message}. Nothing changed.")
+    end
+
+    def structured_income_schedule_delete_proposal
+      entry = structured_income_schedule_entry
+      return validation_result("I could not safely match that scheduled income entry. Nothing changed.") unless entry
+      source = entry.income_source
+      item = MiaActionDraftBuilder::Item.new(action_type: "delete_income_schedule_entry", label: "Remove scheduled #{source.label}", description: "Remove the #{entry.effective_on.strftime('%B %Y')} #{entry.entry_type.humanize.downcase} entry.", target_record_type: "IncomeScheduleEntry", target_record_id: entry.id, payload: { source_id: source.id, entry_id: entry.id }, before_snapshot: { amount_cents: entry.amount_cents, cadence: entry.cadence, effective_on: entry.effective_on.iso8601 }, after_snapshot: {})
+      proposal_result(draft_type: "income_schedule", year: entry.effective_on.year, title: "Remove scheduled income", summary: "I prepared one scheduled income entry for removal.", rationale: "No timeline entry is removed until approval.", items: [ item ], metadata: { source: "mia_chat", parser: "model_intent" })
+    end
+
+    def structured_income_schedule_entry
+      id = command[:income_schedule_entry_id].to_i
+      return if id.zero?
+      IncomeScheduleEntry.joins(:income_source).where(income_sources: { household_id: household.id }).find_by(id: id)
+    end
+
     def normalize_setup_updates(requested)
       requested.each_with_object({}) do |(key, raw_value), values|
         values[key] = if SETUP_MONEY_KEYS.include?(key)
@@ -218,14 +329,15 @@ module HouseholdFinance
     end
 
     def structured_income_source
-      scope = household.income_sources.where(active: true)
+      candidates = household.income_sources.to_a.select { |source| source.effective_on?(Date.current) }
       id = command[:income_source_id].to_i
-      return scope.find_by(id: id) if id.positive?
+      return candidates.find { |source| source.id == id } if id.positive?
 
       name = command[:income_source_name].to_s.squish
       return if name.blank?
 
-      scope.where("LOWER(label) = ?", name.downcase).first
+      matches = candidates.select { |source| source.label.casecmp?(name) }.first(2)
+      matches.one? ? matches.first : nil
     end
 
     def parsed_effective_month(value)

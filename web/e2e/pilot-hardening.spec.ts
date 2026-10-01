@@ -2134,6 +2134,8 @@ test('My Profile manages explicit income sources with stable keys on desktop and
 
     if (method === 'POST' && url.pathname.endsWith('/restore') && sourceId) {
       currentBudget.annual_plan.income_sources = currentBudget.annual_plan.income_sources.map((source) => source.id === sourceId ? { ...source, ends_on: null, active: true } : source)
+      workspace.workspace.setup_values.business_income = 1_200
+      workspace.dashboard.summary.monthly_income = 16_200
     } else if (method === 'POST') {
       currentBudget.annual_plan.income_sources.push({
         id: 2,
@@ -2144,7 +2146,15 @@ test('My Profile manages explicit income sources with stable keys on desktop and
         starts_on: input.starts_on,
         ends_on: null,
         active: true,
-        schedule_entries: [],
+        schedule_entries: [{
+          id: 91,
+          entry_type: 'recurring_change',
+          label: null,
+          amount: 1_500,
+          cadence: 'monthly',
+          effective_on: `${currentYear}-12-01`,
+          retained_after_transition: false,
+        }],
       })
       workspace.workspace.setup_values.primary_income = 15_000
       workspace.workspace.setup_values.business_income = Number(input.amount)
@@ -2171,11 +2181,12 @@ test('My Profile manages explicit income sources with stable keys on desktop and
     return route.fulfill({ status: method === 'POST' && !url.pathname.endsWith('/restore') ? 201 : 200, json: { income_source: {}, budget: currentBudget } })
   })
 
-  await page.clock.setFixedTime(new Date('2026-09-30T15:30:00Z'))
+  await page.clock.setFixedTime(new Date(Date.UTC(currentYear, 8, 30, 15, 30)))
   await page.goto('/?pilot_e2e_role=participant')
   await openSection(page, 'My Profile')
   await expect(page.getByRole('spinbutton', { name: 'Job income total (calculated)' })).toBeDisabled()
   await expect(page.getByRole('heading', { name: 'Keep each source clear and editable.' })).toBeVisible()
+  await expect(page.locator('.income-source-form').getByLabel('Starting month')).toHaveValue(`${currentYear}-10`)
 
   await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Side consulting')
   await page.locator('.income-source-form label').filter({ hasText: 'Type' }).locator('select').selectOption('business')
@@ -2184,6 +2195,9 @@ test('My Profile manages explicit income sources with stable keys on desktop and
 
   const consulting = page.locator('.income-source-manager-card').filter({ hasText: 'Side consulting' })
   await expect(consulting).toContainText('$1,200.00')
+  await expect(consulting).toContainText('Current')
+  await expect(consulting).toContainText(`Dec ${currentYear} · $1,500.00`)
+  await expect(page.locator('.income-source-manager-heading')).toContainText('$16,200.00 current monthly')
   await page.getByText('Add details for a stronger CFO read').click()
   await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('1200')
   expect(requests[0].key).toBeTruthy()
@@ -2196,12 +2210,22 @@ test('My Profile manages explicit income sources with stable keys on desktop and
 
   await consulting.getByRole('button', { name: 'End Side consulting' }).click()
   await expect(consulting.getByLabel('First $0 month')).toBeFocused()
-  await consulting.getByLabel('First $0 month').fill(`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
+  await consulting.getByLabel('First $0 month').fill(`${currentYear}-10`)
   await consulting.getByRole('button', { name: 'Confirm stop for Side consulting' }).click()
-  await expect(consulting).toContainText(`Stops ${currentShortMonth} ${currentYear}`)
+  await expect(consulting).toBeFocused()
+  await expect(consulting).toContainText(`Stops Oct ${currentYear}`)
+  await expect(consulting).toContainText('None scheduled')
   await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('0')
   expect(requests[1].key).toBeTruthy()
   expect(requests[1].key).not.toBe(requests[0].key)
+
+  await consulting.getByRole('button', { name: 'Restore Side consulting' }).click()
+  await expect(consulting).toBeFocused()
+  await expect(consulting).toContainText('Current')
+  await expect(consulting).toContainText(`Dec ${currentYear} · $1,500.00`)
+  await expect(page.getByRole('spinbutton', { name: 'Business income total (calculated)' })).toHaveValue('1200')
+  expect(requests[2].key).toBeTruthy()
+  expect(requests[2].key).not.toBe(requests[1].key)
 
   for (const width of [390, 320]) {
     await page.setViewportSize({ width, height: 844 })
@@ -2237,6 +2261,7 @@ test('continuing job income is never assumed and requires explicit participant a
     return route.fulfill({ status: route.request().method() === 'POST' ? 201 : 200, json: { budget: updatedBudget } })
   })
 
+  await page.clock.setFixedTime(new Date(Date.UTC(currentYear, 8, 30, 15, 30)))
   await page.goto('/?pilot_e2e_role=participant')
   await page.getByRole('link', { name: 'Budget', exact: true }).click()
   await page.getByRole('button', { name: 'Manage manually' }).click()
@@ -2245,7 +2270,7 @@ test('continuing job income is never assumed and requires explicit participant a
   await expect(sourceSelect.locator('option')).toHaveText(['Primary income'])
   await page.locator('.income-schedule-form label').filter({ hasText: 'Starting month' }).locator('input').fill(`${currentYear}-12`)
   await expect(sourceSelect.locator('option')).toHaveText(['Primary income', 'Future contract'])
-  await page.locator('.income-schedule-form label').filter({ hasText: 'Starting month' }).locator('input').fill(`${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}`)
+  await page.locator('.income-schedule-form label').filter({ hasText: 'Starting month' }).locator('input').fill(`${currentYear}-10`)
   await page.getByRole('spinbutton', { name: 'Amount' }).fill('7500')
 
   const retention = page.getByRole('checkbox', { name: /This job income will continue after my transition/ })

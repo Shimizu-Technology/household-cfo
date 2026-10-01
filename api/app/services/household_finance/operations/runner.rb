@@ -15,8 +15,13 @@ module HouseholdFinance
         ApplicationRecord.transaction do
           household.lock!
           operation_class = Registry.fetch(operation_key)
+          key = normalize_idempotency_key(idempotency_key)
+          if (existing = household.household_operation_executions.find_by(idempotency_key: key))
+            normalized = operation_class.new(household).normalized_input(input).deep_stringify_keys
+            return replay_raw(existing, operation_class, normalized, source: source, reviewable: reviewable)
+          end
           prepared = operation_class.new(household).prepare(input)
-          execute_inside_transaction!(prepared, idempotency_key: idempotency_key, source: source, reviewable: reviewable)
+          execute_inside_transaction!(prepared, idempotency_key: key, source: source, reviewable: reviewable)
         end
       end
 
@@ -102,8 +107,23 @@ module HouseholdFinance
         Result.new(execution: execution, subject: subject, after_snapshot: execution.after_snapshot, replayed?: true)
       end
 
+      def replay_raw(execution, operation_class, normalized_input, source:, reviewable:)
+        expected_reviewable = reviewable && [ reviewable.class.name, reviewable.id ]
+        actual_reviewable = execution.reviewable && [ execution.reviewable_type, execution.reviewable_id ]
+        unless execution.operation_key == operation_class::KEY && execution.operation_version == operation_class::VERSION &&
+            execution.user_id == user.id && execution.source == source.to_s && actual_reviewable == expected_reviewable &&
+            execution.normalized_input == normalized_input
+          raise IdempotencyConflict, "That idempotency key was already used for a different household change. Nothing changed."
+        end
+
+        replay(execution, execution.request_fingerprint)
+      end
+
       def subject_belongs_to_household?(subject)
         case subject
+        when Household then subject.id == household.id
+        when IncomeSource then subject.household_id == household.id
+        when IncomeScheduleEntry then subject.income_source.household_id == household.id
         when BudgetCategory then subject.household_id == household.id
         when BudgetAllocation then subject.budget_category.household_id == household.id && subject.budget_period.budget_year.household_id == household.id
         else false

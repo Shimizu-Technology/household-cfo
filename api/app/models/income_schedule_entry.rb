@@ -13,6 +13,7 @@ class IncomeScheduleEntry < ApplicationRecord
   validate :one_time_amount
   validate :recurring_cadence
   validate :continuing_transition_income
+  validate :retained_income_belongs_to_job
 
   private
 
@@ -43,5 +44,12 @@ class IncomeScheduleEntry < ApplicationRecord
     return if entry_type == "recurring_change" && amount_cents.to_i.positive?
 
     errors.add(:retained_after_transition, "requires a continuing recurring income amount")
+  end
+
+  def retained_income_belongs_to_job
+    return unless retained_after_transition?
+    return if income_source&.source_type == "job"
+
+    errors.add(:retained_after_transition, "is available only for job income")
   end
 end

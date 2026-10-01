@@ -78,7 +78,7 @@ module HouseholdFinance
     end
 
     def apply_registered_operation!(item)
-      expected_key = Operations::MiaItemAdapter::ACTION_KEYS[item.action_type]
+      expected_key = Operations::MiaItemAdapter.operation_key(item)
       prepared = Operations::PreparedOperation.from_hash(item.prepared_operation)
       unless expected_key == item.operation_key &&
           prepared.operation_key == item.operation_key &&

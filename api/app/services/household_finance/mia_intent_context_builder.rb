@@ -29,6 +29,7 @@ module HouseholdFinance
         approved_household_setup: approved_household_setup,
         setup_status: SetupStatus.new(household).as_json,
         income_sources: income_sources,
+        archived_income_sources: archived_income_sources,
         conversation: {
           active_thread: validated_active_thread,
           open_threads: validated_open_threads,
@@ -41,7 +42,11 @@ module HouseholdFinance
           restore_category review_pending_action
         ],
         supported_transaction_draft_actions: %w[create_transaction_draft update_transaction_draft ignore_transaction_drafts],
-        supported_household_actions: %w[update_household_setup schedule_income_change review_pending_action],
+        supported_household_actions: %w[
+          update_household_setup schedule_income_change create_income_source update_income_source
+          archive_income_source restore_income_source update_income_schedule_entry delete_income_schedule_entry
+          review_pending_action
+        ],
         supported_household_setup_fields: MiaActionDraftHouseholdCommands::SETUP_KEYS.map(&:to_s),
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
       }
@@ -130,11 +135,27 @@ module HouseholdFinance
     end
 
     def income_sources
-      household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).map do |source|
+      serialize_income_sources(household.income_sources.select { |source| source.effective_on?(Date.current) })
+    end
+
+    def archived_income_sources
+      serialize_income_sources(household.income_sources.select { |source| source.ends_on.present? })
+    end
+
+    def serialize_income_sources(scope)
+      sources = if scope.respond_to?(:includes)
+        scope.includes(:income_schedule_entries).order(:source_type, :label).to_a
+      else
+        ActiveRecord::Associations::Preloader.new(records: scope, associations: :income_schedule_entries).call
+        scope.sort_by { |source| [ source.source_type, source.label ] }
+      end
+      sources.map do |source|
         {
           id: source.id,
           label: bounded(source.label, 120),
           source_type: source.source_type,
+          starts_on: source.starts_on&.iso8601,
+          ends_on: source.ends_on&.iso8601,
           base_amount: Money.dollars(source.amount_cents),
           base_cadence: source.cadence,
           current_monthly_amount: Money.dollars(IncomeTimeline.recurring_monthly_cents(source, on: Date.current)),
@@ -142,9 +163,11 @@ module HouseholdFinance
             {
               id: entry.id,
               entry_type: entry.entry_type,
+              label: bounded(entry.label, 80),
               amount: Money.dollars(entry.amount_cents),
               cadence: entry.cadence,
-              effective_on: entry.effective_on.iso8601
+              effective_on: entry.effective_on.iso8601,
+              retained_after_transition: entry.retained_after_transition?
             }
           end
         }

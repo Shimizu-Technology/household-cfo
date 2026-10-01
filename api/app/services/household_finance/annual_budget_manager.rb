@@ -393,7 +393,11 @@ module HouseholdFinance
     end
 
     def scheduled_income_sources
-      @scheduled_income_sources ||= household.income_sources.where(active: true).includes(:income_schedule_entries).order(:source_type, :label).to_a
+      @scheduled_income_sources ||= household.income_sources
+        .where(active: true).or(household.income_sources.where.not(ends_on: nil))
+        .includes(:income_schedule_entries)
+        .order(:source_type, :label)
+        .select { |source| source.intersects_year?(year) }
     end
 
     def income_source_cents_for_period(source, period)
@@ -408,6 +412,9 @@ module HouseholdFinance
           source_type: source.source_type,
           base_amount: Money.dollars(source.amount_cents),
           base_cadence: source.cadence,
+          starts_on: source.starts_on&.iso8601,
+          ends_on: source.ends_on&.iso8601,
+          active: source.effective_on?(Date.current),
           schedule_entries: source.income_schedule_entries.sort_by(&:effective_on).map do |entry|
             {
               id: entry.id,

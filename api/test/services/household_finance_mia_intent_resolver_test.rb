@@ -547,6 +547,148 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "2026-10-01", result.action.fetch(:effective_on)
   end
 
+  test "accepts a complete new income source action" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Add tutoring income of $800 monthly starting October.",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "Add tutoring income starting October 2026",
+          topic: { type: "income_source", title: "Tutoring income", subject: "Tutoring" },
+          action: default_action.merge(
+            type: "create_income_source", income_source_name: "Tutoring", source_type: "other",
+            amount: "800", cadence: "monthly", effective_on: "2026-10-01"
+          )
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "create_income_source", result.action.fetch(:type)
+    assert_equal "Tutoring", result.action.fetch(:income_source_name)
+  end
+
+  test "accepts an income source end only with its exclusive month boundary" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "End Primary income beginning December.",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income beginning December 2026",
+          topic: { type: "income_source", title: "End income source", subject: "Primary income" },
+          action: default_action.merge(
+            type: "archive_income_source", income_source_id: 91,
+            income_source_name: "Primary income", effective_on: "2026-12-01"
+          )
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "2026-12-01", result.action.fetch(:effective_on)
+  end
+
+  test "accepts a scheduled income deletion only for an entry in context" do
+    context = intent_context.deep_dup
+    context[:income_sources][0][:schedule_entries] = [
+      { id: 501, entry_type: "recurring_change", amount: 6_000, cadence: "monthly", effective_on: "2026-10-01" }
+    ]
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Remove the October scheduled income change.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "Remove the October scheduled income change",
+          topic: { type: "income_schedule", title: "Remove income change", subject: "Primary income" },
+          action: default_action.merge(type: "delete_income_schedule_entry", income_schedule_entry_id: 501)
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal 501, result.action.fetch(:income_schedule_entry_id)
+  end
+
+  test "preserves approved transition retention when updating another schedule field" do
+    context = intent_context.deep_dup
+    context[:income_sources][0][:schedule_entries] = [
+      { id: 501, entry_type: "recurring_change", amount: 5_000, cadence: "monthly", effective_on: "2026-10-01", retained_after_transition: true }
+    ]
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Change that scheduled amount to $5,500.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "Change the scheduled amount to $5,500",
+          topic: { type: "income_schedule", title: "Update income change", subject: "Primary income" },
+          action: default_action.merge(
+            type: "update_income_schedule_entry", income_schedule_entry_id: 501,
+            amount: "5500", cadence: "monthly", entry_type: "recurring_change", effective_on: "2026-10-01"
+          )
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert result.action.fetch(:retained_after_transition)
+  end
+
+  test "rejects a scheduled income entry id that is not in context" do
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Remove the October scheduled income change.",
+      context: intent_context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "Remove the October scheduled income change",
+          topic: { type: "income_schedule", title: "Remove income change", subject: "Primary income" },
+          action: default_action.merge(type: "delete_income_schedule_entry", income_schedule_entry_id: 999)
+        )
+      end
+    ).call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "scheduled income entry"
+  end
+
+  test "rejects a name-only income source reference when two types share the name" do
+    context = intent_context.deep_dup
+    context[:income_sources] << { id: 92, label: "Primary income", source_type: "business", current_monthly_amount: 1_000 }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "End Primary income.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |_payload|
+        resolution_json(
+          intent: "income_action",
+          continuation: false,
+          resolved_message: "End Primary income",
+          topic: { type: "income_source", title: "End income source", subject: "Primary income" },
+          action: default_action.merge(type: "archive_income_source", income_source_name: "Primary income")
+        )
+      end
+    ).call
+
+    refute result.actionable?
+    assert_equal "none", result.action.fetch(:type)
+    assert_includes result.clarification, "one income source"
+  end
+
   test "does not carry a draft id into a different named review omitted by the provider" do
     context = intent_context.deep_dup
     context[:pending_transaction_reviews] = [
@@ -2388,6 +2530,10 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       setup_updates: default_setup_updates,
       income_source_id: 0,
       income_source_name: "",
+      income_schedule_entry_id: 0,
+      source_type: "",
+      cadence: "",
+      retained_after_transition: false,
       entry_type: "",
       effective_on: "",
       schedule_label: ""
