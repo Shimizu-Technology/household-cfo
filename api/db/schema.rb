@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_120500) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -749,22 +749,39 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_120500) do
   end
 
   create_table "goals", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.datetime "archived_at"
     t.datetime "created_at", null: false
     t.integer "current_amount_cents", default: 0, null: false
+    t.boolean "current_amount_known", default: false, null: false
     t.string "goal_type", default: "other", null: false
     t.bigint "household_id", null: false
     t.string "label", null: false
     t.integer "priority", default: 0, null: false
+    t.string "record_kind", default: "tracked", null: false
+    t.jsonb "source_metadata", default: {}, null: false
+    t.string "source_type", default: "manual_ui", null: false
     t.integer "target_amount_cents", default: 0, null: false
+    t.boolean "target_amount_known", default: false, null: false
     t.decimal "target_months", precision: 6, scale: 2
+    t.date "target_on"
     t.datetime "updated_at", null: false
+    t.index "household_id, lower((label)::text), goal_type", name: "index_goals_on_active_tracked_identity", unique: true, where: "(((record_kind)::text = 'tracked'::text) AND (active = true))"
+    t.index ["household_id", "active"], name: "index_goals_on_household_id_and_active"
     t.index ["household_id", "goal_type"], name: "index_goals_on_household_id_and_goal_type"
     t.index ["household_id", "priority"], name: "index_goals_on_household_id_and_priority"
+    t.index ["household_id", "record_kind", "priority"], name: "index_goals_on_kind_and_priority"
     t.index ["household_id"], name: "index_goals_on_household_id"
     t.index ["household_id"], name: "index_goals_on_one_runway_per_household", unique: true, where: "((goal_type)::text = 'runway'::text)"
     t.index ["household_id"], name: "index_goals_on_one_transition_per_household", unique: true, where: "((goal_type)::text = 'transition'::text)"
+    t.check_constraint "active = true AND archived_at IS NULL OR active = false AND archived_at IS NOT NULL", name: "goals_archive_state_valid"
     t.check_constraint "current_amount_cents >= 0", name: "goals_current_amount_cents_non_negative"
+    t.check_constraint "current_amount_known = true OR current_amount_cents = 0", name: "goals_unknown_current_is_zero"
+    t.check_constraint "jsonb_typeof(source_metadata) = 'object'::text", name: "goals_source_metadata_object"
+    t.check_constraint "record_kind::text = ANY (ARRAY['tracked'::character varying, 'policy'::character varying]::text[])", name: "goals_record_kind_valid"
+    t.check_constraint "source_type::text = ANY (ARRAY['manual_ui'::character varying, 'mia'::character varying, 'document_import'::character varying, 'setup'::character varying]::text[])", name: "goals_source_type_valid"
     t.check_constraint "target_amount_cents >= 0", name: "goals_target_amount_cents_non_negative"
+    t.check_constraint "target_amount_known = true OR target_amount_cents = 0", name: "goals_unknown_target_is_zero"
   end
 
   create_table "household_audit_events", force: :cascade do |t|
@@ -1028,7 +1045,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_120500) do
     t.index ["household_id"], name: "index_mia_action_drafts_on_household_id"
     t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
     t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
-    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying, 'debt_plan'::character varying, 'asset_plan'::character varying]::text[])", name: "mia_action_drafts_type_valid"
+    t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying, 'debt_plan'::character varying, 'asset_plan'::character varying, 'goal_plan'::character varying]::text[])", name: "mia_action_drafts_type_valid"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'applied'::character varying, 'canceled'::character varying]::text[])", name: "mia_action_drafts_status_valid"
     t.check_constraint "year >= 2000 AND year <= 2100", name: "mia_action_drafts_year_reasonable"
   end
@@ -1054,7 +1071,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_120500) do
     t.index ["mia_action_draft_id"], name: "index_mia_action_items_on_mia_action_draft_id"
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
-    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying, 'create_income_source'::character varying, 'update_income_source'::character varying, 'archive_income_source'::character varying, 'restore_income_source'::character varying, 'create_income_schedule_entry'::character varying, 'update_income_schedule_entry'::character varying, 'delete_income_schedule_entry'::character varying, 'create_debt'::character varying, 'update_debt'::character varying, 'archive_debt'::character varying, 'restore_debt'::character varying, 'update_debt_tracking'::character varying, 'create_account'::character varying, 'update_account'::character varying, 'archive_account'::character varying, 'restore_account'::character varying, 'link_plaid_account'::character varying, 'reconcile_plaid_account'::character varying, 'unlink_plaid_account'::character varying]::text[])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying, 'update_category'::character varying, 'update_allocation'::character varying, 'archive_category'::character varying, 'restore_category'::character varying, 'update_setup_value'::character varying, 'upsert_income_schedule_entry'::character varying, 'create_income_source'::character varying, 'update_income_source'::character varying, 'archive_income_source'::character varying, 'restore_income_source'::character varying, 'create_income_schedule_entry'::character varying, 'update_income_schedule_entry'::character varying, 'delete_income_schedule_entry'::character varying, 'create_debt'::character varying, 'update_debt'::character varying, 'archive_debt'::character varying, 'restore_debt'::character varying, 'update_debt_tracking'::character varying, 'create_account'::character varying, 'update_account'::character varying, 'archive_account'::character varying, 'restore_account'::character varying, 'link_plaid_account'::character varying, 'reconcile_plaid_account'::character varying, 'unlink_plaid_account'::character varying, 'create_goal'::character varying, 'update_goal'::character varying, 'archive_goal'::character varying, 'restore_goal'::character varying]::text[])", name: "mia_action_items_action_type_valid"
     t.check_constraint "jsonb_typeof(prepared_operation) = 'object'::text", name: "mia_action_items_prepared_operation_object"
     t.check_constraint "operation_key IS NULL AND operation_version IS NULL AND prepared_operation_fingerprint IS NULL AND prepared_operation = '{}'::jsonb OR operation_key IS NOT NULL AND operation_version > 0 AND prepared_operation_fingerprint IS NOT NULL AND prepared_operation <> '{}'::jsonb", name: "mia_action_items_operation_identity_complete"
   end

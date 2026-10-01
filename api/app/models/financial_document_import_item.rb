@@ -38,7 +38,7 @@ class FinancialDocumentImportItem < ApplicationRecord
 
   def required_financial_value_present
     case target_type
-    when "income_source", "expense_item", "goal"
+    when "income_source", "expense_item"
       errors.add(:amount_cents, "is required") if amount_cents.blank?
     when "account"
       errors.add(:balance_cents, "is required") if balance_cents.nil?

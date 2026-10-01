@@ -139,9 +139,9 @@ module HouseholdFinance
 
     def goals
       @goals ||= if association_loaded?(:goals)
-        household.goals.sort_by { |goal| [ goal_priority_sort_value(goal), goal.created_at || null_sort_time ] }
+        household.goals.select { |goal| goal.record_kind == "policy" }.sort_by { |goal| [ goal_priority_sort_value(goal), goal.created_at || null_sort_time ] }
       else
-        household.goals.order(:priority, :created_at).to_a
+        household.goals.policy.order(:priority, :created_at).to_a
       end
     end
 

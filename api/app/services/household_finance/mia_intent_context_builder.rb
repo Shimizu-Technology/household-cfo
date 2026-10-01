@@ -36,6 +36,8 @@ module HouseholdFinance
         active_accounts: serialized_accounts(household.accounts.active.order(:id)),
         archived_accounts: serialized_accounts(household.accounts.archived.order(:id)),
         eligible_plaid_accounts: eligible_plaid_accounts,
+        active_goals: serialized_goals(household.goals.tracked.active.order(:priority, :id)),
+        archived_goals: serialized_goals(household.goals.tracked.archived.order(:priority, :id)),
         conversation: {
           active_thread: validated_active_thread,
           open_threads: validated_open_threads,
@@ -54,6 +56,7 @@ module HouseholdFinance
           review_pending_action
           create_debt update_debt archive_debt restore_debt update_debt_tracking
           create_account update_account archive_account restore_account link_plaid_account reconcile_plaid_account unlink_plaid_account
+          create_goal update_goal archive_goal restore_goal
         ],
         supported_household_setup_fields: MiaActionDraftHouseholdCommands::SETUP_KEYS.map(&:to_s),
         transaction_draft_editable_fields: %w[occurred_on merchant amount category splits]
@@ -63,6 +66,17 @@ module HouseholdFinance
     private
 
     attr_reader :household, :annual_plan, :conversation_context, :transcript, :selected_month
+
+    def serialized_goals(scope)
+      scope.first(100).map do |goal|
+        {
+          id: goal.id, label: bounded(goal.label, 120), goal_type: goal.goal_type,
+          target_amount: goal.target_amount_known? ? Money.dollars(goal.target_amount_cents) : nil,
+          current_amount: goal.current_amount_known? ? Money.dollars(goal.current_amount_cents) : nil,
+          target_on: goal.target_on&.iso8601, priority: goal.priority, active: goal.active?
+        }
+      end
+    end
 
     def validated_active_thread
       topic = conversation_context[:active_topic].to_h

@@ -77,6 +77,10 @@ module HouseholdFinance
         account_create_review_fields(after.fetch("account", {}))
       when "account.record.update", "account.record.archive", "account.record.restore", "account.plaid.link", "account.plaid.reconcile", "account.plaid.unlink"
         account_review_fields(before.fetch("account", {}), after.fetch("account", {}))
+      when "goal.record.create"
+        goal_create_review_fields(after.fetch("goal", {}))
+      when "goal.record.update", "goal.record.archive", "goal.record.restore"
+        goal_review_fields(before.fetch("goal", {}), after.fetch("goal", {}))
       when "budget.allocation.set"
         before_rows = Array(before["allocations"]).index_by { |row| row["id"] }
         Array(after["allocations"]).map do |row|
@@ -158,6 +162,48 @@ module HouseholdFinance
     def account_money_value(account)
       return "Not entered" unless account["balance_known"]
       money_from_cents(account["balance_cents"])
+    end
+
+    def goal_create_review_fields(goal)
+      [
+        { label: "Goal", before: "Does not exist", after: goal["label"].to_s },
+        { label: "Type", before: "—", after: goal["goal_type"].to_s.humanize },
+        { label: "Target", before: "—", after: goal_money_value(goal, "target_amount") },
+        { label: "Current progress", before: "—", after: goal_money_value(goal, "current_amount") },
+        { label: "Target date", before: "—", after: goal["target_on"].presence || "Not entered" }
+      ]
+    end
+
+    def goal_review_fields(before, after)
+      labels = {
+        "label" => "Goal", "goal_type" => "Type", "target_amount_cents" => "Target",
+        "target_amount_known" => "Target", "current_amount_cents" => "Current progress",
+        "current_amount_known" => "Current progress", "target_on" => "Target date", "active" => "Tracking status"
+      }
+      handled = []
+      labels.filter_map do |key, label|
+        next if handled.include?(label)
+        known_key = key.sub("_cents", "_known")
+        next if key.end_with?("_cents") && before[key] == after[key] && before[known_key] == after[known_key]
+        next if key.end_with?("_known")
+        next if !key.end_with?("_cents") && before[key] == after[key]
+        handled << label
+        value = lambda do |record|
+          case key
+          when "target_amount_cents" then goal_money_value(record, "target_amount")
+          when "current_amount_cents" then goal_money_value(record, "current_amount")
+          when "goal_type" then record[key].to_s.humanize
+          when "active" then record[key] ? "Active" : "Archived"
+          else record[key].presence || "Not entered"
+          end
+        end
+        { label: label, before: value.call(before), after: value.call(after) }
+      end
+    end
+
+    def goal_money_value(goal, prefix)
+      return "Not entered" unless goal["#{prefix}_known"]
+      money_from_cents(goal["#{prefix}_cents"])
     end
 
     def debt_review_fields(before, after)

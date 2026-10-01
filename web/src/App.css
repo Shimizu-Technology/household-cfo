@@ -2630,7 +2630,8 @@ h3 {
 }
 
 .debt-empty,
-.account-empty {
+.account-empty,
+.goal-empty {
   padding: 15px;
   border: 1px dashed rgba(95, 125, 97, 0.36);
   border-radius: 16px;
@@ -2639,6 +2640,7 @@ h3 {
 
 .debt-empty p,
 .account-empty p,
+.goal-empty p,
 .debt-privacy-note {
   margin: 4px 0 0;
   color: var(--muted);
@@ -2671,6 +2673,22 @@ h3 {
 .account-observation-note { margin: 0; color: var(--muted); font-size: .82rem; }
 .account-observation-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid rgba(151, 90, 42, .3); border-radius: 14px; background: rgba(255, 245, 230, .82); color: var(--wine); }
 .account-observation-error button { min-height: 44px; flex: 0 0 auto; }
+
+.goal-manager { display: grid; gap: 16px; }
+.goal-manager-heading { align-items: flex-start; gap: 18px; }
+.goal-manager-heading h3, .goal-manager-heading p { margin-bottom: 0; }
+.goal-manager-heading > button, .goal-row-actions button { min-height: 44px; padding: 10px 15px; border-radius: 999px; font-weight: 900; }
+.goal-manager-heading > button { background: var(--emerald); color: white; }
+.goal-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.goal-summary > span { display: grid; min-height: 44px; gap: 4px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 253, 248, 0.78); }
+.goal-summary small, .goal-row span, .goal-row small { color: var(--muted); font-size: .76rem; }
+.goal-summary strong { color: var(--emerald); font-size: 1.05rem; }
+.goal-list { display: grid; gap: 10px; }
+.goal-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, .8fr) auto; gap: 12px; align-items: center; padding: 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 253, 248, .76); }
+.goal-row > div:not(.goal-row-actions) { display: grid; gap: 3px; }
+.goal-row-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.goal-form { display: grid; gap: 14px; padding: 16px; border: 1px solid rgba(123, 74, 88, .2); border-radius: 18px; background: rgba(249, 242, 233, .7); }
+.goal-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 
 .admin-operations {
   display: grid;
@@ -4221,7 +4239,9 @@ h3 {
   .debt-manager-heading,
   .debt-row,
   .account-manager-heading,
-  .account-row {
+  .account-row,
+  .goal-manager-heading,
+  .goal-row {
     display: grid;
     grid-template-columns: 1fr;
   }
@@ -4231,7 +4251,9 @@ h3 {
   .debt-form-actions button,
   .account-manager-heading > button,
   .account-row-actions button,
-  .account-bank-review button {
+  .account-bank-review button,
+  .goal-manager-heading > button,
+  .goal-row-actions button {
     width: 100%;
   }
 
@@ -4241,7 +4263,9 @@ h3 {
   .debt-form-grid,
   .admin-operations,
   .account-summary,
-  .account-form-grid {
+  .account-form-grid,
+  .goal-summary,
+  .goal-form-grid {
     grid-template-columns: 1fr;
   }
 
@@ -4251,7 +4275,8 @@ h3 {
   .account-bank-review,
   .account-bank-review > div,
   .account-match,
-  .account-observation {
+  .account-observation,
+  .goal-row-actions {
     display: grid;
     grid-template-columns: 1fr;
   }

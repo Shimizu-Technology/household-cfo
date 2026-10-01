@@ -74,6 +74,14 @@ module HouseholdFinance
         structured_account_reconcile_proposal
       when "unlink_plaid_account"
         structured_account_unlink_proposal
+      when "create_goal"
+        structured_goal_create_proposal
+      when "update_goal"
+        structured_goal_update_proposal
+      when "archive_goal"
+        structured_goal_status_proposal(archive: true)
+      when "restore_goal"
+        structured_goal_status_proposal(archive: false)
       else
         validation_result("I could not safely resolve that change. Nothing changed. Tell me the value and when it should take effect.")
       end

@@ -144,12 +144,23 @@ module HouseholdFinance
       goal_type = item.metadata.is_a?(Hash) ? item.metadata["goal_type"].to_s : ""
       goal_type = "other" unless goal_type.in?(Goal::GOAL_TYPES)
       record = if goal_type.in?(%w[runway transition])
-        household.goals.find_or_initialize_by(goal_type: goal_type)
+        household.goals.policy.find_or_initialize_by(goal_type: goal_type)
       else
-        find_label_record_or_initialize(household.goals, item.label, goal_type: goal_type)
+        find_label_record_or_initialize(household.goals.tracked.active, item.label, goal_type: goal_type)
       end
       record.label = item.label
-      record.target_amount_cents = item.amount_cents.to_i
+      if item.amount_cents.present?
+        record.target_amount_cents = item.amount_cents
+        record.target_amount_known = true
+      elsif record.new_record?
+        record.target_amount_cents = 0
+        record.target_amount_known = false
+      end
+      record.current_amount_cents = 0 if record.new_record?
+      record.current_amount_known = false if record.new_record?
+      record.record_kind = goal_type.in?(%w[runway transition]) ? "policy" : "tracked"
+      record.source_type = "document_import" if record.new_record?
+      record.source_metadata = (record.source_metadata || {}).merge("document_import_id" => document_import.id, "document_import_item_id" => item.id)
       record.priority = next_goal_priority if record.new_record? && record.priority.to_i.zero?
       record.save!
       record

@@ -12,6 +12,7 @@ module HouseholdFinance
       create_transaction_draft update_transaction_draft ignore_transaction_drafts update_household_setup
       schedule_income_change create_debt update_debt archive_debt restore_debt update_debt_tracking
       create_account update_account archive_account restore_account link_plaid_account reconcile_plaid_account unlink_plaid_account
+      create_goal update_goal archive_goal restore_goal
     ].freeze
     SETUP_UPDATE_LIMITS = {
       "household_name" => 120,
@@ -196,7 +197,13 @@ module HouseholdFinance
         account_type: sanitized_text(action["account_type"], max_length: 40),
         balance_as_of_on: sanitized_text(action["balance_as_of_on"], max_length: 20),
         plaid_account_id: bounded_integer(action["plaid_account_id"], 0..MAX_RECORD_ID),
-        reconcile_decision: sanitized_text(action["reconcile_decision"], max_length: 40)
+        reconcile_decision: sanitized_text(action["reconcile_decision"], max_length: 40),
+        goal_id: bounded_integer(action["goal_id"], 0..MAX_RECORD_ID),
+        goal_name: sanitized_text(action["goal_name"], max_length: 120),
+        goal_type: sanitized_text(action["goal_type"], max_length: 40),
+        target_amount: sanitized_text(action["target_amount"], max_length: 40),
+        current_amount: sanitized_text(action["current_amount"], max_length: 40),
+        target_on: sanitized_text(action["target_on"], max_length: 20)
       }.compact
     end
 

@@ -154,6 +154,7 @@ module HouseholdFinance
         when IncomeScheduleEntry then subject.income_source.household_id == household.id
         when ::Debt then subject.household_id == household.id
         when ::Account then subject.household_id == household.id
+        when ::Goal then subject.household_id == household.id
         when HouseholdProfile then subject.household_id == household.id
         when BudgetCategory then subject.household_id == household.id
         when BudgetAllocation then subject.budget_category.household_id == household.id && subject.budget_period.budget_year.household_id == household.id

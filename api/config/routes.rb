@@ -36,6 +36,9 @@ Rails.application.routes.draw do
           delete :plaid_link, action: :plaid_unlink
         end
       end
+      resources :goals, only: %i[create update destroy] do
+        post :restore, on: :member
+      end
       resources :income_sources, only: %i[create update destroy] do
         post :restore, on: :member
       end

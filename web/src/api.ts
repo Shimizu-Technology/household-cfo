@@ -40,6 +40,8 @@ export type WorkspaceData = {
   asset_portfolio: AssetPortfolio
   debts: DebtRecord[]
   debt_portfolio: DebtPortfolio
+  goals: GoalRecord[]
+  goal_portfolio: GoalPortfolio
   cohort: null | {
     id: number
     name: string
@@ -131,6 +133,32 @@ export type DebtPortfolio = {
   minimum_payment_known: boolean
   active_count: number
   archived_count: number
+}
+
+export type GoalType = 'debt_payoff' | 'business_income' | 'purchase' | 'savings' | 'education' | 'business' | 'travel' | 'home' | 'retirement' | 'other'
+export type GoalRecord = {
+  id: number
+  label: string
+  goal_type: GoalType
+  target_amount: number | null
+  current_amount: number | null
+  target_on: string | null
+  priority: number
+  active: boolean
+  archived_at: string | null
+  source_type: 'manual_ui' | 'mia' | 'document_import' | 'setup'
+  source_metadata: Record<string, unknown>
+}
+export type GoalInput = Pick<GoalRecord, 'label' | 'goal_type' | 'target_amount' | 'current_amount' | 'target_on'>
+export type GoalPortfolio = {
+  active_count: number
+  archived_count: number
+  target_total: number
+  progress_total: number
+  target_known_count: number
+  progress_known_count: number
+  unknown_target_goal_ids: number[]
+  unknown_progress_goal_ids: number[]
 }
 
 export type ProfileSection = {
@@ -518,6 +546,10 @@ export type MiaActionItem = {
     | 'link_plaid_account'
     | 'reconcile_plaid_account'
     | 'unlink_plaid_account'
+    | 'create_goal'
+    | 'update_goal'
+    | 'archive_goal'
+    | 'restore_goal'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -537,7 +569,7 @@ export type MiaActionItem = {
 export type MiaActionDraft = {
   id: number
   status: 'pending' | 'applied' | 'canceled'
-  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan'
+  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan' | 'goal_plan'
   year: number
   title: string
   summary: string
@@ -2300,6 +2332,8 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       asset_portfolio: { liquid_balance: 0, nonliquid_balance: 0, total_balance: 0, liquid_balance_known: false, nonliquid_balance_known: false, total_balance_known: false, active_count: 0, archived_count: 0, liquid_known_count: 0, nonliquid_known_count: 0, total_known_count: 0, unknown_balance_account_ids: [] },
       debts: [],
       debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
+      goals: [],
+      goal_portfolio: { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] },
       cohort: null,
       capabilities: {
         schema_version: 1,
@@ -2383,6 +2417,28 @@ export function reconcilePlaidAccount(id: number, decision: 'accept_observed' | 
 }
 export function unlinkPlaidAccount(id: number, idempotencyKey: string) {
   return accountMutation(`/api/v1/accounts/${id}/plaid_link`, 'DELETE', idempotencyKey)
+}
+
+async function goalMutation(path: string, method: string, idempotencyKey: string, body?: Record<string, unknown>): Promise<GoalRecord> {
+  const payload = await fetchJson<{ goal: GoalRecord }>(path, {
+    method,
+    headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), 'Idempotency-Key': idempotencyKey },
+    body: body ? JSON.stringify(body) : undefined,
+  })
+  return payload.goal
+}
+
+export function createGoal(values: GoalInput, idempotencyKey: string) {
+  return goalMutation('/api/v1/goals', 'POST', idempotencyKey, { goal: values })
+}
+export function updateGoal(id: number, values: GoalInput, idempotencyKey: string) {
+  return goalMutation(`/api/v1/goals/${id}`, 'PATCH', idempotencyKey, { goal: values })
+}
+export function archiveGoal(id: number, idempotencyKey: string) {
+  return goalMutation(`/api/v1/goals/${id}`, 'DELETE', idempotencyKey)
+}
+export function restoreGoal(id: number, idempotencyKey: string) {
+  return goalMutation(`/api/v1/goals/${id}/restore`, 'POST', idempotencyKey, {})
 }
 
 export async function updateDebtTracking(values: { mode: 'summary' | 'individual'; summary_balance?: number | null; summary_minimum_payment?: number | null }, idempotencyKey: string): Promise<DebtPortfolio> {

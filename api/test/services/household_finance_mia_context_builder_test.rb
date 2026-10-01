@@ -1,6 +1,30 @@
 require "test_helper"
 
 class HouseholdFinanceMiaContextBuilderTest < ActiveSupport::TestCase
+  test "supplies tracked goals without converting unknown amounts to zero or treating policy as a goal" do
+    user = User.create!(clerk_id: "goal-context-#{SecureRandom.hex(6)}", email: "goal-context@example.com", role: "participant", invitation_status: "accepted")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    HouseholdFinance::SetupUpdater.new(household, target_runway_months: 6).call
+    household.goals.create!(
+      label: "Family trip", goal_type: "travel", record_kind: "tracked",
+      target_amount_known: false, current_amount_known: true, current_amount_cents: 0,
+      target_on: Date.new(2027, 6, 1), priority: 1
+    )
+
+    payload = JSON.parse(HouseholdFinance::MiaContextBuilder.new(household).call)
+    goals = payload.fetch("tracked_goals")
+    record = goals.fetch("records").sole
+
+    assert_equal 1, goals.fetch("total_count")
+    assert_equal "Family trip", record.fetch("label")
+    assert_nil record.fetch("target_amount")
+    assert_equal false, record.fetch("target_amount_known")
+    assert_equal "$0", record.fetch("current_progress")
+    assert_equal true, record.fetch("current_progress_known")
+    assert_not_includes goals.fetch("records").pluck("goal_type"), "runway"
+    assert_includes goals.fetch("effect_note"), "do not move money"
+  end
+
   test "tells Mia which cohort product modules are available" do
     user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "context-modules@example.com", role: "participant", invitation_status: "accepted")
     household = Household.create!(created_by_user: user, name: "Module context household")

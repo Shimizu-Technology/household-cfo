@@ -73,6 +73,7 @@ module HouseholdFinance
         },
         financial_accounts: financial_accounts_context,
         debts: debt_context,
+        tracked_goals: tracked_goals_context,
         expense_stack_totals: expense_stack_totals,
         annual_budget: annual_budget_context,
         documents: document_context,
@@ -177,6 +178,29 @@ module HouseholdFinance
             balance_as_of_on: account.balance_as_of_on&.iso8601,
             liquid: account.liquid?,
             updated_at: account.updated_at.iso8601
+          }
+        end
+      }
+    end
+
+    def tracked_goals_context
+      goals = household.goals.tracked.order(active: :desc, priority: :asc, id: :asc)
+      total_count = goals.count
+      {
+        total_count: total_count,
+        coverage: total_count > MAX_FINANCIAL_RECORDS ? "first_50_approved_records" : "all_approved_records",
+        effect_note: "Tracked goals record intent and progress only. They do not move money or change accounts, debt, income, the budget, runway, readiness, or safe-to-spend.",
+        records: goals.limit(MAX_FINANCIAL_RECORDS).map do |goal|
+          {
+            label: sanitized_text(goal.label, max_length: 120),
+            goal_type: goal.goal_type,
+            target_amount: goal.target_amount_known? ? money(goal.target_amount_cents) : nil,
+            target_amount_known: goal.target_amount_known?,
+            current_progress: goal.current_amount_known? ? money(goal.current_amount_cents) : nil,
+            current_progress_known: goal.current_amount_known?,
+            target_on: goal.target_on&.iso8601,
+            active: goal.active?,
+            updated_at: goal.updated_at.iso8601
           }
         end
       }

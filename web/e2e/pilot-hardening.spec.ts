@@ -280,6 +280,8 @@ function realWorkspaceData(setupComplete = false) {
       },
       debts: [],
       debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
+      goals: [],
+      goal_portfolio: { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] },
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
       capabilities: experienceCapabilities(),
       setup_values: {
@@ -1565,6 +1567,83 @@ test('account manager routes Mia account reviews to the exact mobile-safe manual
   const archivedSummary = manager.getByText('Archived accounts (1)')
   await expect(archivedSummary).toBeVisible()
   expect((await archivedSummary.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+})
+
+test('tracked goals stay intuitive and overflow-free while preserving unknown values', async ({ page }) => {
+  let goals = [
+    { id: 31, label: 'Family trip', goal_type: 'travel', target_amount: null, current_amount: 0, target_on: null, priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} },
+  ]
+  const workspaceData = () => {
+    const base = realWorkspaceData(true)
+    const active = goals.filter((goal) => goal.active)
+    const archived = goals.filter((goal) => !goal.active)
+    const knownTargets = active.filter((goal) => goal.target_amount !== null)
+    const knownProgress = active.filter((goal) => goal.current_amount !== null)
+    return {
+      ...base,
+      workspace: {
+        ...base.workspace,
+        goals,
+        goal_portfolio: {
+          active_count: active.length, archived_count: archived.length,
+          target_total: knownTargets.reduce((sum, goal) => sum + Number(goal.target_amount), 0),
+          progress_total: knownProgress.reduce((sum, goal) => sum + Number(goal.current_amount), 0),
+          target_known_count: knownTargets.length, progress_known_count: knownProgress.length,
+          unknown_target_goal_ids: active.filter((goal) => goal.target_amount === null).map((goal) => goal.id),
+          unknown_progress_goal_ids: active.filter((goal) => goal.current_amount === null).map((goal) => goal.id),
+        },
+      },
+    }
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspaceData() }))
+  await page.route('http://api.test/api/v1/goals', async (route) => {
+    const body = route.request().postDataJSON().goal
+    const saved = { id: 32, ...body, priority: 2, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} }
+    goals = [...goals, saved]
+    return route.fulfill({ status: 201, json: { goal: saved } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+  const manager = page.locator('.goal-manager')
+  await expect(manager).toContainText('$0.00')
+  await expect(manager).toContainText('Needs targets')
+  await manager.getByRole('button', { name: 'Add a goal' }).click()
+  await manager.getByLabel('Goal name').fill('Home down payment')
+  await manager.getByLabel('Type').selectOption('home')
+  await manager.getByLabel('Target amount').fill('25000')
+  await manager.getByRole('button', { name: 'Add goal' }).click()
+  await expect(manager.getByText('Home down payment')).toBeVisible()
+  await expect(manager).toContainText('$25,000.00 known so far')
+  await expect(manager).toContainText('Progress')
+  expect(await manager.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+  const addButton = manager.getByRole('button', { name: 'Add a goal' })
+  expect((await addButton.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
+})
+
+test('tracked goal Mia reviews route to the exact manual editor', async ({ page }) => {
+  const base = realWorkspaceData(true)
+  const goal = { id: 31, label: 'Family trip', goal_type: 'travel', target_amount: 5000, current_amount: 500, target_on: '2027-06-01', priority: 1, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {} }
+  const draft = {
+    id: 79, status: 'pending', draft_type: 'goal_plan', year: currentYear,
+    title: 'Update the family trip', summary: 'Mia prepared a tracked goal change for review.',
+    rationale: 'Accounts, the budget, runway, and safe-to-spend stay unchanged.', source_prompt: 'Update my family trip goal.',
+    created_at: '2026-10-02T00:00:00Z', applied_at: null, canceled_at: null, impact: null,
+    items: [{ id: 791, action_type: 'update_goal', operation_key: 'goal.record.update', target_record_type: 'Goal', target_record_id: 31, label: 'Update Family trip', description: 'Review the goal.', payload: { goal_id: 31 }, before_snapshot: {}, after_snapshot: {}, review_fields: [{ label: 'Target', before: '$5,000.00', after: '$6,000.00' }] }],
+  }
+  const workspace = {
+    ...base,
+    workspace: { ...base.workspace, goals: [goal], goal_portfolio: { active_count: 1, archived_count: 0, target_total: 5000, progress_total: 500, target_known_count: 1, progress_known_count: 1, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] } },
+    budget: { ...base.budget, annual_plan: { ...base.budget.annual_plan, pending_mia_action_drafts: [draft] } },
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: draft.title })
+  await expect(card).toContainText('Tracked goals')
+  await card.getByRole('button', { name: 'Open manual controls' }).click()
+  const manager = page.locator('.goal-manager')
+  await expect(manager.getByLabel('Goal name')).toHaveValue('Family trip')
+  await expect(manager.getByLabel('Goal name')).toBeFocused()
+  expect(await manager.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
 })
 
 test('account manager routes keep-saved reviews to Keep saved and never Accept', async ({ page }) => {

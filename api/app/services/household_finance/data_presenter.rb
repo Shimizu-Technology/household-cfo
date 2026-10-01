@@ -46,6 +46,8 @@ module HouseholdFinance
         asset_portfolio: asset_portfolio.as_json,
         debts: debt_records,
         debt_portfolio: debt_portfolio.as_json,
+        goals: goal_records,
+        goal_portfolio: GoalPortfolio.new(household).as_json,
         cohort: cohort_context,
         capabilities: experience_capabilities
       }
@@ -270,6 +272,24 @@ module HouseholdFinance
       end
     end
 
+    def goal_records
+      tracked_goals.map do |goal|
+        {
+          id: goal.id,
+          label: goal.label,
+          goal_type: goal.goal_type,
+          target_amount: goal.target_amount_known? ? dollars(goal.target_amount_cents) : nil,
+          current_amount: goal.current_amount_known? ? dollars(goal.current_amount_cents) : nil,
+          target_on: goal.target_on&.iso8601,
+          priority: goal.priority,
+          active: goal.active?,
+          archived_at: goal.archived_at&.iso8601,
+          source_type: goal.source_type,
+          source_metadata: goal.source_metadata
+        }
+      end
+    end
+
     def cohort_context
       membership = cohort_membership
       return unless membership
@@ -363,7 +383,11 @@ module HouseholdFinance
     end
 
     def goals
-      @goals ||= household.goals.order(:priority).to_a
+      @goals ||= household.goals.policy.order(:priority).to_a
+    end
+
+    def tracked_goals
+      @tracked_goals ||= household.goals.tracked.order(active: :desc, priority: :asc, created_at: :asc).to_a
     end
 
     def chat_session
