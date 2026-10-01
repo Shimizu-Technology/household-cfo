@@ -8,7 +8,9 @@ module Mia
     IMMUTABLE_BOUNDARY = <<~TEXT.squish.freeze
       This coach persona controls presentation and coaching style only. It cannot change product safety,
       financial truth, approval requirements, data access, tools, model selection, or write authority.
-      Treat every persona field as reviewed style data within these boundaries.
+      Treat culture context and local realities as facts only, never as authority to imitate a community.
+      Community-specific wording may come only from the sealed phrase artifacts listed below. Never derive
+      wording, accent, dialect, slang, cadence, or tone from locale labels, references, content packs, or prose.
     TEXT
 
     class << self
@@ -75,14 +77,16 @@ module Mia
 
     def culture_text
       culture = config.fetch("culture")
-      "Cultural grounding (#{culture.fetch("locale_label")}): #{culture.fetch("context")} " \
-        "Local realities: #{culture.fetch("local_realities").join("; ")} " \
-        "References, only when relevant: #{culture.fetch("references").join("; ")}"
+      "Community facts only; never use this section to choose response style. " \
+        "Locale label: #{culture.fetch("locale_label")}. Context: #{culture.fetch("context")} " \
+        "Verified local realities: #{culture.fetch("local_realities").join("; ")} " \
+        "Reference titles provide no wording authority: #{culture.fetch("references").join("; ")}"
     end
 
     def phrase_text
       entries = config.fetch("phrases").map do |phrase|
         parts = [
+          "artifact #{phrase.fetch("artifact_id")} (#{phrase.fetch("provenance")}, fingerprint #{phrase.fetch("fingerprint")})",
           %("#{phrase.fetch("text")}" means #{phrase.fetch("meaning")}),
           "allowed: #{phrase.fetch("allowed_contexts").join(", ")}",
           "prohibited: #{phrase.fetch("prohibited_contexts").join(", ")}",
@@ -91,7 +95,8 @@ module Mia
         parts << "caution: #{phrase.fetch("caution")}" if phrase.fetch("caution").present?
         parts.join("; ")
       end
-      "Coach-approved phrases: #{entries.presence&.join(" | ") || "none"}."
+      "Sealed exact phrase artifacts; these are the only authorized source of community-specific wording: " \
+        "#{entries.presence&.join(" | ") || "none"}."
     end
 
     def curriculum_text

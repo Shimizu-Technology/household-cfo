@@ -2,12 +2,15 @@
 
 require "digest"
 require "json"
+require "securerandom"
 
 module Mia
   class PersonaSchema
     MAX_BYTES = 32_768
     FREQUENCIES = %w[very_rare rare sparing as_needed].freeze
     PHRASE_CONTEXTS = %w[greeting verified_milestone emotional_support repeated_pattern routine general crisis].freeze
+    PHRASE_PROVENANCE = %w[coach_authored participant_supplied].freeze
+    ARTIFACT_ID_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
     TOP_LEVEL_KEYS = %w[version identity voice coaching culture phrases curriculum response_shape].freeze
 
     class InvalidConfiguration < ArgumentError
@@ -96,6 +99,57 @@ module Mia
 
       def digest(configuration)
         Digest::SHA256.hexdigest(canonical_json(configuration).b)
+      end
+
+      def prepare_draft_artifacts(configuration, source_user_id:, existing_configuration: nil)
+        config = normalize(configuration).deep_dup
+        trusted_participant_artifacts = Array(normalize(existing_configuration).to_h["phrases"]).index_by do |phrase|
+          phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["provenance"] == "participant_supplied"
+        end.compact
+        config["phrases"] = Array(config["phrases"]).each_with_index.map do |phrase, index|
+          next phrase unless phrase.is_a?(Hash)
+          if phrase["provenance"] == "participant_supplied"
+            trusted = trusted_participant_artifacts[phrase["artifact_id"]]
+            unless trusted.present? && ActiveSupport::SecurityUtils.secure_compare(
+              JSON.generate(canonicalize(phrase)),
+              JSON.generate(canonicalize(trusted))
+            )
+              raise InvalidConfiguration,
+                [ "$.phrases[#{index}] participant-supplied artifact must be imported by a trusted participant-language workflow" ]
+            end
+            next phrase
+          end
+
+          build_phrase_artifact(
+            phrase,
+            artifact_id: phrase["artifact_id"].presence || SecureRandom.uuid,
+            provenance: "coach_authored",
+            source_user_id: source_user_id
+          )
+        end
+        config
+      end
+
+      def build_phrase_artifact(attributes, artifact_id: SecureRandom.uuid, provenance: "coach_authored", source_user_id:)
+        normalized = normalize(attributes)
+        artifact = {
+          "artifact_id" => artifact_id.to_s,
+          "provenance" => provenance.to_s,
+          "source_user_id" => Integer(source_user_id, exception: false),
+          "text" => normalized["text"],
+          "meaning" => normalized["meaning"],
+          "allowed_contexts" => normalized["allowed_contexts"],
+          "prohibited_contexts" => normalized["prohibited_contexts"],
+          "frequency" => normalized["frequency"],
+          "caution" => normalized["caution"]
+        }
+        artifact["fingerprint"] = artifact_fingerprint(artifact)
+        artifact
+      end
+
+      def artifact_fingerprint(artifact)
+        normalized = normalize(artifact).except("fingerprint")
+        Digest::SHA256.hexdigest(JSON.generate(canonicalize(normalized)).b)
       end
 
       def normalize(value)
@@ -196,20 +250,36 @@ module Mia
         return array_required(value, path, errors) unless value.is_a?(Array)
 
         errors << "#{path} must contain at most 24 items" unless value.length.between?(0, 24)
+        artifact_ids = []
         value.each_with_index do |phrase, index|
           item_path = "#{path}[#{index}]"
           unless phrase.is_a?(Hash)
             errors << "#{item_path} must be an object"
             next
           end
-          exact_keys(phrase, %w[text meaning allowed_contexts prohibited_contexts frequency caution], item_path, errors)
+          exact_keys(
+            phrase,
+            %w[artifact_id provenance source_user_id text meaning allowed_contexts prohibited_contexts frequency caution fingerprint],
+            item_path,
+            errors
+          )
+          artifact_ids << phrase["artifact_id"]
+          errors << "#{item_path}.artifact_id must be a UUID" unless phrase["artifact_id"].to_s.match?(ARTIFACT_ID_PATTERN)
+          errors << "#{item_path}.provenance is not supported" unless phrase["provenance"].in?(PHRASE_PROVENANCE)
+          bounded_integer(phrase["source_user_id"], "#{item_path}.source_user_id", errors, 1..2_147_483_647)
           bounded_string(phrase["text"], "#{item_path}.text", errors, 100)
           bounded_string(phrase["meaning"], "#{item_path}.meaning", errors, 300)
           enum_array(phrase["allowed_contexts"], "#{item_path}.allowed_contexts", errors, range: 1..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
           enum_array(phrase["prohibited_contexts"], "#{item_path}.prohibited_contexts", errors, range: 0..PHRASE_CONTEXTS.length, values: PHRASE_CONTEXTS)
           errors << "#{item_path}.frequency is not supported" unless phrase["frequency"].in?(FREQUENCIES)
           optional_bounded_string(phrase["caution"], "#{item_path}.caution", errors, 300)
+          expected_fingerprint = artifact_fingerprint(phrase)
+          unless phrase["fingerprint"].to_s.match?(/\A[0-9a-f]{64}\z/) &&
+              ActiveSupport::SecurityUtils.secure_compare(phrase["fingerprint"], expected_fingerprint)
+            errors << "#{item_path}.fingerprint must match the exact phrase artifact"
+          end
         end
+        errors << "#{path} artifact IDs must be unique" unless artifact_ids.compact.uniq.length == artifact_ids.compact.length
       end
 
       def validate_curriculum(value, errors)

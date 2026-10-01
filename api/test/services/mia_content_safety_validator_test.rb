@@ -35,13 +35,10 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
       content: "Use the participant's own words, including slang they explicitly supplied."
     )
     assert Mia::ContentSafetyValidator.validate!(
-      title: "Location safeguard",
-      content: "Do not make Mia sound like someone from Guam based only on location."
+      title: "How to use a sealed phrase artifact",
+      content: "Explain the exact artifact and the contexts where it belongs."
     )
-    assert Mia::ContentSafetyValidator.validate!(
-      title: "How to use Chamorro dialect respectfully",
-      content: "Explain the exact coach-approved phrase and the contexts where it belongs."
-    )
+    assert_unsafe("regional_stereotype", "Do not make Mia sound like someone from Guam based only on location.")
   end
 
   test "blocks identifiers household facts unsafe instructions and stereotypes" do
@@ -188,10 +185,7 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     safe_content = [
       "Use the participant's own words, including slang they explicitly supplied.",
       "Use the slang the participant explicitly supplied.",
-      "Use slang explicitly supplied by the participant.",
-      "Use the coach's explicitly approved local expressions for Guam participants.",
-      "Use local expressions explicitly approved by the coach for Guam participants.",
-      "Adopt the participant's local expressions they explicitly supplied for people in Guam."
+      "Use slang explicitly supplied by the participant."
     ]
     safe_content.each do |content|
       assert Mia::ContentSafetyValidator.validate!(title: "Approved language", content: content), content
@@ -249,14 +243,12 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     ]
     mimicry.each { |content| assert_unsafe("regional_stereotype", content) }
 
-    approved_or_descriptive = [
+    unstructured_approval_or_description = [
       "Use coach-approved local expressions for Guam participants.",
       "Use the exact coach-approved local expressions for Guam participants.",
       "The coach wrote, ‘Use Guam-style phrasing,’ as an example of what Mia must not do."
     ]
-    approved_or_descriptive.each do |content|
-      assert Mia::ContentSafetyValidator.validate!(title: "Reviewed voice boundary", content: content), content
-    end
+    unstructured_approval_or_description.each { |content| assert_unsafe("regional_stereotype", content) }
   end
 
   test "cultural safety covers predicate and pronoun continuations without blocking participant outcomes" do
@@ -294,25 +286,21 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     ]
     mimicry.each { |content| assert_unsafe("regional_stereotype", content) }
 
-    approved = [
+    unstructured_approval_claims = [
       "Use local expressions from the approved coach glossary.",
       "Use coach-authorized Guam phrasing."
     ]
-    approved.each do |content|
-      assert Mia::ContentSafetyValidator.validate!(title: "Approved coach language", content: content), content
-    end
+    unstructured_approval_claims.each { |content| assert_unsafe("regional_stereotype", content) }
   end
 
   test "cultural safety understands explicit negation and quoted prohibition intent" do
-    safeguards = [
+    unstructured_prohibitions = [
       "Do not ever use local Guam phrasing.",
       "Never under any circumstances use local Guam phrasing.",
       "The coach wrote, 'Use Guam-style phrasing,' as an example of what Mia must not do.",
       "The coach wrote, `Use Guam-style phrasing,` as an example of what Mia must not do."
     ]
-    safeguards.each do |content|
-      assert Mia::ContentSafetyValidator.validate!(title: "Prohibited voice example", content: content), content
-    end
+    unstructured_prohibitions.each { |content| assert_unsafe("regional_stereotype", content) }
 
     encouraging_quotes = [
       "The coach wrote, 'Use Guam-style phrasing,' and said it is not prohibited.",
@@ -323,13 +311,9 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     encouraging_quotes.each { |content| assert_unsafe("regional_stereotype", content) }
   end
 
-  test "cultural safety preserves supplied language safeguards and evidence references" do
+  test "cultural safety preserves generic supplied language and factual evidence only" do
     safe_content = [
       "Use the participant's own words, including slang they explicitly supplied.",
-      "Use the coach's explicitly approved local expressions for Guam participants.",
-      "Adopt the participant's local expressions they explicitly supplied for people in Guam.",
-      "Do not mirror the way people speak where they live.",
-      "Do not make Mia sound like someone from Guam based only on location.",
       "Evidence note: residents of Guam may face added freight costs on some shipped goods.",
       "Explain that ‘Håfa adai’ is a coach-approved greeting in this curriculum."
     ]
@@ -337,10 +321,13 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     safe_content.each do |content|
       assert Mia::ContentSafetyValidator.validate!(title: "Reviewed cultural guidance", content: content), content
     end
-    assert Mia::ContentSafetyValidator.validate!(
-      title: "How to use Chamorro dialect respectfully",
-      content: "Explain only the exact phrases documented in the coach-approved reference."
-    )
+    [
+      "Use the coach's explicitly approved local expressions for Guam participants.",
+      "Adopt the participant's local expressions they explicitly supplied for people in Guam.",
+      "Do not mirror the way people speak where they live.",
+      "Do not make Mia sound like someone from Guam based only on location."
+    ].each { |content| assert_unsafe("regional_stereotype", content) }
+    assert_unsafe("regional_stereotype", "How to use Chamorro dialect respectfully")
   end
 
   private

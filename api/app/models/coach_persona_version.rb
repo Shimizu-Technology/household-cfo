@@ -30,6 +30,7 @@ class CoachPersonaVersion < ApplicationRecord
   validates :content_manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validate :publisher_is_staff
   validate :config_matches_schema_and_digest
+  validate :phrase_artifact_provenance
   validate :source_version_belongs_to_persona
   validate :published_record_is_immutable, on: :update
 
@@ -102,6 +103,18 @@ class CoachPersonaVersion < ApplicationRecord
     return if config_digest == Mia::PersonaSchema.digest(config)
 
     errors.add(:config_digest, "must match the canonical configuration digest")
+  end
+
+  def phrase_artifact_provenance
+    Array(config.to_h["phrases"]).each_with_index do |phrase, index|
+      source_user_id = Integer(phrase["source_user_id"], exception: false)
+      valid = if phrase["provenance"] == "coach_authored"
+        source_user_id == coach_persona&.created_by_user_id
+      elsif phrase["provenance"] == "participant_supplied"
+        User.where(id: source_user_id, role: "participant").exists?
+      end
+      errors.add(:config, "$.phrases[#{index}] has invalid provenance") unless valid
+    end
   end
 
   def source_version_belongs_to_persona

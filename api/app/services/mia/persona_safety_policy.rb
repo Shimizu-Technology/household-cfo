@@ -2,7 +2,7 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 5
+    VERSION = 6
     NEGATION_PATTERN = /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)/i.freeze
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i
@@ -73,7 +73,13 @@ module Mia
       def violations(configuration)
         errors = []
         validate_identity_disclosure(configuration, errors)
-        walk(configuration, "$", errors, human_coach_name(configuration))
+        walk(
+          configuration,
+          "$",
+          errors,
+          human_coach_name(configuration),
+          configured_identity_labels(configuration)
+        )
         errors.uniq.first(20)
       end
 
@@ -120,22 +126,26 @@ module Mia
         unnegated_match?(value, pattern, related_patterns: related_patterns)
       end
 
-      def walk(value, path, errors, human_coach_name)
+      def walk(value, path, errors, human_coach_name, identity_labels)
         case value
         when Hash
           value.each do |key, child|
             key_name = key.to_s
             errors << "#{path}.#{key_name} is a reserved configuration key" if key_name.match?(FORBIDDEN_KEY_PATTERN)
-            walk(child, "#{path}.#{key_name}", errors, human_coach_name)
+            walk(child, "#{path}.#{key_name}", errors, human_coach_name, identity_labels)
           end
         when Array
-          value.each_with_index { |child, index| walk(child, "#{path}[#{index}]", errors, human_coach_name) }
+          value.each_with_index { |child, index| walk(child, "#{path}[#{index}]", errors, human_coach_name, identity_labels) }
         when String
           if identity_misrepresentation?(value, human_coach_name)
             errors << "#{path} cannot impersonate the human coach or conceal the assistant's AI identity"
           end
           errors << "#{path} contains safety or prompt-control guidance" if FORBIDDEN_GUIDANCE_PATTERNS.any? { |pattern| value.match?(pattern) }
-          cultural_violations = CulturalSafetyPolicy.violations(value, field: cultural_field_for(path))
+          cultural_violations = CulturalSafetyPolicy.violations(
+            value,
+            field: cultural_field_for(path),
+            identity_labels: identity_labels
+          )
           if cultural_violations.include?(CulturalSafetyPolicy::REGIONAL_STEREOTYPE)
             errors << "#{path} contains a regional or cultural stereotype"
           end
@@ -162,10 +172,27 @@ module Mia
       end
 
       def cultural_field_for(path)
-        return :reference_title if path.match?(/\A\$\.curriculum\.(?:guidance|scripts)\[\d+\]\.title\z/)
-        return :reference_title if path.match?(/\A\$\.culture\.references\[\d+\]\z/)
+        return CulturalSafetyPolicy::PHRASE_ARTIFACT_FIELD if path.match?(/\A\$\.phrases\[\d+\]\.text\z/)
+        return :metadata if path.match?(/\A\$\.phrases\[\d+\]\.(?:artifact_id|provenance|fingerprint|allowed_contexts|prohibited_contexts)/)
+        return CulturalSafetyPolicy::STRUCTURED_PROHIBITION_FIELD if path.match?(/\A\$\.coaching\.do_not\[\d+\]\z/)
+        return :metadata if path.match?(/\A\$\.identity\.(?:assistant_name|human_coach_name|human_coach_title)\z/)
+        return :metadata if path == "$.culture.locale_label"
+        return :local_reality if path.match?(/\A\$\.culture\.local_realities\[\d+\]\z/)
+        return :factual_context if path == "$.culture.context"
+        return :style_instruction if path.start_with?("$.voice.")
 
         :instruction
+      end
+
+      def configured_identity_labels(configuration)
+        culture = configuration.is_a?(Hash) ? configuration["culture"] || configuration[:culture] : nil
+        return [] unless culture.is_a?(Hash)
+
+        label = culture["locale_label"] || culture[:locale_label]
+        return [] unless label.is_a?(String) && label.strip.present?
+        return [] if label.casecmp?("No locale selected")
+
+        [ label.strip ]
       end
 
       def human_coach_identity_pattern(human_coach_name)

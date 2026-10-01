@@ -20,6 +20,7 @@ module Api
         def create
           attributes = create_persona_params
           draft = attributes[:draft_config].presence || default_draft(attributes[:name])
+          draft = Mia::PersonaSchema.prepare_draft_artifacts(draft, source_user_id: current_user.id)
           persona = CoachPersona.create!(
             name: attributes[:name].presence || draft.to_h.dig("identity", "assistant_name"),
             description: attributes[:description],
@@ -29,6 +30,8 @@ module Api
           render json: { persona: serializer(persona).detail }, status: :created
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_invalid")
+        rescue Mia::PersonaSchema::InvalidConfiguration => error
+          render_schema_error(error)
         end
 
         def update
@@ -50,13 +53,23 @@ module Api
             end
             return render_revision_conflict unless expected_draft_revision == persona.draft_revision
 
-            persona.update!(update_persona_params)
+            attributes = update_persona_params
+            if attributes[:draft_config]
+              attributes[:draft_config] = Mia::PersonaSchema.prepare_draft_artifacts(
+                attributes[:draft_config],
+                source_user_id: current_user.id,
+                existing_configuration: persona.draft_config
+              )
+            end
+            persona.update!(attributes)
           end
           render json: { persona: serializer(persona.reload).detail }
         rescue ActiveRecord::StaleObjectError
           render_revision_conflict
         rescue ActiveRecord::RecordInvalid => error
           render_validation_error(error.record, code: "persona_invalid")
+        rescue Mia::PersonaSchema::InvalidConfiguration => error
+          render_schema_error(error)
         end
 
         def destroy
@@ -237,6 +250,10 @@ module Api
         def render_validation_error(record, code:)
           messages = record.errors.full_messages
           render json: { error: messages.first, errors: messages, code: code }, status: :unprocessable_entity
+        end
+
+        def render_schema_error(error)
+          render json: { error: error.errors.first, errors: error.errors, code: "persona_invalid" }, status: :unprocessable_entity
         end
 
         def render_api_error(message, code:, status:)

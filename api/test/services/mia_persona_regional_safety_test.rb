@@ -34,14 +34,76 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       assert_empty normalized.dig("culture", "local_realities")
       assert_empty normalized.dig("culture", "references")
       assert_empty normalized.fetch("phrases")
-      refute_match(/\b(?:accent|dialect|slang|vernacular)\b/i, prompt)
+      assert_includes prompt, "never as authority to imitate a community"
+      assert_includes prompt, "only authorized source of community-specific wording: none"
     end
+  end
+
+  test "structured locale identity cannot be placed into free-form style fields" do
+    [
+      [ "Guam", "Guam" ],
+      [ "Puerto Rico", "Puerto Rico" ],
+      [ "Southern United States", "Southern" ]
+    ].each do |locale, tone_trait|
+      config = persona_configuration(assistant_name: "#{locale} style boundary")
+      config["culture"]["locale_label"] = locale
+      config["voice"]["tone_traits"] = [ "warm", tone_trait ]
+
+      assert_includes Mia::PersonaSchema.errors(config),
+        "$.voice.tone_traits[1] cannot infer dialect, slang, or cultural traits from a location or identity label"
+    end
+
+    safe = persona_configuration(assistant_name: "Generic style")
+    safe["culture"]["locale_label"] = "Guam"
+    safe["voice"]["tone_traits"] = [ "warm", "clear", "unhurried" ]
+    assert_empty Mia::PersonaSchema.errors(safe)
+  end
+
+  test "persona models bind phrase provenance to a real coach or participant" do
+    coach = persona_user
+    other_coach = persona_user
+    participant = persona_user(role: "participant")
+
+    wrong_coach_config = persona_configuration(assistant_name: "Wrong provenance")
+    wrong_coach_config["phrases"] = [
+      phrase("Håfa adai", "A documented greeting.", [ "greeting" ], source_user_id: other_coach.id)
+    ]
+    wrong_coach = CoachPersona.new(
+      name: "Wrong provenance",
+      draft_config: wrong_coach_config,
+      created_by_user: coach
+    )
+
+    participant_config = persona_configuration(assistant_name: "Participant phrase")
+    participant_config["phrases"] = [
+      Mia::PersonaSchema.build_phrase_artifact(
+        {
+          "text" => "My family calls it the storm fund.",
+          "meaning" => "The participant's own name for emergency savings.",
+          "allowed_contexts" => [ "routine" ],
+          "prohibited_contexts" => [ "crisis" ],
+          "frequency" => "as_needed",
+          "caution" => "Use only for the participant who supplied it."
+        },
+        provenance: "participant_supplied",
+        source_user_id: participant.id
+      )
+    ]
+    participant_persona = CoachPersona.new(
+      name: "Participant phrase",
+      draft_config: participant_config,
+      created_by_user: coach
+    )
+
+    refute wrong_coach.valid?
+    assert_includes wrong_coach.errors[:draft_config], "$.phrases[0] has invalid provenance"
+    assert participant_persona.valid?
   end
 
   test "specific realities first-person coaching voice and exact approved phrases can be published" do
     coach = persona_user
 
-    safe_examples.each do |label, config|
+    safe_examples(source_user_id: coach.id).each do |label, config|
       persona = CoachPersona.create!(
         name: config.dig("identity", "assistant_name"),
         description: "#{label} coach-authored participant experience.",
@@ -119,10 +181,10 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     assert_equal "Rollback target no longer meets the current persona safety rules", rollback_error.message
   end
 
-  test "valid participant-led language safeguards and reference titles resolve as the published runtime persona" do
+  test "valid participant-led language safeguards and artifact rules resolve as the published runtime persona" do
     coach = persona_user
     participant = persona_user(role: "participant")
-    config = safe_examples.assoc("neutral").last
+    config = safe_examples(source_user_id: coach.id).assoc("neutral").last
     persona = CoachPersona.create!(
       name: config.dig("identity", "assistant_name"),
       draft_config: config,
@@ -138,7 +200,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     assert_instance_of Mia::RuntimePersona, resolved
     assert_equal version.id, resolved.version_id
     assert_includes resolved.system_prompt, "Use the participant's own words"
-    assert_includes resolved.system_prompt, "How to use Chamorro dialect respectfully"
+    assert_includes resolved.system_prompt, "Phrase artifact use rules"
   end
 
   test "coaching library safety is rechecked for pack publication persona attachment preview publish and runtime retrieval" do
@@ -316,7 +378,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     ]
   end
 
-  def safe_examples
+  def safe_examples(source_user_id:)
     guam = persona_configuration(assistant_name: "Guam grounded assistant")
     guam["culture"] = {
       "locale_label" => "Guam",
@@ -324,7 +386,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       "local_realities" => [ "Coach verified for this cohort: added freight costs apply to some shipped goods; confirm the household's actual amount." ],
       "references" => [ "The coach's Guam cost-of-living worksheet." ]
     }
-    guam["phrases"] = [ phrase("Håfa adai", "A coach-approved Chamorro greeting.", [ "greeting" ]) ]
+    guam["phrases"] = [ phrase("Håfa adai", "A coach-approved Chamorro greeting.", [ "greeting" ], source_user_id:) ]
 
     southern = persona_configuration(assistant_name: "Southern grounded assistant")
     southern["culture"] = {
@@ -333,7 +395,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       "local_realities" => [ "Coach verified for this cohort: the nearest in-person bank branch is 28 miles from the program site." ],
       "references" => [ "The coach's rural access worksheet." ]
     }
-    southern["phrases"] = [ phrase("Let's take it one step at a time.", "The coach's exact transition into a practical next move.", [ "routine" ]) ]
+    southern["phrases"] = [ phrase("Let's take it one step at a time.", "The coach's exact transition into a practical next move.", [ "routine" ], source_user_id:) ]
 
     puerto_rican = persona_configuration(assistant_name: "Puerto Rico grounded assistant")
     puerto_rican["culture"] = {
@@ -342,7 +404,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       "local_realities" => [ "Coach verified for this cohort: hurricane preparation overlaps the program calendar; ask which costs apply." ],
       "references" => [ "The coach's emergency preparation worksheet." ]
     }
-    puerto_rican["phrases"] = [ phrase("Vamos paso a paso.", "The coach's exact reminder to proceed one step at a time.", [ "emotional_support", "routine" ]) ]
+    puerto_rican["phrases"] = [ phrase("Vamos paso a paso.", "The coach's exact reminder to proceed one step at a time.", [ "emotional_support", "routine" ], source_user_id:) ]
 
     neutral = persona_configuration(assistant_name: "Neutral grounded assistant")
     neutral["voice"]["language_style"] = [
@@ -353,22 +415,22 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     neutral["coaching"]["do_not"] = [ "Do not make Mia sound like someone from Guam based only on location." ]
     neutral["curriculum"]["guidance"] = [
       {
-        "title" => "How to use Chamorro dialect respectfully",
-        "content" => "Use only exact coach-approved language in its documented context."
+        "title" => "Phrase artifact use rules",
+        "content" => "Use only exact sealed phrase artifacts in their documented contexts."
       }
     ]
 
     [ [ "Guam", guam ], [ "Southern", southern ], [ "Puerto Rican", puerto_rican ], [ "neutral", neutral ] ]
   end
 
-  def phrase(text, meaning, allowed_contexts)
-    {
+  def phrase(text, meaning, allowed_contexts, source_user_id: 1)
+    Mia::PersonaSchema.build_phrase_artifact({
       "text" => text,
       "meaning" => meaning,
       "allowed_contexts" => allowed_contexts,
       "prohibited_contexts" => [ "crisis" ],
       "frequency" => "rare",
       "caution" => "Use only in the approved context."
-    }
+    }, source_user_id: source_user_id)
   end
 end

@@ -35,6 +35,7 @@ class CoachPersona < ApplicationRecord
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
   validate :creator_is_staff, on: :create
   validate :draft_config_matches_schema
+  validate :phrase_artifact_provenance
   validate :preview_fields_are_complete
   validate :current_version_belongs_to_persona
   validate :archived_persona_is_read_only, on: :update
@@ -137,6 +138,18 @@ class CoachPersona < ApplicationRecord
 
   def draft_config_matches_schema
     Mia::PersonaSchema.errors(draft_config).each { |message| errors.add(:draft_config, message) }
+  end
+
+  def phrase_artifact_provenance
+    Array(draft_config.to_h["phrases"]).each_with_index do |phrase, index|
+      source_user_id = Integer(phrase["source_user_id"], exception: false)
+      valid = if phrase["provenance"] == "coach_authored"
+        source_user_id == created_by_user_id
+      elsif phrase["provenance"] == "participant_supplied"
+        User.where(id: source_user_id, role: "participant").exists?
+      end
+      errors.add(:draft_config, "$.phrases[#{index}] has invalid provenance") unless valid
+    end
   end
 
   def preview_fields_are_complete

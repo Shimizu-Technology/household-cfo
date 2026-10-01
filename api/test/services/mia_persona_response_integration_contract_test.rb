@@ -11,17 +11,17 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     config = persona_configuration(assistant_name: "Coach Lila", coach_name: "Coach June")
     config["culture"] = config.fetch("culture").merge(
       "locale_label" => "Southern United States",
-      "context" => "Use a calm Southern conversational rhythm without imitating an accent or inventing dialect."
+      "context" => "Program schedules and service references must use the participant's confirmed state."
     )
     config["phrases"] = [
-      {
+      Mia::PersonaSchema.build_phrase_artifact({
         "text" => "y'all",
         "meaning" => "a natural second-person plural",
         "allowed_contexts" => [ "routine" ],
         "prohibited_contexts" => [ "crisis" ],
         "frequency" => "as_needed",
         "caution" => "Use naturally and sparingly."
-      }
+      }, source_user_id: coach.id)
     ]
     persona = CoachPersona.create!(
       name: "Coach Lila",
@@ -250,14 +250,14 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
     coach = persona_user
     config = persona_configuration(assistant_name: "Coach Kai", coach_name: "Coach June")
     config["phrases"] = [
-      {
+      Mia::PersonaSchema.build_phrase_artifact({
         "text" => text,
         "meaning" => "A coach-approved expression.",
         "allowed_contexts" => allowed_contexts,
         "prohibited_contexts" => [ "crisis" ],
         "frequency" => "sparing",
         "caution" => "Use naturally and sparingly."
-      }
+      }, source_user_id: coach.id)
     ]
     persona = CoachPersona.create!(
       name: "Coach Kai",

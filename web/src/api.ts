@@ -763,6 +763,10 @@ export type PersonaConfiguration = {
     references: string[]
   }
   phrases: Array<{
+    artifact_id?: string
+    provenance?: 'coach_authored' | 'participant_supplied'
+    source_user_id?: number
+    fingerprint?: string
     text: string
     meaning: string
     allowed_contexts: PersonaPhraseContext[]

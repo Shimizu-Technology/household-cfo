@@ -205,6 +205,79 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Auntie Ava", persona.reload.name
   end
 
+  test "persona API seals coach-authored phrase artifacts before draft validation" do
+    coach = persona_user(role: "coach")
+    draft = persona_configuration(assistant_name: "Sealed phrase assistant")
+    draft["phrases"] = [
+      {
+        "text" => "Håfa adai",
+        "meaning" => "The coach's greeting artifact.",
+        "allowed_contexts" => [ "greeting" ],
+        "prohibited_contexts" => [ "crisis" ],
+        "frequency" => "rare",
+        "caution" => "Use only as a greeting."
+      }
+    ]
+
+    post "/api/v1/admin/personas",
+      params: { persona: { name: "Sealed phrase assistant", draft_config: draft } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :created
+    persona = CoachPersona.find(response.parsed_body.dig("persona", "id"))
+    artifact = persona.draft_config.fetch("phrases").first
+    assert_match Mia::PersonaSchema::ARTIFACT_ID_PATTERN, artifact.fetch("artifact_id")
+    assert_equal "coach_authored", artifact.fetch("provenance")
+    assert_equal coach.id, artifact.fetch("source_user_id")
+    assert_equal Mia::PersonaSchema.artifact_fingerprint(artifact), artifact.fetch("fingerprint")
+
+    original_id = artifact.fetch("artifact_id")
+    original_fingerprint = artifact.fetch("fingerprint")
+    edited = persona.draft_config.deep_dup
+    edited["phrases"][0]["meaning"] = "The coach's exact welcome greeting."
+    patch "/api/v1/admin/personas/#{persona.id}",
+      params: { persona: { draft_revision: persona.draft_revision, draft_config: edited } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :success
+    revised = persona.reload.draft_config.fetch("phrases").first
+    assert_equal original_id, revised.fetch("artifact_id")
+    refute_equal original_fingerprint, revised.fetch("fingerprint")
+    assert_equal Mia::PersonaSchema.artifact_fingerprint(revised), revised.fetch("fingerprint")
+  end
+
+  test "persona API cannot mint participant-supplied phrase provenance" do
+    coach = persona_user(role: "coach")
+    participant = persona_user(role: "participant")
+    draft = persona_configuration(assistant_name: "Untrusted participant phrase")
+    draft["phrases"] = [
+      Mia::PersonaSchema.build_phrase_artifact(
+        {
+          "text" => "My family calls it the storm fund.",
+          "meaning" => "The participant's own term for emergency savings.",
+          "allowed_contexts" => [ "routine" ],
+          "prohibited_contexts" => [ "crisis" ],
+          "frequency" => "rare",
+          "caution" => "Use only for the participant who supplied it."
+        },
+        provenance: "participant_supplied",
+        source_user_id: participant.id
+      )
+    ]
+
+    post "/api/v1/admin/personas",
+      params: { persona: { name: "Untrusted participant phrase", draft_config: draft } },
+      headers: auth_headers(coach),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "persona_invalid", response.parsed_body.fetch("code")
+    assert_includes response.parsed_body.fetch("errors").first, "trusted participant-language workflow"
+    assert_nil CoachPersona.find_by(name: "Untrusted participant phrase")
+  end
+
   test "default draft never exposes a coach email when no public name is configured" do
     coach = persona_user(email: "private-coach-address@example.com")
 
