@@ -148,6 +148,56 @@ class HouseholdFinanceMiaTransactionDraftEditorTest < ActiveSupport::TestCase
     assert_equal({ "page" => 3 }, persisted.metadata)
   end
 
+  test "Mia uses explicit ids when reordered receipt splits are corrected and rejects ambiguous ids" do
+    @draft.update!(source_type: "receipt")
+    @draft.transaction_draft_splits.destroy_all
+    dining_split = @draft.transaction_draft_splits.create!(
+      budget_category: @dining, category_name: @dining.name, stack_key: @dining.stack_key,
+      amount_cents: 7_34, confidence: BigDecimal("0.81"), metadata: { "line" => 1, "description" => "Cafe" }
+    )
+    grocery_split = @draft.transaction_draft_splits.create!(
+      budget_category: @groceries, category_name: @groceries.name, stack_key: @groceries.stack_key,
+      amount_cents: 5_00, confidence: BigDecimal("0.72"), metadata: { "line" => 2, "description" => "Market" }
+    )
+    other_draft = @household.transaction_drafts.create!(
+      occurred_on: @draft.occurred_on, merchant: "Other receipt", total_amount_cents: 12_34,
+      source_type: "receipt", status: "pending"
+    )
+    foreign_split = other_draft.transaction_draft_splits.create!(amount_cents: 12_34)
+
+    [
+      [ { category_id: @groceries.id, amount: "5.00" }, { category_id: @dining.id, amount: "7.34" } ],
+      [ { id: dining_split.id, category_id: @dining.id, amount: "7.34" }, { id: dining_split.id, category_id: @groceries.id, amount: "5.00" } ],
+      [ { id: dining_split.id, category_id: @dining.id, amount: "7.34" }, { id: foreign_split.id, category_id: @groceries.id, amount: "5.00" } ]
+    ].each_with_index do |splits, index|
+      rejected = HouseholdFinance::MiaTransactionDraftEditor.new(
+        @household,
+        command: { draft_id: @draft.id, splits: splits },
+        idempotency_key: "mia-invalid-multi-split-#{index}"
+      ).call
+      refute rejected.success?
+    end
+
+    result = HouseholdFinance::MiaTransactionDraftEditor.new(
+      @household,
+      command: {
+        draft_id: @draft.id,
+        splits: [
+          { id: grocery_split.id, category_id: @groceries.id, amount: "5.00" },
+          { id: dining_split.id, category_id: @dining.id, amount: "7.34" }
+        ]
+      },
+      idempotency_key: "mia-reordered-receipt-splits"
+    ).call
+
+    assert result.success?, result.errors.to_sentence
+    persisted = result.draft.transaction_draft_splits.index_by(&:id)
+    assert_equal({ "line" => 1, "description" => "Cafe" }, persisted.fetch(dining_split.id).metadata)
+    assert_equal BigDecimal("0.81"), persisted.fetch(dining_split.id).confidence
+    assert_equal({ "line" => 2, "description" => "Market" }, persisted.fetch(grocery_split.id).metadata)
+    assert_equal BigDecimal("0.72"), persisted.fetch(grocery_split.id).confidence
+  end
+
   test "rejects an amount-only correction for a multi-split draft without changing it" do
     @draft.transaction_draft_splits.destroy_all
     @draft.transaction_draft_splits.create!(budget_category: @dining, category_name: @dining.name, stack_key: @dining.stack_key, amount_cents: 7_34)

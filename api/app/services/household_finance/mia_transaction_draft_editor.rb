@@ -75,16 +75,26 @@ module HouseholdFinance
     def normalized_splits(values, draft)
       raw_values = Array(values)
       raise ArgumentError, "Add no more than #{DocumentTransactionDraftPersister::MAX_SPLITS} transaction splits" if raw_values.length > DocumentTransactionDraftPersister::MAX_SPLITS
+      return [] if raw_values.empty?
 
       existing = draft.transaction_draft_splits.ordered.to_a
       existing_by_id = existing.index_by(&:id)
+      split_ids = raw_values.map { |raw_split| normalized_split_id(raw_split.to_h.deep_symbolize_keys[:id]) }
+      if existing.many?
+        raise ArgumentError, "Include the id for every existing transaction split" if split_ids.any?(&:nil?)
+        raise ArgumentError, "A transaction split can only be included once" unless split_ids.uniq.length == split_ids.length
+        unless split_ids.sort == existing.map(&:id).sort
+          raise ArgumentError, "Include every existing transaction split id from this review"
+        end
+      end
+
       raw_values.map.with_index do |raw_split, index|
         split = raw_split.to_h.deep_symbolize_keys
         split_id = normalized_split_id(split[:id])
         if split_id
           raise ArgumentError, "Split #{index + 1} does not belong to this transaction review" unless existing_by_id.key?(split_id)
-        elsif raw_values.length == existing.length
-          split_id = existing[index]&.id
+        elsif existing.one? && raw_values.one?
+          split_id = existing.first.id
         end
         category_id = resolved_category_id(split[:category_id], split[:category_name])
         {
@@ -100,7 +110,11 @@ module HouseholdFinance
     def normalized_split_id(value)
       return if value.blank?
 
-      Integer(value)
+      split_id = Integer(value)
+      return if split_id.zero?
+      raise ArgumentError, "Transaction split id is invalid" unless split_id.positive?
+
+      split_id
     rescue ArgumentError, TypeError
       raise ArgumentError, "Transaction split id is invalid"
     end

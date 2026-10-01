@@ -96,14 +96,26 @@ module HouseholdFinance
         end
 
         def normalized_update_splits(draft, values, total_cents:)
-          raw = Array(values)
+          raw = Array(values).map { |value| value.to_h.deep_symbolize_keys }
           raise ArgumentError, "Transaction splits are required" if raw.empty?
           raise ArgumentError, "Add no more than #{MAX_SPLITS} transaction splits" if raw.length > MAX_SPLITS
 
-          existing_by_id = draft.transaction_draft_splits.index_by(&:id)
+          existing_splits = draft.transaction_draft_splits.order(:id).to_a
+          existing_by_id = existing_splits.index_by(&:id)
+          provided_ids = raw.map { |split| normalized_split_id(split[:id]) }
+          if existing_splits.many?
+            raise ArgumentError, "Include the id for every existing transaction split" if provided_ids.any?(&:nil?)
+            raise ArgumentError, "A transaction split can only be included once" unless provided_ids.uniq.length == provided_ids.length
+            unless provided_ids.sort == existing_splits.map(&:id).sort
+              raise ArgumentError, "Include every existing transaction split id from this review"
+            end
+          elsif existing_splits.one? && raw.one? && provided_ids.first.nil?
+            raw.first[:id] = existing_splits.first.id
+          end
+
           seen_ids = []
           splits = raw.map.with_index do |value, index|
-            split = value.to_h.deep_symbolize_keys
+            split = value
             split_id = normalized_split_id(split[:id])
             existing = existing_by_id[split_id] if split_id
             raise ArgumentError, "Split #{index + 1} does not belong to this transaction review" if split_id && !existing
@@ -141,7 +153,11 @@ module HouseholdFinance
         def normalized_split_id(value)
           return if value.blank?
 
-          Integer(value)
+          split_id = Integer(value)
+          return if split_id.zero?
+          raise ArgumentError, "Transaction split id is invalid" unless split_id.positive?
+
+          split_id
         rescue ArgumentError, TypeError
           raise ArgumentError, "Transaction split id is invalid"
         end
@@ -173,7 +189,7 @@ module HouseholdFinance
           }
         end
 
-        def resolution_snapshot(draft, lock: false)
+        def resolution_snapshot(draft, lock: false, transaction_id: nil)
           snapshot = draft_snapshot(draft, lock: lock)
           snapshot[:draft][:confirmed_transaction_id] = draft.confirmed_transaction_id
           snapshot[:draft][:matched_transaction_id] = draft.matched_transaction_id
@@ -186,7 +202,10 @@ module HouseholdFinance
               match_reason: match.match_reason
             }
           end
-          transaction = draft.confirmed_transaction
+          transaction_id ||= draft.confirmed_transaction_id
+          transaction_scope = household.household_transactions.includes(transaction_splits: :budget_category)
+          transaction_scope = transaction_scope.lock if lock
+          transaction = transaction_scope.find_by(id: transaction_id) if transaction_id
           snapshot[:transaction] = transaction && {
             id: transaction.id,
             status: transaction.status,

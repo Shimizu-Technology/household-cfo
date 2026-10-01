@@ -1640,6 +1640,86 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "2026-07-09", result.action.fetch(:occurred_on)
   end
 
+  test "keeps explicit split ids when a multi-split transaction correction is reordered" do
+    context = intent_context.deep_dup
+    context[:pending_transaction_reviews] = [
+      {
+        id: 77, merchant: "Walkthrough Market", occurred_on: "2026-07-10", amount: 30,
+        splits: [
+          { id: 701, category_id: 42, category_name: "Fixed essentials", amount: 10 },
+          { id: 702, category_id: 43, category_name: "Rent", amount: 20 }
+        ]
+      }
+    ]
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Keep the $20 Rent line and the $10 Fixed essentials line.",
+      context: context,
+      api_key: "test-key",
+      transport: lambda do |payload|
+        split_schema = payload.dig(:response_format, :json_schema, :schema, :properties, :action, :properties, :splits, :items)
+        assert_includes split_schema.fetch(:required), "id"
+        assert_equal({ type: "integer", minimum: 0 }, split_schema.dig(:properties, :id))
+        resolution_json(
+          intent: "transaction_draft_action",
+          continuation: true,
+          resolved_message: "Keep the two receipt lines in the requested order",
+          topic: { type: "transaction_draft", title: "Walkthrough Market review", subject: "Walkthrough Market" },
+          action: default_action.merge(
+            type: "update_transaction_draft",
+            draft_id: 77,
+            splits: [
+              { id: 702, category_id: 43, category_name: "Rent", amount: "20" },
+              { id: 701, category_id: 42, category_name: "Fixed essentials", amount: "10" }
+            ]
+          )
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?
+    assert_equal [ 702, 701 ], result.action.fetch(:splits).map { |split| split.fetch(:id) }
+  end
+
+  test "rejects missing duplicate and foreign ids for multi-split transaction corrections" do
+    context = intent_context.deep_dup
+    context[:pending_transaction_reviews] = [
+      {
+        id: 77, merchant: "Walkthrough Market", occurred_on: "2026-07-10", amount: 30,
+        splits: [
+          { id: 701, category_id: 42, category_name: "Fixed essentials", amount: 10 },
+          { id: 702, category_id: 43, category_name: "Rent", amount: 20 }
+        ]
+      }
+    ]
+    invalid_splits = [
+      [ { id: 0, category_id: 42, category_name: "Fixed essentials", amount: "10" }, { id: 0, category_id: 43, category_name: "Rent", amount: "20" } ],
+      [ { id: 701, category_id: 42, category_name: "Fixed essentials", amount: "10" }, { id: 701, category_id: 43, category_name: "Rent", amount: "20" } ],
+      [ { id: 701, category_id: 42, category_name: "Fixed essentials", amount: "10" }, { id: 999, category_id: 43, category_name: "Rent", amount: "20" } ]
+    ]
+
+    invalid_splits.each do |splits|
+      result = HouseholdFinance::MiaIntentResolver.new(
+        user_message: "Keep the $20 Rent line and the $10 Fixed essentials line.",
+        context: context,
+        api_key: "test-key",
+        transport: ->(_payload) do
+          resolution_json(
+            intent: "transaction_draft_action",
+            continuation: true,
+            resolved_message: "Update the two receipt lines",
+            topic: { type: "transaction_draft", title: "Walkthrough Market review", subject: "Walkthrough Market" },
+            action: default_action.merge(type: "update_transaction_draft", draft_id: 77, splits: splits)
+          )
+        end
+      ).call
+
+      refute result.actionable?
+      assert result.clarification?
+    end
+  end
+
   test "rejects a transaction correction that references an invented pending draft" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Change that transaction to yesterday",

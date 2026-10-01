@@ -205,6 +205,7 @@ module HouseholdFinance
 
         split = raw_split.deep_stringify_keys
         payload = {
+          id: bounded_integer(split["id"], 0..MAX_RECORD_ID),
           category_id: bounded_integer(split["category_id"], 0..MAX_RECORD_ID),
           category_name: sanitized_text(split["category_name"], max_length: 80),
           amount: sanitized_text(split["amount"], max_length: 40)

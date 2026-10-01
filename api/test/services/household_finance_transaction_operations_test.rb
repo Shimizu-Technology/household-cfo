@@ -139,6 +139,12 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
       assert_equal "pending", draft.reload.status
       assert_equal "ignored", transaction.reload.status
       assert_equal 2, @household.household_operation_executions.where(idempotency_key: %w[confirm-one reopen-one]).count
+      reopen_execution = @household.household_operation_executions.find_by!(idempotency_key: "reopen-one")
+      assert_equal "confirmed", reopen_execution.after_snapshot.fetch("reopened_from_status")
+      assert_equal transaction.id, reopen_execution.after_snapshot.dig("transaction", "id")
+      assert_equal "ignored", reopen_execution.after_snapshot.dig("transaction", "status")
+      assert_equal 4_217, reopen_execution.after_snapshot.dig("transaction", "total_amount_cents")
+      assert_equal [ 4_217 ], reopen_execution.after_snapshot.dig("transaction", "splits").map { |split| split.fetch("amount_cents") }
     end
   end
 
@@ -162,6 +168,66 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
       assert_equal transaction.id, draft.matched_transaction_id
       assert_equal "accepted", candidate.reload.status
       assert_equal "transaction.draft.match", replay.execution.operation_key
+
+      reopened = @runner.run(operation_key: "transaction.draft.reopen", input: input, idempotency_key: "reopen-match")
+      assert_equal "pending", draft.reload.status
+      assert_nil draft.matched_transaction_id
+      assert_equal "proposed", candidate.reload.status
+      assert_equal "confirmed", transaction.reload.status
+      assert_equal "matched", reopened.execution.after_snapshot.fetch("reopened_from_status")
+      assert_nil reopened.execution.after_snapshot.fetch("transaction")
+      assert_equal "proposed", reopened.execution.after_snapshot.fetch("matches").sole.fetch("status")
+    end
+  end
+
+  test "ignored reopen records an explicit no-actual terminal state" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("ignored-reopen-source")
+      input = { draft_id: draft.id, source_type: "manual_ui" }
+      @runner.run(operation_key: "transaction.draft.ignore", input: input, idempotency_key: "ignore-before-reopen")
+
+      reopened = @runner.run(operation_key: "transaction.draft.reopen", input: input, idempotency_key: "reopen-ignored")
+
+      assert_equal "pending", draft.reload.status
+      assert_equal "ignored", reopened.execution.after_snapshot.fetch("reopened_from_status")
+      assert_nil reopened.execution.after_snapshot.fetch("transaction")
+      assert_nil reopened.execution.after_snapshot.dig("draft", "confirmed_transaction_id")
+      assert_nil reopened.execution.after_snapshot.dig("draft", "matched_transaction_id")
+    end
+  end
+
+  test "reopen rolls back when the confirmed actual is not ignored" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("broken-reopen-source")
+      input = { draft_id: draft.id, source_type: "manual_ui" }
+      @runner.run(operation_key: "transaction.draft.confirm", input: input, idempotency_key: "confirm-before-broken-reopen")
+      transaction = draft.reload.confirmed_transaction
+      fake_factory = lambda do |target|
+        Object.new.tap do |fake|
+          fake.define_singleton_method(:call) do
+            target.update!(status: "pending", confirmed_transaction: nil, matched_transaction: nil)
+            HouseholdFinance::TransactionDraftReopener::Result.new(success: true, draft: target.reload, errors: [])
+          end
+        end
+      end
+
+      singleton = HouseholdFinance::TransactionDraftReopener.singleton_class
+      original_new = singleton.instance_method(:new)
+      singleton.define_method(:new, &fake_factory)
+      error = assert_raises(ArgumentError) do
+        begin
+          @runner.run(operation_key: "transaction.draft.reopen", input: input, idempotency_key: "broken-reopen")
+        ensure
+          singleton.define_method(:new, original_new)
+        end
+      end
+
+      assert_includes error.message, "did not match the requested change"
+      assert_equal "confirmed", draft.reload.status
+      assert_equal transaction.id, draft.confirmed_transaction_id
+      assert_equal "confirmed", transaction.reload.status
+      assert_nil @household.household_operation_executions.find_by(idempotency_key: "broken-reopen")
+      assert_nil @household.household_audit_events.find_by("metadata ->> 'idempotency_key' = ?", "broken-reopen")
     end
   end
 

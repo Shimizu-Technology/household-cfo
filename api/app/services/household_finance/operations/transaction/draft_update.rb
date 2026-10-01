@@ -88,7 +88,9 @@ module HouseholdFinance
           draft[:merchant] = input[:merchant] if input.key?(:merchant)
           draft[:total_amount_cents] = input[:amount_cents] if input.key?(:amount_cents)
           if input.key?(:splits)
-            after[:splits] = input.fetch(:splits)
+            after[:splits] = input.fetch(:splits).each_with_index.sort_by do |(split, index)|
+              split[:id] ? [ 0, split[:id] ] : [ 1, index ]
+            end.map(&:first)
             draft[:budget_category_id] = input.fetch(:splits).first[:budget_category_id]
           elsif input.key?(:budget_category_id)
             category = active_category(input.fetch(:budget_category_id))
