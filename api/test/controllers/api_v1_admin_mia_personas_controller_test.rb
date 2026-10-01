@@ -222,8 +222,10 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :unprocessable_entity
     assert_equal "persona_invalid", response.parsed_body.fetch("code")
-    assert_includes response.parsed_body.fetch("errors").join(" "),
-      "$.culture.context cannot infer dialect, slang, or cultural traits from a location or identity label"
+    expected_message = "Community context cannot ask Mia to imitate how a location or group sounds. Add only wording the coach has explicitly authored."
+    assert_equal expected_message, response.parsed_body.fetch("error")
+    assert_includes response.parsed_body.fetch("errors"), expected_message
+    refute_includes response.parsed_body.fetch("errors").join(" "), "$.culture.context"
     persona.reload
     assert_equal 1, persona.draft_revision
     assert_equal "Use only cultural and community context explicitly approved by the human coach.",

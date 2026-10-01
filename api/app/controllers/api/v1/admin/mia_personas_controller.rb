@@ -4,6 +4,9 @@ module Api
   module V1
     module Admin
       class MiaPersonasController < BaseController
+        LOCATION_DERIVED_STYLE_ERROR = "cannot infer dialect, slang, or cultural traits from a location or identity label"
+        COACH_FACING_LOCATION_STYLE_GUIDANCE = "cannot ask Mia to imitate how a location or group sounds. Add only wording the coach has explicitly authored."
+
         before_action :authenticate_user!
         before_action :require_staff!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
@@ -249,12 +252,30 @@ module Api
         end
 
         def render_validation_error(record, code:)
-          messages = record.errors.full_messages
+          messages = present_persona_errors(record.errors.full_messages)
           render json: { error: messages.first, errors: messages, code: code }, status: :unprocessable_entity
         end
 
         def render_schema_error(error)
-          render json: { error: error.errors.first, errors: error.errors, code: "persona_invalid" }, status: :unprocessable_entity
+          messages = present_persona_errors(error.errors)
+          render json: { error: messages.first, errors: messages, code: "persona_invalid" }, status: :unprocessable_entity
+        end
+
+        def present_persona_errors(messages)
+          Array(messages).map do |message|
+            next message unless message.include?(LOCATION_DERIVED_STYLE_ERROR)
+
+            "#{persona_field_label(message)} #{COACH_FACING_LOCATION_STYLE_GUIDANCE}"
+          end
+        end
+
+        def persona_field_label(message)
+          return "Community context" if message.include?("$.culture.context")
+          return "Voice settings" if message.include?("$.voice.")
+          return "Coaching instructions" if message.include?("$.coaching.")
+          return "Phrase details" if message.include?("$.phrases[")
+
+          "This field"
         end
 
         def render_api_error(message, code:, status:)
