@@ -23,8 +23,6 @@ module HouseholdFinance
       "unexpected_sinking_fund" => 40,
       "emergency_fund" => 40,
       "other_assets" => 40,
-      "credit_card_debt" => 40,
-      "debt_payment" => 40,
       "target_runway_months" => 20
     }.freeze
 

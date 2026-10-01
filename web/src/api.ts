@@ -9,8 +9,8 @@ export type WorkspaceSetupValues = {
   unexpected_sinking_fund: number
   emergency_fund: number
   other_assets: number
-  credit_card_debt: number
-  debt_payment: number
+  credit_card_debt: number | null
+  debt_payment: number | null
   target_runway_months: number
 }
 
@@ -616,6 +616,7 @@ export type WealthData = {
   summary: {
     net_worth: number | null
     liquid_net_worth: number | null
+    liquid_net_worth_available?: boolean
     debt_balance_known?: boolean
     debt_minimums_known?: boolean
     ten_year_surplus_capacity?: number | null

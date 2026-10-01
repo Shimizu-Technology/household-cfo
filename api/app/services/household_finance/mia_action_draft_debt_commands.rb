@@ -31,8 +31,8 @@ module HouseholdFinance
       payload[:label] = command[:new_name].to_s.squish.truncate(120, omission: "…") if command[:new_name].present?
       payload[:debt_type] = command[:debt_type] if command[:debt_type].to_s.in?(::Debt::DEBT_TYPES)
       add_debt_money_value!(payload, debt_balance_command_value, :balance_cents, :balance_known) if debt_balance_command_present?
-      add_debt_money_payload!(payload, :minimum_payment, :minimum_payment_cents, :minimum_payment_known) if command.key?(:minimum_payment)
-      payload[:interest_rate_percent] = parsed_debt_apr(command[:interest_rate_percent]) if command.key?(:interest_rate_percent)
+      add_debt_money_payload!(payload, :minimum_payment, :minimum_payment_cents, :minimum_payment_known) if command[:minimum_payment].present?
+      payload[:interest_rate_percent] = parsed_debt_apr(command[:interest_rate_percent]) if command[:interest_rate_percent].present?
       return validation_result("Tell me which debt detail to update. Nothing changed.") if payload.one?
       before = debt_action_snapshot(debt)
       after = before.merge(payload.except(:debt_id))

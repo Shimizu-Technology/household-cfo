@@ -182,7 +182,7 @@ class AddDebtLifecycleAndTrackingTest < ActiveSupport::TestCase
   test "case-insensitive active duplicates stop migration for explicit review" do
     connection = ApplicationRecord.connection
     index_name = "index_active_debts_on_household_type_label"
-    connection.remove_index(:debts, name: index_name)
+    connection.remove_index(:debts, name: index_name) if connection.index_name_exists?(:debts, index_name)
     timestamp = Time.current
     Debt.insert_all!([
       { household_id: @household.id, label: "Visa", debt_type: "credit_card", balance_cents: 100_00, minimum_payment_cents: 25_00, active: true, archived_at: nil, source_type: "manual_ui", source_metadata: {}, balance_known: true, minimum_payment_known: true, created_at: timestamp, updated_at: timestamp },

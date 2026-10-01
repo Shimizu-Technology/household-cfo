@@ -155,8 +155,6 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
                 unexpected_sinking_fund: 300,
                 emergency_fund: 18_000,
                 other_assets: 12_000,
-                credit_card_debt: 7_000,
-                debt_payment: 700,
                 target_runway_months: 6
               }
             },
@@ -168,16 +166,18 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     body = JSON.parse(response.body)
     assert_equal "Mendiola Household", body.fetch("profile").fetch("household").fetch("name")
     assert_equal 9_200, body.fetch("dashboard").fetch("summary").fetch("monthly_income")
-    assert_equal 7_300, body.fetch("budget").fetch("total_monthly_outflow")
-    assert_equal 1_900, body.fetch("budget").fetch("baseline_surplus")
+    assert_equal 6_600, body.fetch("budget").fetch("total_monthly_outflow")
+    assert_equal 2_600, body.fetch("budget").fetch("baseline_surplus")
     annual_plan = body.fetch("budget").fetch("annual_plan")
     current_month = annual_plan.fetch("annual_outlook").fetch("months").fetch(Date.current.month - 1)
-    assert_equal 700, annual_plan.fetch("monthly_debt_minimums")
+    assert_equal 0, annual_plan.fetch("monthly_debt_minimums")
+    refute annual_plan.fetch("monthly_debt_minimums_known")
     assert_equal 6_600, current_month.fetch("category_plan")
-    assert_equal 700, current_month.fetch("debt_minimums")
-    assert_equal 7_300, current_month.fetch("planned_outflow")
-    assert_equal 1_900, current_month.fetch("baseline_surplus")
-    assert_equal 2.5, body.fetch("dashboard").fetch("summary").fetch("runway_months")
+    assert_equal 0, current_month.fetch("debt_minimums")
+    assert_equal 6_600, current_month.fetch("planned_outflow")
+    assert_equal 2_600, current_month.fetch("baseline_surplus")
+    refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
+    assert_equal 2.7, body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
@@ -215,21 +215,24 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
               primary_income: 8_000,
               fixed_expenses: 4_500,
               emergency_fund: 18_000,
-              credit_card_debt: 7_000,
-              debt_payment: 700,
               target_runway_months: 12
             }
           },
           headers: auth_headers(user),
           as: :json
+    household = user.households.first
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 700_000,
+      debt_summary_minimum_payment_cents: 70_000,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
     patch "/api/v1/workspace/setup",
           params: { workspace: { household_name: "Renamed Household" } },
           headers: auth_headers(user),
           as: :json
 
     assert_response :success
-    household = user.households.first
-    assert_equal "Renamed Household", household.name
+    assert_equal "Renamed Household", household.reload.name
     assert_equal 800_000, household.income_sources.find_by!(source_type: "job").amount_cents
     assert_equal 450_000, household.expense_items.find_by!(stack_key: "non_discretionary").amount_cents
     assert_equal 1_800_000, household.accounts.find_by!(account_type: "emergency_fund").balance_cents
@@ -246,7 +249,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     profile.reload
     assert_equal 700_000, profile.debt_summary_balance_cents
-    assert_equal 90_000, profile.debt_summary_minimum_payment_cents
+    assert_equal 70_000, profile.debt_summary_minimum_payment_cents
   end
 
   test "workspace setup does not duplicate document-derived detail rows when values are unchanged" do
@@ -412,7 +415,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_empty household.goals.where(goal_type: "runway")
   end
 
-  test "workspace setup rejects aggregate edits while individual debt tracking is active" do
+  test "workspace setup ignores legacy aggregate debt fields while individual debt tracking is active" do
     user = create_user(email: "document-debt-payment@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     debt = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 0)
@@ -422,14 +425,13 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       headers: auth_headers(user),
       as: :json
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors").first, "tracked by individual records"
+    assert_response :success
     assert_equal 1, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, debt.reload.balance_cents
     assert_equal 0, debt.minimum_payment_cents
   end
 
-  test "workspace setup rejects aggregate edits across multiple detailed debts" do
+  test "workspace setup ignores legacy aggregate debt fields across multiple detailed debts" do
     user = create_user(email: "multi-document-debt@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
     visa = household.debts.create!(label: "Visa card", debt_type: "credit_card", balance_cents: 340_000, minimum_payment_cents: 17_500)
@@ -442,31 +444,39 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
         as: :json
     end
 
-    assert_response :unprocessable_entity
-    assert_includes JSON.parse(response.body).fetch("errors").first, "tracked by individual records"
+    assert_response :success
     assert_equal 2, household.debts.where(debt_type: "credit_card").count
     assert_equal 340_000, visa.reload.balance_cents
     assert_equal 120_000, mastercard.reload.balance_cents
     assert_equal 23_500, household.debts.where(debt_type: "credit_card").sum(:minimum_payment_cents)
   end
 
-  test "workspace setup removes cleared credit card debt" do
+  test "workspace setup round trip preserves unknown debt instead of certifying zero" do
     user = create_user(email: "clear-debt@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 0,
+      debt_summary_minimum_payment_cents: 0,
+      debt_summary_balance_known: false, debt_summary_minimum_payment_known: false
+    )
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+    setup_values = response.parsed_body.dig("workspace", "setup_values")
+    assert_nil setup_values.fetch("credit_card_debt")
+    assert_nil setup_values.fetch("debt_payment")
 
     patch "/api/v1/workspace/setup",
-          params: { workspace: { credit_card_debt: 7_000, debt_payment: 700 } },
-          headers: auth_headers(user),
-          as: :json
-    patch "/api/v1/workspace/setup",
-          params: { workspace: { credit_card_debt: 0, debt_payment: 0 } },
+          params: { workspace: setup_values },
           headers: auth_headers(user),
           as: :json
 
     assert_response :success
-    household = user.households.first
-    assert_empty household.debts.where(debt_type: "credit_card")
-    savings_section = JSON.parse(response.body).fetch("profile").fetch("sections").find { |section| section.fetch("label") == "Savings & Debt" }
-    assert savings_section.fetch("items").none? { |item| item.fetch("label") == "Credit card debt" }
+    profile = household.household_profile.reload
+    refute profile.debt_summary_balance_known?
+    refute profile.debt_summary_minimum_payment_known?
+    assert_nil response.parsed_body.dig("workspace", "setup_values", "credit_card_debt")
+    assert_nil response.parsed_body.dig("workspace", "setup_values", "debt_payment")
+    refute response.parsed_body.dig("dashboard", "summary", "readiness_available")
   end
 
   test "workspace setup values keep other assets separate from typed accounts" do
@@ -475,6 +485,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     household.accounts.create!(label: "Emergency fund", account_type: "emergency_fund", balance_cents: 500_000)
     household.accounts.create!(label: "Other assets", account_type: "other", balance_cents: 1_200_000)
     household.accounts.create!(label: "Investment account", account_type: "investment", balance_cents: 3_000_000)
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 0,
+      debt_summary_minimum_payment_cents: 0,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
 
     get "/api/v1/workspace", headers: auth_headers(user)
 
@@ -596,6 +611,20 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     wealth = JSON.parse(response.body).fetch("wealth").fetch("summary")
     assert_equal(-420_000, wealth.fetch("net_worth"))
     assert_equal 80_000, wealth.fetch("liquid_net_worth")
+    assert wealth.fetch("liquid_net_worth_available")
+
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 52_000_000,
+      debt_summary_minimum_payment_cents: 0,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
+
+    get "/api/v1/workspace", headers: auth_headers(user)
+
+    summary_wealth = response.parsed_body.fetch("wealth").fetch("summary")
+    assert_equal(-420_000, summary_wealth.fetch("net_worth"))
+    assert_nil summary_wealth.fetch("liquid_net_worth")
+    refute summary_wealth.fetch("liquid_net_worth_available")
   end
 
   test "dashboard account rows use only the canonical debt portfolio" do
@@ -1816,15 +1845,18 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
               primary_income: 8_000,
               fixed_expenses: 4_000,
               flexible_spend: 1_000,
-              emergency_fund: 8_000,
-              credit_card_debt: 2_000,
-              debt_payment: 150
+              emergency_fund: 8_000
             }
           },
           headers: auth_headers(user),
           as: :json
 
     household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 200_000,
+      debt_summary_minimum_payment_cents: 15_000,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
     confirm_setup_for_test(user)
     HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
 
@@ -1861,9 +1893,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
               primary_income: 8_500,
               fixed_expenses: 6_925,
               flexible_spend: 0,
-              emergency_fund: 25_090,
-              credit_card_debt: 10_000,
-              debt_payment: 920
+              emergency_fund: 25_090
             }
           },
           headers: auth_headers(user),
@@ -1872,6 +1902,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     confirm_setup_for_test(user)
 
     household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.household_profile.update!(
+      debt_tracking_mode: "summary", debt_summary_balance_cents: 1_000_000,
+      debt_summary_minimum_payment_cents: 92_000,
+      debt_summary_balance_known: true, debt_summary_minimum_payment_known: true
+    )
     HouseholdFinance::AnnualBudgetManager.new(household).ensure_plan!
     prior_topic = {
       schema_version: 2,

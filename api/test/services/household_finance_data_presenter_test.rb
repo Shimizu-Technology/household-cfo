@@ -312,6 +312,37 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     end
   end
 
+  test "blank legacy setup debt values remain unknown in presenter output" do
+    household, user = create_household
+
+    HouseholdFinance::SetupUpdater.new(household, credit_card_debt: "", debt_payment: nil).call
+
+    profile = household.household_profile.reload
+    refute profile.debt_summary_balance_known?
+    refute profile.debt_summary_minimum_payment_known?
+    setup_values = HouseholdFinance::DataPresenter.new(household.reload, user: user).setup_values
+    assert_nil setup_values.fetch(:credit_card_debt)
+    assert_nil setup_values.fetch(:debt_payment)
+    refute HouseholdFinance::DataPresenter.new(household, user: user).app_data.dig(:dashboard, :summary, :readiness_available)
+  end
+
+  test "blank legacy setup debt values leave individual records unchanged" do
+    household, = create_household
+    household.household_profile.update!(debt_tracking_mode: "individual")
+    debt = household.debts.create!(
+      label: "Visa", debt_type: "credit_card", balance_cents: 310_000,
+      minimum_payment_cents: 17_500, balance_known: true, minimum_payment_known: true
+    )
+
+    HouseholdFinance::SetupUpdater.new(household, credit_card_debt: "", debt_payment: nil).call
+
+    assert_equal "individual", household.household_profile.reload.debt_tracking_mode
+    assert_equal 310_000, debt.reload.balance_cents
+    assert_equal 17_500, debt.minimum_payment_cents
+    assert debt.balance_known?
+    assert debt.minimum_payment_known?
+  end
+
   test "deficit household does not show a negative non-essential purchase amount" do
     household, user = create_household
     household.income_sources.create!(label: "Primary income", source_type: "job", amount_cents: 200_000, cadence: "monthly")

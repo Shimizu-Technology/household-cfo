@@ -38,6 +38,47 @@ class HouseholdFinanceMiaDebtActionDraftsTest < ActiveSupport::TestCase
     assert_includes result.response, "could not safely match"
   end
 
+  test "Mia balance-only update preserves an existing minimum and APR" do
+    debt = @household.debts.create!(
+      label: "Visa", debt_type: "credit_card", balance_cents: 310_000,
+      minimum_payment_cents: 17_500, interest_rate_percent: 28.9
+    )
+
+    result = build_command(
+      type: "update_debt", debt_id: debt.id, debt_name: "Visa", amount: "2900",
+      minimum_payment: "", interest_rate_percent: ""
+    )
+
+    item = persist(result.proposal).mia_action_items.sole
+    normalized = item.prepared_operation.fetch("normalized_input")
+    assert_equal 290_000, normalized.fetch("balance_cents")
+    refute normalized.key?("minimum_payment_cents")
+    refute normalized.key?("interest_rate_percent")
+    assert_equal 17_500, item.after_snapshot.fetch("minimum_payment_cents")
+    assert_equal 28.9, item.after_snapshot.fetch("interest_rate_percent")
+  end
+
+  test "Mia review shows known zero and unknown debt transitions" do
+    unknown = @household.debts.create!(
+      label: "Unknown card", debt_type: "credit_card", balance_cents: 0,
+      balance_known: false, minimum_payment_cents: 0, minimum_payment_known: false
+    )
+    known = @household.debts.create!(
+      label: "Known card", debt_type: "credit_card", balance_cents: 0,
+      balance_known: true, minimum_payment_cents: 0, minimum_payment_known: true
+    )
+
+    known_zero_draft = persist(build_command(type: "update_debt", debt_id: unknown.id, debt_name: unknown.label, amount: "0", minimum_payment: "0").proposal)
+    unknown_draft = persist(build_command(type: "update_debt", debt_id: known.id, debt_name: known.label, amount: "unknown", minimum_payment: "unknown").proposal)
+    known_zero_fields = HouseholdFinance::MiaActionDraftPresenter.new(known_zero_draft).call.fetch(:items).sole.fetch(:review_fields)
+    unknown_fields = HouseholdFinance::MiaActionDraftPresenter.new(unknown_draft).call.fetch(:items).sole.fetch(:review_fields)
+
+    assert_equal [ "Not entered", "$0.00" ], known_zero_fields.find { |field| field.fetch(:label) == "Balance" }.values_at(:before, :after)
+    assert_equal [ "Not entered", "$0.00" ], known_zero_fields.find { |field| field.fetch(:label) == "Monthly minimum" }.values_at(:before, :after)
+    assert_equal [ "$0.00", "Not entered" ], unknown_fields.find { |field| field.fetch(:label) == "Balance" }.values_at(:before, :after)
+    assert_equal [ "$0.00", "Not entered" ], unknown_fields.find { |field| field.fetch(:label) == "Monthly minimum" }.values_at(:before, :after)
+  end
+
   test "Mia archive preserves the record and can be restored through another review" do
     debt = @household.debts.create!(label: "Auto", debt_type: "auto_loan", balance_cents: 500_000, minimum_payment_cents: 25_000)
     archive = persist(build_command(type: "archive_debt", debt_id: debt.id, debt_name: "Auto").proposal)

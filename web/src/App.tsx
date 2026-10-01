@@ -343,16 +343,21 @@ function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: Wo
   const draft = { ...values } as unknown as WorkspaceSetupDraft
   const confirmedFields = new Set(status?.confirmed_fields ?? [])
   workspaceSetupMoneyKeys.forEach((key) => {
-    draft[key] = values[key] === 0 && !confirmedFields.has(key) ? '' : String(values[key])
+    draft[key] = values[key] === null || (values[key] === 0 && !confirmedFields.has(key)) ? '' : String(values[key])
   })
   return draft
 }
 
 function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
   const values = { ...draft } as unknown as WorkspaceSetupValues
+  const moneyValues = values as unknown as Record<WorkspaceSetupMoneyKey, number | null>
   workspaceSetupMoneyKeys.forEach((key) => {
+    if ((key === 'credit_card_debt' || key === 'debt_payment') && draft[key].trim() === '') {
+      moneyValues[key] = null
+      return
+    }
     const parsed = Number(draft[key])
-    values[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
+    moneyValues[key] = Number.isFinite(parsed) && parsed >= 0 ? parsed : 0
   })
   return values
 }
@@ -3217,7 +3222,7 @@ function App() {
           <ScreenHeading
             eyebrow="Optionality"
             title={data.optionality.question}
-            copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months} months. Target runway: ${data.optionality.target_runway_months} months.`}
+            copy={data.optionality.available === false ? (data.optionality.unavailable_reason ?? 'Complete the missing debt details first.') : `Current runway: ${data.optionality.current_runway_months ?? 'Not available'}${data.optionality.current_runway_months === null ? '' : ' months'}. Target runway: ${data.optionality.target_runway_months} months.`}
           />
 
           <div className="lever-row">
@@ -6650,6 +6655,9 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?:
 
   const formatKnownMoney = (value: number, known: boolean) => known ? currency.format(value) : 'Not entered'
   const recordMoney = (value: number | null) => value === null ? 'Not entered' : currency.format(value)
+  const initialSummaryBalance = portfolio.balance_known ? String(portfolio.total_balance) : ''
+  const initialSummaryMinimum = portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : ''
+  const trackingDirty = modeDraft !== portfolio.mode || (modeDraft === 'summary' && (summaryBalance !== initialSummaryBalance || summaryMinimum !== initialSummaryMinimum))
 
   return (
     <article ref={sectionRef} className="panel debt-manager">
@@ -6672,7 +6680,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?:
           <label className="setup-field"><span>Total debt balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryBalance} onChange={(event) => setSummaryBalance(event.target.value)} placeholder="Unknown" /></span><small>Leave blank if you have not confirmed the balance.</small></label>
           <label className="setup-field"><span>Total monthly minimums</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={summaryMinimum} onChange={(event) => setSummaryMinimum(event.target.value)} placeholder="Unknown" /></span><small>A payment amount is never treated as a balance.</small></label>
         </div>}
-        <div className="debt-form-actions"><button type="submit" disabled={saving || (modeDraft === portfolio.mode && (modeDraft !== 'summary' || (summaryBalance === (portfolio.balance_known ? String(portfolio.total_balance) : '') && summaryMinimum === (portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : ''))))}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
+        <div className="debt-form-actions"><button type="submit" disabled={saving || !trackingDirty}>{saving ? 'Saving' : 'Save tracking choice'}</button></div>
       </form>
 
       <div className="debt-summary" aria-label="Canonical debt totals">

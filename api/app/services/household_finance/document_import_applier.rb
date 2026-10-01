@@ -123,7 +123,7 @@ module HouseholdFinance
         interest_rate_percent: item.interest_rate_percent || record.interest_rate_percent,
         active: true,
         archived_at: nil,
-        source_type: "document_import",
+        source_type: existing_record ? record.source_type : "document_import",
         source_metadata: (record.source_metadata || {}).merge("document_import_id" => document_import.id, "document_import_item_id" => item.id)
       )
       record

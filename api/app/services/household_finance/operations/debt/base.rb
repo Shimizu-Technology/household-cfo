@@ -24,7 +24,12 @@ module HouseholdFinance
           return { "#{value_key}_known".to_sym => false, cents_key => 0 } if input.key?(value_key) && input[value_key].nil?
           return { "#{value_key}_known".to_sym => false, cents_key => 0 } if input.key?(value_key) && input[value_key].to_s.strip.blank?
           return { "#{value_key}_known".to_sym => true, cents_key => Money.cents!(input[value_key], message: "#{label} must be a number with no more than two decimal places") } if input.key?(value_key)
-          return { "#{value_key}_known".to_sym => input.fetch("#{value_key}_known".to_sym), cents_key => Integer(input.fetch(cents_key)) } if input.key?(cents_key)
+          if input.key?(cents_key)
+            known = input.fetch("#{value_key}_known".to_sym)
+            raise ArgumentError, "#{label} known flag must be true or false" unless known == true || known == false
+
+            return { "#{value_key}_known".to_sym => known, cents_key => Integer(input.fetch(cents_key)) }
+          end
           {}
         end
 

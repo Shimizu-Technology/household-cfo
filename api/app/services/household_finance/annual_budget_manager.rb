@@ -276,13 +276,14 @@ module HouseholdFinance
         }
       end
 
+      debt_portfolio = DebtPortfolio.new(household)
       {
         year: year,
         months: months,
         rows: rows,
         monthly_income: monthly_income,
-        monthly_debt_minimums: Money.dollars(DebtPortfolio.new(household).monthly_minimum_cents),
-        monthly_debt_minimums_known: DebtPortfolio.new(household).minimum_payment_known?,
+        monthly_debt_minimums: Money.dollars(debt_portfolio.monthly_minimum_cents),
+        monthly_debt_minimums_known: debt_portfolio.minimum_payment_known?,
         income_sources: income_sources_payload,
         annual_outlook: { typical_monthly_outflow: 0, months: [], upcoming_spikes: [], next_irregular_month: nil },
         pending_transaction_drafts: [],

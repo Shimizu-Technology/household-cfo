@@ -78,7 +78,9 @@ module HouseholdFinance
       confirmed = Array(household.confirmed_setup_fields).map(&:to_s)
       submitted = attributes.keys.map(&:to_s)
       submitted.each do |field|
-        if field == "primary_goal" && household.primary_goal.blank?
+        if field.in?(%w[credit_card_debt debt_payment]) && attributes.fetch(field.to_sym).to_s.strip.blank?
+          confirmed.delete(field)
+        elsif field == "primary_goal" && household.primary_goal.blank?
           confirmed.delete(field)
         else
           confirmed << field
@@ -134,8 +136,8 @@ module HouseholdFinance
       payment = attributes.fetch(:debt_payment, MISSING_VALUE)
 
       if profile.debt_tracking_mode == "individual" && household.debts.active.exists?
-        requested_balance = missing_value?(balance) ? portfolio.total_balance_cents : setup_money_cents(balance, label: "Debt balance")
-        requested_payment = missing_value?(payment) ? portfolio.monthly_minimum_cents : setup_money_cents(payment, label: "Debt payment")
+        requested_balance = missing_value?(balance) || balance.blank? ? portfolio.total_balance_cents : setup_money_cents(balance, label: "Debt balance")
+        requested_payment = missing_value?(payment) || payment.blank? ? portfolio.monthly_minimum_cents : setup_money_cents(payment, label: "Debt payment")
         return if requested_balance == portfolio.total_balance_cents && requested_payment == portfolio.monthly_minimum_cents
 
         raise ArgumentError, "Debt is tracked by individual records. Edit a specific debt or switch to summary tracking so detailed balances do not change silently"
@@ -143,12 +145,12 @@ module HouseholdFinance
 
       updates = { debt_tracking_mode: "summary" }
       unless missing_value?(balance)
-        updates[:debt_summary_balance_cents] = setup_money_cents(balance, label: "Debt balance")
-        updates[:debt_summary_balance_known] = true
+        updates[:debt_summary_balance_cents] = debt_setup_money_cents(balance, label: "Debt balance") || 0
+        updates[:debt_summary_balance_known] = balance.to_s.strip.present?
       end
       unless missing_value?(payment)
-        updates[:debt_summary_minimum_payment_cents] = setup_money_cents(payment, label: "Debt payment")
-        updates[:debt_summary_minimum_payment_known] = true
+        updates[:debt_summary_minimum_payment_cents] = debt_setup_money_cents(payment, label: "Debt payment") || 0
+        updates[:debt_summary_minimum_payment_known] = payment.to_s.strip.present?
       end
       profile.update!(updates)
     end
@@ -280,6 +282,12 @@ module HouseholdFinance
 
     def setup_money_cents(value, label:)
       return 0 if value.blank?
+
+      Money.cents!(value, message: "#{label} must be a number with no more than two decimal places")
+    end
+
+    def debt_setup_money_cents(value, label:)
+      return if value.to_s.strip.blank?
 
       Money.cents!(value, message: "#{label} must be a number with no more than two decimal places")
     end

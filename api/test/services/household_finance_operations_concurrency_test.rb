@@ -79,18 +79,21 @@ class HouseholdFinanceOperationsConcurrencyTest < ActiveSupport::TestCase
   test "a concurrent downgrade to coach viewer wins before operation authorization" do
     membership = @household.household_memberships.find_by!(user: @user)
     downgrade_ready = Queue.new
+    downgrader_pid = Queue.new
     release_downgrade = Queue.new
     downgrader = Thread.new do
-      ActiveRecord::Base.connection_pool.with_connection do
+      ActiveRecord::Base.connection_pool.with_connection do |connection|
         HouseholdMembership.transaction do
           locked = HouseholdMembership.lock.find(membership.id)
           locked.update!(role: "coach_viewer")
+          downgrader_pid << connection.select_value("SELECT pg_backend_pid()").to_i
           downgrade_ready << true
           release_downgrade.pop
         end
       end
     end
     downgrade_ready.pop
+    blocking_pid = downgrader_pid.pop
 
     runner_pid = Queue.new
     runner = Thread.new do
@@ -111,14 +114,12 @@ class HouseholdFinanceOperationsConcurrencyTest < ActiveSupport::TestCase
     deadline = 15.seconds.from_now
     blocked = false
     until blocked || Time.current >= deadline
-      blocked = ActiveRecord::Base.connection.select_value(<<~SQL.squish) == "Lock"
-        SELECT wait_event_type
-        FROM pg_stat_activity
-        WHERE pid = #{Integer(pid)}
+      blocked = ActiveRecord::Base.connection.select_value(<<~SQL.squish).to_i == 1
+        SELECT CASE WHEN #{Integer(blocking_pid)} = ANY(pg_blocking_pids(#{Integer(pid)})) THEN 1 ELSE 0 END
       SQL
       sleep 0.01 unless blocked
     end
-    assert blocked, "expected the operation to wait for the locked membership row"
+    assert blocked, "expected the operation to wait for the downgrade transaction's locked membership row"
     release_downgrade << true
 
     error = runner.value

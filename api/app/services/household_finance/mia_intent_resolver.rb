@@ -517,7 +517,7 @@ module HouseholdFinance
               setup_updates: {
                 type: "object",
                 additionalProperties: false,
-                required: %w[household_name primary_goal primary_income business_income fixed_expenses flexible_spend expected_sinking_fund unexpected_sinking_fund emergency_fund other_assets credit_card_debt debt_payment target_runway_months],
+                required: %w[household_name primary_goal primary_income business_income fixed_expenses flexible_spend expected_sinking_fund unexpected_sinking_fund emergency_fund other_assets target_runway_months],
                 properties: {
                   household_name: { type: "string", maxLength: 120 },
                   primary_goal: { type: "string", maxLength: 500 },
@@ -529,8 +529,6 @@ module HouseholdFinance
                   unexpected_sinking_fund: { type: "string", maxLength: 40 },
                   emergency_fund: { type: "string", maxLength: 40 },
                   other_assets: { type: "string", maxLength: 40 },
-                  credit_card_debt: { type: "string", maxLength: 40 },
-                  debt_payment: { type: "string", maxLength: 40 },
                   target_runway_months: { type: "string", maxLength: 20 }
                 }
               },
@@ -1381,6 +1379,13 @@ module HouseholdFinance
       if entry.fetch(:field) == :amount
         prior_amount = cents_or_nil(prior_action[:amount])
         return prior_amount == entry.fetch(:amount_cents) if prior_amount
+
+        return false
+      end
+
+      if entry.fetch(:field) == :minimum_payment
+        prior_minimum = cents_or_nil(prior_action[:minimum_payment])
+        return prior_minimum == entry.fetch(:amount_cents) if prior_minimum
 
         return false
       end

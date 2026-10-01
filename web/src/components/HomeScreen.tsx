@@ -149,8 +149,8 @@ export function HomeScreen({ dashboard, budget, onAskMia, onReviewTransactions, 
             ) : <>
               <div className="readiness-current-row">
                 <Metric label="Protected liquid" value={currency.format(dashboard.readiness_path.protected_liquid_amount)} />
-                <Metric label="Current runway" value={`${dashboard.readiness_path.current_runway_months} months`} />
-                <Metric label="Monthly surplus" value={currency.format(dashboard.readiness_path.monthly_surplus ?? 0)} />
+                <Metric label="Current runway" value={dashboard.readiness_path.current_runway_months === null ? 'Not available' : `${dashboard.readiness_path.current_runway_months} months`} />
+                <Metric label="Monthly surplus" value={dashboard.readiness_path.monthly_surplus === null ? 'Not available' : currency.format(dashboard.readiness_path.monthly_surplus)} />
                 <Metric label="Full target" value={`${dashboard.readiness_path.target_runway_months} months`} />
               </div>
               <div className="readiness-milestone-grid">

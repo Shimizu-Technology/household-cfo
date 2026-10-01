@@ -115,6 +115,43 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal "", result.action.fetch(:minimum_payment)
   end
 
+  test "keeps a prior debt minimum when clarification supplies the debt type" do
+    context = intent_context.deep_dup
+    context[:conversation] = {
+      active_thread: {
+        schema_version: 2,
+        type: "debt_plan",
+        title: "Add Navy Federal",
+        subject: "Navy Federal",
+        status: "needs_clarification",
+        action: {
+          type: "create_debt", debt_name: "Navy Federal", debt_type: "",
+          amount: "4200", minimum_payment: "125", interest_rate_percent: ""
+        }
+      },
+      recent_messages: []
+    }
+    result = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "It is a credit card.",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "debt_action", continuation: true,
+          resolved_message: "Add Navy Federal as a credit card with a $4,200 balance and $125 minimum",
+          topic: { type: "debt_plan", title: "Add Navy Federal", subject: "Navy Federal" },
+          action: default_action.merge(type: "create_debt", debt_name: "Navy Federal", debt_type: "credit_card")
+        )
+      end
+    ).call
+
+    assert result.actionable?
+    assert_equal "create_debt", result.action.fetch(:type)
+    assert_equal "credit_card", result.action.fetch(:debt_type)
+    assert_equal "4200", result.action.fetch(:amount)
+    assert_equal "125", result.action.fetch(:minimum_payment)
+  end
+
   test "returns no model resolution when provider capacity is full" do
     with_mia_provider_capacity_rejected do
       resolver = HouseholdFinance::MiaIntentResolver.new(
@@ -276,8 +313,6 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       unexpected_sinking_fund: [ "Unexpected sinking fund is $7,106.", "7106" ],
       emergency_fund: [ "Emergency fund is $7,107.", "7107" ],
       other_assets: [ "Other assets are $7,108.", "7108" ],
-      credit_card_debt: [ "Credit card debt is $7,109.", "7109" ],
-      debt_payment: [ "Debt minimum is $7,110.", "7110" ],
       target_runway_months: [ "Runway target is 6 months.", "6" ]
     }
 

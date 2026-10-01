@@ -95,6 +95,25 @@ class ApiV1DebtsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 50, payload.fetch("monthly_minimum")
   end
 
+  test "explicit zero summary totals confirm no debt without treating blanks as zero" do
+    user = create_user(email: "debt-zero-summary@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+
+    patch "/api/v1/debts/tracking",
+      params: { debt_tracking: { mode: "summary", summary_balance: 0, summary_minimum_payment: 0 } },
+      headers: auth_headers(user, idempotency_key: "confirm-zero-summary"), as: :json
+
+    assert_response :success
+    profile = household.household_profile.reload
+    assert profile.debt_summary_balance_known?
+    assert profile.debt_summary_minimum_payment_known?
+    assert_equal 0, profile.debt_summary_balance_cents
+    assert_equal 0, profile.debt_summary_minimum_payment_cents
+    portfolio = response.parsed_body.fetch("debt_portfolio")
+    assert portfolio.fetch("balance_known")
+    assert portfolio.fetch("minimum_payment_known")
+  end
+
   test "participant can save large debt amounts within the documented money range" do
     user = create_user(email: "debt-large-amount@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

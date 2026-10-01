@@ -108,10 +108,12 @@ module HouseholdFinance
 
     def wealth
       debt_balance_known = snapshot.fetch(:debt_balance_known)
+      liquid_net_worth_available = debt_balance_known && debt_portfolio.mode == "individual"
       {
         summary: {
           net_worth: debt_balance_known ? dollars(snapshot.fetch(:net_worth_cents)) : nil,
-          liquid_net_worth: debt_balance_known ? dollars(snapshot.fetch(:liquid_assets_cents) - liquid_liabilities_cents) : nil,
+          liquid_net_worth: liquid_net_worth_available ? dollars(snapshot.fetch(:liquid_assets_cents) - liquid_liabilities_cents) : nil,
+          liquid_net_worth_available: liquid_net_worth_available,
           debt_balance_known: debt_balance_known,
           debt_minimums_known: snapshot.fetch(:debt_minimums_known),
           ten_year_surplus_capacity: snapshot.fetch(:debt_minimums_known) ? dollars(ten_year_surplus_capacity_cents) : nil,
@@ -210,8 +212,8 @@ module HouseholdFinance
         unexpected_sinking_fund: dollars(expenses_by_stack("sinking_unexpected")),
         emergency_fund: dollars(account_by_type("emergency_fund")),
         other_assets: dollars(account_by_type("other")),
-        credit_card_debt: dollars(debt_portfolio.total_balance_cents),
-        debt_payment: dollars(debt_portfolio.monthly_minimum_cents),
+        credit_card_debt: debt_portfolio.balance_known? ? dollars(debt_portfolio.total_balance_cents) : nil,
+        debt_payment: debt_portfolio.minimum_payment_known? ? dollars(debt_portfolio.monthly_minimum_cents) : nil,
         target_runway_months: target_runway_months
       }
     end
@@ -952,7 +954,7 @@ module HouseholdFinance
     end
 
     def liquid_liabilities_cents
-      debt_portfolio.mode == "summary" ? debt_portfolio.total_balance_cents : debt_by_type("credit_card")
+      debt_by_type("credit_card")
     end
 
     def debt_payments_by_type(debt_type)

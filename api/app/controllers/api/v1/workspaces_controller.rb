@@ -52,8 +52,6 @@ module Api
           :unexpected_sinking_fund,
           :emergency_fund,
           :other_assets,
-          :credit_card_debt,
-          :debt_payment,
           :target_runway_months
         )
       end

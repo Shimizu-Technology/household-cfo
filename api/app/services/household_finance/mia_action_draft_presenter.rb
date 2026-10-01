@@ -132,7 +132,7 @@ module HouseholdFinance
         next if handled.include?(label)
         next if key.end_with?("_cents") && before[key] == after[key] && before[key.sub("_cents", "_known")] == after[key.sub("_cents", "_known")]
         next if key.end_with?("_known")
-        next if before[key] == after[key]
+        next if !key.end_with?("_cents") && before[key] == after[key]
         handled << label
         { label: label, before: debt_review_value(key, before), after: debt_review_value(key, after) }
       end

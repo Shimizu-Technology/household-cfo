@@ -31,6 +31,20 @@ class HouseholdFinanceDebtOperationsTest < ActiveSupport::TestCase
     assert_equal 10_000, @household.debts.find_by!(label: "Visa").balance_cents
   end
 
+  test "prepared cents input requires real boolean known flags" do
+    operation = HouseholdFinance::Operations::Debt::RecordCreate.new(@household)
+
+    error = assert_raises(ArgumentError) do
+      operation.prepare(
+        label: "Visa", debt_type: "credit_card",
+        balance_cents: 10_000, balance_known: "false"
+      )
+    end
+
+    assert_includes error.message, "known flag must be true or false"
+    assert_empty @household.debts
+  end
+
   test "archive and restore preserve identity history and block an active duplicate" do
     debt = @household.debts.create!(label: "Visa", debt_type: "credit_card", balance_cents: 100_000, minimum_payment_cents: 5_000)
     archived = @runner.run(operation_key: "debt.record.archive", input: { debt_id: debt.id }, idempotency_key: "archive")
@@ -116,6 +130,20 @@ class HouseholdFinanceDebtOperationsTest < ActiveSupport::TestCase
     assert_not portfolio.minimum_payment_known?
     assert_not snapshot.fetch(:debt_balance_known)
     assert_not snapshot.fetch(:debt_minimums_known)
+  end
+
+  test "archiving every debt still requires explicit no-debt confirmation" do
+    debt = @household.debts.create!(
+      label: "Paid card", debt_type: "credit_card", balance_cents: 0,
+      minimum_payment_cents: 0, balance_known: true, minimum_payment_known: true,
+      active: false, archived_at: Time.current
+    )
+
+    portfolio = HouseholdFinance::DebtPortfolio.new(@household.reload)
+
+    assert_not debt.active?
+    assert_not portfolio.balance_known?
+    assert_not portfolio.minimum_payment_known?
   end
 
   test "a known zero summary explicitly records that the household has no debt" do
