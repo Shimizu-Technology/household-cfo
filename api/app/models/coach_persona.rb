@@ -2,6 +2,7 @@
 
 class CoachPersona < ApplicationRecord
   class DraftConflict < StandardError; end
+  class ContentPackSelectionError < ArgumentError; end
 
   LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
 
@@ -72,18 +73,18 @@ class CoachPersona < ApplicationRecord
   end
 
   def replace_draft_content_pack_versions!(versions, actor:, expected_draft_revision: draft_revision)
-    raise ArgumentError, "Not authorized to edit this persona" unless actor&.admin? || created_by_user_id == actor&.id
-    raise ArgumentError, "Archived personas are read-only" if archived?
+    raise ContentPackSelectionError, "Not authorized to edit this persona" unless actor&.admin? || created_by_user_id == actor&.id
+    raise ContentPackSelectionError, "Archived personas are read-only" if archived?
 
     normalized = Array(versions).uniq(&:id)
-    raise ArgumentError, "A persona can use at most 12 content packs" if normalized.length > 12
+    raise ContentPackSelectionError, "A persona can use at most 12 content packs" if normalized.length > 12
     normalized.each do |version|
-      raise ArgumentError, "Content pack version is not a valid sealed publication" unless version.manifest_valid?
+      raise ContentPackSelectionError, "Content pack version is not a valid sealed publication" unless version.manifest_valid?
 
       pack = version.coach_content_pack
       next if pack.scope == "platform" || pack.created_by_user_id == created_by_user_id
 
-      raise ArgumentError, "Content packs from another coach cannot be attached"
+      raise ContentPackSelectionError, "Content packs from another coach cannot be attached"
     end
 
     with_lock do

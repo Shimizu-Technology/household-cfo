@@ -187,9 +187,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     return () => window.removeEventListener('beforeunload', protectUnsavedDraft)
   }, [studioDirty])
 
-  function chooseStudioSection(next: StudioSection) {
-    if (next === studioSection) return
-    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return
+  function chooseStudioSection(next: StudioSection): boolean {
+    if (next === studioSection) return true
+    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch views?')) return false
     if (dirty && selectedPersona) {
       setDraft(selectedPersona.draft ?? null)
       setDescription(selectedPersona.description)
@@ -198,6 +198,23 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
     setStudioSection(next)
+    return true
+  }
+
+  function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
+    const tabs = Array.from(event.currentTarget.parentElement?.querySelectorAll<HTMLButtonElement>('[role="tab"]') ?? [])
+    const currentIndex = tabs.indexOf(event.currentTarget)
+    let nextIndex: number
+    if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = (currentIndex + 1) % tabs.length
+    else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+    else if (event.key === 'Home') nextIndex = 0
+    else if (event.key === 'End') nextIndex = tabs.length - 1
+    else return
+
+    event.preventDefault()
+    const nextTab = tabs[nextIndex]
+    const nextSection = nextTab?.dataset.studioSection as StudioSection | undefined
+    if (nextTab && nextSection && chooseStudioSection(nextSection)) nextTab.focus()
   }
 
   function replaceDraft(next: PersonaConfiguration) {
@@ -497,22 +514,26 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>
 
       <nav className="coach-studio-section-tabs" role="tablist" aria-label="Coach Studio areas">
-        <button type="button" role="tab" aria-selected={studioSection === 'assistants'} onClick={() => chooseStudioSection('assistants')}>
+        <button type="button" role="tab" id="coach-studio-tab-assistants" aria-controls="coach-studio-panel-assistants" aria-selected={studioSection === 'assistants'} tabIndex={studioSection === 'assistants' ? 0 : -1} data-studio-section="assistants" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('assistants')}>
           <strong>Assistant voice</strong><small>Shape how Mia coaches and communicates</small>
         </button>
-        <button type="button" role="tab" aria-selected={studioSection === 'library'} onClick={() => chooseStudioSection('library')}>
+        <button type="button" role="tab" id="coach-studio-tab-library" aria-controls="coach-studio-panel-library" aria-selected={studioSection === 'library'} tabIndex={studioSection === 'library' ? 0 : -1} data-studio-section="library" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('library')}>
           <strong>Coaching Library</strong><small>Approve and publish reusable coaching sources</small>
         </button>
-        <button type="button" role="tab" aria-selected={studioSection === 'participant_tools'} onClick={() => chooseStudioSection('participant_tools')}>
+        <button type="button" role="tab" id="coach-studio-tab-participant-tools" aria-controls="coach-studio-panel-participant-tools" aria-selected={studioSection === 'participant_tools'} tabIndex={studioSection === 'participant_tools' ? 0 : -1} data-studio-section="participant_tools" onKeyDown={handleStudioSectionKeyDown} onClick={() => chooseStudioSection('participant_tools')}>
           <strong>Participant tools</strong><small>Choose the cohort's optional learning tools</small>
         </button>
       </nav>
 
       {studioSection === 'library' ? (
-        <CoachContentLibrary currentUser={currentUser} onDirtyChange={setLibraryDirty} />
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
+          <CoachContentLibrary currentUser={currentUser} onDirtyChange={setLibraryDirty} />
+        </div>
       ) : studioSection === 'participant_tools' ? (
-        <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
-      ) : <>
+        <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
+          <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
+        </div>
+      ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 
       {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
@@ -699,7 +720,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           )}
         </div>
       </div>
-      </>}
+      </div>}
     </section>
   )
 }

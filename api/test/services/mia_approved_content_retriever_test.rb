@@ -118,4 +118,24 @@ class MiaApprovedContentRetrieverTest < ActiveSupport::TestCase
     assert_equal coach_item.current_approved_version_id, result.first.fetch(:item_version).id
     assert_equal "Coach method", result.first.fetch(:pack_version).name
   end
+
+  test "query terms are tokenized once across all candidate items" do
+    coach = persona_user
+    items = 4.times.map do |index|
+      approved_content_item(owner: coach, title: "Runway #{index}", content: "Runway planning step #{index}.")
+    end
+    pack = published_content_pack(owner: coach, items: items)
+    query = "How should I plan my runway?"
+    retriever = Mia::ApprovedContentRetriever.new(persona: nil, query: query, pack_versions: [ pack.current_published_version ])
+    query_tokenizations = 0
+    retriever.define_singleton_method(:tokens) do |value|
+      query_tokenizations += 1 if value == query
+      super(value)
+    end
+
+    result = retriever.call
+
+    assert_equal 4, result.length
+    assert_equal 1, query_tokenizations
+  end
 end

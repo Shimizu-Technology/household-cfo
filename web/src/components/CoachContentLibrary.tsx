@@ -25,6 +25,7 @@ import './CoachContentLibrary.css'
 
 const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
 const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', 'finance_reference']
+const normalizeSingleLine = (value: string) => value.trim().replace(/\s+/g, ' ')
 
 export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange?: (dirty: boolean) => void }) {
   const [items, setItems] = useState<AdminContentItem[]>([])
@@ -56,7 +57,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
 
   useEffect(() => { queueMicrotask(() => void load()) }, [load])
 
-  async function mutate(action: () => Promise<void>, success: string) {
+  async function mutate(action: () => Promise<void>, success: string): Promise<boolean> {
     setBusy(true)
     setError(null)
     setNotice(null)
@@ -64,8 +65,10 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
       await action()
       await load()
       setNotice(success)
+      return true
     } catch (caught) {
       setError(errorMessage(caught, 'That change could not be saved.'))
+      return false
     } finally {
       setBusy(false)
     }
@@ -128,9 +131,9 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
   busy: boolean
   onDirtyChange: (dirty: boolean) => void
   onSelect: (id: number | null) => void
-  onCreate: (values: { title: string; scope: AdminContentScope; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<void>
-  onSave: (item: AdminContentItem, values: { title: string; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<void>
-  onApprove: (item: AdminContentItem) => Promise<void>
+  onCreate: (values: { title: string; scope: AdminContentScope; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<boolean>
+  onSave: (item: AdminContentItem, values: { title: string; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<boolean>
+  onApprove: (item: AdminContentItem) => Promise<boolean>
 }) {
   const [creating, setCreating] = useState(false)
   const [title, setTitle] = useState('')
@@ -138,9 +141,9 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
   const [kind, setKind] = useState<AdminContentItemKind>('guidance')
   const [scope, setScope] = useState<AdminContentScope>('coach')
   const [alwaysOn, setAlwaysOn] = useState(false)
-  const itemDirty = Boolean(selected && (
-    title.trim() !== selected.title ||
-    content.trim() !== selected.draft_content ||
+  const itemDirty = Boolean(selected?.editable && (
+    normalizeSingleLine(title) !== selected.title ||
+    content.trim() !== (selected.draft_content ?? '') ||
     kind !== selected.kind ||
     alwaysOn !== selected.always_on
   ))
@@ -162,7 +165,7 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
   function selectItem(item: AdminContentItem) {
     setCreating(false)
     setTitle(item.title)
-    setContent(item.draft_content ?? item.current_approved_version?.content ?? '')
+    setContent(item.editable ? item.draft_content ?? '' : item.current_approved_version?.content ?? '')
     setKind(item.kind)
     setScope(item.scope)
     setAlwaysOn(item.always_on)
@@ -171,9 +174,16 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onDirtyChange, 
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (selected) await onSave(selected, { title: title.trim(), kind, draft_content: content.trim(), always_on: alwaysOn })
-    else await onCreate({ title: title.trim(), scope, kind, draft_content: content.trim(), always_on: alwaysOn })
-    setCreating(false)
+    const normalizedTitle = normalizeSingleLine(title)
+    const normalizedContent = content.trim()
+    const succeeded = selected
+      ? await onSave(selected, { title: normalizedTitle, kind, draft_content: normalizedContent, always_on: alwaysOn })
+      : await onCreate({ title: normalizedTitle, scope, kind, draft_content: normalizedContent, always_on: alwaysOn })
+    if (succeeded) {
+      setTitle(normalizedTitle)
+      setContent(normalizedContent)
+      setCreating(false)
+    }
   }
 
   return (
@@ -216,9 +226,9 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
   busy: boolean
   onDirtyChange: (dirty: boolean) => void
   onSelect: (id: number | null) => void
-  onCreate: (values: { name: string; description: string; scope: AdminContentScope; pack_kind: AdminContentPackKind; item_version_ids: number[] }) => Promise<void>
-  onSave: (pack: AdminContentPack, values: { name: string; description: string; pack_kind: AdminContentPackKind; item_version_ids: number[] }) => Promise<void>
-  onPublish: (pack: AdminContentPack) => Promise<void>
+  onCreate: (values: { name: string; description: string; scope: AdminContentScope; pack_kind: AdminContentPackKind; item_version_ids: number[] }) => Promise<boolean>
+  onSave: (pack: AdminContentPack, values: { name: string; description: string; pack_kind: AdminContentPackKind; item_version_ids: number[] }) => Promise<boolean>
+  onPublish: (pack: AdminContentPack) => Promise<boolean>
 }) {
   const [creating, setCreating] = useState(false)
   const [name, setName] = useState('')
@@ -227,8 +237,8 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
   const [scope, setScope] = useState<AdminContentScope>('coach')
   const [selectedVersions, setSelectedVersions] = useState<number[]>([])
   const approvedItems = items.filter((item) => item.current_approved_version && !item.archived && (scope === 'coach' || item.scope === 'platform'))
-  const packDirty = Boolean(selected && (
-    name.trim() !== selected.name ||
+  const packDirty = Boolean(selected?.editable && (
+    normalizeSingleLine(name) !== selected.name ||
     description.trim() !== selected.description ||
     kind !== selected.pack_kind ||
     selectedVersions.join(',') !== selected.draft_items.map((item) => item.id).join(',')
@@ -278,10 +288,15 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    const values = { name: name.trim(), description: description.trim(), pack_kind: kind, item_version_ids: selectedVersions }
-    if (selected) await onSave(selected, values)
-    else await onCreate({ ...values, scope })
-    setCreating(false)
+    const normalizedName = normalizeSingleLine(name)
+    const normalizedDescription = description.trim()
+    const values = { name: normalizedName, description: normalizedDescription, pack_kind: kind, item_version_ids: selectedVersions }
+    const succeeded = selected ? await onSave(selected, values) : await onCreate({ ...values, scope })
+    if (succeeded) {
+      setName(normalizedName)
+      setDescription(normalizedDescription)
+      setCreating(false)
+    }
   }
 
   return (
@@ -341,22 +356,25 @@ export function PersonaContentPacksPanel({ persona, dirty, onDirtyChange, onPers
 
   const published = useMemo(() => packs.filter((pack) => pack.current_published_version && !pack.archived), [packs])
 
+  function updateSelection(next: number[]) {
+    setSelectedIds(next)
+    onDirtyChange(next.join(',') !== (persona.content_packs?.map((pack) => pack.id) ?? []).join(','))
+  }
+
   function toggle(pack: AdminContentPack) {
     const version = pack.current_published_version
     if (!version) return
-    setSelectedIds((current) => {
-      const linkedForPack = persona.content_packs?.filter((candidate) => candidate.pack_id === pack.id).map((candidate) => candidate.id) ?? []
-      const withoutPack = current.filter((id) => !linkedForPack.includes(id) && id !== version.id)
-      const included = current.includes(version.id) || linkedForPack.some((id) => current.includes(id))
-      return included ? withoutPack : [...withoutPack, version.id]
-    })
+    const linkedForPack = persona.content_packs?.filter((candidate) => candidate.pack_id === pack.id).map((candidate) => candidate.id) ?? []
+    const withoutPack = selectedIds.filter((id) => !linkedForPack.includes(id) && id !== version.id)
+    const included = selectedIds.includes(version.id) || linkedForPack.some((id) => selectedIds.includes(id))
+    updateSelection(included ? withoutPack : [...withoutPack, version.id])
   }
 
   function chooseCurrentVersion(pack: AdminContentPack) {
     const version = pack.current_published_version
     if (!version) return
     const linkedForPack = persona.content_packs?.filter((candidate) => candidate.pack_id === pack.id).map((candidate) => candidate.id) ?? []
-    setSelectedIds((current) => [...current.filter((id) => !linkedForPack.includes(id) && id !== version.id), version.id])
+    updateSelection([...selectedIds.filter((id) => !linkedForPack.includes(id) && id !== version.id), version.id])
   }
 
   const changed = selectedIds.join(',') !== (persona.content_packs?.map((pack) => pack.id) ?? []).join(',')

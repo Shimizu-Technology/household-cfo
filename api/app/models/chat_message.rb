@@ -21,6 +21,12 @@ class ChatMessage < ApplicationRecord
   before_validation :set_global_assistant_author, on: :create
 
   def as_api_json(author: nil)
+    citations = if association(:coach_content_citations).loaded?
+      coach_content_citations.target.sort_by(&:rank)
+    else
+      coach_content_citations.includes(:coach_content_pack_version, coach_content_item_version: :coach_content_item).to_a
+    end
+
     {
       id: id,
       role: role,
@@ -28,7 +34,7 @@ class ChatMessage < ApplicationRecord
       content: content,
       attachments: attachments,
       presentation: presentation,
-      citations: coach_content_citations.includes(:coach_content_pack_version, coach_content_item_version: :coach_content_item).map do |citation|
+      citations: citations.map do |citation|
         item_version = citation.coach_content_item_version
         {
           title: item_version.title,

@@ -32,7 +32,7 @@ module Api
           render json: { persona: Mia::PersonaStudioSerializer.new(persona.reload, policy: persona_policy).detail }
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Persona not found.", code: "persona_not_found" }, status: :not_found
-        rescue ArgumentError => error
+        rescue CoachPersona::ContentPackSelectionError => error
           render json: { error: error.message, code: "persona_content_packs_invalid" }, status: :unprocessable_entity
         rescue CoachPersona::DraftConflict
           conflict

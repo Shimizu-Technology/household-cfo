@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "set"
+
 module Mia
   class ContentLibrarySerializer
     def initialize(policy:)
@@ -7,7 +9,8 @@ module Mia
     end
 
     def item(item)
-      editable = policy.editable_items.where(id: item.id).exists?
+      preload_item(item)
+      editable = editable_item_ids.include?(item.id)
       display_version = item.current_approved_version
       {
         id: item.id,
@@ -20,9 +23,9 @@ module Mia
         draft_digest: editable ? item.draft_digest : nil,
         archived: item.archived?,
         editable: editable && !item.archived?,
-        current_approved_version: item.current_approved_version && item_version(item.current_approved_version),
-        versions: item.versions.order(version_number: :desc).map { |version| item_version(version) },
-        has_unapproved_changes: editable && (item.current_approved_version.nil? || item.current_approved_version.content_digest != item.draft_digest),
+        current_approved_version: display_version && item_version(display_version),
+        versions: associated_records(item, :versions).sort_by { |version| -version.version_number }.map { |version| item_version(version) },
+        has_unapproved_changes: editable && (display_version.nil? || display_version.content_digest != item.draft_digest),
         updated_at: item.updated_at
       }
     end
@@ -42,10 +45,13 @@ module Mia
     end
 
     def pack(pack)
-      editable = policy.editable_packs.where(id: pack.id).exists?
+      preload_pack(pack)
+      editable = editable_pack_ids.include?(pack.id)
       display_version = pack.current_published_version
-      unpublished_changes = editable && unpublished_changes?(pack)
-      item_updates = editable && item_updates_available?(pack)
+      draft_entries = editable ? sorted_entries(pack, :draft_entries) : []
+      draft_digest = editable ? CoachContentPackVersion.draft_manifest_digest_for(pack, draft_entries) : nil
+      unpublished_changes = editable && unpublished_changes?(display_version, draft_digest)
+      item_updates = editable && item_updates_available?(draft_entries)
       {
         id: pack.id,
         name: editable ? pack.name : display_version&.name,
@@ -53,12 +59,12 @@ module Mia
         scope: pack.scope,
         pack_kind: editable ? pack.pack_kind : display_version&.pack_kind,
         draft_revision: editable ? pack.draft_revision : nil,
-        draft_manifest_digest: editable ? pack.draft_manifest_digest : nil,
+        draft_manifest_digest: draft_digest,
         archived: pack.archived?,
         editable: editable && !pack.archived?,
-        draft_items: editable ? pack.draft_entries.includes(:coach_content_item_version).order(:position).map { |entry| item_version(entry.coach_content_item_version) } : [],
-        current_published_version: pack.current_published_version && pack_version(pack.current_published_version),
-        versions: pack.versions.order(version_number: :desc).map { |version| pack_version(version) },
+        draft_items: draft_entries.map { |entry| item_version(entry.coach_content_item_version) },
+        current_published_version: display_version && pack_version(display_version),
+        versions: associated_records(pack, :versions).sort_by { |version| -version.version_number }.map { |version| pack_version(version) },
         has_unpublished_changes: unpublished_changes,
         item_updates_available: item_updates,
         update_available: unpublished_changes || item_updates,
@@ -77,7 +83,7 @@ module Mia
         version: version.version_number,
         digest: version.content_digest,
         published_at: version.created_at,
-        items: version.entries.includes(:coach_content_item_version).order(:position).map { |entry| item_version(entry.coach_content_item_version) }
+        items: sorted_entries(version, :entries).map { |entry| item_version(entry.coach_content_item_version) }
       }
     end
 
@@ -85,15 +91,62 @@ module Mia
 
     attr_reader :policy
 
-    def unpublished_changes?(pack)
-      return true unless pack.current_published_version
+    def preload_item(item)
+      return if item.association(:current_approved_version).loaded? && item.association(:versions).loaded?
 
-      pack.draft_manifest_digest != CoachContentPackVersion.draft_equivalent_digest(pack.current_published_version)
+      ActiveRecord::Associations::Preloader.new(
+        records: [ item ],
+        associations: [ :current_approved_version, :versions ]
+      ).call
     end
 
-    def item_updates_available?(pack)
-      pack.draft_entries.includes(coach_content_item_version: :coach_content_item).any? do |entry|
-        entry.coach_content_item_version.coach_content_item.current_approved_version_id != entry.coach_content_item_version_id
+    def preload_pack(pack)
+      top_level_loaded = %i[current_published_version versions draft_entries].all? do |association_name|
+        pack.association(association_name).loaded?
+      end
+      return if top_level_loaded
+
+      ActiveRecord::Associations::Preloader.new(
+        records: [ pack ],
+        associations: {
+          current_published_version: { entries: :coach_content_item_version },
+          versions: { entries: :coach_content_item_version },
+          draft_entries: { coach_content_item_version: { coach_content_item: :current_approved_version } }
+        }
+      ).call
+    end
+
+    def editable_item_ids
+      @editable_item_ids ||= policy.editable_items.pluck(:id).to_set
+    end
+
+    def editable_pack_ids
+      @editable_pack_ids ||= policy.editable_packs.pluck(:id).to_set
+    end
+
+    def associated_records(record, association_name)
+      association = record.association(association_name)
+      association.loaded? ? association.target : record.public_send(association_name).to_a
+    end
+
+    def sorted_entries(record, association_name)
+      associated_records(record, association_name).sort_by(&:position)
+    end
+
+    def unpublished_changes?(published_version, draft_digest)
+      return true unless published_version
+
+      published_digest = CoachContentPackVersion.draft_manifest_digest_for(
+        published_version,
+        sorted_entries(published_version, :entries)
+      )
+      draft_digest != published_digest
+    end
+
+    def item_updates_available?(draft_entries)
+      draft_entries.any? do |entry|
+        item = entry.coach_content_item_version.coach_content_item
+        item.current_approved_version_id != entry.coach_content_item_version_id
       end
     end
   end

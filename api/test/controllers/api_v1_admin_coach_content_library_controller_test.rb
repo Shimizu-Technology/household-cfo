@@ -149,6 +149,30 @@ class ApiV1AdminCoachContentLibraryControllerTest < ActionDispatch::IntegrationT
     assert_empty persona.reload.draft_content_pack_versions
   end
 
+  test "persona pack selection rescues only the dedicated domain error" do
+    coach = persona_user
+    persona = create_persona(creator: coach)
+
+    domain_error = assert_raises(CoachPersona::ContentPackSelectionError) do
+      persona.replace_draft_content_pack_versions!(13.times.map { |index| CoachContentPackVersion.new(id: index + 1) }, actor: coach)
+    end
+    assert_kind_of ArgumentError, domain_error
+
+    original = CoachPersona.instance_method(:replace_draft_content_pack_versions!)
+    CoachPersona.define_method(:replace_draft_content_pack_versions!) do |*, **|
+      raise ArgumentError, "unexpected programming error"
+    end
+
+    assert_raises(ArgumentError) do
+      patch "/api/v1/admin/personas/#{persona.id}/content_packs",
+        params: { content_packs: { draft_revision: persona.draft_revision, pack_version_ids: [] } },
+        headers: auth_headers(coach),
+        as: :json
+    end
+  ensure
+    CoachPersona.define_method(:replace_draft_content_pack_versions!, original) if original
+  end
+
   test "invalid pack item selection does not leave a partial pack" do
     coach = persona_user
     other = persona_user

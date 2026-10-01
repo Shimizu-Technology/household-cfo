@@ -9,7 +9,11 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          packs = policy.visible_packs.includes(:current_published_version, versions: { entries: :coach_content_item_version }, draft_entries: :coach_content_item_version).order(updated_at: :desc)
+          packs = policy.visible_packs.includes(
+            current_published_version: { entries: :coach_content_item_version },
+            versions: { entries: :coach_content_item_version },
+            draft_entries: { coach_content_item_version: { coach_content_item: :current_approved_version } }
+          ).order(updated_at: :desc)
           render json: { packs: packs.map { |pack| serializer.pack(pack) } }
         end
 

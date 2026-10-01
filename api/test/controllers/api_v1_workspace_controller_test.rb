@@ -1,6 +1,8 @@
 require "test_helper"
+require_relative "../support/persona_test_helper"
 
 class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
+  include PersonaTestHelper
   test "mia attachment route copy safely handles a legacy import without a document kind" do
     legacy_import = Struct.new(:metadata, :document_kind).new({}, nil)
     route_line = Api::V1::MiaMessagesController.new.send(:attached_document_route_line, legacy_import)
@@ -1204,11 +1206,25 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       source: "model"
     )
     fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
+    coach = persona_user(email: "attachment-citation-coach@example.com")
+    content_item = approved_content_item(owner: coach, title: "Attached action context", content: "Offer one clear review step.")
+    content_pack = published_content_pack(owner: coach, items: [ content_item ])
+    forced_citation = {
+      item_version: content_item.current_approved_version,
+      pack_version: content_pack.current_published_version,
+      rank: 1,
+      reason: "Context supplied for: review"
+    }
     original_create_draft = HouseholdFinance::MiaActionDraftBuilder::Proposal.instance_method(:create_draft!)
+    original_assistant_content = Api::V1::MiaMessagesController.instance_method(:assistant_content_for)
 
     begin
       HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!) do |**|
         raise RuntimeError, "simulated attached draft persistence failure"
+      end
+      Api::V1::MiaMessagesController.define_method(:assistant_content_for) do |*, **|
+        @used_coach_content = [ forced_citation ]
+        "I prepared the requested budget update for review."
       end
 
       assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "MiaActionDraft.count" ]) do
@@ -1240,6 +1256,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       assert_equal budget_allocation_ids, BudgetAllocation.where(budget_period_id: budget_period_ids).order(:id).pluck(:id)
     ensure
       HouseholdFinance::MiaActionDraftBuilder::Proposal.define_method(:create_draft!, original_create_draft)
+      Api::V1::MiaMessagesController.define_method(:assistant_content_for, original_assistant_content)
     end
 
     assert_response :created
@@ -1248,6 +1265,8 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_nil body.fetch("budget")
     assert_includes body.dig("assistant_message", "content"), "$87.45"
     assert_includes body.dig("assistant_message", "content"), "could not prepare the review card"
+    assert_empty body.dig("assistant_message", "citations")
+    assert_empty CoachContentCitation.where(chat_message_id: body.dig("assistant_message", "id"))
   end
 
   test "a combined attachment question and unsupported action returns evidence and an explicit boundary" do

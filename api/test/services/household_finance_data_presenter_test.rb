@@ -1,7 +1,9 @@
 require "test_helper"
+require_relative "../support/persona_test_helper"
 
 class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
   include ActiveSupport::Testing::TimeHelpers
+  include PersonaTestHelper
 
   test "blank workspace does not invent debt or CFO filter amounts" do
     household, user = create_household
@@ -461,7 +463,52 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal Date.current.month - 1, action_center.fetch(:current_month_index)
   end
 
+  test "chat history preloads citation provenance with a bounded query count" do
+    household, user = create_household
+    coach = persona_user(email: "history-citation-coach@example.com")
+    item = approved_content_item(owner: coach, title: "History context", content: "Keep the next step clear.")
+    pack = published_content_pack(owner: coach, items: [ item ])
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    create_cited_message = lambda do |index|
+      message = session.chat_messages.create!(role: "assistant", content: "Answer #{index}")
+      message.coach_content_citations.create!(
+        coach_content_item_version: item.current_approved_version,
+        coach_content_pack_version: pack.current_published_version,
+        rank: 1,
+        reason: "Context supplied for: next step"
+      )
+    end
+
+    create_cited_message.call(1)
+    first_count = citation_query_count do
+      @first_page = HouseholdFinance::DataPresenter.new(household, user: user).send(:chat_message_page, before_id: nil, limit: 60)
+    end
+
+    5.times { |index| create_cited_message.call(index + 2) }
+    expanded_count = citation_query_count do
+      @expanded_page = HouseholdFinance::DataPresenter.new(household, user: user).send(:chat_message_page, before_id: nil, limit: 60)
+    end
+
+    assert_equal first_count, expanded_count
+    assert_operator expanded_count, :<=, 4
+    assert_equal 6, @expanded_page.fetch(:messages).sum { |message| message.fetch(:citations).length }
+  end
+
   private
+
+  def citation_query_count(&block)
+    count = 0
+    callback = lambda do |*, payload|
+      next if payload[:name] == "SCHEMA" || payload[:cached]
+      next unless payload[:sql].match?(/coach_content_(?:citations|item_versions|items|pack_versions)/)
+
+      count += 1
+    end
+    ActiveRecord::Base.connection.uncached do
+      ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &block)
+    end
+    count
+  end
 
   def create_household
     user = User.create!(

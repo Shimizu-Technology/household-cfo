@@ -739,7 +739,12 @@ module HouseholdFinance
       return { messages: [], oldest_message_id: nil, older_message_count: 0 } unless chat_session
 
       page_limit = (limit.presence || 60).to_i.clamp(1, 100)
-      relation = chat_session.chat_messages
+      relation = chat_session.chat_messages.includes(
+        coach_content_citations: [
+          :coach_content_pack_version,
+          { coach_content_item_version: :coach_content_item }
+        ]
+      )
       relation = relation.where("id < ?", before_id.to_i) if before_id.to_i.positive?
       messages = relation.order(id: :desc).limit(page_limit).to_a.reverse
       imports_by_id = attachment_imports_by_id(messages)

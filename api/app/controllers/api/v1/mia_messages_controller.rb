@@ -530,6 +530,7 @@ module Api
             "Mia attachment action draft could not be persisted: #{draft_persistence_error.class}: #{draft_persistence_error.message}"
           )
           combined_content = [ evidence_content, action_draft_persistence_failure_message ].compact_blank.join(" ")
+          @used_coach_content = []
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)
         elsif no_draft_result
           user_message, assistant_message = persist_chat_messages(session, content, processed_imports, combined_content)

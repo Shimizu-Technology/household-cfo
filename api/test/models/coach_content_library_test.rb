@@ -224,6 +224,49 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     assert_empty CoachContentCitation.where(chat_message_id: message.id)
   end
 
+  test "content library serialization uses preloaded associations with bounded queries" do
+    coach = persona_user
+    items = 3.times.map do |index|
+      approved_content_item(owner: coach, title: "Serializer item #{index}", content: "Approved serializer content #{index}.")
+    end
+    packs = items.map.with_index do |item, index|
+      published_content_pack(owner: coach, items: [ item ], name: "Serializer pack #{index}")
+    end
+
+    loaded_items = Mia::ContentLibraryPolicy.new(coach).visible_items.where(id: items.map(&:id))
+      .includes(:current_approved_version, :versions).to_a
+    loaded_packs = Mia::ContentLibraryPolicy.new(coach).visible_packs.where(id: packs.map(&:id)).includes(
+      current_published_version: { entries: :coach_content_item_version },
+      versions: { entries: :coach_content_item_version },
+      draft_entries: { coach_content_item_version: { coach_content_item: :current_approved_version } }
+    ).to_a
+    count_content_queries = lambda do |&block|
+      count = 0
+      callback = lambda do |*, payload|
+        next if payload[:name] == "SCHEMA" || payload[:cached]
+        next unless payload[:sql].match?(/SELECT.+coach_content_/m)
+
+        count += 1
+      end
+      ActiveRecord::Base.connection.uncached do
+        ActiveSupport::Notifications.subscribed(callback, "sql.active_record", &block)
+      end
+      count
+    end
+
+    item_serializer = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach))
+    item_queries = count_content_queries.call { @serialized_items = loaded_items.map { |item| item_serializer.item(item) } }
+    pack_serializer = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach))
+    pack_queries = count_content_queries.call { @serialized_packs = loaded_packs.map { |pack| pack_serializer.pack(pack) } }
+
+    assert_equal 1, item_queries
+    assert_equal 1, pack_queries
+    assert_equal items.map(&:id).sort, @serialized_items.pluck(:id).sort
+    assert_equal packs.map(&:id).sort, @serialized_packs.pluck(:id).sort
+    assert @serialized_packs.all? { |pack| pack.fetch(:draft_manifest_digest).present? }
+    assert @serialized_packs.all? { |pack| pack.dig(:current_published_version, :items)&.one? }
+  end
+
   test "citation item must belong to the cited pack snapshot" do
     coach = persona_user
     included = approved_content_item(owner: coach, title: "Included citation")

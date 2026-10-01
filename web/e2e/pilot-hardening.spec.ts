@@ -390,9 +390,9 @@ type MockContentItem = {
   scope: string
   kind: string
   always_on: boolean
-  draft_content: string
-  draft_revision: number
-  draft_digest: string
+  draft_content: string | null
+  draft_revision: number | null
+  draft_digest: string | null
   archived: boolean
   editable: boolean
   current_approved_version: MockContentItemVersion | null
@@ -421,8 +421,8 @@ type MockContentPack = {
   scope: string
   pack_kind: string
   item_version_ids: number[]
-  draft_revision: number
-  draft_manifest_digest: string
+  draft_revision: number | null
+  draft_manifest_digest: string | null
   archived: boolean
   editable: boolean
   draft_items: MockContentItemVersion[]
@@ -593,7 +593,7 @@ async function mockDemoApi(page: Page) {
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
       const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
       const item: MockContentItem = {
-        id: 901, ...input, draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true,
+        id: 901, ...input, title: input.title.trim().replace(/\s+/g, ' '), draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true,
         current_approved_version: null, versions: [], has_unapproved_changes: true,
         updated_at: '2026-10-01T01:00:00Z',
       }
@@ -604,12 +604,14 @@ async function mockDemoApi(page: Page) {
     if (contentItemMatch) {
       const item = contentItems.find((candidate) => candidate.id === Number(contentItemMatch[1]))!
       if (contentItemMatch[2] === 'approve') {
-        const version = { id: 911, item_id: item.id, title: item.title, kind: item.kind, content: item.draft_content, always_on: item.always_on, version: 1, digest: 'item-digest', approved_at: '2026-10-01T01:02:00Z' }
+        const version = { id: 911, item_id: item.id, title: item.title, kind: item.kind, content: item.draft_content ?? '', always_on: item.always_on, version: 1, digest: 'item-digest', approved_at: '2026-10-01T01:02:00Z' }
         Object.assign(item, { current_approved_version: version, versions: [version], has_unapproved_changes: false })
         return route.fulfill({ status: 200, json: { item, approved_version: version } })
       }
       if (route.request().method() === 'PATCH') {
-        Object.assign(item, route.request().postDataJSON().item, { draft_revision: item.draft_revision + 1, draft_digest: `item-draft-${item.draft_revision + 1}`, has_unapproved_changes: true })
+        const input = route.request().postDataJSON().item
+        const nextRevision = (item.draft_revision ?? 0) + 1
+        Object.assign(item, input, { title: input.title.trim().replace(/\s+/g, ' '), draft_revision: nextRevision, draft_digest: `item-draft-${nextRevision}`, has_unapproved_changes: true })
         return route.fulfill({ status: 200, json: { item } })
       }
     }
@@ -620,7 +622,7 @@ async function mockDemoApi(page: Page) {
       const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'scope' | 'pack_kind' | 'item_version_ids'>
       const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
       const pack: MockContentPack = {
-        id: 921, ...input, draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, draft_items: selectedItems,
+        id: 921, ...input, name: input.name.trim().replace(/\s+/g, ' '), draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, draft_items: selectedItems,
         current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: true, updated_at: '2026-10-01T01:03:00Z',
       }
       contentPacks = [pack]
@@ -637,10 +639,12 @@ async function mockDemoApi(page: Page) {
       if (route.request().method() === 'PATCH') {
         const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'pack_kind' | 'item_version_ids'>
         const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
+        const nextRevision = (pack.draft_revision ?? 0) + 1
         Object.assign(pack, input, {
+          name: input.name.trim().replace(/\s+/g, ' '),
           draft_items: selectedItems,
-          draft_revision: pack.draft_revision + 1,
-          draft_manifest_digest: `pack-draft-${pack.draft_revision + 1}`,
+          draft_revision: nextRevision,
+          draft_manifest_digest: `pack-draft-${nextRevision}`,
           has_unpublished_changes: true,
           update_available: true,
         })
@@ -3060,7 +3064,7 @@ test('Coach Studio preserves coach-authored community context through preview, p
   await identityTab.focus()
   await identityTab.press('ArrowRight')
   await expect(page.getByRole('tab', { name: /Voice/ })).toBeFocused()
-  await expect(page.getByRole('tabpanel')).toHaveAttribute('aria-labelledby', 'coach-step-tab-voice')
+  await expect(page.locator('#coach-step-panel-voice')).toHaveAttribute('aria-labelledby', 'coach-step-tab-voice')
   await page.getByRole('tab', { name: /Community/ }).click()
   await expect(page.getByText('Coach authored only.')).toBeVisible()
   await page.getByLabel('Locale label').fill("Guam families in Mrs. Mel's first cohort")
@@ -3242,7 +3246,7 @@ test('Coach Studio ignores a delayed participant-tool response after switching c
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Participant tools/ }).click()
-  const cohortSelect = page.getByLabel('Cohort')
+  const cohortSelect = page.getByRole('combobox', { name: 'Cohort' })
   await expect(cohortSelect).toHaveValue('41')
   await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
 
@@ -3279,7 +3283,7 @@ test('Coach Studio clears the prior cohort after a participant-tool load fails',
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Participant tools/ }).click()
-  const cohortSelect = page.getByLabel('Cohort')
+  const cohortSelect = page.getByRole('combobox', { name: 'Cohort' })
   await expect(page.getByLabel('Include CFO Filter')).toBeChecked()
 
   await cohortSelect.selectOption('43')
@@ -3377,6 +3381,8 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only after the participant raises them.')
   await itemPanel.getByRole('button', { name: 'Create draft' }).click()
   await expect(page.getByRole('status')).toContainText('Content draft created')
+  await itemPanel.getByLabel('Title').fill('  Guam   family   context  ')
+  await expect(itemPanel.getByRole('button', { name: 'Save draft', exact: true })).toBeDisabled()
   await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only when the participant raises them.')
   await expect(itemPanel.getByRole('button', { name: 'Save draft before approving' })).toBeDisabled()
   page.once('dialog', async (dialog) => {
@@ -3397,6 +3403,8 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await packPanel.getByLabel(/Guam family context/).check()
   await packPanel.getByRole('button', { name: 'Create pack draft' }).click()
   await expect(page.getByRole('status')).toContainText('Content pack draft created')
+  await packPanel.getByLabel('Pack name').fill('  Mrs.   Mel Guam   context  ')
+  await expect(packPanel.getByRole('button', { name: 'Save pack', exact: true })).toBeDisabled()
   await packPanel.getByLabel('Description').fill('Reviewed Guam family context for participant-led conversations.')
   await expect(packPanel.getByRole('button', { name: 'Save pack before publishing' })).toBeDisabled()
   await packPanel.getByRole('button', { name: 'Save pack', exact: true }).click()
@@ -3411,6 +3419,83 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await expect(page.getByRole('status')).toContainText('fresh preview')
   await expect(sourcePanel).toContainText('v1')
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio keeps failed library drafts and read-only sources do not trigger dirty guards', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'library form-state regression')
+  const itemVersion: MockContentItemVersion = {
+    id: 951, item_id: 941, title: 'Platform baseline', kind: 'guidance', content: 'Keep the participant in control.',
+    always_on: true, version: 1, digest: 'platform-item-digest', approved_at: '2026-10-01T01:00:00Z',
+  }
+  const readonlyItem: MockContentItem = {
+    id: 941, title: itemVersion.title, scope: 'platform', kind: 'guidance', always_on: true,
+    draft_content: null, draft_revision: null, draft_digest: null, archived: false, editable: false,
+    current_approved_version: itemVersion, versions: [itemVersion], has_unapproved_changes: false,
+    updated_at: '2026-10-01T01:00:00Z',
+  }
+  const packVersion: MockContentPackVersion = {
+    id: 961, pack_id: 942, name: 'Platform safeguards', description: 'Approved baseline context.', scope: 'platform',
+    pack_kind: 'coaching_method', version: 1, digest: 'platform-pack-digest', published_at: '2026-10-01T01:01:00Z', items: [itemVersion],
+  }
+  const readonlyPack: MockContentPack = {
+    id: 942, name: packVersion.name, description: packVersion.description, scope: 'platform', pack_kind: 'coaching_method',
+    item_version_ids: [itemVersion.id], draft_revision: null, draft_manifest_digest: null, archived: false, editable: false,
+    draft_items: [], current_published_version: packVersion, versions: [packVersion], has_unpublished_changes: false,
+    item_updates_available: false, update_available: false, updated_at: '2026-10-01T01:01:00Z',
+  }
+
+  await page.route('http://api.test/api/v1/admin/content_items', async (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({ status: 422, json: { error: 'The content draft could not be saved.' } })
+    }
+    return route.fulfill({ status: 200, json: { items: [readonlyItem] } })
+  })
+  await page.route('http://api.test/api/v1/admin/content_packs', (route) => {
+    if (route.request().method() === 'POST') {
+      return route.fulfill({ status: 422, json: { error: 'The pack draft could not be saved.' } })
+    }
+    return route.fulfill({ status: 200, json: { packs: [readonlyPack] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: /Platform baseline/ }).click()
+  let unexpectedPrompt = false
+  const acceptUnexpectedPrompt = async (dialog: import('@playwright/test').Dialog) => {
+    unexpectedPrompt = true
+    await dialog.accept()
+  }
+  page.on('dialog', acceptUnexpectedPrompt)
+  await page.getByRole('tab', { name: /Assistant voice/ }).click()
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: /Platform safeguards/ }).click()
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+  await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
+  page.off('dialog', acceptUnexpectedPrompt)
+  expect(unexpectedPrompt).toBe(false)
+
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: 'New item' }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await itemPanel.getByLabel('Title').fill('  Keep   this failed title  ')
+  await itemPanel.getByLabel('Draft wording').fill('Preserve this exact draft after the server rejects it.')
+  await itemPanel.getByRole('button', { name: 'Create draft' }).click()
+
+  await expect(page.getByRole('alert')).toContainText('The content draft could not be saved.')
+  await expect(itemPanel.getByLabel('Title')).toHaveValue('  Keep   this failed title  ')
+  await expect(itemPanel.getByLabel('Draft wording')).toHaveValue('Preserve this exact draft after the server rejects it.')
+  await expect(itemPanel.getByRole('button', { name: 'Create draft' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'New pack' }).click()
+  const packPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Publish a reusable collection' }) })
+  await packPanel.getByLabel('Pack name').fill('  Keep   this failed pack  ')
+  await packPanel.getByLabel(/Platform baseline/).check()
+  await packPanel.getByRole('button', { name: 'Create pack draft' }).click()
+  await expect(page.getByRole('alert')).toContainText('The pack draft could not be saved.')
+  await expect(packPanel.getByLabel('Pack name')).toHaveValue('  Keep   this failed pack  ')
+  await expect(packPanel.getByLabel(/Platform baseline/)).toBeChecked()
+  await expect(packPanel.getByRole('button', { name: 'Create pack draft' })).toBeVisible()
 })
 
 test('Coach Studio protects unsaved assistant source selections across tabs and global navigation', async ({ page }, testInfo) => {
@@ -3463,8 +3548,36 @@ test('Coach Studio protects unsaved assistant source selections across tabs and 
   })
 
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  const assistantTab = page.getByRole('tab', { name: /Assistant voice/ })
+  const libraryTab = page.getByRole('tab', { name: /Coaching Library/ })
+  const participantToolsTab = page.getByRole('tab', { name: /Participant tools/ })
+  await expect(assistantTab).toHaveAttribute('id', 'coach-studio-tab-assistants')
+  await expect(assistantTab).toHaveAttribute('aria-controls', 'coach-studio-panel-assistants')
+  await expect(assistantTab).toHaveAttribute('tabindex', '0')
+  await expect(page.locator('#coach-studio-panel-assistants')).toHaveAttribute('aria-labelledby', 'coach-studio-tab-assistants')
+  await assistantTab.focus()
+  await assistantTab.press('End')
+  await expect(participantToolsTab).toBeFocused()
+  await expect(participantToolsTab).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('#coach-studio-panel-participant-tools')).toBeVisible()
+  await participantToolsTab.press('ArrowLeft')
+  await expect(libraryTab).toBeFocused()
+  await expect(libraryTab).toHaveAttribute('aria-selected', 'true')
+  await libraryTab.press('Home')
+  await expect(assistantTab).toBeFocused()
+  await expect(assistantTab).toHaveAttribute('aria-selected', 'true')
   const sourceCheckbox = page.getByLabel(/Mrs. Mel Guam context/)
   await sourceCheckbox.check()
+
+  await assistantTab.focus()
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard unsaved Coach Studio changes')
+    await dialog.dismiss()
+  })
+  await assistantTab.press('ArrowRight')
+  await expect(assistantTab).toBeFocused()
+  await expect(assistantTab).toHaveAttribute('aria-selected', 'true')
+  await expect(sourceCheckbox).toBeChecked()
 
   for (const target of [/Coaching Library/, /Participant tools/]) {
     page.once('dialog', async (dialog) => {

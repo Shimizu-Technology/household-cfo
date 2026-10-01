@@ -87,11 +87,15 @@ module Mia
     end
 
     def match_score(item)
-      query_terms = tokens(query)
+      query_terms = query_tokens
       item_terms = tokens("#{item.title} #{item.content}")
       matches = query_terms & item_terms
       title_matches = query_terms & tokens(item.title)
       [ matches.length + (title_matches.length * 2), matches.sort ]
+    end
+
+    def query_tokens
+      @query_tokens ||= tokens(query)
     end
 
     def tokens(value)

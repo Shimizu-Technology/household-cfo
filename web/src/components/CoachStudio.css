@@ -32,6 +32,12 @@
   color: var(--muted);
 }
 
+.coach-studio-tab-panel {
+  display: grid;
+  min-width: 0;
+  gap: 1rem;
+}
+
 .experience-studio,
 .experience-module-group,
 .experience-lifecycle {
