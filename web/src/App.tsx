@@ -27,6 +27,7 @@ import { addMoney, moneyCents, multiplyMoney, sumMoney } from './lib/moneyMath'
 import { changedInterestRateInput } from './lib/documentItemUpdate'
 import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/financialUploadValidation'
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
+import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -431,6 +432,7 @@ function App() {
   const spendingReportRequestRef = useRef(0)
   const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
+  const budgetOperationKeysRef = useRef(new OperationIdempotencyKeys())
   const currentMessages = messagesStorageKey === chatStorageKey ? messages : []
   const miaCharactersRemaining = MIA_MESSAGE_MAX_LENGTH - question.length
   const hiddenMessageCount = Math.max(0, currentMessages.length - visibleMessageCount)
@@ -1501,12 +1503,15 @@ function App() {
 
     setBudgetAction('create-category')
     setBudgetError(null)
+    const input = {
+      name: newBudgetCategory.name,
+      stack_key: newBudgetCategory.stack_key,
+      monthly_amount: newBudgetCategory.monthly_amount || 0,
+    }
+    const signature = `create-category:${selectedBudgetYear}:${JSON.stringify(input)}`
     try {
-      const budget = await createBudgetCategory({
-        name: newBudgetCategory.name,
-        stack_key: newBudgetCategory.stack_key,
-        monthly_amount: newBudgetCategory.monthly_amount || 0,
-      }, selectedBudgetYear)
+      const budget = await createBudgetCategory(input, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
       setData((current) => current ? { ...current, budget } : current)
       refreshSpendingReportForBudget(budget)
       setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
@@ -1591,11 +1596,17 @@ function App() {
     let appliedChanges = 0
     try {
       for (const change of changes.categories) {
-        latestBudget = await updateBudgetCategory(change.id, { name: change.name, stack_key: change.stack_key }, selectedBudgetYear)
+        const input = { name: change.name, stack_key: change.stack_key }
+        const signature = `update-category:${selectedBudgetYear}:${change.id}:${JSON.stringify(input)}`
+        latestBudget = await updateBudgetCategory(change.id, input, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+        budgetOperationKeysRef.current.complete(signature)
         appliedChanges += 1
       }
       for (const change of changes.allocations) {
-        latestBudget = await updateBudgetAllocation(change.allocation_id, change.planned_amount || 0)
+        const amount = change.planned_amount || 0
+        const signature = budgetAllocationOperationSignature(selectedBudgetYear, change.allocation_id, amount)
+        latestBudget = await updateBudgetAllocation(change.allocation_id, amount, budgetOperationKeysRef.current.keyFor(signature))
+        budgetOperationKeysRef.current.complete(signature)
         appliedChanges += 1
       }
       setData((current) => current ? { ...current, budget: latestBudget } : current)
@@ -1632,8 +1643,10 @@ function App() {
 
     setBudgetAction(`archive-category:${row.id}`)
     setBudgetError(null)
+    const signature = `archive-category:${selectedBudgetYear}:${row.id}`
     try {
-      const budget = await archiveBudgetCategory(row.id, selectedBudgetYear)
+      const budget = await archiveBudgetCategory(row.id, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
       setData((current) => current ? { ...current, budget } : current)
       refreshSpendingReportForBudget(budget)
       captureAnalyticsEvent('budget_category_archived', { stack_key: row.stack_key })
@@ -1649,8 +1662,10 @@ function App() {
 
     setBudgetAction(`restore-category:${categoryId}`)
     setBudgetError(null)
+    const signature = `restore-category:${selectedBudgetYear}:${categoryId}`
     try {
-      const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear)
+      const budget = await restoreBudgetCategory(categoryId, selectedBudgetYear, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
       setData((current) => current ? { ...current, budget } : current)
       refreshSpendingReportForBudget(budget)
       captureAnalyticsEvent('budget_category_restored', { category_id: categoryId })
@@ -6607,13 +6622,27 @@ function MiaActionDraftReviewCard({
         <p>{draft.summary}</p>
         {draft.rationale && <p>{draft.rationale}</p>}
         <div className="mia-action-item-list">
-          {draft.items.map((item) => (
-            <div className="mia-action-item" key={item.id}>
-              <strong>{item.label}</strong>
-              {item.description && <span>{item.description}</span>}
-              {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
-            </div>
-          ))}
+          {draft.items.map((item) => {
+            const reviewFields = miaActionItemReviewFields(item)
+
+            return (
+              <div className="mia-action-item" key={item.id}>
+                <strong>{item.label}</strong>
+                {item.description && <span>{item.description}</span>}
+                {reviewFields.length > 0 && (
+                  <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
+                    {reviewFields.map((field) => (
+                      <div key={field.label}>
+                        <dt>{field.label}</dt>
+                        <dd><span><b>Before</b>{field.before}</span><span><b>After</b>{field.after}</span></dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+                {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
+              </div>
+            )
+          })}
         </div>
         {setupCoverage && (
           <section className={`mia-setup-coverage${setupCoverage.complete ? ' is-complete' : ''}`} aria-label="Starting picture coverage after applying this review">
@@ -6650,6 +6679,19 @@ function MiaActionDraftReviewCard({
       )}
     </article>
   )
+}
+
+function miaActionItemReviewFields(item: MiaActionItem): NonNullable<MiaActionItem['review_fields']> {
+  const reviewFields: unknown = item.review_fields
+  if (!Array.isArray(reviewFields)) return []
+
+  const isValid = reviewFields.every((field) => (
+    typeof field === 'object' && field !== null &&
+    typeof field.label === 'string' &&
+    typeof field.before === 'string' &&
+    typeof field.after === 'string'
+  ))
+  return isValid ? reviewFields : []
 }
 
 function MiaActionImpact({ impact }: { impact: NonNullable<MiaActionDraft['impact']> }) {

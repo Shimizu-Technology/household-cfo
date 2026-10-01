@@ -11,9 +11,11 @@ module Api
           return render json: { errors: result.errors }, status: :unprocessable_entity
         end
 
-        status_message = applied_message(result.draft)
-        append_chat_status_message(status_message)
-        update_conversation_action_status("applied", status_message)
+        unless result.replayed?
+          status_message = applied_message(result.draft)
+          append_chat_status_message(status_message)
+          update_conversation_action_status("applied", status_message)
+        end
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),

@@ -1,6 +1,6 @@
 module HouseholdFinance
   class MiaActionDraftApplier
-    Result = Struct.new(:success?, :draft, :errors, keyword_init: true)
+    Result = Struct.new(:success?, :draft, :errors, :replayed?, keyword_init: true)
     StaleDraftError = Class.new(StandardError)
     INCOMPLETE_DRAFT_MESSAGE = "Mia’s review card is incomplete. Ask Mia to draft a fresh edit. Nothing changed."
 
@@ -17,14 +17,15 @@ module HouseholdFinance
         # avoid deadlocks between concurrent budget/draft operations.
         household.lock!
         draft.lock!
+        return Result.new(success?: true, draft: draft.reload, errors: [], replayed?: true) if draft.status == "applied"
         raise ArgumentError, "Mia action draft is not pending" unless draft.pending?
 
         draft.mia_action_items.order(:position, :id).each { |item| apply_item!(item) }
         draft.update!(status: "applied", applied_by_user: user, applied_at: Time.current)
-        audit!("mia_action_draft.applied")
+        audit!("mia_action_draft.applied") unless draft.mia_action_items.all? { |item| registered_operation?(item) }
       end
 
-      Result.new(success?: true, draft: draft.reload, errors: [])
+      Result.new(success?: true, draft: draft.reload, errors: [], replayed?: false)
     rescue ActiveRecord::RecordNotUnique
       Result.new(success?: false, draft: draft, errors: [ stale_category_name_message ])
     rescue ActiveRecord::RecordInvalid => e
@@ -40,6 +41,8 @@ module HouseholdFinance
     attr_reader :draft, :household, :user
 
     def apply_item!(item)
+      return apply_registered_operation!(item) if operation_identity_present?(item)
+
       case item.action_type
       when "create_category"
         apply_create_category!(item)
@@ -58,6 +61,41 @@ module HouseholdFinance
       else
         raise ArgumentError, "Unsupported Mia action item"
       end
+    end
+
+    def operation_identity_present?(item)
+      values = [ item.operation_key, item.operation_version, item.prepared_operation_fingerprint ]
+      return false if values.all?(&:blank?) && item.prepared_operation.blank?
+      if values.any?(&:blank?) || item.prepared_operation.blank?
+        raise KeyError, "incomplete prepared operation"
+      end
+
+      true
+    end
+
+    def registered_operation?(item)
+      item.operation_key.present? && item.operation_version.present? && item.prepared_operation_fingerprint.present? && item.prepared_operation.present?
+    end
+
+    def apply_registered_operation!(item)
+      expected_key = Operations::MiaItemAdapter::ACTION_KEYS[item.action_type]
+      prepared = Operations::PreparedOperation.from_hash(item.prepared_operation)
+      unless expected_key == item.operation_key &&
+          prepared.operation_key == item.operation_key &&
+          prepared.operation_version.to_i == item.operation_version.to_i &&
+          Operations::MiaItemAdapter.normalized_input(household, item, year: draft.year) == prepared.normalized_input
+        raise KeyError, "mismatched prepared operation"
+      end
+
+      Operations::Runner.new(household, user: user).run_prepared(
+        prepared: item.prepared_operation,
+        prepared_fingerprint: item.prepared_operation_fingerprint,
+        idempotency_key: "mia-action-item:#{item.id}",
+        source: "mia",
+        reviewable: item
+      )
+    rescue Operations::Runner::InvalidPreparedOperation, Operations::Registry::UnknownOperation
+      raise KeyError, "invalid prepared operation"
     end
 
     def apply_create_category!(item)

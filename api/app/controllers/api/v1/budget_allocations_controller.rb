@@ -7,7 +7,17 @@ module Api
       def update
         allocation = current_household_allocation_scope.find(params[:id])
         manager = HouseholdFinance::AnnualBudgetManager.new(current_household, year: allocation.budget_period.budget_year.year)
-        manager.update_allocation!(allocation, allocation_params[:planned_amount])
+        result = HouseholdFinance::Operations::Runner.new(current_household, user: current_user).run(
+          operation_key: "budget.allocation.set",
+          input: {
+            allocation_id: allocation.id,
+            category_id: allocation.budget_category_id,
+            year: allocation.budget_period.budget_year.year,
+            planned_amount: allocation_params[:planned_amount]
+          },
+          idempotency_key: request_idempotency_key
+        )
+        allocation = result.subject || allocation.reload
         annual_plan = manager.plan_data
 
         render json: {
@@ -19,7 +29,7 @@ module Api
       rescue ActiveRecord::RecordInvalid => e
         render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
       rescue ArgumentError => e
-        render json: { errors: [ e.message ] }, status: :unprocessable_entity
+        render_operation_error(e)
       end
 
       private

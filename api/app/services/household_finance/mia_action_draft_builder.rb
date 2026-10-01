@@ -30,6 +30,7 @@ module HouseholdFinance
 
       def create_draft!(source_chat_message:, assistant_chat_message:)
         ApplicationRecord.transaction do
+          household.lock!
           draft = household.mia_action_drafts.create!(
             requested_by_user: user,
             source_chat_message: source_chat_message,
@@ -45,7 +46,7 @@ module HouseholdFinance
           )
 
           items.each_with_index do |item, index|
-            draft.mia_action_items.create!(
+            action_item = draft.mia_action_items.create!(
               position: index,
               action_type: item.action_type,
               target_record_type: item.target_record_type,
@@ -56,6 +57,15 @@ module HouseholdFinance
               before_snapshot: item.before_snapshot,
               after_snapshot: item.after_snapshot
             )
+            prepared = Operations::MiaItemAdapter.prepare(household, action_item, year: year)
+            if prepared
+              action_item.update!(
+                operation_key: prepared.operation_key,
+                operation_version: prepared.operation_version,
+                prepared_operation: prepared.as_json,
+                prepared_operation_fingerprint: prepared.fingerprint
+              )
+            end
           end
           household.household_audit_events.create!(
             user: user,

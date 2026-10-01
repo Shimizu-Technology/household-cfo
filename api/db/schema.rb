@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_073000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_01_080100) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -807,6 +807,42 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_073000) do
     t.check_constraint "visibility::text = 'private'::text", name: "household_memories_visibility_valid"
   end
 
+  create_table "household_operation_executions", force: :cascade do |t|
+    t.jsonb "after_snapshot", default: {}, null: false
+    t.jsonb "before_snapshot", default: {}, null: false
+    t.datetime "completed_at", null: false
+    t.datetime "created_at", null: false
+    t.bigint "household_audit_event_id", null: false
+    t.bigint "household_id", null: false
+    t.string "idempotency_key", null: false
+    t.jsonb "normalized_input", default: {}, null: false
+    t.string "operation_key", null: false
+    t.integer "operation_version", null: false
+    t.jsonb "predicted_after_snapshot", default: {}, null: false
+    t.string "request_fingerprint", null: false
+    t.bigint "reviewable_id"
+    t.string "reviewable_type"
+    t.string "source", null: false
+    t.string "status", default: "completed", null: false
+    t.bigint "subject_id"
+    t.string "subject_type"
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["household_audit_event_id"], name: "idx_on_household_audit_event_id_9da5b971f6"
+    t.index ["household_id", "idempotency_key"], name: "index_household_operations_on_household_and_idempotency", unique: true
+    t.index ["household_id"], name: "index_household_operation_executions_on_household_id"
+    t.index ["reviewable_type", "reviewable_id"], name: "index_household_operation_executions_on_reviewable"
+    t.index ["subject_type", "subject_id"], name: "index_household_operations_on_subject"
+    t.index ["user_id"], name: "index_household_operation_executions_on_user_id"
+    t.check_constraint "jsonb_typeof(after_snapshot) = 'object'::text", name: "household_operations_after_object"
+    t.check_constraint "jsonb_typeof(before_snapshot) = 'object'::text", name: "household_operations_before_object"
+    t.check_constraint "jsonb_typeof(normalized_input) = 'object'::text", name: "household_operations_input_object"
+    t.check_constraint "jsonb_typeof(predicted_after_snapshot) = 'object'::text", name: "household_operations_predicted_object"
+    t.check_constraint "operation_version > 0", name: "household_operations_version_positive"
+    t.check_constraint "source::text = ANY (ARRAY['manual'::character varying, 'mia'::character varying]::text[])", name: "household_operations_source_valid"
+    t.check_constraint "status::text = 'completed'::text", name: "household_operations_status_valid"
+  end
+
   create_table "household_profiles", force: :cascade do |t|
     t.datetime "created_at", null: false
     t.bigint "household_id", null: false
@@ -968,8 +1004,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_073000) do
     t.text "description"
     t.string "label", null: false
     t.bigint "mia_action_draft_id", null: false
+    t.string "operation_key"
+    t.integer "operation_version"
     t.jsonb "payload", default: {}, null: false
     t.integer "position", default: 0, null: false
+    t.jsonb "prepared_operation", default: {}, null: false
+    t.string "prepared_operation_fingerprint"
     t.bigint "target_record_id"
     t.string "target_record_type"
     t.datetime "updated_at", null: false
@@ -978,6 +1018,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_073000) do
     t.index ["target_record_type", "target_record_id"], name: "index_mia_action_items_on_target"
     t.check_constraint "\"position\" >= 0", name: "mia_action_items_position_non_negative"
     t.check_constraint "action_type::text = ANY (ARRAY['create_category'::character varying::text, 'update_category'::character varying::text, 'update_allocation'::character varying::text, 'archive_category'::character varying::text, 'restore_category'::character varying::text, 'update_setup_value'::character varying::text, 'upsert_income_schedule_entry'::character varying::text])", name: "mia_action_items_action_type_valid"
+    t.check_constraint "jsonb_typeof(prepared_operation) = 'object'::text", name: "mia_action_items_prepared_operation_object"
+    t.check_constraint "operation_key IS NULL AND operation_version IS NULL AND prepared_operation_fingerprint IS NULL AND prepared_operation = '{}'::jsonb OR operation_key IS NOT NULL AND operation_version > 0 AND prepared_operation_fingerprint IS NOT NULL AND prepared_operation <> '{}'::jsonb", name: "mia_action_items_operation_identity_complete"
   end
 
   create_table "mia_message_requests", force: :cascade do |t|
@@ -1422,6 +1464,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_073000) do
   add_foreign_key "household_memories", "chat_messages", column: "source_chat_message_id", on_delete: :nullify
   add_foreign_key "household_memories", "households"
   add_foreign_key "household_memories", "users", column: "owner_user_id"
+  add_foreign_key "household_operation_executions", "household_audit_events"
+  add_foreign_key "household_operation_executions", "households"
+  add_foreign_key "household_operation_executions", "users"
   add_foreign_key "household_profiles", "households"
   add_foreign_key "household_transactions", "budget_periods"
   add_foreign_key "household_transactions", "financial_document_imports", column: "source_import_id"
