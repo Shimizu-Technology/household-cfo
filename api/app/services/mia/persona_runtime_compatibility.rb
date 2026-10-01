@@ -13,6 +13,7 @@ module Mia
 
     class << self
       def call(version)
+        verify_published_version!(version)
         raw_config = PersonaSchema.normalize(version.config)
         verify_published_digest!(version, raw_config)
         return raw_config unless compatible_legacy_version?(version, raw_config)
@@ -27,13 +28,17 @@ module Mia
 
       private
 
+      def verify_published_version!(version)
+        return if version.is_a?(CoachPersonaVersion) && version.persisted? && version.sealed?
+
+        raise PersonaSchema::InvalidConfiguration.new([ "runtime persona version must be a persisted, sealed publication" ])
+      end
+
       def compatible_legacy_version?(version, config)
-        version.persisted? && config["version"] == LEGACY_CONFIG_VERSION
+        config["version"] == LEGACY_CONFIG_VERSION
       end
 
       def verify_published_digest!(version, config)
-        return unless version.persisted?
-
         valid = version.config_digest.to_s.match?(/\A[0-9a-f]{64}\z/) &&
           ActiveSupport::SecurityUtils.secure_compare(version.config_digest, legacy_digest(config))
         return if valid

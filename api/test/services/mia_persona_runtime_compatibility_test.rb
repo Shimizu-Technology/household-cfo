@@ -6,6 +6,73 @@ require_relative "../support/persona_test_helper"
 class MiaPersonaRuntimeCompatibilityTest < ActiveSupport::TestCase
   include PersonaTestHelper
 
+  test "unpersisted version cannot become a runtime even with a schema valid config" do
+    coach = persona_user(role: "coach")
+    persona = create_persona(creator: coach, name: "Transient version")
+    transient = persona.versions.build(
+      config: persona.draft_config,
+      config_digest: "0" * 64,
+      sealed_at: Time.current
+    )
+
+    error = assert_raises(Mia::PersonaSchema::InvalidConfiguration) do
+      Mia::RuntimePersona.new(transient)
+    end
+
+    assert_includes error.message, "persisted, sealed publication"
+  end
+
+  test "persisted unsealed version cannot become a runtime" do
+    coach = persona_user(role: "coach")
+    persona = create_persona(creator: coach, name: "Unsealed version")
+    version = publish_persona(persona, actor: coach)
+    version.update_columns(sealed_at: nil)
+    persona.update_column(:current_published_version_id, nil)
+
+    assert_equal Mia::PersonaSchema.digest(version.config), version.config_digest
+    refute version.reload.sealed?
+    assert_nil persona.reload.current_published_version_id
+
+    error = assert_raises(Mia::PersonaSchema::InvalidConfiguration) do
+      Mia::RuntimePersona.new(version)
+    end
+    assert_includes error.message, "persisted, sealed publication"
+  end
+
+  test "sealed historical legacy and current publications remain usable" do
+    coach = persona_user(role: "coach")
+    participant = persona_user(role: "participant")
+    persona = create_persona(creator: coach, name: "Publication history")
+    historical = publish_persona(persona, actor: coach)
+    persist_legacy_config(historical, legacy_configuration(persona.draft_config))
+    persona.update!(
+      draft_config: persona.draft_config.deep_merge("identity" => { "assistant_name" => "Current Mia" })
+    )
+    current = publish_persona(persona, actor: coach)
+    _cohort, membership = assigned_cohort(persona, coach:, participant:)
+
+    historical_runtime = Mia::RuntimePersona.new(historical.reload)
+    current_runtime = Mia::RuntimePersona.new(current.reload)
+    resolved = Mia::PersonaResolver.new(user: participant, cohort_membership: membership).call
+
+    assert historical.sealed?
+    assert current.sealed?
+    assert_includes historical_runtime.system_prompt, "Håfa adai"
+    assert_equal "Current Mia", current_runtime.name
+    assert_instance_of Mia::RuntimePersona, resolved
+    assert_equal current.id, resolved.version_id
+  end
+
+  test "versionless draft preview remains available" do
+    config = persona_configuration(assistant_name: "Preview Mia", coach_name: "Coach Preview")
+
+    preview = Mia::RuntimePersona.for_preview(config:, persona_id: 91, draft_revision: 7)
+
+    assert_equal "Preview Mia", preview.name
+    assert_nil preview.version_id
+    assert_equal "runtime_persona:coach_persona_91_draft_7", preview.continuity_id
+  end
+
   test "published legacy phrases and voice load through an immutable runtime copy" do
     coach = persona_user(role: "coach")
     participant = persona_user(role: "participant")
