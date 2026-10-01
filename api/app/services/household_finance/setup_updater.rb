@@ -182,8 +182,8 @@ module HouseholdFinance
         raise ArgumentError, "Target runway months must be a positive number"
       end
 
-      goal = household.goals.find_or_initialize_by(goal_type: "runway", label: "Runway target")
-      goal.update!(target_months: target_months, priority: 1)
+      goal = household.goals.policy.where(goal_type: "runway").order(:priority, :created_at).first_or_initialize
+      goal.update!(label: "Runway target", target_months: target_months, priority: 1, record_kind: "policy", source_type: "setup")
     rescue ArgumentError
       raise ArgumentError, "Target runway months must be a positive number"
     end
@@ -192,12 +192,12 @@ module HouseholdFinance
       return unless attributes.key?(:primary_goal)
 
       if attributes[:primary_goal].blank?
-        household.goals.where(goal_type: "transition").destroy_all
+        household.goals.policy.where(goal_type: "transition").destroy_all
         return
       end
 
-      goal = household.goals.where(goal_type: "transition").order(:priority, :created_at).first_or_initialize
-      goal.update!(label: bounded_text(attributes[:primary_goal], max_length: 80, allow_blank: false), priority: 2)
+      goal = household.goals.policy.where(goal_type: "transition").order(:priority, :created_at).first_or_initialize
+      goal.update!(label: bounded_text(attributes[:primary_goal], max_length: 80, allow_blank: false), priority: 2, record_kind: "policy", source_type: "setup")
     end
 
     def bounded_text(value, max_length:, allow_blank:)

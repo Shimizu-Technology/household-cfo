@@ -25,7 +25,11 @@ module HouseholdFinance
         "restore_account" => "account.record.restore",
         "link_plaid_account" => "account.plaid.link",
         "reconcile_plaid_account" => "account.plaid.reconcile",
-        "unlink_plaid_account" => "account.plaid.unlink"
+        "unlink_plaid_account" => "account.plaid.unlink",
+        "create_goal" => "goal.record.create",
+        "update_goal" => "goal.record.update",
+        "archive_goal" => "goal.record.archive",
+        "restore_goal" => "goal.record.restore"
       }.freeze
 
       def self.operation_key(item)

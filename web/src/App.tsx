@@ -9,6 +9,7 @@ import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
 import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
+import { GoalManager, type GoalFocusRequest } from './components/GoalManager'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import { CoachStudio } from './components/CoachStudio'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
@@ -445,6 +446,9 @@ function App() {
   const accountManagerRef = useRef<HTMLElement | null>(null)
   const accountFocusSequenceRef = useRef(0)
   const [accountFocusRequest, setAccountFocusRequest] = useState<AccountFocusRequest | null>(null)
+  const goalManagerRef = useRef<HTMLElement | null>(null)
+  const goalFocusSequenceRef = useRef(0)
+  const [goalFocusRequest, setGoalFocusRequest] = useState<GoalFocusRequest | null>(null)
   const debtManagerRef = useRef<HTMLElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
@@ -1271,7 +1275,7 @@ function App() {
   }
 
   function openManualControls(draft: MiaActionDraft) {
-    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' ? 'My Profile' : 'Budget')
+    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget')
     if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
     if (draft.draft_type === 'asset_plan') {
       const accountItem = draft.items.find((item) => item.target_record_type === 'Account' || item.operation_key?.startsWith('account.'))
@@ -1287,6 +1291,17 @@ function App() {
         window.setTimeout(focusAccountManager, 80)
       }
     }
+    if (draft.draft_type === 'goal_plan') {
+      const goalItem = draft.items.find((item) => item.target_record_type === 'Goal' || item.operation_key?.startsWith('goal.'))
+      const goalId = goalItem?.target_record_id ?? (Number(goalItem?.payload.goal_id ?? 0) || null)
+      const actionType = goalItem?.action_type
+      if (actionType && actionType.endsWith('_goal')) {
+        goalFocusSequenceRef.current += 1
+        setGoalFocusRequest({ key: goalFocusSequenceRef.current, actionType: actionType as GoalFocusRequest['actionType'], goalId })
+      } else {
+        window.setTimeout(focusGoalManager, 80)
+      }
+    }
   }
 
   function focusDebtManager() {
@@ -1297,6 +1312,11 @@ function App() {
   function focusAccountManager() {
     accountManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     accountManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
+  }
+
+  function focusGoalManager() {
+    goalManagerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    goalManagerRef.current?.querySelector<HTMLButtonElement>('button')?.focus({ preventScroll: true })
   }
 
   function startManualFirstSession() {
@@ -3048,6 +3068,17 @@ function App() {
               onChanged={refreshWorkspaceAfterDebtChange}
               focusRequest={accountFocusRequest}
               onFocusRequestHandled={() => setAccountFocusRequest(null)}
+            />
+          )}
+
+          {isRealWorkspace && !isFirstSessionSetup && (
+            <GoalManager
+              sectionRef={goalManagerRef}
+              goals={data.workspace.goals ?? []}
+              portfolio={data.workspace.goal_portfolio ?? { active_count: 0, archived_count: 0, target_total: 0, progress_total: 0, target_known_count: 0, progress_known_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }}
+              onChanged={refreshWorkspaceAfterDebtChange}
+              focusRequest={goalFocusRequest}
+              onFocusRequestHandled={() => setGoalFocusRequest(null)}
             />
           )}
 
@@ -7005,6 +7036,7 @@ function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
   if (draftType === 'income_schedule') return 'Income timeline'
   if (draftType === 'debt_plan') return 'Debt plan'
   if (draftType === 'asset_plan') return 'Accounts & assets'
+  if (draftType === 'goal_plan') return 'Tracked goals'
   return 'Budget plan'
 }
 
