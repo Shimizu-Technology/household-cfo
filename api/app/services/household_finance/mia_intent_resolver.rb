@@ -1210,7 +1210,7 @@ module HouseholdFinance
       when "create_goal"
         [ [ prior_action[:goal_name] ], [ action[:goal_name] ] ]
       when "update_goal"
-        [ [ prior_action[:new_name] ], [ action[:new_name] ] ]
+        [ [ prior_action[:goal_name], prior_action[:new_name] ], [ action[:new_name] ] ]
       when "create_transaction_draft", "update_transaction_draft"
         [ [ prior_action[:merchant] ], [ action[:merchant] ] ]
       else

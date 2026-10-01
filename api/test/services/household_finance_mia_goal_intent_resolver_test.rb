@@ -160,6 +160,30 @@ class HouseholdFinanceMiaGoalIntentResolverTest < ActiveSupport::TestCase
     assert_equal "", result.action.fetch(:goal_name)
   end
 
+  test "does not carry a prior goal update through an omitted participant rename" do
+    result = resolve(
+      user_message: "Actually call it Tuition.",
+      context: {
+        active_goals: [ { id: 31, label: "Family trip", goal_type: "travel" } ], archived_goals: [],
+        conversation: {
+          active_thread: {
+            schema_version: 2, type: "goal_plan", title: "Update tracked goal", subject: "Family trip",
+            status: "needs_clarification",
+            action: { type: "update_goal", goal_id: 31, goal_name: "Family trip", target_amount: "5000" }
+          },
+          recent_messages: []
+        }
+      },
+      action: { type: "update_goal", goal_id: 31, goal_name: "Family trip" },
+      continuation: true
+    )
+
+    assert result.clarification?
+    assert_equal "update_goal", result.action.fetch(:type)
+    assert_equal "Family trip", result.action.fetch(:goal_name)
+    assert_equal "", result.action.fetch(:target_amount)
+  end
+
   private
 
   def resolve(user_message:, context:, action:, continuation: false)
