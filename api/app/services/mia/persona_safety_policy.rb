@@ -2,7 +2,7 @@
 
 module Mia
   class PersonaSafetyPolicy
-    VERSION = 4
+    VERSION = 5
     NEGATION_PATTERN = /(?:do not|don['’]t|never|must not|cannot|can['’]t|avoid|without)/i.freeze
     FORBIDDEN_KEY_PATTERN = /(?:\A|[_-])(?:raw[_-])?(?:prompt|system|developer|tool|model|write[_-]authority|write[_-]permissions?|permissions?|guardrails?|safety)(?:[_-]|\z)/i
     ASSISTANT_IDENTITY_PATTERN = /\b(?:digital|ai|artificial intelligence|virtual|automated)(?:[-\s]+[[:alpha:]]+){0,3}[-\s]+assistant\b/i
@@ -25,6 +25,25 @@ module Mia
       /\b(?:call|invoke|execute)\b.{0,40}\b(?:tool|function|command|api)\b/i,
       /\b(?:may|can|should)\b.{0,30}\b(?:write|create|update|delete|approve)\b.{0,50}\b(?:record|database|account|transaction|budget|household)\b/i,
       /\b(?:crisis protocol|crisis response|self[\s-]*harm|suicide|988|licensed advice)\b/i
+    ].freeze
+    REGIONAL_GROUP_PATTERN = /(?:
+      (?:people|families|women|men|households|clients|participants|communities)\s+(?:from|in)\s+[[:alpha:]][[:alpha:].'’\- ]{1,60}
+      |Guamanians?
+      |Southerners?
+      |Chamorro(?:s|\s+(?:people|families|households|communities))?
+      |Puerto\s+Ricans?
+      |Puerto\s+Rican\s+(?:people|families|households|communities)
+    )/ix.freeze
+    REGIONAL_STEREOTYPE_PATTERNS = [
+      /\b#{REGIONAL_GROUP_PATTERN}\s+(?:always|never|typically|usually|often|naturally|tend\s+to)\s+(?:prefer|avoid|value|prioritize|spend|save|borrow|share|handle|manage|believe|expect|celebrate|put)\b/i,
+      /\b#{REGIONAL_GROUP_PATTERN}\s+(?:prefer|avoid|value|prioritize|spend|save|borrow|share)\b/i,
+      /\b#{REGIONAL_GROUP_PATTERN}\s+are\s+(?:always\s+|all\s+|just\s+|simply\s+)?(?:very\s+)?(?:family[\s-]*oriented|close[\s-]*knit|traditional|conservative|religious|laid[\s-]*back|friendly|loud|frugal|spenders?|savers?|good\s+with\s+money|bad\s+with\s+money)\b/i
+    ].freeze
+    LOCATION_DERIVED_PERSONA_PATTERNS = [
+      /\b(?:sound|talk|speak|write|respond)\b.{0,40}\blike\s+(?:someone|a\s+person|people|locals?)\s+(?:from|in)\b/i,
+      /\b(?:imitat\w*|cop(?:y|ies|ied|ying)|fak\w*|invent\w*|generat\w*|adopt\w*)\b.{0,50}\b(?:accent|dialect|slang|vernacular)\b/i,
+      /\buse\w*\b(?:(?!\b(?:without|not)\b).){0,60}\b(?:accent|dialect|slang|vernacular)\b/i,
+      /\b(?:infer|assume|invent|generate|assign)\w*\b.{0,80}\b(?:culture|cultural\s+(?:identity|traits?|values?|beliefs?|customs?|traditions?)|regional\s+traits?|local\s+values?|values?|beliefs?|customs?|traditions?)\b/i
     ].freeze
     FORBIDDEN_FINANCIAL_GUIDANCE = [
       {
@@ -135,6 +154,12 @@ module Mia
             errors << "#{path} cannot impersonate the human coach or conceal the assistant's AI identity"
           end
           errors << "#{path} contains safety or prompt-control guidance" if FORBIDDEN_GUIDANCE_PATTERNS.any? { |pattern| value.match?(pattern) }
+          if REGIONAL_STEREOTYPE_PATTERNS.any? { |pattern| unnegated_match?(value, pattern, related_patterns: REGIONAL_STEREOTYPE_PATTERNS) }
+            errors << "#{path} contains a regional or cultural stereotype"
+          end
+          if LOCATION_DERIVED_PERSONA_PATTERNS.any? { |pattern| unnegated_match?(value, pattern, related_patterns: LOCATION_DERIVED_PERSONA_PATTERNS) }
+            errors << "#{path} cannot infer dialect, slang, or cultural traits from a location or identity label"
+          end
           financial_patterns = FORBIDDEN_FINANCIAL_GUIDANCE.map { |rule| rule.fetch(:pattern) }
           FORBIDDEN_FINANCIAL_GUIDANCE.each do |rule|
             if unnegated_match?(value, rule.fetch(:pattern), related_patterns: financial_patterns)
