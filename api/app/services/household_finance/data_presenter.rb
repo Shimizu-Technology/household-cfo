@@ -80,7 +80,7 @@ module HouseholdFinance
           flexible_spend: dollars(snapshot.fetch(:stack_totals_cents).fetch("discretionary")),
           debt_payments: dollars(snapshot.fetch(:debt_payments_cents)),
           monthly_surplus_rate_percent: monthly_surplus_rate_percent,
-          runway_months: snapshot.fetch(:runway_months),
+          runway_months: readiness_available? ? snapshot.fetch(:runway_months) : nil,
           next_safe_to_spend_amount: readiness_available? ? dollars(snapshot.fetch(:safe_to_spend_cents)) : (setup_status.complete? && snapshot.fetch(:debt_minimums_known) ? nil : 0),
           readiness_available: readiness_available?,
           readiness_tone: readiness_available? ? snapshot.fetch(:readiness_tone) : "red",
@@ -137,7 +137,7 @@ module HouseholdFinance
           available: false,
           unavailable_reason: readiness_unavailable_reason,
           scenario: household.primary_goal.presence || "Household stability",
-          question: "Complete the monthly debt minimums first.",
+          question: readiness_blocker_question,
           target_runway_months: runway_target,
           current_runway_months: nil,
           monthly_gap: nil,
@@ -262,7 +262,7 @@ module HouseholdFinance
             current_balance: observation.current_balance_cents.nil? ? nil : dollars(observation.current_balance_cents),
             available_balance: observation.available_balance_cents.nil? ? nil : dollars(observation.available_balance_cents),
             observed_at: observation.plaid_item.last_synced_at&.iso8601,
-            active: observation.active? && observation.plaid_item.connected?,
+            active: PlaidIntegration::AccountEligibility.new(observation).active_observation?,
             observation_newer_than_saved: observation.plaid_item.last_synced_at.present? &&
               (account.plaid_reconciled_at.nil? || observation.plaid_item.last_synced_at > account.plaid_reconciled_at)
           }
@@ -345,6 +345,13 @@ module HouseholdFinance
       return "Add at least one liquid account and enter every active liquid balance before using runway or safe-to-spend guidance." unless snapshot.fetch(:liquid_assets_known)
 
       "Finish the starting picture before using cash guidance."
+    end
+
+    def readiness_blocker_question
+      return "Complete the monthly debt minimums under My Profile first." unless snapshot.fetch(:debt_minimums_known)
+      return "Add or update liquid account balances under Accounts & assets first." unless snapshot.fetch(:liquid_assets_known)
+
+      "Finish the starting picture before modeling optionality."
     end
 
     def debts
@@ -702,8 +709,13 @@ module HouseholdFinance
 
     def milestones
       unless snapshot.fetch(:debt_balance_known) && snapshot.fetch(:debt_minimums_known) && snapshot.fetch(:liquid_assets_known)
+        label, unit = if !snapshot.fetch(:debt_balance_known) || !snapshot.fetch(:debt_minimums_known)
+          [ "Debt details needed", "Add debt balances and monthly minimums under My Profile" ]
+        else
+          [ "Liquid balances needed", "Add checking, savings, or emergency-fund balances under Accounts & assets" ]
+        end
         return [
-          { kind: "status", label: "Debt details needed", current: 0, target: 0, unit: "status", status: "yellow" }
+          { kind: "status", label: label, current: 0, target: 0, unit: unit, status: "yellow" }
         ]
       end
 

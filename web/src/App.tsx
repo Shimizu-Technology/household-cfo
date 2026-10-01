@@ -8,7 +8,7 @@ import { Button } from './components/Button'
 import { ChatHistory } from './components/ChatHistory'
 import { Metric } from './components/Metric'
 import { PlaidConnections } from './components/PlaidConnections'
-import { AccountManager } from './components/AccountManager'
+import { AccountManager, type AccountFocusRequest } from './components/AccountManager'
 import { PilotFeedbackInbox } from './components/PilotFeedbackInbox'
 import { CoachStudio } from './components/CoachStudio'
 import { MiaMemoryPanel } from './components/MiaMemoryPanel'
@@ -429,6 +429,8 @@ function App() {
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
   const accountManagerRef = useRef<HTMLElement | null>(null)
+  const accountFocusSequenceRef = useRef(0)
+  const [accountFocusRequest, setAccountFocusRequest] = useState<AccountFocusRequest | null>(null)
   const debtManagerRef = useRef<HTMLElement | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
@@ -1257,7 +1259,17 @@ function App() {
   function openManualControls(draft: MiaActionDraft) {
     switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' ? 'My Profile' : 'Budget')
     if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
-    if (draft.draft_type === 'asset_plan') window.setTimeout(focusAccountManager, 80)
+    if (draft.draft_type === 'asset_plan') {
+      const accountItem = draft.items.find((item) => item.target_record_type === 'Account' || item.operation_key?.startsWith('account.'))
+      const accountId = accountItem?.target_record_id ?? (Number(accountItem?.payload.account_id ?? 0) || null)
+      const actionType = accountItem?.action_type
+      if (actionType && actionType.endsWith('_account')) {
+        accountFocusSequenceRef.current += 1
+        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId })
+      } else {
+        window.setTimeout(focusAccountManager, 80)
+      }
+    }
   }
 
   function focusDebtManager() {
@@ -3013,10 +3025,11 @@ function App() {
           {isRealWorkspace && !isFirstSessionSetup && (
             <AccountManager
               sectionRef={accountManagerRef}
-              key={`${data.workspace.asset_portfolio.active_count}:${data.workspace.asset_portfolio.archived_count}:${data.workspace.asset_portfolio.total_balance}:${data.workspace.asset_portfolio.total_balance_known}`}
               accounts={data.workspace.accounts}
               portfolio={data.workspace.asset_portfolio}
               onChanged={refreshWorkspaceAfterDebtChange}
+              focusRequest={accountFocusRequest}
+              onFocusRequestHandled={() => setAccountFocusRequest(null)}
             />
           )}
 
@@ -6981,6 +6994,7 @@ function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
   if (draftType === 'household_setup') return 'Household numbers'
   if (draftType === 'income_schedule') return 'Income timeline'
   if (draftType === 'debt_plan') return 'Debt plan'
+  if (draftType === 'asset_plan') return 'Accounts & assets'
   return 'Budget plan'
 }
 

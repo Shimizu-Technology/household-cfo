@@ -88,6 +88,23 @@ class HouseholdFinanceAccountOperationsTest < ActiveSupport::TestCase
     assert_equal 90_00, canonical.reload.balance_cents
   end
 
+  test "unlinking and relinking an older observation always requires a new reconciliation" do
+    newer = create_plaid_account(current_balance_cents: 140_00)
+    older = create_plaid_account(current_balance_cents: 120_00)
+    older.plaid_item.update!(last_synced_at: 2.days.ago)
+    canonical = @household.accounts.create!(
+      label: "Everyday", account_type: "checking", balance_cents: 140_00, balance_known: true,
+      plaid_account: newer, plaid_reconciled_at: Time.current
+    )
+
+    @runner.run(operation_key: "account.plaid.unlink", input: { account_id: canonical.id }, idempotency_key: "unlink-newer")
+    assert_nil canonical.reload.plaid_reconciled_at
+
+    @runner.run(operation_key: "account.plaid.link", input: { account_id: canonical.id, plaid_account_id: older.id }, idempotency_key: "link-older")
+    assert_equal older.id, canonical.reload.plaid_account_id
+    assert_nil canonical.plaid_reconciled_at
+  end
+
   private
 
   def create_plaid_account(current_balance_cents:)

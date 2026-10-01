@@ -32,6 +32,9 @@ module HouseholdFinance
       if command.key?(:amount) && command[:amount].present?
         add_account_balance!(payload, command[:amount])
         payload[:balance_as_of_on] = payload[:balance_known] ? parsed_account_date(command[:balance_as_of_on]) : nil
+      elsif command[:balance_as_of_on].present?
+        return validation_result("Enter the account balance before adding a balance date. Nothing changed.") unless account.balance_known?
+        payload[:balance_as_of_on] = parsed_account_date(command[:balance_as_of_on])
       end
       return validation_result("Tell me which account detail to update. Nothing changed.") if payload.one?
       before = account_action_snapshot(account)
@@ -62,7 +65,9 @@ module HouseholdFinance
       account = structured_account(active: true)
       observation = ::PlaidAccount.joins(:plaid_item).where(plaid_items: { household_id: household.id }).find_by(id: command[:plaid_account_id].to_i)
       eligibility = observation && PlaidIntegration::AccountEligibility.new(observation)
-      return validation_result("Choose an active saved account and eligible bank observation. Nothing changed.") unless account && eligibility&.active_observation? && eligibility.allowed_account_types.include?(account.account_type) && observation.account.nil?
+      return validation_result("Choose an active saved account and eligible bank observation. Nothing changed.") unless account && eligibility&.active_observation? && eligibility.allowed_account_types.include?(account.account_type)
+      return validation_result("That household account is already matched to a bank observation. Unmatch it before choosing another one. Nothing changed.") if account.plaid_account_id
+      return validation_result("That bank observation is already matched to another household account. Nothing changed.") if observation.account
       item = MiaActionDraftBuilder::Item.new(
         action_type: "link_plaid_account", label: "Match #{account.label} to #{observation.name}", description: "Save the bank observation as a match without changing the approved balance.",
         target_record_type: "Account", target_record_id: account.id, payload: { account_id: account.id, plaid_account_id: observation.id },

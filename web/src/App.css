@@ -2509,6 +2509,9 @@ h3 {
 }
 
 .debt-archive summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
   cursor: pointer;
   font-weight: 700;
 }
@@ -2647,7 +2650,7 @@ h3 {
 .account-manager-heading > button, .account-row-actions button, .account-bank-review button { min-height: 44px; padding: 10px 15px; border-radius: 999px; font-weight: 900; }
 .account-manager-heading > button { background: var(--emerald); color: white; }
 .account-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
-.account-summary > span { display: grid; gap: 4px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 253, 248, 0.78); }
+.account-summary > span { display: grid; min-height: 44px; gap: 4px; padding: 13px 14px; border: 1px solid var(--line); border-radius: 16px; background: rgba(255, 253, 248, 0.78); }
 .account-summary small, .account-row span, .account-observation span { color: var(--muted); font-size: .76rem; }
 .account-summary strong { color: var(--emerald); font-size: 1.05rem; }
 .account-list { display: grid; gap: 10px; }
@@ -2655,14 +2658,17 @@ h3 {
 .account-row > div:not(.account-row-actions):not(.account-bank-review) { display: grid; gap: 3px; }
 .account-row-actions, .account-bank-review > div { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
 .account-bank-review, .account-match { grid-column: 1 / -1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.account-bank-review.is-inactive { color: var(--wine); }
 .account-match select { min-height: 44px; max-width: 28rem; }
 .account-form { display: grid; gap: 14px; padding: 16px; border: 1px solid rgba(123, 74, 88, .2); border-radius: 18px; background: rgba(249, 242, 233, .7); }
 .account-form-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
 .account-observations { border-top: 1px solid var(--line); padding-top: 1rem; }
-.account-observations summary { cursor: pointer; font-weight: 700; }
+.account-observations summary { display: flex; min-height: 44px; align-items: center; cursor: pointer; font-weight: 700; }
 .account-observation { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 10px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; }
 .account-observation > div { display: grid; gap: 3px; }
 .account-observation-note { margin: 0; color: var(--muted); font-size: .82rem; }
+.account-observation-error { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 14px; border: 1px solid rgba(151, 90, 42, .3); border-radius: 14px; background: rgba(255, 245, 230, .82); color: var(--wine); }
+.account-observation-error button { min-height: 44px; flex: 0 0 auto; }
 
 .admin-operations {
   display: grid;
@@ -4247,6 +4253,8 @@ h3 {
     display: grid;
     grid-template-columns: 1fr;
   }
+
+  .account-observation-error { align-items: stretch; flex-direction: column; }
 
   .account-match select { max-width: none; width: 100%; }
 

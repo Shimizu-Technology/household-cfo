@@ -14,6 +14,9 @@ module HouseholdFinance
           values[:label] = normalized_label(input[:label]) if input.key?(:label)
           values[:account_type] = normalized_type(input[:account_type]) if input.key?(:account_type)
           values.merge!(normalize_balance(input)) if input.key?(:balance) || input.key?(:balance_cents) || input.key?(:balance_state)
+          if input.key?(:balance_as_of_on) && !values.key?(:balance_as_of_on)
+            values[:balance_as_of_on] = parsed_date(input[:balance_as_of_on])&.iso8601
+          end
           raise ArgumentError, "Choose at least one account field to update" if values.one?
           values
         end
@@ -38,6 +41,10 @@ module HouseholdFinance
           raise ArgumentError, "Restore this account before editing it. Nothing changed." unless account.active?
           raise ArgumentError, "An active account already uses that name and type. Nothing changed." if prepared.before_snapshot.fetch("conflicting_account_ids").any?
           validate_balance_type!(prepared.predicted_after_snapshot.fetch("account").deep_symbolize_keys)
+          predicted_account = prepared.predicted_after_snapshot.fetch("account")
+          if input.key?(:balance_as_of_on) && !predicted_account.fetch("balance_known")
+            raise ArgumentError, "Enter the account balance before adding a balance date"
+          end
           if account.plaid_account && input[:account_type] && !PlaidIntegration::AccountEligibility.new(account.plaid_account).allowed_account_types.include?(input[:account_type])
             raise ArgumentError, "Unlink the bank observation before changing to an incompatible account type"
           end

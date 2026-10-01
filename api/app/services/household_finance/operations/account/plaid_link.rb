@@ -18,7 +18,7 @@ module HouseholdFinance
         end
 
         def predicted_after(before, input)
-          { account: before.fetch("account").merge("plaid_account_id" => input[:plaid_account_id]), plaid_observation: before.fetch("plaid_observation") }
+          { account: before.fetch("account").merge("plaid_account_id" => input[:plaid_account_id], "plaid_reconciled_at" => nil), plaid_observation: before.fetch("plaid_observation") }
         end
 
         def validate_execution!(account, input, prepared:, source:)
@@ -32,7 +32,7 @@ module HouseholdFinance
         end
 
         def mutate!(account, input, prepared:)
-          account.update!(plaid_account_id: input[:plaid_account_id])
+          account.update!(plaid_account_id: input[:plaid_account_id], plaid_reconciled_at: nil)
           account
         end
 

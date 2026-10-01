@@ -145,6 +145,7 @@ module HouseholdFinance
         value = lambda do |record|
           case key
           when "balance_cents" then account_money_value(record)
+          when "account_type" then record[key].to_s.humanize
           when "active" then record[key] ? "Active" : "Archived"
           when "plaid_account_id" then record[key].present? ? "Matched" : "Not matched"
           else record[key].presence || "Not entered"

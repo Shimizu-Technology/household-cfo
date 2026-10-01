@@ -210,6 +210,20 @@ const miaIncomeDraft = {
   }],
 }
 
+const miaAssetDraft = {
+  id: 74, status: 'pending', draft_type: 'asset_plan', year: currentYear,
+  title: 'Update the emergency reserve', summary: 'Mia prepared an account change for review.',
+  rationale: 'The approved account stays unchanged until you apply this review.', source_prompt: 'Rename my savings account.',
+  created_at: '2026-10-01T00:00:00Z', applied_at: null, canceled_at: null, impact: null,
+  items: [{
+    id: 741, action_type: 'update_account', operation_key: 'account.record_update',
+    target_record_type: 'Account', target_record_id: 22,
+    label: 'Update Emergency reserve', description: 'Review the account name and balance before saving.',
+    payload: { account_id: 22, label: 'Emergency reserve' }, before_snapshot: {}, after_snapshot: {},
+    review_fields: [{ label: 'Account type', before: 'Savings', after: 'Emergency Fund' }],
+  }],
+}
+
 function realWorkspaceData(setupComplete = false) {
   return {
     workspace: {
@@ -235,6 +249,14 @@ function realWorkspaceData(setupComplete = false) {
         ],
       },
       income_sources: structuredClone(budget.annual_plan.income_sources),
+      accounts: [],
+      asset_portfolio: {
+        liquid_balance: 0, nonliquid_balance: 0, total_balance: 0,
+        liquid_balance_known: false, nonliquid_balance_known: false, total_balance_known: false,
+        active_count: 0, archived_count: 0,
+        liquid_known_count: 0, nonliquid_known_count: 0, total_known_count: 0,
+        unknown_balance_account_ids: [],
+      },
       debts: [],
       debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
       cohort: { id: 41, name: 'BOG', role: 'participant', status: 'active' },
@@ -1441,6 +1463,54 @@ test('chat-first Mia preserves legacy reviews without structured before and afte
   await householdCard.getByRole('button', { name: 'Open manual controls' }).click()
   await expect(page).toHaveURL(/#My%20Profile$/)
   await expect(page.getByRole('heading', { name: 'Pilot Household' })).toBeVisible()
+})
+
+test('account manager routes Mia account reviews to the exact mobile-safe manual control', async ({ page }) => {
+  const baseWorkspace = realWorkspaceData(true)
+  const workspace = {
+    ...baseWorkspace,
+    workspace: {
+      ...baseWorkspace.workspace,
+      accounts: [
+        { id: 21, label: 'Everyday checking', account_type: 'checking', balance: null, balance_as_of_on: null, active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null },
+        { id: 22, label: 'Emergency reserve', account_type: 'savings', balance: 0, balance_as_of_on: '2026-10-01', active: true, archived_at: null, source_type: 'manual_ui', source_metadata: {}, plaid_link: null },
+        { id: 23, label: 'Old brokerage', account_type: 'investment', balance: 500, balance_as_of_on: '2025-01-01', active: false, archived_at: '2026-01-01T00:00:00Z', source_type: 'manual_ui', source_metadata: {}, plaid_link: null },
+      ],
+      asset_portfolio: {
+        liquid_balance: 0, nonliquid_balance: 0, total_balance: 0,
+        liquid_balance_known: false, nonliquid_balance_known: false, total_balance_known: false,
+        active_count: 2, archived_count: 1,
+        liquid_known_count: 1, nonliquid_known_count: 0, total_known_count: 1,
+        unknown_balance_account_ids: [21],
+      },
+    },
+    budget: {
+      ...baseWorkspace.budget,
+      annual_plan: { ...baseWorkspace.budget.annual_plan, pending_mia_action_drafts: [miaAssetDraft] },
+    },
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Update the emergency reserve' })
+  await expect(card).toContainText('Accounts & assets')
+  await expect(card).toContainText('Emergency Fund')
+  await card.getByRole('button', { name: 'Open manual controls' }).click()
+
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  const manager = page.locator('.account-manager')
+  const accountName = manager.getByLabel('Account name')
+  await expect(accountName).toHaveValue('Emergency reserve')
+  await expect(accountName).toBeFocused()
+  await expect(manager).toContainText('$0.00 known so far')
+  await expect(manager).toContainText('Not entered')
+  expect(await manager.evaluate((element) => element.scrollWidth <= element.clientWidth + 1)).toBe(true)
+
+  await manager.getByRole('button', { name: 'Cancel' }).click()
+  await expect(manager.getByRole('button', { name: 'Add an account' })).toBeFocused()
+  const archivedSummary = manager.getByText('Archived accounts (1)')
+  await expect(archivedSummary).toBeVisible()
+  expect((await archivedSummary.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44)
 })
 
 test('applying an unrelated Mia draft preserves unsaved profile edits', async ({ page }) => {

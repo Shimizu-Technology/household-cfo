@@ -197,7 +197,7 @@ module HouseholdFinance
       amount = amount_from_message_cents
       return "Tell me the exact amount you want to cover, and I can compare it with saved household account snapshots without guessing a live bank balance." unless amount&.positive?
 
-      qualifying_accounts = household.accounts.where(account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
+      qualifying_accounts = household.accounts.active.where(balance_known: true, account_type: Account::LIQUID_TYPES).where("balance_cents >= ?", amount).order(balance_cents: :desc, id: :asc)
       if qualifying_accounts.none?
         return "No saved liquid household account has a recorded balance of at least #{money(amount)}. These are approved saved snapshots, not live available balances; pending transactions, holds, and protected emergency runway can change what is actually usable. Next CFO move: verify the live available balance and protect required bills before choosing a funding account."
       end

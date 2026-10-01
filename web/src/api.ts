@@ -82,6 +82,9 @@ export type AssetPortfolio = {
   total_balance_known: boolean
   active_count: number
   archived_count: number
+  liquid_known_count: number
+  nonliquid_known_count: number
+  total_known_count: number
   unknown_balance_account_ids: number[]
 }
 
@@ -355,8 +358,8 @@ export type DashboardData = {
     flexible_spend: number
     debt_payments: number
     monthly_surplus_rate_percent: number
-    runway_months: number
-    next_safe_to_spend_amount: number
+    runway_months: number | null
+    next_safe_to_spend_amount: number | null
     readiness_available: boolean
     readiness_tone: 'red' | 'yellow' | 'green'
     readiness_label: string
@@ -508,6 +511,13 @@ export type MiaActionItem = {
     | 'archive_debt'
     | 'restore_debt'
     | 'update_debt_tracking'
+    | 'create_account'
+    | 'update_account'
+    | 'archive_account'
+    | 'restore_account'
+    | 'link_plaid_account'
+    | 'reconcile_plaid_account'
+    | 'unlink_plaid_account'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -2287,7 +2297,7 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
       setup_values: demoWorkspaceSetupValues(profile, dashboard, budget, wealth),
       income_sources: budget.annual_plan?.income_sources ?? [],
       accounts: [],
-      asset_portfolio: { liquid_balance: 0, nonliquid_balance: 0, total_balance: 0, liquid_balance_known: false, nonliquid_balance_known: false, total_balance_known: false, active_count: 0, archived_count: 0, unknown_balance_account_ids: [] },
+      asset_portfolio: { liquid_balance: 0, nonliquid_balance: 0, total_balance: 0, liquid_balance_known: false, nonliquid_balance_known: false, total_balance_known: false, active_count: 0, archived_count: 0, liquid_known_count: 0, nonliquid_known_count: 0, total_known_count: 0, unknown_balance_account_ids: [] },
       debts: [],
       debt_portfolio: { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 },
       cohort: null,

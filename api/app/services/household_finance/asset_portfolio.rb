@@ -60,6 +60,9 @@ module HouseholdFinance
         total_balance_known: total_balance_known?,
         active_count: active_accounts.length,
         archived_count: archived_accounts.length,
+        liquid_known_count: liquid_accounts.count(&:balance_known?),
+        nonliquid_known_count: nonliquid_accounts.count(&:balance_known?),
+        total_known_count: active_accounts.count(&:balance_known?),
         unknown_balance_account_ids: active_accounts.reject(&:balance_known?).map(&:id)
       }
     end

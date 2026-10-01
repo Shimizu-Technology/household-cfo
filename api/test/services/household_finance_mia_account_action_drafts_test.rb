@@ -32,6 +32,38 @@ class HouseholdFinanceMiaAccountActionDraftsTest < ActiveSupport::TestCase
     assert_equal [ "Not entered", "$0.00" ], field.values_at(:before, :after)
   end
 
+  test "Mia can review and apply a balance-date-only update" do
+    account = @household.accounts.create!(label: "Emergency reserve", account_type: "emergency_fund", balance_cents: 500_00, balance_known: true)
+    draft = persist(build(type: "update_account", account_id: account.id, account_name: account.label, balance_as_of_on: "2026-10-01").proposal)
+
+    fields = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:items).sole.fetch(:review_fields)
+    assert_equal [ "Not entered", "2026-10-01" ], fields.find { |field| field.fetch(:label) == "Balance date" }.values_at(:before, :after)
+    assert HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call.success?
+    assert_equal Date.new(2026, 10, 1), account.reload.balance_as_of_on
+    assert_equal 500_00, account.balance_cents
+  end
+
+  test "Mia humanizes account types in review fields" do
+    account = @household.accounts.create!(label: "Reserve", account_type: "savings", balance_cents: 500_00, balance_known: true)
+    draft = persist(build(type: "update_account", account_id: account.id, account_name: account.label, account_type: "emergency_fund").proposal)
+
+    type_field = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:items).sole.fetch(:review_fields).find { |field| field.fetch(:label) == "Type" }
+    assert_equal [ "Savings", "Emergency fund" ], type_field.values_at(:before, :after)
+  end
+
+  test "Mia rejects linking an account that already has a bank match" do
+    account = @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 100_00, balance_known: true)
+    first = create_observation(account_suffix: "first")
+    second = create_observation(account_suffix: "second")
+    account.update!(plaid_account: first)
+
+    result = build(type: "link_plaid_account", account_id: account.id, account_name: account.label, plaid_account_id: second.id)
+
+    assert_nil result.proposal
+    assert_includes result.response, "already matched"
+    assert_includes result.response, "Unmatch it"
+  end
+
   test "Mia links reconciles and unlinks a Plaid observation only after each review" do
     account = @household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 100_00, balance_known: true)
     item = @household.plaid_items.create!(
@@ -63,6 +95,18 @@ class HouseholdFinanceMiaAccountActionDraftsTest < ActiveSupport::TestCase
   end
 
   private
+
+  def create_observation(account_suffix:)
+    item = @household.plaid_items.create!(
+      connected_by_user: @user, plaid_item_id: "item-#{account_suffix}-#{SecureRandom.hex(4)}", access_token: "token",
+      institution_name: "Test Bank", environment: "sandbox", consented_at: Time.current,
+      consent_policy_version: "test", last_synced_at: Time.current
+    )
+    item.plaid_accounts.create!(
+      plaid_account_id: "account-#{account_suffix}-#{SecureRandom.hex(4)}", name: "Checking", account_type: "depository",
+      account_subtype: "checking", current_balance_cents: 125_00, active: true
+    )
+  end
 
   def build(command)
     HouseholdFinance::MiaActionDraftBuilder.new(@household, user: @user, annual_budget_manager: @manager, raw_input: "account command", command: command).call

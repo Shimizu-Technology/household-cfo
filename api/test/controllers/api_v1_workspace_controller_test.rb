@@ -177,7 +177,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal 6_600, current_month.fetch("planned_outflow")
     assert_equal 2_600, current_month.fetch("baseline_surplus")
     refute body.fetch("dashboard").fetch("summary").fetch("readiness_available")
-    assert_equal 2.7, body.fetch("dashboard").fetch("summary").fetch("runway_months")
+    assert_nil body.fetch("dashboard").fetch("summary").fetch("runway_months")
     setup_audit = user.households.first.household_audit_events.find_by!(event_type: "workspace.setup_saved")
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
