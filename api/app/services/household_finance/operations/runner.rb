@@ -41,7 +41,7 @@ module HouseholdFinance
           raise InvalidPreparedOperation, "This household operation belongs to a different household. Nothing changed."
         end
         operation_class = Registry.fetch(prepared.operation_key, prepared.operation_version)
-        request_fingerprint = request_fingerprint_for(prepared)
+        request_fingerprint = request_fingerprint_for(prepared, source: source, reviewable: reviewable)
         key = normalize_idempotency_key(idempotency_key)
         if (existing = household.household_operation_executions.find_by(idempotency_key: key))
           return replay(existing, request_fingerprint)
@@ -110,9 +110,12 @@ module HouseholdFinance
         end
       end
 
-      def request_fingerprint_for(prepared)
+      def request_fingerprint_for(prepared, source:, reviewable:)
         PreparedOperation.fingerprint(
           household_id: household.id,
+          user_id: user.id,
+          source: source.to_s,
+          reviewable: reviewable && { type: reviewable.class.name, id: reviewable.id },
           operation_key: prepared.operation_key,
           operation_version: prepared.operation_version,
           subject: prepared.subject,

@@ -380,6 +380,50 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
     assert_equal "mia", mia_execution.source
   end
 
+  test "a manual request cannot preempt a Mia item idempotency identity" do
+    category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+      .create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    result = HouseholdFinance::MiaActionDraftBuilder.new(
+      @household,
+      user: @user,
+      annual_budget_manager: HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026),
+      selected_month: 8,
+      raw_input: "Set Groceries to $650 for August",
+      command: { type: "set_allocation", category_id: category.id, amount: "650", months: [ 8 ], year: 2026 }
+    ).call
+    session = @household.chat_sessions.create!(user: @user, title: "Ask Mia")
+    draft = result.proposal.create_draft!(
+      source_chat_message: session.chat_messages.create!(role: "user", content: "Set Groceries to $650 for August"),
+      assistant_chat_message: session.chat_messages.create!(role: "assistant", content: result.response)
+    )
+    item = draft.mia_action_items.sole
+    idempotency_key = "mia-action-item:#{item.id}"
+    manual = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: item.operation_key,
+      input: item.prepared_operation.fetch("normalized_input"),
+      idempotency_key: idempotency_key,
+      source: "manual"
+    )
+    audit_count = @household.household_audit_events.count
+
+    assert_no_difference -> { @household.household_operation_executions.count } do
+      assert_no_difference -> { @household.household_audit_events.count } do
+        applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+        refute applied.success?
+        assert_includes applied.errors.join, "different household change"
+      end
+    end
+
+    assert_equal audit_count, @household.household_audit_events.count
+    assert_equal "pending", draft.reload.status
+    assert_nil draft.applied_at
+    assert_equal "manual", manual.execution.source
+    assert_nil manual.execution.reviewable
+    assert_equal 0, @household.household_audit_events.where(event_type: "mia_action_draft.applied").count
+    assert_equal 65_000, category.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(2026, 8, 1) }).planned_amount_cents
+  end
+
   test "mixed registered and legacy drafts keep both operation and aggregate audit semantics" do
     category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
       .create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
