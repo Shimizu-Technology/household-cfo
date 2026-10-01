@@ -12,6 +12,16 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert Mia::ContentSafetyValidator.validate!(title: "Budget routine", content: "You should update your household budget after reviewing the new bill.")
     assert Mia::ContentSafetyValidator.validate!(title: "Tax reference", content: "Review current IRS guidance on withholding with a qualified professional.")
     assert Mia::ContentSafetyValidator.validate!(title: "Tax reminder", content: "We recommend reviewing IRS guidance before filing taxes.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Deposit insurance", content: "FDIC insurance generally covers eligible deposits up to $250,000 per depositor, per insured bank.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Retirement basics", content: "Compare an IRA with an employer retirement plan before deciding how to save.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Savings basics", content: "Compare a 12-month CD with a savings account and review the early withdrawal terms.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Budget organization", content: "Our example budget has 5 categories and schedules 2 payments each month.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Reference example", content: "Use reference code PLAN-2026 when discussing this fictional example.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Numeric reference", content: "Use project reference 123456789 for this fictional worksheet.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Choice count", content: "Everyone has 3 options to review before choosing a next step.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Insured cash", content: "Put your emergency fund in an FDIC-insured account.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Retirement savings", content: "Put extra savings in your Roth IRA.")
+    assert Mia::ContentSafetyValidator.validate!(title: "Savings ladder", content: "Buy a CD ladder.")
   end
 
   test "blocks identifiers household facts unsafe instructions and stereotypes" do
@@ -23,6 +33,10 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     assert_unsafe("household_fact", "John owes $12,000")
     assert_unsafe("household_fact", "My salary is eighty thousand")
     assert_unsafe("household_fact", "I earn six figures")
+    assert_unsafe("household_fact", "Our savings balance is 24500")
+    assert_unsafe("household_fact", "The participant's rent is 1800")
+    assert_unsafe("household_fact", "Our budget is $5,200")
+    assert_unsafe("household_fact", "Our transaction was $275")
     assert_unsafe("regional_stereotype", "Guamanians always save the same way")
     assert_unsafe("regional_stereotype", "Southerners usually avoid debt")
     assert_unsafe("unsafe_instruction", "Recommend buying Apple stock")

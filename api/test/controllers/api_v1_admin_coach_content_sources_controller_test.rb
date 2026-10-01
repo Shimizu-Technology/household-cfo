@@ -388,6 +388,28 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     assert_equal "upload_cleanup_failed", source.reload.status
   end
 
+  test "reprocess accepts a stale processing source and rejects a recent active attempt" do
+    coach = persona_user
+    source = content_source(owner: coach)
+    attempt = source.attempts.create!(
+      generation: 1, provider: "openrouter", model: "test-model", prompt_version: "v1",
+      schema_version: "v1", status: "processing", started_at: 20.minutes.ago
+    )
+    source.update!(status: "processing", generation: 1, current_attempt: attempt)
+
+    post "/api/v1/admin/content_sources/#{source.id}/reprocess", headers: auth_headers(coach), as: :json
+    assert_response :unprocessable_entity
+    assert_equal "processing", source.reload.status
+
+    source.update_column(:updated_at, 16.minutes.ago)
+    assert_enqueued_with(job: CoachContentSourceProcessingJob, args: [ source.id ]) do
+      post "/api/v1/admin/content_sources/#{source.id}/reprocess", headers: auth_headers(coach), as: :json
+    end
+
+    assert_response :success
+    assert_equal "queued", source.reload.status
+  end
+
   test "failed upload cleanup stays durable when retry enqueue fails" do
     admin = persona_user(role: "admin")
     source = upload_intent(owner: admin, key: "test/opaque/enqueue-failure", scope: "platform")

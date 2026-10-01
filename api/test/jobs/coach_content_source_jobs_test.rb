@@ -30,6 +30,66 @@ class CoachContentSourceJobsTest < ActiveSupport::TestCase
     assert_equal 1, source.candidates.count
   end
 
+  test "a claimed processing attempt schedules one generation-bound crash recovery check" do
+    source = queued_source
+    parser = stub_parser
+    candidate = proposed_candidate
+    proposer = Object.new
+    proposer.define_singleton_method(:model) { "test-model" }
+    proposer.define_singleton_method(:call) do |_segment|
+      ContentSources::CandidateProposer::Result.new(candidates: [ candidate ], metadata: {})
+    end
+
+    assert_enqueued_with(job: CoachContentSourceProcessingJob, args: [ source.id, { expected_generation: 1 } ]) do
+      with_processing_stubs(parser, proposer) { CoachContentSourceProcessingJob.perform_now(source.id) }
+    end
+
+    assert_equal "needs_review", source.reload.status
+  end
+
+  test "duplicate recovery deliveries can replace a stale attempt only once" do
+    source = queued_source
+    stale_attempt = source.attempts.create!(
+      generation: 1, provider: "openrouter", model: "old-model", prompt_version: "old-prompt",
+      schema_version: "old-schema", status: "processing", started_at: 20.minutes.ago
+    )
+    source.update!(status: "processing", generation: 1, current_attempt: stale_attempt)
+    source.update_column(:updated_at, 16.minutes.ago)
+    parser = stub_parser
+    candidate = proposed_candidate
+    proposer = Object.new
+    proposer.define_singleton_method(:model) { "test-model" }
+    proposer.define_singleton_method(:call) do |_segment|
+      ContentSources::CandidateProposer::Result.new(candidates: [ candidate ], metadata: {})
+    end
+
+    with_processing_stubs(parser, proposer) do
+      CoachContentSourceProcessingJob.perform_now(source.id, expected_generation: 1)
+      CoachContentSourceProcessingJob.perform_now(source.id, expected_generation: 1)
+    end
+
+    assert_equal 2, source.reload.generation
+    assert_equal 2, source.attempts.count
+    assert_equal "superseded", stale_attempt.reload.status
+    assert_equal "succeeded", source.current_attempt.status
+  end
+
+  test "a recovery check does nothing after processing reaches a terminal review state" do
+    source = queued_source
+    attempt = source.attempts.create!(
+      generation: 1, provider: "openrouter", model: "test-model", prompt_version: "v1",
+      schema_version: "v1", status: "succeeded", started_at: 2.minutes.ago, completed_at: 1.minute.ago
+    )
+    source.update!(status: "needs_review", generation: 1, current_attempt: attempt, processed_at: Time.current)
+
+    assert_no_enqueued_jobs do
+      CoachContentSourceProcessingJob.perform_now(source.id, expected_generation: 1)
+    end
+
+    assert_equal 1, source.reload.generation
+    assert_equal 1, source.attempts.count
+  end
+
   test "a deletion requested during proposal supersedes the late result" do
     source = queued_source
     parser = stub_parser

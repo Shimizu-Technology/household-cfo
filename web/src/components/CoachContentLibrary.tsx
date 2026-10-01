@@ -176,6 +176,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
   const [scope, setScope] = useState<AdminContentScope>('coach')
   const [alwaysOn, setAlwaysOn] = useState(false)
   const lastSelectedId = useRef<number | null>(null)
+  const lastHandledReviewRequest = useRef(0)
   const titleInputRef = useRef<HTMLInputElement>(null)
   const itemDirty = Boolean(selected?.editable && (
     normalizeSingleLine(title) !== selected.title ||
@@ -198,7 +199,8 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     setAlwaysOn(selected.always_on)
   }, [selected])
   useEffect(() => {
-    if (reviewRequest === 0 || !selected) return
+    if (reviewRequest === 0 || reviewRequest === lastHandledReviewRequest.current || !selected) return
+    lastHandledReviewRequest.current = reviewRequest
     lastSelectedId.current = selected.id
     queueMicrotask(() => {
       setCreating(false)

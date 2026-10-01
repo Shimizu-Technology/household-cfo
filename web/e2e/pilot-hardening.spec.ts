@@ -3454,6 +3454,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
     source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
     created_at: '2026-10-01T01:02:00Z', updated_at: '2026-10-01T01:02:00Z', current_attempt: null, candidates: [],
   }
+  let acceptedItem: MockContentItem | null = null
 
   let releaseSourceList!: () => void
   const sourceListGate = new Promise<void>((resolve) => { releaseSourceList = resolve })
@@ -3477,16 +3478,18 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
     const input = route.request().postDataJSON().candidate
     if (route.request().url().endsWith('/accept')) {
       candidates[index] = { ...candidates[index], status: 'accepted', accepted_content_item_id: 801 }
-      const item = {
+      acceptedItem = {
         id: 801, title: candidates[index].title, scope: 'coach', kind: candidates[index].kind, always_on: false,
         draft_content: candidates[index].content, draft_revision: 1, draft_digest: 'draft-item-digest', archived: false, editable: true,
         current_approved_version: null, versions: [], has_unapproved_changes: true, updated_at: '2026-10-01T01:05:00Z',
       }
-      return route.fulfill({ status: 200, json: { candidate: candidates[index], item } })
+      return route.fulfill({ status: 200, json: { candidate: candidates[index], item: acceptedItem } })
     }
     candidates[index] = { ...candidates[index], ...input, revision: candidates[index].revision + 1, digest: 'candidate-saved' }
     return route.fulfill({ status: 200, json: { candidate: candidates[index] } })
   })
+  await page.route('http://api.test/api/v1/admin/content_items', (route) => route.fulfill({ status: 200, json: { items: acceptedItem ? [acceptedItem] : [] } }))
+  await page.route('http://api.test/api/v1/admin/content_items/801', (route) => route.fulfill({ status: 503, json: { error: 'Temporary content save failure.' } }))
 
   await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
@@ -3558,6 +3561,12 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await page.getByRole('button', { name: 'Discard and review draft' }).click()
   await expect(itemPanel.getByLabel('Title')).toHaveValue('One calm next step')
   await expect(itemPanel.getByLabel('Title')).toBeFocused()
+  await itemPanel.getByLabel('Title').fill('Keep this edit through a same-request refresh')
+  await itemPanel.getByRole('button', { name: 'Save draft', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('Temporary content save failure.')
+  await page.getByRole('button', { name: 'Retry' }).click()
+  await expect(itemPanel.getByLabel('Title')).toHaveValue('Keep this edit through a same-request refresh')
+  await expect(itemPanel.getByLabel('Title')).not.toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

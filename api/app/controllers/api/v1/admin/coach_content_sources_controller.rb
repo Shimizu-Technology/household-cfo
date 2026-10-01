@@ -123,7 +123,8 @@ module Api
         def reprocess
           source = nil
           @source.with_lock do
-            unless @source.source_available? && @source.status.in?(%w[failed needs_review])
+            stale_processing = @source.status == "processing" && @source.updated_at <= CoachContentSourceProcessingJob::STALE_PROCESSING_AFTER.ago
+            unless @source.source_available? && (@source.status.in?(%w[failed needs_review]) || stale_processing)
               return render json: { error: "This source cannot be retried in its current state.", code: "content_source_not_retryable" }, status: :unprocessable_entity
             end
             @source.update!(status: "queued", error_code: nil, error_message: nil, processed_at: nil)

@@ -6,14 +6,16 @@ class CoachContentSourceProcessingJob < ApplicationJob
   STALE_PROCESSING_AFTER = 15.minutes
   MAX_CANDIDATES = 30
 
-  def perform(source_id)
+  def perform(source_id, expected_generation: nil)
     source = CoachContentSource.find_by(id: source_id)
     return unless source
 
     parser = ContentSources::Parser.new
     proposer = ContentSources::CandidateProposer.new
-    attempt = begin_attempt!(source, proposer)
+    attempt = begin_attempt!(source, proposer, expected_generation: expected_generation)
     return unless attempt
+
+    schedule_boundary_recheck!(source, attempt)
 
     result, proposal_metadata = process_source(source, parser: parser, proposer: proposer)
     persist_success!(source, attempt, result, proposal_metadata)
@@ -26,14 +28,13 @@ class CoachContentSourceProcessingJob < ApplicationJob
 
   private
 
-  def begin_attempt!(source, proposer)
+  def begin_attempt!(source, proposer, expected_generation:)
     source.with_lock do
       return if source.status.in?(%w[deletion_pending deletion_failed source_deleted]) || source.source_deleted_at.present?
+      return if expected_generation.present? && source.generation != expected_generation.to_i
+
       stale_processing = source.status == "processing" && source.updated_at <= STALE_PROCESSING_AFTER.ago
       return unless source.status == "queued" || stale_processing
-      if source.status == "processing" && source.current_attempt&.status == "processing" && source.updated_at > STALE_PROCESSING_AFTER.ago
-        return
-      end
 
       supersede_current_attempt!(source)
       source.candidates.where(status: "proposed").update_all(status: "superseded", updated_at: Time.current)
@@ -58,6 +59,13 @@ class CoachContentSourceProcessingJob < ApplicationJob
       )
       attempt
     end
+  end
+
+  def schedule_boundary_recheck!(source, attempt)
+    job = self.class
+      .set(wait_until: source.updated_at + STALE_PROCESSING_AFTER)
+      .perform_later(source.id, expected_generation: attempt.generation)
+    raise ActiveJob::EnqueueError, "Content source recovery check could not be queued." unless job
   end
 
   def process_source(source, parser:, proposer:)
