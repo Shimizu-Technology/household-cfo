@@ -19,10 +19,31 @@ module HouseholdFinance
       @prior_query_scope = sanitized_scope(prior_query_scope)
     end
 
+    def self.evidence_style_reference?(message)
+      normalized = message.to_s.squish
+      return false if normalized.blank? || normalized.match?(CLEARLY_UNRELATED_TOPIC)
+      return false if normalized.match?(NEW_ADVICE_OR_ACTION) && !normalized.match?(/\b(?:fit|fits|within|covered by|room in)\b.{0,60}\b(?:plan|budget)\b|\b(?:plan|budget)\b.{0,60}\b(?:fit|fits|within|cover|room)\b/i)
+
+      (normalized.match?(FOLLOW_UP_REFERENCE) && normalized.match?(EVIDENCE_QUESTION)) || normalized.match?(DATE_SHORTHAND)
+    end
+
+    def self.elliptical_scope_reference?(message, query_scope)
+      normalized = message.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^a-z0-9]+/, " ").squish
+      return false unless normalized.match?(ELLIPTICAL_PREFIX)
+      return false if normalized.match?(CLEARLY_UNRELATED_TOPIC) || normalized.match?(NEW_ADVICE_OR_ACTION)
+
+      entities = Array(query_scope.to_h.deep_symbolize_keys[:entities]).first(DocumentEvidenceContinuity::MAX_SCOPE_ENTITIES)
+      entities.any? do |entity|
+        value = entity.to_s.unicode_normalize(:nfkc).downcase.gsub(/[^a-z0-9]+/, " ").squish
+        value.present? && " #{normalized} ".include?(" #{value} ")
+      end
+    end
+
     def call
       return if message.blank? || document_imports.empty?
       return if message.match?(CLEARLY_UNRELATED_TOPIC)
       return if message.match?(NEW_ADVICE_OR_ACTION) && !plan_fit_question?
+      return unless self.class.evidence_style_reference?(message) || elliptical_entity_follow_up?
 
       if referenced_evidence_question?
         scope = explicit_evidence_reference? ? current_scope : merged_scope

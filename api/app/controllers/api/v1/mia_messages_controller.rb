@@ -26,6 +26,20 @@ module Api
         return render json: { errors: [ "Message is too long (maximum is #{ChatMessage::MAX_CONTENT_LENGTH} characters)" ] }, status: :unprocessable_entity if content.length > ChatMessage::MAX_CONTENT_LENGTH
 
         session = current_chat_session
+        return if render_preexisting_message_request(session, content, attached_imports)
+
+        invalid_evidence = invalid_prior_document_evidence(session)
+        if attached_imports.empty? && invalid_evidence && evidence_style_continuation?(
+          content,
+          invalid_evidence.fetch(:document_imports),
+          prior_query_scope: invalid_evidence[:query_scope]
+        )
+          HouseholdFinance::MiaDocumentEvidenceStateUpdater.retire(session)
+          return render json: {
+            error: "I can’t use the prior upload for this follow-up because it is no longer ready or available. Re-upload the document, then ask again.",
+            code: "mia_document_evidence_unavailable"
+          }, status: :conflict
+        end
         message_request, request_handled = reserve_message_request(session, content, attached_imports)
         return if request_handled
         @active_mia_message_request = message_request
@@ -481,6 +495,39 @@ module Api
         }
       end
 
+      def invalid_prior_document_evidence(session)
+        topic = [ session.active_topic, *Array(session.open_topics) ].find do |candidate|
+          HouseholdFinance::DocumentEvidenceContinuity.topic?(candidate)
+        end
+        return unless topic
+
+        stored = topic.to_h.deep_stringify_keys.fetch("document_evidence", {})
+        ids = HouseholdFinance::DocumentEvidenceContinuity.stored_import_ids(stored)
+        imports = current_household.financial_document_imports.where(id: ids).to_a
+        ready_count = current_household.financial_document_imports
+          .where(
+            id: ids,
+            status: HouseholdFinance::DocumentEvidenceContinuity::READY_STATUSES,
+            source_deleted_at: nil
+          )
+          .count
+        return if ids.any? && ready_count == ids.length
+
+        { document_imports: imports, query_scope: stored["query_scope"] }
+      end
+
+      def evidence_style_continuation?(content, document_imports, prior_query_scope:)
+        return true if HouseholdFinance::AttachedDocumentFollowupResolver.evidence_style_reference?(content)
+        return true if HouseholdFinance::AttachedDocumentFollowupResolver.elliptical_scope_reference?(content, prior_query_scope)
+        return false if document_imports.empty?
+
+        HouseholdFinance::AttachedDocumentFollowupResolver.new(
+          current_household,
+          message: content,
+          document_imports: document_imports
+        ).call.present?
+      end
+
       def document_evidence_topic_present?(session)
         [ session.active_topic, *Array(session.open_topics) ].any? do |topic|
           HouseholdFinance::DocumentEvidenceContinuity.topic?(topic)
@@ -579,6 +626,21 @@ module Api
       rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
         message_request = session.mia_message_requests.find_by!(request_key: request_key)
         [ message_request, render_existing_message_request(message_request, fingerprint) ]
+      end
+
+      def render_preexisting_message_request(session, content, attached_imports)
+        request_key = params[:request_id].to_s.strip
+        return false if request_key.blank?
+
+        unless request_key.match?(MiaMessageRequest::REQUEST_KEY_FORMAT) && request_key.length <= 100
+          render json: { errors: [ "Mia request ID is invalid" ] }, status: :unprocessable_entity
+          return true
+        end
+
+        existing_request = session.mia_message_requests.find_by(request_key: request_key)
+        return false unless existing_request
+
+        render_existing_message_request(existing_request, message_request_fingerprint(content, attached_imports))
       end
 
       def render_existing_message_request(message_request, fingerprint)

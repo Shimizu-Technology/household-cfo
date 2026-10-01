@@ -37,9 +37,8 @@ module HouseholdFinance
       evidence = value.to_h.deep_stringify_keys
       return unless evidence["schema_version"].to_i == EVIDENCE_SCHEMA_VERSION
 
-      raw_ids = Array(evidence["financial_document_import_ids"]).first(MAX_IMPORTS)
-      ids = raw_ids.map { |value| bounded_id(value) }
-      return if ids.empty? || ids.any?(&:nil?) || ids.uniq.length != ids.length
+      ids = stored_import_ids(evidence)
+      return if ids.empty?
 
       imports = household.financial_document_imports.where(id: ids, source_deleted_at: nil).index_by(&:id)
       return unless imports.length == ids.length
@@ -53,6 +52,17 @@ module HouseholdFinance
       scope = query_scope(evidence["query_scope"])
       result["query_scope"] = scope if scope
       result
+    end
+
+    def stored_import_ids(value)
+      evidence = value.to_h.deep_stringify_keys
+      return [] unless evidence["schema_version"].to_i == EVIDENCE_SCHEMA_VERSION
+
+      raw_ids = Array(evidence["financial_document_import_ids"]).first(MAX_IMPORTS)
+      ids = raw_ids.map { |item| bounded_id(item) }
+      return [] if ids.empty? || ids.any?(&:nil?) || ids.uniq.length != ids.length
+
+      ids
     end
 
     def topic?(value)

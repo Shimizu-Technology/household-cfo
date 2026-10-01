@@ -2111,6 +2111,20 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     assert_equal plan_answer, response.parsed_body.dig("assistant_message", "content")
 
+    session = household.chat_sessions.find_by!(user: user)
+    topic_before_invalid_replay = session.reload.attributes.slice("active_topic", "open_topics", "rolling_summary")
+    document_import.update!(status: "processing")
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count", "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: "Does that fit my plan?", request_id: "prior-evidence-plan-fit" },
+           headers: auth_headers(user),
+           as: :json
+    end
+    assert_response :created
+    assert_equal plan_answer, response.parsed_body.dig("assistant_message", "content")
+    assert_equal topic_before_invalid_replay, session.reload.attributes.slice("active_topic", "open_topics", "rolling_summary")
+    document_import.update!(status: "needs_review")
+
     post "/api/v1/mia/messages",
          params: { message: "What is the total in the whole upload?" },
          headers: auth_headers(user),
@@ -2171,9 +2185,12 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert HouseholdFinance::DocumentEvidenceContinuity.topic?(session.reload.active_topic)
 
     document_import.update!(status: "processing")
-    post "/api/v1/mia/messages", params: { message: "What about groceries?" }, headers: auth_headers(user), as: :json
-    assert_response :created
-    assert_not_includes response.parsed_body.dig("assistant_message", "content"), "Using your prior upload"
+    assert_no_difference([ "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count", "ChatMessage.count", "MiaActionDraft.count", "TransactionDraft.count" ]) do
+      post "/api/v1/mia/messages", params: { message: "What about groceries?" }, headers: auth_headers(user), as: :json
+    end
+    assert_response :conflict
+    assert_equal "mia_document_evidence_unavailable", response.parsed_body.fetch("code")
+    refute [ session.reload.active_topic, *session.open_topics ].any? { |topic| HouseholdFinance::DocumentEvidenceContinuity.topic?(topic) }
 
     document_import.update!(status: "needs_review")
     post "/api/v1/mia/messages",
@@ -2188,6 +2205,103 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_response :no_content
     assert_empty session.reload.active_topic
     assert_empty session.open_topics
+  end
+
+  test "invalid prior attachment continuations never fall through to plan creation or chat persistence" do
+    variants = {
+      "processing" => ->(document_import) { document_import.update!(status: "processing") },
+      "failed" => ->(document_import) { document_import.update!(status: "failed") },
+      "source_deleted_needs_review" => lambda do |document_import|
+        document_import.update_columns(source_deleted_at: Time.current, s3_key: nil)
+      end,
+      "source_deleted_applied" => lambda do |document_import|
+        document_import.update_columns(status: "applied", source_deleted_at: Time.current, s3_key: nil)
+      end,
+      "source_deleted_partially_applied" => lambda do |document_import|
+        document_import.update_columns(status: "partially_applied", source_deleted_at: Time.current, s3_key: nil)
+      end
+    }
+    financial_models = [
+      BudgetYear, BudgetPeriod, BudgetAllocation, BudgetCategory, ExpenseItem, HouseholdTransaction,
+      IncomeSource, IncomeScheduleEntry, Account, Debt, Goal, MiaActionDraft, TransactionDraft,
+      FinancialDocumentImportItem, ChatMessage, MiaMessageRequest
+    ]
+
+    variants.each_with_index do |(label, invalidate), index|
+      user = create_user(email: "mia-invalid-prior-evidence-#{index}@example.com")
+      household = HouseholdFinance::WorkspaceResolver.new(user).household
+      category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+      document_import = create_mia_attachment_import(household, user, "invalid-prior-#{index}")
+      create_mia_attachment_draft(document_import, household, category: category, amount_cents: 25_00, occurred_on: Date.current)
+      topic = {
+        schema_version: 4,
+        id: SecureRandom.uuid,
+        type: "document_evidence",
+        title: "Prior upload",
+        subject: "uploaded financial documents",
+        status: "open",
+        document_evidence: {
+          schema_version: 1,
+          financial_document_import_ids: [ document_import.id ],
+          import_count: 1,
+          query_scope: { entities: [ "groceries" ] }
+        }
+      }
+      session = household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: topic, open_topics: [ topic ])
+      invalidate.call(document_import)
+      counts = financial_models.index_with(&:count)
+
+      post "/api/v1/mia/messages",
+           params: { message: "Does that fit my plan?" },
+           headers: auth_headers(user),
+           as: :json
+
+      assert_response :conflict, label
+      assert_equal "mia_document_evidence_unavailable", response.parsed_body.fetch("code"), label
+      assert_includes response.parsed_body.fetch("error"), "Re-upload", label
+      assert_equal counts, financial_models.index_with(&:count), label
+      session.reload
+      refute HouseholdFinance::DocumentEvidenceContinuity.topic?(session.active_topic), label
+      refute session.open_topics.any? { |candidate| HouseholdFinance::DocumentEvidenceContinuity.topic?(candidate) }, label
+    end
+  end
+
+  test "an in-flight attachment follow-up keeps idempotent processing precedence after evidence becomes invalid" do
+    user = create_user(email: "mia-invalid-evidence-processing-replay@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    document_import = create_mia_attachment_import(household, user, "processing-replay")
+    topic = {
+      schema_version: 4,
+      id: SecureRandom.uuid,
+      type: "document_evidence",
+      title: "Prior upload",
+      subject: "uploaded financial documents",
+      status: "open",
+      document_evidence: {
+        schema_version: 1,
+        financial_document_import_ids: [ document_import.id ],
+        import_count: 1
+      }
+    }
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia", active_topic: topic, open_topics: [ topic ])
+    content = "Does that fit my plan?"
+    fingerprint = Digest::SHA256.hexdigest(
+      { message: content, year: Date.current.year, month: Date.current.month, document_import_ids: [] }.to_json
+    )
+    session.mia_message_requests.create!(request_key: "invalid-evidence-processing-replay", request_fingerprint: fingerprint)
+    document_import.update!(status: "processing")
+    topic_before_replay = session.reload.attributes.slice("active_topic", "open_topics", "rolling_summary")
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count", "BudgetYear.count", "BudgetPeriod.count", "BudgetAllocation.count" ]) do
+      post "/api/v1/mia/messages",
+           params: { message: content, request_id: "invalid-evidence-processing-replay" },
+           headers: auth_headers(user),
+           as: :json
+    end
+
+    assert_response :accepted
+    assert_equal "mia_request_processing", response.parsed_body.fetch("code")
+    assert_equal topic_before_replay, session.reload.attributes.slice("active_topic", "open_topics", "rolling_summary")
   end
 
   private
