@@ -104,7 +104,7 @@ module HouseholdFinance
           ends_on: reference_month.fetch(:ends_on),
           scope: reference_month_scope(plan)
         },
-        pending_transaction_drafts_count: plan.fetch(:pending_transaction_drafts).length,
+        pending_transaction_drafts_count: plan.fetch(:pending_transaction_drafts_meta, {}).fetch(:total_count, plan.fetch(:pending_transaction_drafts).length),
         recent_transactions: plan.fetch(:recent_transactions).first(3).map do |transaction|
           {
             merchant: sanitized_text(transaction.fetch(:merchant), max_length: 120),

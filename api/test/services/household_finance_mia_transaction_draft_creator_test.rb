@@ -2,8 +2,8 @@ require "test_helper"
 
 class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
   setup do
-    user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "mia-draft-creator@example.com", role: "participant", invitation_status: "accepted")
-    @household = HouseholdFinance::WorkspaceResolver.new(user).household
+    @user = User.create!(clerk_id: "clerk_#{SecureRandom.hex(6)}", email: "mia-draft-creator@example.com", role: "participant", invitation_status: "accepted")
+    @household = HouseholdFinance::WorkspaceResolver.new(@user).household
     manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
     @dining = manager.create_category!(name: "Dining Out", stack_key: "discretionary", monthly_amount: 300)
     @groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 850)
@@ -12,6 +12,7 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
   test "creates a pending review and suggests dining from the merchant" do
     result = HouseholdFinance::MiaTransactionDraftCreator.new(
       @household,
+      user: @user,
       command: {
         type: "create_transaction_draft",
         merchant: "Walkthrough Cafe Retest",
@@ -40,6 +41,7 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
   test "creates validated explicit category splits" do
     result = HouseholdFinance::MiaTransactionDraftCreator.new(
       @household,
+      user: @user,
       command: {
         type: "create_transaction_draft",
         merchant: "Island Market Cafe",
@@ -62,6 +64,7 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
     assert_no_difference("TransactionDraft.count") do
       result = HouseholdFinance::MiaTransactionDraftCreator.new(
         @household,
+        user: @user,
         command: {
           merchant: "Island Market Cafe",
           amount: "20.00",
@@ -74,5 +77,41 @@ class HouseholdFinanceMiaTransactionDraftCreatorTest < ActiveSupport::TestCase
       refute result.success?
       assert_includes result.errors, "Transaction splits must equal transaction total"
     end
+  end
+
+  test "rejects non-expense money movements even when the model proposes an expense draft" do
+    assert_no_difference("TransactionDraft.count") do
+      result = HouseholdFinance::MiaTransactionDraftCreator.new(
+        @household,
+        user: @user,
+        command: { merchant: "Visa", amount: "200", occurred_on: "2026-07-10", splits: [] },
+        raw_input: "I paid $200 to my Visa credit card today"
+      ).call
+
+      refute result.success?
+      assert_includes result.errors, "Only already incurred purchases can become transaction reviews"
+    end
+  end
+
+  test "mixed money movements isolate only the explicitly reported purchase" do
+    cases = [
+      [ "I withdrew $100 and spent $20 at Pay-Less on groceries.", 2_000 ],
+      [ "I paid my Visa $200 and spent $30 at Pay-Less.", 3_000 ]
+    ]
+
+    cases.each_with_index do |(message, expected_cents), index|
+      result = HouseholdFinance::MiaTransactionDraftCreator.new(
+        @household,
+        user: @user,
+        command: { merchant: "Visa", amount: index.zero? ? "100" : "200", occurred_on: "2026-07-10", splits: [] },
+        raw_input: message,
+        idempotency_key: "mixed-purchase-#{index}"
+      ).call
+
+      assert result.success?, result.errors.to_sentence
+      assert_equal "Pay-Less", result.draft.merchant
+      assert_equal expected_cents, result.draft.total_amount_cents
+    end
+    assert_equal [ 2_000, 3_000 ], @household.transaction_drafts.where(merchant: "Pay-Less").order(:id).pluck(:total_amount_cents)
   end
 end

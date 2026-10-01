@@ -6,9 +6,11 @@ module HouseholdFinance
       end
     end
 
-    def initialize(household, command:)
+    def initialize(household, command:, user:, idempotency_key: nil)
       @household = household
       @command = command.to_h.deep_symbolize_keys
+      @user = user
+      @idempotency_key = idempotency_key.presence || SecureRandom.uuid
     end
 
     def call
@@ -17,10 +19,13 @@ module HouseholdFinance
       attributes = update_attributes(draft)
       return failure(draft, "Tell me what to change on that pending transaction review. Nothing changed.") if attributes.empty?
 
-      update = TransactionDraftUpdater.new(draft, attributes).call
-      return Result.new(success: false, draft: update.draft, response: update.errors.to_sentence, errors: update.errors) unless update.success?
-
-      updated_draft = update.draft
+      operation = Operations::Runner.new(household, user: user).run(
+        operation_key: "transaction.draft.update",
+        input: attributes.merge(draft_id: draft.id, source_type: "manual_chat"),
+        idempotency_key: idempotency_key,
+        source: "mia"
+      )
+      updated_draft = operation.subject.reload
       changes = change_descriptions(before, snapshot(updated_draft))
       response = if changes.empty?
         "That pending #{updated_draft.merchant} review already has those details. Actuals did not change."
@@ -36,7 +41,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :household, :command
+    attr_reader :household, :command, :user, :idempotency_key
 
     def update_attributes(draft)
       {}.tap do |attributes|
@@ -47,16 +52,18 @@ module HouseholdFinance
         category_id = resolved_category_id(command[:category_id], command[:category_name])
         attributes[:budget_category_id] = category_id if category_id
 
-        explicit_splits = normalized_splits(command[:splits])
+        explicit_splits = normalized_splits(command[:splits], draft)
         if explicit_splits.any?
           attributes[:splits] = explicit_splits
         elsif command[:amount].present? && draft.transaction_draft_splits.size == 1
           split = draft.transaction_draft_splits.first
           attributes[:splits] = [
             {
+              id: split.id,
               budget_category_id: category_id || split.budget_category_id,
               category_name: category_id ? nil : split.category_name,
-              amount: command[:amount]
+              amount: command[:amount],
+              notes: split.notes
             }
           ]
         elsif command[:amount].present? && draft.transaction_draft_splits.many?
@@ -65,16 +72,51 @@ module HouseholdFinance
       end
     end
 
-    def normalized_splits(values)
-      Array(values).first(DocumentTransactionDraftPersister::MAX_SPLITS).map do |raw_split|
+    def normalized_splits(values, draft)
+      raw_values = Array(values)
+      raise ArgumentError, "Add no more than #{DocumentTransactionDraftPersister::MAX_SPLITS} transaction splits" if raw_values.length > DocumentTransactionDraftPersister::MAX_SPLITS
+      return [] if raw_values.empty?
+
+      existing = draft.transaction_draft_splits.ordered.to_a
+      existing_by_id = existing.index_by(&:id)
+      split_ids = raw_values.map { |raw_split| normalized_split_id(raw_split.to_h.deep_symbolize_keys[:id]) }
+      if existing.many?
+        raise ArgumentError, "Include the id for every existing transaction split" if split_ids.any?(&:nil?)
+        raise ArgumentError, "A transaction split can only be included once" unless split_ids.uniq.length == split_ids.length
+        unless split_ids.sort == existing.map(&:id).sort
+          raise ArgumentError, "Include every existing transaction split id from this review"
+        end
+      end
+
+      raw_values.map.with_index do |raw_split, index|
         split = raw_split.to_h.deep_symbolize_keys
+        split_id = normalized_split_id(split[:id])
+        if split_id
+          raise ArgumentError, "Split #{index + 1} does not belong to this transaction review" unless existing_by_id.key?(split_id)
+        elsif existing.one? && raw_values.one?
+          split_id = existing.first.id
+        end
         category_id = resolved_category_id(split[:category_id], split[:category_name])
         {
+          id: split_id,
           budget_category_id: category_id,
           category_name: split[:category_name],
-          amount: split[:amount]
+          amount: split[:amount],
+          notes: split.key?(:notes) ? split[:notes] : existing_by_id[split_id]&.notes
         }.compact
       end
+    end
+
+    def normalized_split_id(value)
+      return if value.blank?
+
+      split_id = Integer(value)
+      return if split_id.zero?
+      raise ArgumentError, "Transaction split id is invalid" unless split_id.positive?
+
+      split_id
+    rescue ArgumentError, TypeError
+      raise ArgumentError, "Transaction split id is invalid"
     end
 
     def resolved_category_id(id, name)

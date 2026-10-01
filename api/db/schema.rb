@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_100000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -815,6 +815,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.bigint "household_audit_event_id", null: false
     t.bigint "household_id", null: false
     t.string "idempotency_key", null: false
+    t.string "invocation_fingerprint"
     t.jsonb "normalized_input", default: {}, null: false
     t.string "operation_key", null: false
     t.integer "operation_version", null: false
@@ -836,6 +837,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_090000) do
     t.index ["user_id"], name: "index_household_operation_executions_on_user_id"
     t.check_constraint "jsonb_typeof(after_snapshot) = 'object'::text", name: "household_operations_after_object"
     t.check_constraint "jsonb_typeof(before_snapshot) = 'object'::text", name: "household_operations_before_object"
+    t.check_constraint "invocation_fingerprint IS NULL OR invocation_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "household_operations_invocation_fingerprint_valid"
     t.check_constraint "jsonb_typeof(normalized_input) = 'object'::text", name: "household_operations_input_object"
     t.check_constraint "jsonb_typeof(predicted_after_snapshot) = 'object'::text", name: "household_operations_predicted_object"
     t.check_constraint "operation_version > 0", name: "household_operations_version_positive"

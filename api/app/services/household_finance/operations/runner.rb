@@ -12,16 +12,31 @@ module HouseholdFinance
       end
 
       def run(operation_key:, input:, idempotency_key:, source: "manual", reviewable: nil)
+        operation_class = Registry.fetch(operation_key)
+        key = normalize_idempotency_key(idempotency_key)
+        invocation_fingerprint = invocation_fingerprint_for(
+          operation_class,
+          input,
+          source: source,
+          reviewable: reviewable
+        )
         ApplicationRecord.transaction do
           household.lock!
-          operation_class = Registry.fetch(operation_key)
-          key = normalize_idempotency_key(idempotency_key)
+          ensure_actor_membership!
           if (existing = household.household_operation_executions.find_by(idempotency_key: key))
+            return replay_invocation(existing, invocation_fingerprint) if existing.invocation_fingerprint.present?
+
             normalized = operation_class.new(household).normalized_input(input).deep_stringify_keys
             return replay_raw(existing, operation_class, normalized, source: source, reviewable: reviewable)
           end
           prepared = operation_class.new(household).prepare(input)
-          execute_inside_transaction!(prepared, idempotency_key: key, source: source, reviewable: reviewable)
+          execute_inside_transaction!(
+            prepared,
+            idempotency_key: key,
+            source: source,
+            reviewable: reviewable,
+            invocation_fingerprint: invocation_fingerprint
+          )
         end
       end
 
@@ -33,6 +48,7 @@ module HouseholdFinance
 
         ApplicationRecord.transaction do
           household.lock!
+          ensure_actor_membership!
           execute_inside_transaction!(prepared, idempotency_key: idempotency_key, source: source, reviewable: reviewable)
         end
       end
@@ -41,7 +57,7 @@ module HouseholdFinance
 
       attr_reader :household, :user, :audit_writer
 
-      def execute_inside_transaction!(prepared, idempotency_key:, source:, reviewable:)
+      def execute_inside_transaction!(prepared, idempotency_key:, source:, reviewable:, invocation_fingerprint: nil)
         unless prepared.household_id.to_i == household.id
           raise InvalidPreparedOperation, "This household operation belongs to a different household. Nothing changed."
         end
@@ -49,6 +65,8 @@ module HouseholdFinance
         request_fingerprint = request_fingerprint_for(prepared, source: source, reviewable: reviewable)
         key = normalize_idempotency_key(idempotency_key)
         if (existing = household.household_operation_executions.find_by(idempotency_key: key))
+          return replay_invocation(existing, invocation_fingerprint) if invocation_fingerprint && existing.invocation_fingerprint.present?
+
           return replay(existing, request_fingerprint)
         end
 
@@ -83,6 +101,7 @@ module HouseholdFinance
           operation_version: prepared.operation_version,
           idempotency_key: key,
           request_fingerprint: request_fingerprint,
+          invocation_fingerprint: invocation_fingerprint,
           source: source,
           status: "completed",
           subject_type: subject.class.name,
@@ -119,9 +138,18 @@ module HouseholdFinance
         replay(execution, execution.request_fingerprint)
       end
 
+      def replay_invocation(execution, invocation_fingerprint)
+        unless secure_equal?(execution.invocation_fingerprint, invocation_fingerprint)
+          raise IdempotencyConflict, "That idempotency key was already used for a different household change. Nothing changed."
+        end
+
+        replay(execution, execution.request_fingerprint)
+      end
+
       def subject_belongs_to_household?(subject)
         case subject
         when Household then subject.id == household.id
+        when TransactionDraft then subject.household_id == household.id
         when IncomeSource then subject.household_id == household.id
         when IncomeScheduleEntry then subject.income_source.household_id == household.id
         when BudgetCategory then subject.household_id == household.id
@@ -142,6 +170,25 @@ module HouseholdFinance
           year: prepared.normalized_input["year"],
           normalized_input: prepared.normalized_input
         )
+      end
+
+      def invocation_fingerprint_for(operation_class, input, source:, reviewable:)
+        PreparedOperation.fingerprint(
+          household_id: household.id,
+          user_id: user.id,
+          source: source.to_s,
+          reviewable: reviewable && { type: reviewable.class.name, id: reviewable.id },
+          operation_key: operation_class::KEY,
+          operation_version: operation_class::VERSION,
+          input: input.to_h.deep_stringify_keys
+        )
+      end
+
+      def ensure_actor_membership!
+        membership = household.household_memberships.lock.find_by(user_id: user.id)
+        return if membership&.role.in?(%w[owner partner])
+
+        raise InvalidPreparedOperation, "You no longer have permission to change this household. Nothing changed."
       end
 
       def normalize_idempotency_key(value)

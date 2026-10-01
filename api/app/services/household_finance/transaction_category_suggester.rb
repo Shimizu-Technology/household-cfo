@@ -9,7 +9,7 @@ module HouseholdFinance
     DINING_TERMS = /\b(mcdonald|restaurant|bar|coffee|latte|takeout|dining|jollibee|cafe|bakery|lunch|dinner|fast\s*food)\b/i
     GROCERY_TERMS = /\b(pay\s*less|payless|grocery|groceries|supermarket|cost\s*u\s*less|costuless|food)\b/i
     TRANSPORT_TERMS = /\b(shell|mobil|76|gas|fuel|transport|transportation)\b/i
-    UTILITIES_TERMS = /\b(power|gpa|utility|utilities|water|electric|guam waterworks|internet|docomo|gta)\b/i
+    UTILITIES_TERMS = /\b(rent|mortgage|power|gpa|utility|utilities|water|electric|guam waterworks|internet|docomo|gta)\b/i
     MEDICAL_TERMS = /\b(clinic|medical|doctor|copay|medicine|pharmacy|hospital)\b/i
     HOUSEHOLD_TERMS = /\b(household|cleaning|detergent|soap|paper towel|toilet paper|supplies)\b/i
     TOBACCO_TERMS = /\b(cigarette|cigarettes|tobacco|vape|nicotine)\b/i
@@ -50,6 +50,21 @@ module HouseholdFinance
 
       reason = heuristic_confident?(confidence) ? "no_strong_match" : "low_confidence"
       no_match(reason)
+    end
+
+    # Chat reports often use a household's broad setup categories. Fall back only
+    # when the participant supplied a recognizable expense signal; unknown
+    # merchants remain uncategorized for review.
+    def recognized_fallback_category(merchant:, text: nil)
+      value = normalized([ merchant, text ].compact.join(" "))
+      stack = if value.match?(UTILITIES_TERMS) || value.match?(HOUSEHOLD_TERMS) || value.match?(TAX_TERMS)
+        "non_discretionary"
+      elsif value.match?(MEDICAL_TERMS)
+        "sinking_unexpected"
+      elsif value.match?(DINING_TERMS) || value.match?(GROCERY_TERMS) || value.match?(TRANSPORT_TERMS) || value.match?(TOBACCO_TERMS)
+        "discretionary"
+      end
+      stack_category(active_categories, stack) if stack
     end
 
     private

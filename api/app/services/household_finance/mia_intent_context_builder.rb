@@ -119,6 +119,7 @@ module HouseholdFinance
             category_name: bounded(draft.budget_category&.name, 80),
             splits: draft.transaction_draft_splits.ordered.first(20).map do |split|
               {
+                id: split.id,
                 category_id: split.budget_category_id,
                 category_name: bounded(split.budget_category&.name || split.category_name, 80),
                 amount: Money.dollars(split.amount_cents)

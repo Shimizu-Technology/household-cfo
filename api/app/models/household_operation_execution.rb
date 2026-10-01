@@ -7,6 +7,7 @@ class HouseholdOperationExecution < ApplicationRecord
   belongs_to :reviewable, polymorphic: true, optional: true
 
   validates :operation_key, :idempotency_key, :request_fingerprint, presence: true
+  validates :invocation_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validates :operation_version, numericality: { only_integer: true, greater_than: 0 }
   validates :source, inclusion: { in: SOURCES }
   validates :status, inclusion: { in: %w[completed] }

@@ -1784,6 +1784,36 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 3_000, draft.confirmed_transaction.total_amount_cents
   end
 
+  test "confirming one split with amount and category corrections keeps the split total valid" do
+    user = create_user(email: "corrected-draft-amount-category@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    dining = manager.create_category!(name: "Dining", stack_key: "discretionary", monthly_amount: 300)
+    groceries = manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 700)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current,
+      merchant: "Village Cafe",
+      total_amount_cents: 2_500,
+      budget_category: dining,
+      source_type: "manual_ui",
+      status: "pending"
+    )
+    draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_500)
+
+    assert_difference("HouseholdTransaction.count", 1) do
+      post "/api/v1/transaction_drafts/#{draft.id}/confirm",
+        params: { transaction_draft: { amount: "30", budget_category_id: groceries.id } },
+        headers: auth_headers(user),
+        as: :json
+    end
+
+    assert_response :success
+    assert_equal "corrected", draft.reload.status
+    assert_equal [ [ groceries.id, 3_000 ] ], draft.transaction_draft_splits.pluck(:budget_category_id, :amount_cents)
+    assert_equal 3_000, draft.confirmed_transaction.total_amount_cents
+    assert_equal [ [ groceries.id, 3_000 ] ], draft.confirmed_transaction.transaction_splits.pluck(:budget_category_id, :amount_cents)
+  end
+
   test "blank confirmation amount keeps the drafted amount" do
     user = create_user(email: "blank-corrected-amount@example.com")
     patch "/api/v1/workspace/setup",
@@ -1858,6 +1888,257 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_equal 2, body.fetch("resolved_count")
     assert_equal %w[ignored ignored], drafts.map { |draft| draft.reload.status }
     assert_includes body.dig("workspace", "mia", "messages").last.fetch("content"), "Actuals did not change"
+  end
+
+  test "manual transaction capture creates one audited pending review and replays by idempotency key" do
+    user = create_user(email: "manual-transaction-capture@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    headers = auth_headers(user).merge("Idempotency-Key" => "manual-capture-1")
+    params = { transaction_draft: { occurred_on: Date.current.iso8601, merchant: "ZXQ Island Vendor", amount: "17.42", budget_category_id: nil } }
+
+    assert_difference("TransactionDraft.count", 1) do
+      assert_no_difference("HouseholdTransaction.count") do
+        post "/api/v1/transaction_drafts", params: params, headers: headers, as: :json
+        assert_response :created
+        post "/api/v1/transaction_drafts", params: params, headers: headers, as: :json
+        assert_response :created
+      end
+    end
+
+    body = JSON.parse(response.body)
+    draft = household.transaction_drafts.find(body.dig("transaction_draft", "id"))
+    assert_equal "pending", draft.status
+    assert_equal "manual_ui", draft.source_type
+    assert_nil draft.budget_category_id
+    assert_nil draft.transaction_draft_splits.sole.budget_category_id
+    assert_equal 1, household.household_operation_executions.where(idempotency_key: "manual-capture-1").count
+    assert_equal "transaction.draft.create", household.household_audit_events.find_by!(event_type: "household_operation.executed").metadata.fetch("operation_key")
+
+    post "/api/v1/transaction_drafts",
+      params: { transaction_draft: params.fetch(:transaction_draft).merge(amount: "19.00") },
+      headers: headers,
+      as: :json
+    assert_response :conflict
+    assert_includes JSON.parse(response.body).fetch("errors").join, "already used"
+  end
+
+  test "manual transaction update explicitly removes retains and adds split lines" do
+    user = create_user(email: "manual-split-edit@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    groceries = manager.create_category!(name: "Manual groceries", stack_key: "discretionary", monthly_amount: 500)
+    dining = manager.create_category!(name: "Manual dining", stack_key: "discretionary", monthly_amount: 200)
+    draft = household.transaction_drafts.create!(
+      occurred_on: Date.current, merchant: "Manual split shop", total_amount_cents: 5_000,
+      budget_category: groceries, source_type: "receipt", status: "pending"
+    )
+    retained = draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 3_000, confidence: 0.91, metadata: { "line" => 1 })
+    removed = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_000, confidence: 0.73, metadata: { "line" => 2 })
+
+    payload = {
+      transaction_draft: {
+        amount: "50",
+        removed_split_ids: [ removed.id ],
+        splits: [
+          { id: retained.id, amount: "30", budget_category_id: groceries.id },
+          { amount: "20", budget_category_id: dining.id, notes: "Replacement line" }
+        ]
+      }
+    }
+    headers = auth_headers(user).merge("Idempotency-Key" => "manual-split-edit")
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: payload,
+      headers: headers,
+      as: :json
+
+    assert_response :success
+    first_execution = household.household_operation_executions.find_by!(idempotency_key: "manual-split-edit")
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: payload,
+      headers: headers,
+      as: :json
+
+    assert_response :success
+    assert_equal first_execution.id, household.household_operation_executions.find_by!(idempotency_key: "manual-split-edit").id
+    assert_equal 1, household.household_operation_executions.where(idempotency_key: "manual-split-edit").count
+    splits = draft.reload.transaction_draft_splits.order(:id).to_a
+    assert_equal 2, splits.length
+    assert_equal retained.id, splits.first.id
+    assert_equal BigDecimal("0.91"), splits.first.confidence
+    assert_equal({ "line" => 1 }, splits.first.metadata)
+    refute TransactionDraftSplit.exists?(removed.id)
+    assert_equal({ "human_reviewed_replacement" => true }, splits.second.metadata)
+    assert_equal groceries.id, draft.budget_category_id
+    assert_empty household.household_transactions
+    body = JSON.parse(response.body)
+    assert_equal [ retained.id, splits.second.id ], body.dig("transaction_draft", "splits").map { |split| split.fetch("id") }
+  end
+
+  test "transaction mutation endpoints require an explicit idempotency key" do
+    user = create_user(email: "transaction-idempotency-required@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Idempotency", stack_key: "discretionary", monthly_amount: 100)
+    first = create_pending_draft(household, category, merchant: "First", amount_cents: 1_100)
+    second = create_pending_draft(household, category, merchant: "Second", amount_cents: 2_200)
+    headers = auth_headers(user).except("Idempotency-Key")
+
+    post "/api/v1/transaction_drafts",
+      params: { transaction_draft: { occurred_on: Date.current.iso8601, merchant: "Missing key", amount: "10" } },
+      headers: headers,
+      as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    patch "/api/v1/transaction_drafts/#{first.id}",
+      params: { transaction_draft: { merchant: "Changed" } }, headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/#{first.id}/ignore", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/bulk_ignore",
+      params: { transaction_draft_ids: [ first.id, second.id ], year: Date.current.year }, headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/#{first.id}/confirm", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/bulk_confirm",
+      params: { transaction_draft_ids: [ first.id, second.id ], year: Date.current.year, confirmation: "CONFIRM 2" }, headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    post "/api/v1/transaction_drafts/#{first.id}/match", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+
+    first.update!(status: "ignored")
+    post "/api/v1/transaction_drafts/#{first.id}/reopen", headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes JSON.parse(response.body).fetch("errors"), "Idempotency-Key header is required"
+    assert_equal %w[ignored pending], [ first.reload.status, second.reload.status ]
+  end
+
+  test "transaction update ignore and bulk ignore replay stable keys and conflict on changed requests" do
+    user = create_user(email: "transaction-idempotency-replay@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = HouseholdFinance::AnnualBudgetManager.new(household).create_category!(name: "Replay", stack_key: "discretionary", monthly_amount: 100)
+    update_draft = create_pending_draft(household, category, merchant: "Update me", amount_cents: 1_100)
+    first = create_pending_draft(household, category, merchant: "Ignore one", amount_cents: 2_200)
+    second = create_pending_draft(household, category, merchant: "Ignore two", amount_cents: 3_300)
+    third = create_pending_draft(household, category, merchant: "Ignore three", amount_cents: 4_400)
+
+    update_headers = auth_headers(user).merge("Idempotency-Key" => "update-replay")
+    2.times do
+      patch "/api/v1/transaction_drafts/#{update_draft.id}",
+        params: { transaction_draft: { merchant: "Updated once" } }, headers: update_headers, as: :json
+      assert_response :success
+    end
+    patch "/api/v1/transaction_drafts/#{update_draft.id}",
+      params: { transaction_draft: { merchant: "Different update" } }, headers: update_headers, as: :json
+    assert_response :conflict
+    assert_equal "Updated once", update_draft.reload.merchant
+
+    ignore_headers = auth_headers(user).merge("Idempotency-Key" => "ignore-replay")
+    2.times do
+      post "/api/v1/transaction_drafts/#{first.id}/ignore", headers: ignore_headers, as: :json
+      assert_response :success
+    end
+    post "/api/v1/transaction_drafts/#{second.id}/ignore", headers: ignore_headers, as: :json
+    assert_response :conflict
+    assert_equal "pending", second.reload.status
+
+    bulk_headers = auth_headers(user).merge("Idempotency-Key" => "bulk-ignore-replay")
+    bulk_params = { transaction_draft_ids: [ second.id, third.id ], year: Date.current.year }
+    2.times do
+      post "/api/v1/transaction_drafts/bulk_ignore", params: bulk_params, headers: bulk_headers, as: :json
+      assert_response :success
+    end
+    post "/api/v1/transaction_drafts/bulk_ignore",
+      params: { transaction_draft_ids: [ third.id ], year: Date.current.year }, headers: bulk_headers, as: :json
+    assert_response :conflict
+    assert_equal %w[ignored ignored], [ second.reload.status, third.reload.status ]
+    assert_equal 3, household.household_operation_executions.where(idempotency_key: %w[update-replay ignore-replay bulk-ignore-replay]).count
+  end
+
+  test "confirm match reopen and bulk confirm replay stable keys and conflict on changed requests" do
+    user = create_user(email: "transaction-resolution-replay@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household)
+    category = manager.create_category!(name: "Resolution", stack_key: "discretionary", monthly_amount: 100)
+
+    confirmed = create_pending_draft(household, category, merchant: "Confirm once", amount_cents: 1_100)
+    confirm_headers = auth_headers(user).merge("Idempotency-Key" => "confirm-replay")
+    assert_difference("HouseholdTransaction.count", 1) do
+      2.times do
+        post "/api/v1/transaction_drafts/#{confirmed.id}/confirm", headers: confirm_headers, as: :json
+        assert_response :success
+      end
+    end
+    post "/api/v1/transaction_drafts/#{confirmed.id}/confirm",
+      params: { transaction_draft: { merchant: "Different confirmation" } }, headers: confirm_headers, as: :json
+    assert_response :conflict
+
+    match_draft = create_pending_draft(household, category, merchant: "Match once", amount_cents: 2_200)
+    period = manager.current_period_for(match_draft.occurred_on)
+    transaction = household.household_transactions.create!(
+      budget_period: period, occurred_on: match_draft.occurred_on, merchant: "Existing Match",
+      total_amount_cents: 2_200, source_type: "manual_ui", status: "confirmed"
+    )
+    transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_200)
+    primary_match = match_draft.transaction_draft_matches.create!(household_transaction: transaction, confidence: 0.98, status: "proposed", match_reason: "primary")
+    other_transaction = household.household_transactions.create!(
+      budget_period: period, occurred_on: match_draft.occurred_on, merchant: "Other Match",
+      total_amount_cents: 2_200, source_type: "manual_ui", status: "confirmed"
+    )
+    other_transaction.transaction_splits.create!(budget_category: category, amount_cents: 2_200)
+    secondary_match = match_draft.transaction_draft_matches.create!(household_transaction: other_transaction, confidence: 0.80, status: "proposed", match_reason: "secondary")
+    match_headers = auth_headers(user).merge("Idempotency-Key" => "match-replay")
+    2.times do
+      post "/api/v1/transaction_drafts/#{match_draft.id}/match", params: { match_id: primary_match.id }, headers: match_headers, as: :json
+      assert_response :success
+    end
+    post "/api/v1/transaction_drafts/#{match_draft.id}/match", params: { match_id: secondary_match.id }, headers: match_headers, as: :json
+    assert_response :conflict
+
+    reopen_draft = create_pending_draft(household, category, merchant: "Reopen once", amount_cents: 3_300)
+    other_reopen = create_pending_draft(household, category, merchant: "Other reopen", amount_cents: 4_400)
+    reopen_draft.update!(status: "ignored")
+    other_reopen.update!(status: "ignored")
+    reopen_headers = auth_headers(user).merge("Idempotency-Key" => "reopen-replay")
+    2.times do
+      post "/api/v1/transaction_drafts/#{reopen_draft.id}/reopen", headers: reopen_headers, as: :json
+      assert_response :success
+    end
+    post "/api/v1/transaction_drafts/#{other_reopen.id}/reopen", headers: reopen_headers, as: :json
+    assert_response :conflict
+    assert_equal "ignored", other_reopen.reload.status
+
+    first_bulk = create_pending_draft(household, category, merchant: "Bulk confirm one", amount_cents: 5_500)
+    second_bulk = create_pending_draft(household, category, merchant: "Bulk confirm two", amount_cents: 6_600)
+    third_bulk = create_pending_draft(household, category, merchant: "Bulk confirm three", amount_cents: 7_700)
+    bulk_headers = auth_headers(user).merge("Idempotency-Key" => "bulk-confirm-replay")
+    bulk_params = { transaction_draft_ids: [ first_bulk.id, second_bulk.id ], year: Date.current.year, confirmation: "CONFIRM 2" }
+    assert_difference("HouseholdTransaction.count", 2) do
+      2.times do
+        post "/api/v1/transaction_drafts/bulk_confirm", params: bulk_params, headers: bulk_headers, as: :json
+        assert_response :success
+      end
+    end
+    post "/api/v1/transaction_drafts/bulk_confirm",
+      params: { transaction_draft_ids: [ first_bulk.id, third_bulk.id ], year: Date.current.year, confirmation: "CONFIRM 2" },
+      headers: bulk_headers,
+      as: :json
+    assert_response :conflict
+    assert_equal "pending", third_bulk.reload.status
+
+    executions = household.household_operation_executions.where(idempotency_key: %w[confirm-replay match-replay reopen-replay bulk-confirm-replay])
+    assert_equal 4, executions.count
+    assert_equal 4, executions.joins(:household_audit_event).count
   end
 
   test "bulk resolution rejects more than five hundred reviews" do

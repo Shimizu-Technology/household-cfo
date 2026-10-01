@@ -18,7 +18,7 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
       status: "pending",
       raw_input: "Prior-year pending review"
     )
-    draft.transaction_draft_splits.create!(budget_category: category, category_name: category.name, stack_key: category.stack_key, amount_cents: 12_34)
+    split = draft.transaction_draft_splits.create!(budget_category: category, category_name: category.name, stack_key: category.stack_key, amount_cents: 12_34)
     transcript = [
       { id: 1, role: "user", content: "What is our largest category?", created_at: "2026-07-01T00:00:00Z" },
       { id: 2, role: "assistant", content: "Fixed essentials is the largest.", created_at: "2026-07-01T00:00:01Z" }
@@ -50,6 +50,7 @@ class HouseholdFinanceMiaIntentContextBuilderTest < ActiveSupport::TestCase
     assert_equal draft.id, pending_transaction.fetch(:id)
     assert_equal "2025-12-31", pending_transaction.fetch(:occurred_on)
     assert_equal "Prior-year Cafe", pending_transaction.fetch(:merchant)
+    assert_equal split.id, pending_transaction.dig(:splits, 0, :id)
     refute context.to_json.include?("s3_key")
   end
 

@@ -663,6 +663,27 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes body.fetch("error"), "different content"
   end
 
+  test "mia transaction idempotency keys are scoped to the current user and chat session" do
+    controller = Api::V1::MiaMessagesController.new
+    controller.request = ActionDispatch::TestRequest.create
+    controller.instance_variable_set(:@active_mia_message_request, Struct.new(:request_key).new("shared-request"))
+    user_id = 101
+    session_id = 201
+    controller.define_singleton_method(:current_user) { Struct.new(:id).new(user_id) }
+    controller.define_singleton_method(:current_chat_session) { Struct.new(:id).new(session_id) }
+
+    first = controller.send(:mia_transaction_idempotency_key, "create")
+    user_id = 102
+    second_user = controller.send(:mia_transaction_idempotency_key, "create")
+    user_id = 101
+    session_id = 202
+    second_session = controller.send(:mia_transaction_idempotency_key, "create")
+
+    assert_equal "mia-transaction:101:201:shared-request:create", first
+    refute_equal first, second_user
+    refute_equal first, second_session
+  end
+
   test "mia chat reports an in-flight duplicate as retryable processing" do
     user = create_user(email: "mia-idempotent-processing@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

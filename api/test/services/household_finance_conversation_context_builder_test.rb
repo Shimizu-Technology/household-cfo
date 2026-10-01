@@ -113,8 +113,8 @@ class HouseholdFinanceConversationContextBuilderTest < ActiveSupport::TestCase
         amount: "145.25",
         all_pending: false,
         splits: [
-          { category_id: 9, category_name: "Groceries", amount: "120.00", hidden: "drop me" },
-          { category_id: 12, category_name: "Household supplies", amount: "25.25" }
+          { id: 901, category_id: 9, category_name: "Groceries", amount: "120.00", hidden: "drop me" },
+          { id: 902, category_id: 12, category_name: "Household supplies", amount: "25.25" }
         ],
         untrusted_extra: "drop me"
       }
@@ -142,8 +142,8 @@ class HouseholdFinanceConversationContextBuilderTest < ActiveSupport::TestCase
     assert_equal "Pay-Less Markets", transaction_action.fetch(:merchant)
     assert_equal false, transaction_action.fetch(:all_pending)
     assert_equal [
-      { category_id: 9, category_name: "Groceries", amount: "120.00" },
-      { category_id: 12, category_name: "Household supplies", amount: "25.25" }
+      { id: 901, category_id: 9, category_name: "Groceries", amount: "120.00" },
+      { id: 902, category_id: 12, category_name: "Household supplies", amount: "25.25" }
     ], transaction_action.fetch(:splits)
     refute transaction_action.key?(:untrusted_extra)
   end

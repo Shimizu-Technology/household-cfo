@@ -109,7 +109,7 @@ const budget = {
     pending_transaction_drafts: [
       { id: 91, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-12`, merchant: 'Dinner with friends', amount: 75, amount_cents: 7_500, status: 'pending', source_type: 'receipt', category_id: 2, category_name: 'Dining out' },
       { id: 92, occurred_on: `${currentYear}-${String(new Date().getMonth() + 1).padStart(2, '0')}-15`, merchant: 'Storm supplies', amount: 40, amount_cents: 4_000, status: 'pending', source_type: 'manual_chat', category_id: 4, category_name: 'Unexpected sinking fund' },
-    ], pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
+    ], pending_transaction_drafts_meta: { total_count: 2, returned_count: 2, limit: 500, truncated: false }, pending_mia_action_drafts: [], recent_transactions: [], archived_categories: [],
   },
 }
 
@@ -3104,6 +3104,71 @@ test('ignored-only imports remain pending instead of becoming approved Mia conte
   await expect(page.getByText('Freshness', { exact: true }).locator('..')).toContainText('Review pending')
 })
 
+test('confirmed import history does not project the same draft into budget impact twice', async ({ page }) => {
+  const confirmedDraft = {
+    id: 406,
+    occurred_on: `${currentYear}-08-05`,
+    merchant: 'Confirmed market purchase',
+    amount: 56.25,
+    amount_cents: 5_625,
+    status: 'confirmed',
+    source_type: 'receipt',
+    financial_document_import_id: 407,
+    category_id: 2,
+    category_name: 'Dining out',
+    confirmed_transaction_id: 408,
+    splits: [{
+      id: 409,
+      budget_category_id: 2,
+      category_name: 'Dining out',
+      stack_key: 'discretionary',
+      stack_label: 'Discretionary',
+      amount: 56.25,
+      amount_cents: 5_625,
+      notes: null,
+      confidence: 0.9,
+      metadata: {},
+    }],
+    matches: [],
+  }
+  const confirmedImport = {
+    id: 407,
+    household_id: 77,
+    document_kind: 'receipt',
+    status: 'applied',
+    filename: 'confirmed-receipt.pdf',
+    content_type: 'application/pdf',
+    byte_size: 2_048,
+    document_date: confirmedDraft.occurred_on,
+    period_start_on: null,
+    period_end_on: null,
+    extracted_summary: 'One confirmed transaction.',
+    extraction_error: null,
+    processed_at: `${currentYear}-08-16T01:00:00Z`,
+    applied_at: `${currentYear}-08-16T01:05:00Z`,
+    source_deleted_at: null,
+    updated_at: `${currentYear}-08-16T01:05:00Z`,
+    source_available: false,
+    details_included: true,
+    uploaded_by: null,
+    applied_by: null,
+    source_deleted_by: null,
+    metadata: {},
+    items: [],
+    transaction_drafts: [confirmedDraft],
+    attempts: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: realWorkspaceData(true) }))
+  await page.route('http://api.test/api/v1/document_imports', (route) => route.fulfill({ status: 200, json: { document_imports: [confirmedImport] } }))
+
+  await page.goto('/?pilot_e2e_role=participant#My%20Profile')
+
+  const card = page.locator('.transaction-draft-card').filter({ hasText: confirmedDraft.merchant })
+  await expect(card).toContainText('Receipt')
+  await expect(card).toContainText('Confirmed. Actuals were updated.')
+  await expect(card.getByRole('region', { name: /Budget impact if approved/ })).toHaveCount(0)
+})
+
 test('PDF document preview keeps keyboard focus inside accessible controls', async ({ page }) => {
   const pdfImport = {
     id: 606,
@@ -4438,9 +4503,11 @@ test('real review controls keep transaction and Mia changes behind explicit part
 
   const transactionCard = page.locator('.transaction-draft-card').filter({ hasText: 'Dinner with friends' })
   await expect(transactionCard).toContainText('Actuals stay unchanged until you confirm.')
+  await expect(transactionCard).toContainText('Receipt')
+  await expect(page.locator('.transaction-draft-card').filter({ hasText: 'Storm supplies' })).toContainText('Mia')
   const confirmRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/91/confirm') && request.method() === 'POST')
   await transactionCard.getByRole('button', { name: 'Confirm' }).click()
-  await confirmRequest
+  expect((await confirmRequest).headers()['idempotency-key']).toBeTruthy()
 
   const miaCard = page.locator('.mia-action-draft-card').filter({ hasText: 'Move more into the unexpected sinking fund' })
   await expect(miaCard.getByRole('button', { name: 'Apply reviewed change' })).toBeEnabled()
@@ -4449,6 +4516,75 @@ test('real review controls keep transaction and Mia changes behind explicit part
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
   await miaCard.getByRole('button', { name: 'Cancel draft' }).click()
   await cancelRequest
+})
+
+test('manual transaction capture joins the unified review queue without changing actuals', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  let workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/transaction_drafts', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    const input = route.request().postDataJSON().transaction_draft
+    expect(route.request().headers()['idempotency-key']).toBeTruthy()
+    expect(input).toMatchObject({ merchant: 'Village Market', amount: '17.42', budget_category_id: null })
+    expect(input).not.toHaveProperty('account_id')
+    const draft = {
+      id: 701,
+      occurred_on: input.occurred_on,
+      merchant: input.merchant,
+      amount: 17.42,
+      amount_cents: 1_742,
+      status: 'pending',
+      source_type: 'manual_ui',
+      financial_document_import_id: null,
+      category_id: null,
+      category_name: null,
+      splits: [{ id: 702, budget_category_id: null, category_name: null, stack_key: null, stack_label: '', amount: 17.42, amount_cents: 1_742, notes: null, confidence: 1, metadata: {} }],
+      matches: [],
+      matched_transaction_id: null,
+    }
+    workspace = {
+      ...workspace,
+      budget: {
+        ...workspace.budget,
+        annual_plan: { ...workspace.budget.annual_plan, pending_transaction_drafts: [draft, ...workspace.budget.annual_plan.pending_transaction_drafts] },
+      },
+    }
+    return route.fulfill({ status: 201, json: { transaction_draft: draft, workspace } })
+  })
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Review')
+  await expect(page.getByRole('heading', { name: 'Add a transaction' })).toBeVisible()
+  await page.getByRole('button', { name: 'Add transaction' }).click()
+  await page.getByLabel('Merchant').fill('Village Market')
+  await page.getByLabel('Amount').fill('17.42')
+  await page.getByRole('button', { name: 'Add to review' }).click()
+
+  const card = page.locator('.transaction-draft-card').filter({ hasText: 'Village Market' })
+  await expect(card).toContainText('Manual')
+  await expect(card).toContainText('Needs category')
+  await expect(card.getByRole('button', { name: 'Confirm' })).toBeDisabled()
+  await expect(page.getByRole('heading', { name: 'Review every transaction before it becomes an actual' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Review discloses a bounded queue and labels bulk actions as applying only to loaded results', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_transaction_drafts = Array.from({ length: 500 }, (_, index) => ({
+    ...workspace.budget.annual_plan.pending_transaction_drafts[0],
+    id: 1_000 + index,
+    merchant: `Bounded queue merchant ${index + 1}`,
+  }))
+  workspace.budget.annual_plan.pending_transaction_drafts_meta = { total_count: 501, returned_count: 500, limit: 500, truncated: true }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+
+  await page.goto('/?pilot_e2e_role=participant')
+  await openSection(page, 'Review')
+
+  await expect(page.getByText('Showing the newest 500 of 501 pending reviews. Resolve a batch to load the rest.')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Select all 500 loaded' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Ignore all 500 loaded' })).toBeVisible()
 })
 
 test('uncertain receipt splits stay reviewable and cannot be confirmed until categorized on mobile', async ({ page }) => {
@@ -4495,6 +4631,7 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
       category_name: categoryNames.get(payload.splits[0].budget_category_id) ?? null,
       splits: payload.splits.map((split: typeof uncertainDraft.splits[number]) => ({
         ...split,
+        id: split.id ?? 900,
         budget_category_id: split.budget_category_id,
         category_name: categoryNames.get(Number(split.budget_category_id)) ?? split.category_name,
       })),
@@ -4527,10 +4664,22 @@ test('uncertain receipt splits stay reviewable and cannot be confirmed until cat
   await categorySelects.nth(1).selectOption('1')
   await categorySelects.nth(2).selectOption('4')
   await categorySelects.nth(3).selectOption('2')
+  await card.getByRole('button', { name: 'Remove' }).nth(2).click()
+  await card.getByRole('button', { name: 'Add split' }).click()
+  await card.getByLabel('Split amount').last().fill('11.25')
+  await card.getByLabel('Category').last().selectOption('4')
+  await card.getByLabel('Notes').last().fill('Reviewed replacement line')
   const updateRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/transaction_drafts/191') && request.method() === 'PATCH')
   await card.getByRole('button', { name: 'Save draft' }).click()
   const request = await updateRequest
-  expect(request.postDataJSON().transaction_draft.splits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 4, 2])
+  const submittedSplits = request.postDataJSON().transaction_draft.splits
+  expect(request.postDataJSON().transaction_draft.removed_split_ids).toEqual([503])
+  expect(submittedSplits.map((split: { budget_category_id: number | null }) => split.budget_category_id)).toEqual([2, 1, 2, 4])
+  expect(submittedSplits.map((split: { id?: number }) => split.id)).toEqual([501, 502, 504, undefined])
+  submittedSplits.forEach((split: Record<string, unknown>) => {
+    expect(split).not.toHaveProperty('confidence')
+    expect(split).not.toHaveProperty('metadata')
+  })
   await expect(card.getByText(/splits? need/)).toHaveCount(0)
   await expect(card.getByRole('button', { name: 'Confirm', exact: true })).toBeEnabled()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)

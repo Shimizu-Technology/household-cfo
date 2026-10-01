@@ -49,43 +49,78 @@ module HouseholdFinance
       splits = Array(attributes[:splits]).first(DocumentTransactionDraftPersister::MAX_SPLITS)
       raise InvalidDraftUpdate, "Transaction splits are required" if splits.empty?
 
-      normalized = splits.map.with_index { |split, index| normalized_split(split, index: index) }
+      existing_by_id = draft.transaction_draft_splits.index_by(&:id)
+      normalized = splits.map.with_index { |split, index| normalized_split(split, index: index, existing_by_id: existing_by_id) }
+      retained_ids = normalized.filter_map { |split| split[:id] }
+      raise InvalidDraftUpdate, "A transaction split can only be included once" unless retained_ids.uniq.length == retained_ids.length
       raise InvalidDraftUpdate, "Transaction splits must equal transaction total" unless normalized.sum { |split| split.fetch(:amount_cents) } == draft.total_amount_cents
 
-      draft.transaction_draft_splits.destroy_all
+      draft.transaction_draft_splits.where.not(id: retained_ids).destroy_all
       normalized.each do |split|
-        draft.transaction_draft_splits.create!(split)
+        attributes = split.except(:id)
+        if split[:id]
+          existing_by_id.fetch(split[:id]).update!(attributes)
+        else
+          draft.transaction_draft_splits.create!(attributes)
+        end
       end
-      draft.update!(budget_category: draft.transaction_draft_splits.order(:id).first&.budget_category)
+      persisted_splits = draft.transaction_draft_splits.order(:id).to_a
+      stable_primary = persisted_splits.find { |split| split.budget_category_id == draft.budget_category_id } || persisted_splits.first
+      draft.update!(budget_category: stable_primary&.budget_category)
     end
 
     def normalize_single_category!
       category = selected_category(attributes[:budget_category_id])
-      draft.transaction_draft_splits.destroy_all
-      draft.transaction_draft_splits.create!(
-        budget_category: category,
-        amount_cents: draft.total_amount_cents,
-        category_name: category.name,
-        stack_key: category.stack_key
-      )
+      splits = draft.transaction_draft_splits.order(:id).to_a
+      if splits.many?
+        raise InvalidDraftUpdate, "This review has multiple category splits. Edit each split category so the receipt or statement amounts stay intact."
+      end
+      split = splits.first
+      if split
+        split.update!(budget_category: category, category_name: category.name, stack_key: category.stack_key)
+      else
+        draft.transaction_draft_splits.create!(
+          budget_category: category,
+          amount_cents: draft.total_amount_cents,
+          category_name: category.name,
+          stack_key: category.stack_key,
+          metadata: { "human_reviewed_replacement" => true }
+        )
+      end
       draft.update!(budget_category: category)
     end
 
-    def normalized_split(raw_split, index:)
+    def normalized_split(raw_split, index:, existing_by_id:)
       split = raw_split.is_a?(Hash) ? raw_split.symbolize_keys : {}
-      category = selected_category(split[:budget_category_id]) if split[:budget_category_id].present?
+      split_id = integer_or_nil(split[:id])
+      existing = existing_by_id[split_id] if split_id
+      raise InvalidDraftUpdate, "Split #{index + 1} does not belong to this transaction review" if split_id && !existing
+      category = if split.key?(:budget_category_id)
+        selected_category(split[:budget_category_id]) if split[:budget_category_id].present?
+      else
+        existing&.budget_category
+      end
       amount_cents = parsed_amount_cents(split[:amount])
       raise InvalidDraftUpdate, "Split #{index + 1} amount must be greater than $0" unless amount_cents.positive?
 
       {
+        id: existing&.id,
         budget_category: category,
         amount_cents: amount_cents,
-        category_name: bounded_text(split[:category_name], 120).presence || category&.name,
-        stack_key: split[:stack_key].to_s.presence_in(BudgetCategory::STACK_KEYS) || category&.stack_key,
-        notes: bounded_text(split[:notes], 500),
-        confidence: decimal_or_nil(split[:confidence]),
-        metadata: split[:metadata].is_a?(Hash) ? split[:metadata] : {}
+        category_name: category&.name || (split.key?(:category_name) ? bounded_text(split[:category_name], 120).presence : existing&.category_name),
+        stack_key: category&.stack_key || (split.key?(:stack_key) ? split[:stack_key].to_s.presence_in(BudgetCategory::STACK_KEYS) : existing&.stack_key),
+        notes: split.key?(:notes) ? bounded_text(split[:notes], 500).presence : existing&.notes,
+        confidence: existing&.confidence,
+        metadata: existing ? existing.metadata : { "human_reviewed_replacement" => true }
       }
+    end
+
+    def integer_or_nil(value)
+      return if value.blank?
+
+      Integer(value)
+    rescue ArgumentError, TypeError
+      raise InvalidDraftUpdate, "Transaction split id is invalid"
     end
 
     def validate_split_total!
@@ -111,6 +146,7 @@ module HouseholdFinance
     def parsed_date(value)
       date = Date.iso8601(value.to_s)
       raise InvalidDraftUpdate, "Transaction date is outside supported budget years" unless AnnualBudgetManager.supported_year?(date.year)
+      raise InvalidDraftUpdate, "Transaction date cannot be in the future" if date > Date.current
 
       date
     rescue ArgumentError
@@ -122,17 +158,6 @@ module HouseholdFinance
       raise InvalidDraftUpdate, "Transaction amount must be greater than $0" unless cents.positive?
 
       cents
-    end
-
-    def decimal_or_nil(value)
-      return if value.blank?
-
-      number = BigDecimal(value.to_s)
-      return if number.negative?
-
-      [ number, 1 ].min
-    rescue ArgumentError
-      nil
     end
 
     def bounded_text(value, max_length)
