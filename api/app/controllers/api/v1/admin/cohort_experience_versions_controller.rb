@@ -28,6 +28,8 @@ module Api
             experience_configuration: serializer.detail,
             published_version: serializer.serialize_version(restored, include_config: true, include_source: true)
           }
+        rescue CohortExperience::Rollback::ReadOnlyError => error
+          render json: { error: error.message, code: "experience_configuration_read_only" }, status: :unprocessable_entity
         rescue CohortExperience::Rollback::RollbackError => error
           render json: { error: error.message, code: "experience_rollback_conflict" }, status: :conflict
         end

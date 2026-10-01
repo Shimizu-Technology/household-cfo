@@ -3,6 +3,8 @@
 module CohortExperience
   class Publisher
     class PublicationError < StandardError; end
+    class PreviewRequiredError < PublicationError; end
+    class ReadOnlyError < PublicationError; end
 
     def initialize(configuration:, actor:)
       @configuration = configuration
@@ -10,8 +12,7 @@ module CohortExperience
     end
 
     def preview!(expected_draft_revision:)
-      ensure_editable!
-      configuration.with_lock do
+      with_locked_editable_configuration do
         validate_revision!(expected_draft_revision)
         digest = preview_digest
         configuration.update!(
@@ -25,8 +26,7 @@ module CohortExperience
     end
 
     def publish!(expected_preview_digest:, expected_draft_revision:, expected_current_version_id:)
-      ensure_editable!
-      configuration.with_lock do
+      with_locked_editable_configuration do
         validate_revision!(expected_draft_revision)
         unless normalized_id(expected_current_version_id) == configuration.current_published_version_id
           raise PublicationError, "The published participant tools changed; reload before publishing"
@@ -36,7 +36,7 @@ module CohortExperience
             ActiveSupport::SecurityUtils.secure_compare(expected_preview_digest.to_s, preview_digest) &&
             configuration.previewed_at.present? &&
             configuration.previewed_draft_revision == configuration.draft_revision
-          raise PublicationError, "Preview this exact participant-tools draft before publishing"
+          raise PreviewRequiredError, "Preview this exact participant-tools draft before publishing"
         end
 
         version = configuration.versions.create!(
@@ -59,11 +59,18 @@ module CohortExperience
 
     attr_reader :configuration, :actor
 
-    def ensure_editable!
-      raise PublicationError, "Only a coach or admin can manage participant tools" unless actor&.staff?
-      unless configuration.cohort.status.in?(%w[draft enrolling active])
-        raise PublicationError, "Completed and archived cohorts are read-only"
+    def with_locked_editable_configuration
+      cohort = configuration.cohort
+      cohort.with_lock do
+        configuration.lock!
+        ensure_editable!(cohort)
+        yield
       end
+    end
+
+    def ensure_editable!(cohort)
+      raise PublicationError, "Only a coach or admin can manage participant tools" unless actor&.staff?
+      raise ReadOnlyError, "Completed and archived cohorts are read-only" unless cohort.status.in?(%w[draft enrolling active])
     end
 
     def validate_revision!(value)

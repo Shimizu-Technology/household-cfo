@@ -3,6 +3,7 @@
 module CohortExperience
   class Rollback
     class RollbackError < StandardError; end
+    class ReadOnlyError < RollbackError; end
 
     def initialize(configuration:, target_version:, actor:)
       @configuration = configuration
@@ -11,8 +12,7 @@ module CohortExperience
     end
 
     def call(expected_current_version_id:, expected_draft_revision:)
-      ensure_editable!
-      configuration.with_lock do
+      with_locked_editable_configuration do
         unless Integer(expected_draft_revision, exception: false) == configuration.draft_revision
           raise RollbackError, "The participant-tools draft changed; reload before restoring"
         end
@@ -42,9 +42,18 @@ module CohortExperience
 
     attr_reader :configuration, :target_version, :actor
 
-    def ensure_editable!
+    def with_locked_editable_configuration
+      cohort = configuration.cohort
+      cohort.with_lock do
+        configuration.lock!
+        ensure_editable!(cohort)
+        yield
+      end
+    end
+
+    def ensure_editable!(cohort)
       raise RollbackError, "Only a coach or admin can manage participant tools" unless actor&.staff?
-      raise RollbackError, "Completed and archived cohorts are read-only" unless configuration.cohort.status.in?(%w[draft enrolling active])
+      raise ReadOnlyError, "Completed and archived cohorts are read-only" unless cohort.status.in?(%w[draft enrolling active])
       raise RollbackError, "Version does not belong to this cohort" unless target_version.cohort_experience_configuration_id == configuration.id
     end
 

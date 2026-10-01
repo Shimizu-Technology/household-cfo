@@ -4,26 +4,28 @@ module Api
   module V1
     module Admin
       class CohortExperienceConfigurationsController < BaseController
+        class InvalidConfigurationInput < StandardError; end
+
         before_action :authenticate_user!
         before_action :require_staff!
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
+        rescue_from InvalidConfigurationInput, with: :render_invalid_input
 
         def show
           render_configuration
         end
 
         def update
-          unless cohort.status.in?(%w[draft enrolling active])
-            return render json: {
-              error: "Completed and archived cohorts are read-only.",
-              code: "experience_configuration_read_only"
-            }, status: :unprocessable_entity
-          end
-          editable_configuration.with_lock do
-            return render_conflict unless expected_draft_revision == editable_configuration.draft_revision
+          next_config = submitted_config
+          next_revision = expected_draft_revision
+          cohort.with_lock do
+            configuration = editable_configuration
+            configuration.lock!
+            return render_read_only unless cohort.status.in?(%w[draft enrolling active])
+            return render_conflict unless next_revision == configuration.draft_revision
 
-            editable_configuration.update!(
-              draft_config: submitted_config,
+            configuration.update!(
+              draft_config: next_config,
               last_edited_by_user: current_user
             )
           end
@@ -42,6 +44,8 @@ module Api
             preview: preview_payload(digest),
             experience_configuration: serializer.detail
           }
+        rescue CohortExperience::Publisher::ReadOnlyError => error
+          render json: { error: error.message, code: "experience_configuration_read_only" }, status: :unprocessable_entity
         rescue CohortExperience::Publisher::PublicationError => error
           render json: { error: error.message, code: "experience_preview_conflict" }, status: :conflict
         end
@@ -56,10 +60,12 @@ module Api
             experience_configuration: serializer.detail,
             published_version: serializer.serialize_version(version, include_config: true)
           }
+        rescue CohortExperience::Publisher::PreviewRequiredError => error
+          render json: { error: error.message, code: "experience_preview_required" }, status: :unprocessable_entity
+        rescue CohortExperience::Publisher::ReadOnlyError => error
+          render json: { error: error.message, code: "experience_configuration_read_only" }, status: :unprocessable_entity
         rescue CohortExperience::Publisher::PublicationError => error
-          status = error.message.start_with?("Preview this exact") ? :unprocessable_entity : :conflict
-          code = status == :unprocessable_entity ? "experience_preview_required" : "experience_publish_conflict"
-          render json: { error: error.message, code: code }, status: status
+          render json: { error: error.message, code: "experience_publish_conflict" }, status: :conflict
         end
 
         private
@@ -90,17 +96,27 @@ module Api
         end
 
         def expected_draft_revision
-          Integer(params.dig(:experience_configuration, :draft_revision), exception: false)
+          Integer(configuration_input[:draft_revision], exception: false)
         end
 
         def submitted_config
-          raw = params.require(:experience_configuration).require(:draft_config)
-          raw.respond_to?(:to_unsafe_h) ? raw.to_unsafe_h : raw.to_h
+          raw = configuration_input[:draft_config]
+          return raw.to_unsafe_h if raw.is_a?(ActionController::Parameters)
+          return raw if raw.is_a?(Hash)
+
+          raise InvalidConfigurationInput, "Participant-tools configuration must be an object."
         end
 
         def action_params
-          @action_params ||= params.fetch(:experience_configuration, ActionController::Parameters.new)
-            .permit(:draft_revision, :preview_digest, :expected_published_version_id)
+          @action_params ||= configuration_input.permit(:draft_revision, :preview_digest, :expected_published_version_id)
+        end
+
+        def configuration_input
+          raw = params[:experience_configuration]
+          return raw if raw.is_a?(ActionController::Parameters)
+          return ActionController::Parameters.new(raw) if raw.is_a?(Hash)
+
+          raise InvalidConfigurationInput, "Participant-tools configuration must be an object."
         end
 
         def preview_payload(digest)
@@ -121,6 +137,21 @@ module Api
             error: "This participant-tools draft changed in another session. Reload before saving.",
             code: "experience_draft_conflict"
           }, status: :conflict
+        end
+
+        def render_read_only
+          render json: {
+            error: "Completed and archived cohorts are read-only.",
+            code: "experience_configuration_read_only"
+          }, status: :unprocessable_entity
+        end
+
+        def render_invalid_input(error)
+          render json: {
+            error: error.message,
+            errors: [ error.message ],
+            code: "experience_configuration_invalid"
+          }, status: :unprocessable_entity
         end
 
         def render_invalid(record)

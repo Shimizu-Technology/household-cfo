@@ -33,9 +33,11 @@ type PendingAction = 'load' | 'save' | 'preview' | 'publish' | 'rollback' | null
 
 export function CohortExperienceStudio({
   cohorts,
+  cohortsLoading,
   onDirtyChange,
 }: {
   cohorts: AdminPersonaAssignableCohort[]
+  cohortsLoading: boolean
   onDirtyChange: (dirty: boolean) => void
 }) {
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(cohorts[0]?.id ?? null)
@@ -204,6 +206,10 @@ export function CohortExperienceStudio({
     } finally {
       setPendingAction(null)
     }
+  }
+
+  if (cohortsLoading && cohorts.length === 0) {
+    return <article className="panel coach-empty coach-empty-main" role="status">Loading manageable cohorts…</article>
   }
 
   if (cohorts.length === 0) {

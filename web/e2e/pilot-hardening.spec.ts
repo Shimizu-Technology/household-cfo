@@ -3044,6 +3044,27 @@ test('Coach Studio participant tools preview publish and restore the exact cohor
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio shows participant cohorts loading before an empty state', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'loading-state regression')
+  let releaseCohorts: (() => void) | undefined
+  const cohortsGate = new Promise<void>((resolve) => { releaseCohorts = resolve })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', async (route) => {
+    await cohortsGate
+    return route.fulfill({
+      status: 200,
+      json: { cohorts: [{ id: 41, name: 'Household CFO pilot', status: 'active', assignable: true, blocked_reason: null, persona_assignment: null }] },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+
+  await expect(page.getByRole('status').filter({ hasText: 'Loading manageable cohorts…' })).toBeVisible()
+  await expect(page.getByText('No manageable cohorts yet.')).toHaveCount(0)
+  releaseCohorts?.()
+  await expect(page.getByRole('heading', { name: 'Choose what participants can open.' })).toBeVisible()
+})
+
 test('Coach Studio ignores a delayed participant-tool response after switching cohorts', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name !== 'desktop-chrome', 'request ordering regression')
   const secondCohort = {

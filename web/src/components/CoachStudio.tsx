@@ -513,7 +513,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>
 
       {studioView === 'participant_tools' ? (
-        <CohortExperienceStudio cohorts={cohorts} onDirtyChange={setExperienceDirty} />
+        <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
       ) : <div className={`coach-studio-layout${selectedPersona ? ' has-selection' : ''}`}>
         <aside className="coach-library panel" aria-label="Coaching assistants">
           <div className="coach-library-heading">
