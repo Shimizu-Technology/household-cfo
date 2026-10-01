@@ -26,12 +26,34 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
     assert_equal 1, @household.household_operation_executions.where(idempotency_key: "create-dining").count
     assert_equal 1, @household.household_audit_events.where(event_type: "household_operation.executed").count
     execution = first.execution
+    assert_match(/\A[0-9a-f]{64}\z/, execution.invocation_fingerprint)
     assert_equal "budget.category.create", execution.operation_key
     assert_equal 1, execution.operation_version
     assert_equal @household.id, first.execution.household_id
     assert_equal 2026, execution.normalized_input.fetch("year")
     assert_equal execution.predicted_after_snapshot.dig("allocations").map { |row| row.slice("month", "planned_amount_cents") },
       execution.after_snapshot.fetch("allocations").map { |row| row.slice("month", "planned_amount_cents") }
+  end
+
+  test "legacy nonstructural executions without invocation fingerprints still replay" do
+    runner = HouseholdFinance::Operations::Runner.new(@household, user: @user)
+    input = { name: "Legacy dining", stack_key: "discretionary", monthly_amount: 250, year: 2026 }
+    original = runner.run(
+      operation_key: "budget.category.create",
+      input: input,
+      idempotency_key: "legacy-nonstructural"
+    )
+    original.execution.update_column(:invocation_fingerprint, nil)
+
+    replay = runner.run(
+      operation_key: "budget.category.create",
+      input: input.stringify_keys.reverse_merge("year" => 2026),
+      idempotency_key: "legacy-nonstructural"
+    )
+
+    assert replay.replayed?
+    assert_equal original.execution.id, replay.execution.id
+    assert_equal 1, @household.budget_categories.where(name: "Legacy dining").count
   end
 
   test "create canonicalizes blank and long names before prediction verification" do

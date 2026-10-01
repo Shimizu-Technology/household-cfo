@@ -459,7 +459,163 @@ class HouseholdFinanceTransactionOperationsTest < ActiveSupport::TestCase
     end
   end
 
+  test "structural split additions and removals replay after a lost response" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("structural-replay-source")
+      original = draft.transaction_draft_splits.sole
+      add_input = {
+        draft_id: draft.id, source_type: "manual_ui", removed_split_ids: [],
+        splits: [
+          { id: original.id, amount: "30", budget_category_id: @category.id },
+          { amount: "12.17", budget_category_id: @category.id, notes: "Added line" }
+        ]
+      }
+
+      added = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: add_input,
+        idempotency_key: "structural-add-replay"
+      )
+      add_replay = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: add_input.deep_dup,
+        idempotency_key: "structural-add-replay"
+      )
+
+      assert add_replay.replayed?
+      assert_equal added.execution.id, add_replay.execution.id
+      assert_match(/\A[0-9a-f]{64}\z/, added.execution.invocation_fingerprint)
+      assert_equal 2, draft.reload.transaction_draft_splits.count
+      added_line = draft.transaction_draft_splits.where.not(id: original.id).sole
+      remove_input = {
+        draft_id: draft.id, source_type: "manual_ui", removed_split_ids: [ added_line.id ],
+        splits: [ { id: original.id, amount: "42.17", budget_category_id: @category.id } ]
+      }
+
+      removed = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: remove_input,
+        idempotency_key: "structural-remove-replay"
+      )
+      remove_replay = @runner.run(
+        operation_key: "transaction.draft.update",
+        input: remove_input.deep_dup,
+        idempotency_key: "structural-remove-replay"
+      )
+
+      assert remove_replay.replayed?
+      assert_equal removed.execution.id, remove_replay.execution.id
+      assert_equal [ original.id ], draft.reload.transaction_draft_splits.pluck(:id)
+      assert_equal 2, @household.household_operation_executions.where(idempotency_key: %w[structural-add-replay structural-remove-replay]).count
+    end
+  end
+
+  test "a structural retry key rejects altered payload action target and actor" do
+    travel_to Date.new(2026, 10, 1) do
+      draft = create_draft("structural-identity-source")
+      other_draft = create_draft("structural-other-target", merchant: "Other target")
+      split = draft.transaction_draft_splits.sole
+      input = {
+        draft_id: draft.id, source_type: "manual_ui", removed_split_ids: [],
+        splits: [
+          { id: split.id, amount: "30", budget_category_id: @category.id },
+          { amount: "12.17", budget_category_id: @category.id }
+        ]
+      }
+      @runner.run(operation_key: "transaction.draft.update", input: input, idempotency_key: "structural-identity")
+
+      altered = input.deep_dup
+      altered.fetch(:splits).last[:notes] = "Different request"
+      assert_raises(HouseholdFinance::Operations::Runner::IdempotencyConflict) do
+        @runner.run(operation_key: "transaction.draft.update", input: altered, idempotency_key: "structural-identity")
+      end
+      assert_raises(HouseholdFinance::Operations::Runner::IdempotencyConflict) do
+        @runner.run(
+          operation_key: "transaction.draft.ignore",
+          input: { draft_id: draft.id, source_type: "manual_ui" },
+          idempotency_key: "structural-identity"
+        )
+      end
+      assert_raises(HouseholdFinance::Operations::Runner::IdempotencyConflict) do
+        @runner.run(
+          operation_key: "transaction.draft.update",
+          input: { draft_id: other_draft.id, merchant: "Different target", source_type: "manual_ui" },
+          idempotency_key: "structural-identity"
+        )
+      end
+
+      other_user = create_participant("structural-other-actor-#{SecureRandom.hex(5)}@example.com")
+      @household.household_memberships.create!(user: other_user, role: "partner")
+      assert_raises(HouseholdFinance::Operations::Runner::IdempotencyConflict) do
+        HouseholdFinance::Operations::Runner.new(@household, user: other_user).run(
+          operation_key: "transaction.draft.update",
+          input: input,
+          idempotency_key: "structural-identity"
+        )
+      end
+
+      assert draft.reload.pending?
+      assert other_draft.reload.pending?
+      assert_equal 1, @household.household_operation_executions.where(idempotency_key: "structural-identity").count
+    end
+  end
+
+  test "idempotency replay remains household scoped and requires current membership" do
+    travel_to Date.new(2026, 10, 1) do
+      input = { occurred_on: "2026-09-30", merchant: "Scoped market", amount: "10", source_type: "manual_ui" }
+      original = @runner.run(operation_key: "transaction.draft.create", input: input, idempotency_key: "household-scoped-key")
+
+      other_user = create_participant("structural-other-household-#{SecureRandom.hex(5)}@example.com")
+      other_household = HouseholdFinance::WorkspaceResolver.new(other_user).household
+      other = HouseholdFinance::Operations::Runner.new(other_household, user: other_user).run(
+        operation_key: "transaction.draft.create",
+        input: input,
+        idempotency_key: "household-scoped-key"
+      )
+
+      refute_equal original.execution.id, other.execution.id
+      assert_equal @household.id, original.execution.household_id
+      assert_equal other_household.id, other.execution.household_id
+      assert_equal 2, HouseholdOperationExecution.where(idempotency_key: "household-scoped-key").count
+
+      @household.household_memberships.where(user: @user).delete_all
+      error = assert_raises(HouseholdFinance::Operations::Runner::InvalidPreparedOperation) do
+        @runner.run(operation_key: "transaction.draft.create", input: input, idempotency_key: "household-scoped-key")
+      end
+      assert_includes error.message, "no longer have permission"
+    end
+  end
+
+  test "coach viewers cannot execute or replay household changes" do
+    travel_to Date.new(2026, 10, 1) do
+      input = { occurred_on: "2026-09-30", merchant: "Viewer market", amount: "10", source_type: "manual_ui" }
+      original = @runner.run(operation_key: "transaction.draft.create", input: input, idempotency_key: "viewer-replay-key")
+      viewer = create_participant("transaction-viewer-#{SecureRandom.hex(5)}@example.com")
+      @household.household_memberships.create!(user: viewer, role: "coach_viewer")
+      viewer_runner = HouseholdFinance::Operations::Runner.new(@household, user: viewer)
+
+      assert_raises(HouseholdFinance::Operations::Runner::InvalidPreparedOperation) do
+        viewer_runner.run(operation_key: "transaction.draft.create", input: input, idempotency_key: "viewer-new-key")
+      end
+      assert_raises(HouseholdFinance::Operations::Runner::InvalidPreparedOperation) do
+        viewer_runner.run(operation_key: "transaction.draft.create", input: input, idempotency_key: "viewer-replay-key")
+      end
+
+      assert_equal 1, @household.household_operation_executions.count
+      assert_equal original.subject.id, @household.transaction_drafts.sole.id
+    end
+  end
+
   private
+
+  def create_participant(email)
+    User.create!(
+      clerk_id: "transaction_actor_#{SecureRandom.hex(8)}",
+      email: email,
+      role: "participant",
+      invitation_status: "accepted"
+    )
+  end
 
   def create_draft(key, merchant: "Village Market")
     @runner.run(

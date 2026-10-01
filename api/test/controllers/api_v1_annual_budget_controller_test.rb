@@ -1905,21 +1905,32 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     retained = draft.transaction_draft_splits.create!(budget_category: groceries, amount_cents: 3_000, confidence: 0.91, metadata: { "line" => 1 })
     removed = draft.transaction_draft_splits.create!(budget_category: dining, amount_cents: 2_000, confidence: 0.73, metadata: { "line" => 2 })
 
+    payload = {
+      transaction_draft: {
+        amount: "50",
+        removed_split_ids: [ removed.id ],
+        splits: [
+          { id: retained.id, amount: "30", budget_category_id: groceries.id },
+          { amount: "20", budget_category_id: dining.id, notes: "Replacement line" }
+        ]
+      }
+    }
+    headers = auth_headers(user).merge("Idempotency-Key" => "manual-split-edit")
     patch "/api/v1/transaction_drafts/#{draft.id}",
-      params: {
-        transaction_draft: {
-          amount: "50",
-          removed_split_ids: [ removed.id ],
-          splits: [
-            { id: retained.id, amount: "30", budget_category_id: groceries.id },
-            { amount: "20", budget_category_id: dining.id, notes: "Replacement line" }
-          ]
-        }
-      },
-      headers: auth_headers(user).merge("Idempotency-Key" => "manual-split-edit"),
+      params: payload,
+      headers: headers,
       as: :json
 
     assert_response :success
+    first_execution = household.household_operation_executions.find_by!(idempotency_key: "manual-split-edit")
+    patch "/api/v1/transaction_drafts/#{draft.id}",
+      params: payload,
+      headers: headers,
+      as: :json
+
+    assert_response :success
+    assert_equal first_execution.id, household.household_operation_executions.find_by!(idempotency_key: "manual-split-edit").id
+    assert_equal 1, household.household_operation_executions.where(idempotency_key: "manual-split-edit").count
     splits = draft.reload.transaction_draft_splits.order(:id).to_a
     assert_equal 2, splits.length
     assert_equal retained.id, splits.first.id

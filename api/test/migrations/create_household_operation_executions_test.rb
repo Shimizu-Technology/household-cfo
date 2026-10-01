@@ -1,6 +1,7 @@
 require "test_helper"
 require Rails.root.join("db/migrate/20261001080000_create_household_operation_executions").to_s
 require Rails.root.join("db/migrate/20261001080100_validate_mia_action_item_operation_constraints").to_s
+require Rails.root.join("db/migrate/20261002100000_add_invocation_fingerprint_to_household_operation_executions").to_s
 
 class CreateHouseholdOperationExecutionsTest < ActiveSupport::TestCase
   test "down and up preserve existing Mia items as true all-null legacy tuples" do
@@ -22,8 +23,13 @@ class CreateHouseholdOperationExecutionsTest < ActiveSupport::TestCase
     )
     creation_migration = CreateHouseholdOperationExecutions.new
     validation_migration = ValidateMiaActionItemOperationConstraints.new
+    fingerprint_migration = AddInvocationFingerprintToHouseholdOperationExecutions.new
     creation_migrated_down = false
     validation_migrated_down = false
+    fingerprint_migrated_down = false
+
+    fingerprint_migration.migrate(:down)
+    fingerprint_migrated_down = true
 
     validation_migration.migrate(:down)
     validation_migrated_down = true
@@ -41,6 +47,8 @@ class CreateHouseholdOperationExecutionsTest < ActiveSupport::TestCase
 
     validation_migration.migrate(:up)
     validation_migrated_down = false
+    fingerprint_migration.migrate(:up)
+    fingerprint_migrated_down = false
     assert constraint_validated?("mia_action_items_operation_identity_complete")
     assert constraint_validated?("mia_action_items_prepared_operation_object")
     MiaActionItem.reset_column_information
@@ -52,6 +60,7 @@ class CreateHouseholdOperationExecutionsTest < ActiveSupport::TestCase
   ensure
     creation_migration&.migrate(:up) if creation_migrated_down
     validation_migration&.migrate(:up) if validation_migrated_down
+    fingerprint_migration&.migrate(:up) if fingerprint_migrated_down
     MiaActionItem.reset_column_information
     HouseholdOperationExecution.reset_column_information if defined?(HouseholdOperationExecution)
   end
