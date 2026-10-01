@@ -40,7 +40,7 @@ class MiaAssistantMessageAttributionContractTest < ActiveSupport::TestCase
     @persona.update!(
       draft_config: @persona.draft_config.deep_merge(
         "identity" => { "assistant_name" => "Coach Lila Next" },
-        "voice" => { "energy" => "Measured and steady." }
+        "voice" => { "energy" => "Steady and reassuring." }
       )
     )
     second = publish_current

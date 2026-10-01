@@ -5,7 +5,6 @@ module Mia
     REGIONAL_STEREOTYPE = :regional_stereotype
     LOCATION_DERIVED_PERSONA = :location_derived_persona
 
-    STRUCTURED_PROHIBITION_FIELD = :structured_prohibition
     PHRASE_ARTIFACT_FIELD = :phrase_artifact
 
     HUMAN_GROUP_PATTERN = /(?:
@@ -25,7 +24,7 @@ module Mia
     RESPONSE_STYLE_PATTERN = /\b(?:
       voice|tone|style|accent|dialect|slang|vernacular|language|phrasing|expressions?|idioms?|lingo|
       cadence|drawl|speech|speech\s+patterns?|colloquialisms?|rhythm|sound|speak|talk|write|
-      respond|reply|answer|wording|feel|flavou?r|vibes?|aesthetic|sensibility|communication\s+style|
+      respond|reply|answer|wording|feel|flavou?r|vibes?|aesthetic|sensibility|spirit|energy|aura|communication\s+style|
       traditions?|values?|customs?|cultural\s+identity|cultural\s+traits?
     )\b/ix.freeze
     IDENTITY_BASIS_PATTERNS = [
@@ -36,7 +35,8 @@ module Mia
       /\b#{DEMOGRAPHIC_TERM_PATTERN}\b/i,
       /\b(?:southern|northern|eastern|western)\b/i,
       /\b#{PROPER_IDENTITY_PATTERN}[\s-]*(?:style|#{RESPONSE_STYLE_PATTERN})\b/x,
-      /\b#{RESPONSE_STYLE_PATTERN}\s+(?:of|from|for|like|based\s+on)\s+#{PLACE_PATTERN}\b/ix
+      /\b#{RESPONSE_STYLE_PATTERN}\s+(?:of|from|for|like|based\s+on)\s+#{PLACE_PATTERN}\b/ix,
+      /\bas\s+(?:if|though)\s+(?:you(?:'re|\s+are|\s+were)?|the\s+assistant(?:\s+is|\s+were)?|mia(?:\s+is|\s+were)?)?.{0,30}\b(?:from|grew\s+up\s+in)\s+#{PLACE_PATTERN}\b/ix
     ].freeze
 
     FINANCIAL_CLAIM_PATTERN = /\b(?:
@@ -52,31 +52,57 @@ module Mia
       irresponsible|careless|reckless|wasteful|illiterate|undisciplined|naive|bad|good|better|worse|poor\s+(?:habits?|savers?|financial\s+habits?)|
       too\s+much|don['’]?t\s+know|do\s+not\s+know|always|never|the\s+same\s+way|prioriti[sz]\w*\b.{0,50}\bover
     )\b/ix.freeze
-    SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:our|all|some|these|those|the)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?)\z/i.freeze
+    SAFE_GENERIC_GROUP_SUBJECT_PATTERN = /\A(?:(?:our|all|some|these|those|the|weekly)\s+)?(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?|parents?|couples?|classes|workshops|support\s+groups)\z/i.freeze
+    NONPERSON_SUBJECT_PATTERN = /\A(?:the\s+)?(?:budget|plan|approach|method|program|account|loan|debt|payment|cost|price|fee|rule|law|policy|institution|bank|credit\s+union|transfer|savings?|income|cash\s+flow|emergency\s+fund)\z/i.freeze
     GROUP_QUANTIFIER_PATTERN = /\A(?:a|an|every|each|all|most|many|some)\s+/i.freeze
-    CLAIM_PREFIX_PATTERN = /(?:\b(?:as\s+a\s+rule|always|usually|often|generally|typically|tend(?:s)?\s+to)\b|#{FINANCIAL_CLAIM_PATTERN}|#{JUDGMENT_PATTERN})/ix.freeze
-    PROHIBITION_OPENING_PATTERN = /\A\s*(?:do\s+not|don['’]?t|never(?:\s+under\s+any\s+circumstances)?|avoid)\b/i.freeze
-    PROHIBITION_REVERSAL_PATTERN = /\A\s*(?:
-      (?:do\s+not|don['’]?t|never(?:\s+under\s+any\s+circumstances)?)\s+(?:ever\s+)?
-        (?:not|avoid|refuse|decline|fail|forget|stop|refrain|prevent|prohibit|forbid|resist|oppose|reject|skip|omit)|
-      avoid\s+(?:ever\s+)?(?:not|avoiding|refusing|declining|failing|forgetting|stopping|refraining|preventing|prohibiting|forbidding|resisting|opposing|rejecting|skipping|omitting)
-    )\b/ix.freeze
+    CLAIM_PREDICATE_PATTERN = /(?:
+      \b(?:always|usually|often|generally|typically|as\s+a\s+rule)\b\s*(?:,\s*)?(?:they\s+)?(?=
+        (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*|avoid\s+debt|carry\s+too\s+much\s+debt|have\s+too\s+much\s+debt|prioriti[sz]\w*
+      )|
+      \b(?:tend(?:s)?\s+to)\b\s*(?=
+        (?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*|avoid\s+debt|be\s+(?:irresponsible|careless|reckless|wasteful|naive)
+      )|
+      \b(?:over|under)?spend\w*\b|
+      \b(?:under)?sav(?:e|es|ed|ing)\b|
+      \bbudget\w*\b|
+      \bwast(?:e|es|ed|ing)\s+money\b|
+      \b(?:avoid(?:\s+[[:alpha:]]+){0,3}|carry|have)\s+(?:too\s+much\s+)?debt\b|
+      \bprioriti[sz]\w*\b.{0,60}\bover\b|
+      \b(?:are|is|was|were|aren['’]?t|isn['’]?t|wasn['’]?t|weren['’]?t|seem|seems|remain|remains)\s+(?:not\s+)?(?:financially\s+)?(?:irresponsible|careless|reckless|wasteful|naive|bad|good|poor)\b|
+      \b(?:are|is|was|were)\s+(?:naturally\s+)?(?:more|less)\s+disciplined\s+with\s+money\b|
+      \b(?:are|is|was|were|aren['’]?t|isn['’]?t|wasn['’]?t|weren['’]?t)\s+(?:not\s+)?(?:naturally\s+)?(?:better|worse|good|responsible)\s+with\s+money\b|
+      \b(?:have|has)\s+poor\s+financial\s+habits?\b|
+      \bhandle\w*\s+money\s+the\s+same\s+way\b|
+      \b(?:do\s+not|don['’]?t|does\s+not|doesn['’]?t)\s+know\s+how\s+to\s+budget\b|
+      \b(?:financially\s+)?(?:irresponsible|careless|reckless|wasteful|naive)\b|
+      \b(?:bad|poor)\s+(?:with\s+money|savers?|financial\s+habits?)\b
+    )/ix.freeze
+    TRAIT_BEHAVIOR_PATTERN = /\b(?:(?:over|under)?spend\w*|(?:under)?sav(?:e|es|ed|ing|ings|ers?)|budget\w*)\b/i.freeze
+    IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN = /\A(?:i|we|you|our|your|my|do\s+not|don['’]?t|never|avoid|automatically|silently|ask|apply|buy|compare|explain|give|help|invest|keep|make|name|put|recommend|review|sell|show|tell|teach|update|use)\b/i.freeze
+    SAFE_PROGRAM_OUTCOME_PATTERN = /\A(?:(?:these|those|the|weekly)\s+)?(?:classes|workshops|support\s+groups)\b.{0,60}\b(?:help|teach|support)\w*\s+(?:participants?|clients?|users?|people|persons?|famil(?:y|ies)|households?)\b/i.freeze
 
     class << self
       def violations(value, field: :instruction, identity_labels: [])
         return [] if field == :metadata
 
         text = value.to_s.unicode_normalize(:nfkc)
-        return [] if field == STRUCTURED_PROHIBITION_FIELD && simple_prohibition?(text)
-
         violations = []
         unless field == PHRASE_ARTIFACT_FIELD
           violations << LOCATION_DERIVED_PERSONA if identity_based_response_style?(text, field:, identity_labels:)
         end
-        if demographic_financial_claim?(text) && !concrete_nonjudgmental_reality?(text)
+        if claim_clauses(text).any? { |clause| demographic_financial_claim?(clause) && !concrete_nonjudgmental_reality?(clause) }
           violations << REGIONAL_STEREOTYPE
         end
         violations.uniq
+      end
+
+      def factual_local_reality?(value)
+        text = value.to_s.unicode_normalize(:nfkc)
+        claim_clauses(text).present? && claim_clauses(text).all? do |clause|
+          clause.match?(CONCRETE_REALITY_PATTERN) &&
+            !identity_based_response_style?(clause, field: :local_reality, identity_labels: []) &&
+            !(demographic_financial_claim?(clause) && !concrete_nonjudgmental_reality?(clause))
+        end
       end
 
       private
@@ -90,37 +116,39 @@ module Mia
       end
 
       def demographic_financial_claim?(text)
-        (text.match?(FINANCIAL_CLAIM_PATTERN) || text.match?(JUDGMENT_PATTERN)) &&
-          (QUALIFIED_GROUP_PATTERNS.any? { |pattern| text.match?(pattern) } || arbitrary_group_claim?(text))
+        return false unless text.match?(CLAIM_PREDICATE_PATTERN)
+
+        QUALIFIED_GROUP_PATTERNS.any? { |pattern| text.match?(pattern) } || arbitrary_group_claim?(text)
       end
 
       def concrete_nonjudgmental_reality?(text)
-        text.match?(CONCRETE_REALITY_PATTERN) && !text.match?(JUDGMENT_PATTERN)
-      end
-
-      def simple_prohibition?(text)
-        text.match?(PROHIBITION_OPENING_PATTERN) && !text.match?(PROHIBITION_REVERSAL_PATTERN)
+        text.match?(CONCRETE_REALITY_PATTERN) &&
+          !text.match?(JUDGMENT_PATTERN) &&
+          !text.match?(TRAIT_BEHAVIOR_PATTERN)
       end
 
       def arbitrary_group_claim?(text)
-        text.split(/[.!?;\n]+/).any? do |clause|
-          marker = clause.match(CLAIM_PREFIX_PATTERN)
-          next false unless marker
+        clause = text.sub(/\A\s*(?:when\s+it\s+comes\s+to|with|regarding)\s+(?:money|finances?),\s*/i, "")
+        return false if clause.match?(IMPERATIVE_OR_FIRST_SECOND_PERSON_PATTERN)
+        return false if clause.match?(SAFE_PROGRAM_OUTCOME_PATTERN)
 
-          subject = clause[0...marker.begin(0)].to_s
-            .sub(/[,\s]+\z/, "")
-            .sub(/\b(?:are|is|was|were|seem|seems|remain|remains)\z/i, "")
-            .sub(/[,\s]+\z/, "")
-            .strip
-          next false if subject.blank? || subject.match?(SAFE_GENERIC_GROUP_SUBJECT_PATTERN)
+        marker = clause.match(CLAIM_PREDICATE_PATTERN)
+        return false unless marker
 
-          quantified = subject.match?(GROUP_QUANTIFIER_PATTERN)
-          normalized = subject.sub(GROUP_QUANTIFIER_PATTERN, "").strip
-          words = normalized.scan(/[[:alnum:]'’\-]+/)
-          next false unless words.length.between?(1, 4)
+        subject = clause[0...marker.begin(0)].to_s
+          .sub(/[,\s]+\z/, "")
+          .strip
+        return false if subject.blank? || subject.match?(SAFE_GENERIC_GROUP_SUBJECT_PATTERN)
 
-          quantified || words.last.end_with?("s") || normalized.match?(/\Agen\s+[[:alnum:]]+\z/i)
-        end
+        normalized = subject.sub(GROUP_QUANTIFIER_PATTERN, "").strip
+        words = normalized.scan(/[[:alnum:]'’\-]+/)
+        words.length.between?(1, 5) && !normalized.match?(NONPERSON_SUBJECT_PATTERN)
+      end
+
+      def claim_clauses(text)
+        normalized = text.gsub(/\s+/, " ").strip
+        normalized = normalized.gsub(/[.!?;]\s+(?=(?:they|he|she|it)\b)/i, " ")
+        normalized.split(/(?<!\bMrs)(?<!\bMr)(?<!\bMs)(?<!\bDr)[.!?;]+/i).map(&:strip).reject(&:blank?)
       end
     end
   end

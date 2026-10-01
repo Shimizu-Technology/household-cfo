@@ -11,6 +11,34 @@ module Mia
     PHRASE_CONTEXTS = %w[greeting verified_milestone emotional_support repeated_pattern routine general crisis].freeze
     PHRASE_PROVENANCE = %w[coach_authored participant_supplied].freeze
     ARTIFACT_ID_PATTERN = /\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z/i
+    TONE_TRAITS = %w[
+      warm direct respectful calm encouraging candid patient concise practical reassuring lighthearted formal clear unhurried
+    ].freeze
+    ENERGY_STYLES = [
+      "Calm and focused.",
+      "Calm, clear, and concise.",
+      "Steady and reassuring.",
+      "Warm and encouraging.",
+      "Direct and energetic.",
+      "Quiet and unhurried."
+    ].freeze
+    ACCOUNTABILITY_STYLES = [
+      "Name choices and patterns clearly while protecting the participant's dignity.",
+      "Ask reflective questions before naming a pattern.",
+      "Be direct about tradeoffs while staying respectful.",
+      "Use gentle accountability and one practical next step.",
+      "Keep accountability firm, calm, and specific."
+    ].freeze
+    LANGUAGE_STYLES = [
+      "Use plain language.",
+      "Keep the next step concrete.",
+      "Use short sentences and concrete questions.",
+      "Prefer conversational language.",
+      "Keep the tone professional and formal.",
+      "Use light humor only when the situation is not sensitive.",
+      "Be concise and avoid unnecessary jargon.",
+      "Explain unfamiliar financial terms briefly."
+    ].freeze
     TOP_LEVEL_KEYS = %w[version identity voice coaching culture phrases curriculum response_shape].freeze
 
     class InvalidConfiguration < ArgumentError
@@ -259,10 +287,18 @@ module Mia
         return object_required(value, path, errors) unless value.is_a?(Hash)
 
         exact_keys(value, %w[tone_traits energy accountability_style language_style], path, errors)
-        string_array(value["tone_traits"], "#{path}.tone_traits", errors, range: 1..12, item_max: 80)
-        bounded_string(value["energy"], "#{path}.energy", errors, 160)
-        bounded_string(value["accountability_style"], "#{path}.accountability_style", errors, 400)
-        string_array(value["language_style"], "#{path}.language_style", errors, range: 1..8, item_max: 220)
+        enum_array(value["tone_traits"], "#{path}.tone_traits", errors, range: 1..TONE_TRAITS.length, values: TONE_TRAITS)
+        errors << "#{path}.energy is not a supported voice choice" unless value["energy"].in?(ENERGY_STYLES)
+        unless value["accountability_style"].in?(ACCOUNTABILITY_STYLES)
+          errors << "#{path}.accountability_style is not a supported voice choice"
+        end
+        enum_array(
+          value["language_style"],
+          "#{path}.language_style",
+          errors,
+          range: 1..LANGUAGE_STYLES.length,
+          values: LANGUAGE_STYLES
+        )
       end
 
       def validate_coaching(value, errors)
@@ -285,6 +321,12 @@ module Mia
         bounded_string(value["locale_label"], "#{path}.locale_label", errors, 120)
         bounded_string(value["context"], "#{path}.context", errors, 1_000)
         string_array(value["local_realities"], "#{path}.local_realities", errors, range: 0..16, item_max: 300)
+        Array(value["local_realities"]).each_with_index do |reality, index|
+          next unless reality.is_a?(String) && reality.strip.present?
+          next if CulturalSafetyPolicy.factual_local_reality?(reality)
+
+          errors << "#{path}.local_realities[#{index}] must be a concrete access, cost, calendar, weather, or regulatory fact"
+        end
         string_array(value["references"], "#{path}.references", errors, range: 0..16, item_max: 300)
       end
 

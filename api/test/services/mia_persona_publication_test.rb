@@ -62,7 +62,7 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
 
   test "draft edit after preview cannot be published with stale revision or digest" do
     preview = @publisher.preview!(expected_draft_revision: 1)
-    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "energy" => "Higher energy." }))
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "energy" => "Direct and energetic." }))
 
     error = assert_raises(Mia::PersonaPublisher::PublicationError) do
       @publisher.publish!(
@@ -88,7 +88,7 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
       assistant_author: "Mia"
     )
 
-    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "energy" => "Calm confidence." }))
+    @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     preview = @publisher.preview!(expected_draft_revision: 2)
     second = @publisher.publish!(
       expected_preview_digest: preview.fetch(:digest),
@@ -120,7 +120,7 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
     @persona.update!(
       draft_config: @persona.draft_config.deep_merge(
         "identity" => { "assistant_name" => "New assistant name" },
-        "voice" => { "energy" => "New energy." }
+        "voice" => { "energy" => "Warm and encouraging." }
       )
     )
     preview = @publisher.preview!(expected_draft_revision: 2)

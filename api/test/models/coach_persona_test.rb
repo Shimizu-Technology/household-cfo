@@ -54,7 +54,7 @@ class CoachPersonaTest < ActiveSupport::TestCase
     preview = Mia::PersonaPublisher.new(persona: persona, actor: persona.created_by_user).preview!(expected_draft_revision: 1)
     assert_equal preview.fetch(:digest), persona.reload.preview_digest
 
-    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Warm and energetic." }))
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Direct and energetic." }))
 
     assert_equal 2, persona.draft_revision
     assert_nil persona.preview_digest

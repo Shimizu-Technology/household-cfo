@@ -731,6 +731,10 @@ export type AdminCohortStatus = 'draft' | 'enrolling' | 'active' | 'completed' |
 
 export type PersonaPhraseContext = 'greeting' | 'verified_milestone' | 'emotional_support' | 'repeated_pattern' | 'routine' | 'general' | 'crisis'
 export type PersonaPhraseFrequency = 'very_rare' | 'rare' | 'sparing' | 'as_needed'
+export type PersonaToneTrait = 'warm' | 'direct' | 'respectful' | 'calm' | 'encouraging' | 'candid' | 'patient' | 'concise' | 'practical' | 'reassuring' | 'lighthearted' | 'formal' | 'clear' | 'unhurried'
+export type PersonaEnergyStyle = 'Calm and focused.' | 'Calm, clear, and concise.' | 'Steady and reassuring.' | 'Warm and encouraging.' | 'Direct and energetic.' | 'Quiet and unhurried.'
+export type PersonaAccountabilityStyle = "Name choices and patterns clearly while protecting the participant's dignity." | 'Ask reflective questions before naming a pattern.' | 'Be direct about tradeoffs while staying respectful.' | 'Use gentle accountability and one practical next step.' | 'Keep accountability firm, calm, and specific.'
+export type PersonaLanguageStyle = 'Use plain language.' | 'Keep the next step concrete.' | 'Use short sentences and concrete questions.' | 'Prefer conversational language.' | 'Keep the tone professional and formal.' | 'Use light humor only when the situation is not sensitive.' | 'Be concise and avoid unnecessary jargon.' | 'Explain unfamiliar financial terms briefly.'
 
 export type PersonaConfiguration = {
   version: 1
@@ -744,10 +748,10 @@ export type PersonaConfiguration = {
     client_term: string
   }
   voice: {
-    tone_traits: string[]
-    energy: string
-    accountability_style: string
-    language_style: string[]
+    tone_traits: PersonaToneTrait[]
+    energy: PersonaEnergyStyle
+    accountability_style: PersonaAccountabilityStyle
+    language_style: PersonaLanguageStyle[]
   }
   coaching: {
     philosophy: string

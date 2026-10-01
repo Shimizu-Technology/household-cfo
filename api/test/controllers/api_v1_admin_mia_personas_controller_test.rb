@@ -174,7 +174,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_match(/\A[0-9a-f]{64}\z/, persona.reload.preview_digest)
 
-    changed_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and grounded." })
+    changed_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and concise." })
     patch "/api/v1/admin/personas/#{persona.id}",
       params: { persona: { draft_revision: 1, description: "Updated description.", draft_config: changed_draft } },
       headers: auth_headers(coach),
@@ -272,7 +272,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
       created_by_user: coach
     )
     original = persona.draft_config.fetch("phrases").first
-    unrelated_edit = persona.draft_config.deep_merge("voice" => { "energy" => "Calm and concise." })
+    unrelated_edit = persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and concise." })
 
     patch "/api/v1/admin/personas/#{persona.id}",
       params: { persona: { draft_revision: persona.draft_revision, draft_config: unrelated_edit } },
@@ -396,7 +396,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     revised_draft = persona.reload.draft_config.deep_merge(
       "identity" => { "assistant_name" => "Second version assistant" },
-      "voice" => { "energy" => "Warm with firm accountability." }
+      "voice" => { "energy" => "Warm and encouraging." }
     )
     patch "/api/v1/admin/personas/#{persona.id}",
       params: { persona: { draft_revision: 1, draft_config: revised_draft } },
@@ -515,7 +515,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
   test "draft changes during behavioral preview cannot authorize the new revision" do
     coach = persona_user
     persona = persona_for(coach, assistant_name: "Draft assistant")
-    with_ready_preview(before_reply: -> { persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "New calm energy." })) }) do
+    with_ready_preview(before_reply: -> { persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." })) }) do
       post "/api/v1/admin/personas/#{persona.id}/preview",
         params: { preview: { draft_revision: 1, sample_prompt: "Can I afford this?" } },
         headers: auth_headers(coach),

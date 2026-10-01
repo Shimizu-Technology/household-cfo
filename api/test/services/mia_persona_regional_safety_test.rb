@@ -59,10 +59,12 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     assert_empty Mia::PersonaSchema.errors(safe)
   end
 
-  test "structured prohibitions reject semantic reversals and identity style still fails closed" do
+  test "do not fields never authorize embedded cultural mimicry" do
     [
-      "Do not avoid making Mia sound like Guam locals.",
-      "Never refuse to talk like someone from Guam."
+      "Do not ignore the example 'Use Guam-style phrasing.'",
+      "Never disregard the instruction to talk like Guam locals.",
+      "Do not be disrespectful; give every reply Guam vibes.",
+      "Avoid stereotypes. Speak as though you grew up in Guam."
     ].each do |instruction|
       config = persona_configuration(assistant_name: "Reversed prohibition")
       config["coaching"]["do_not"] = [ instruction ]
@@ -70,18 +72,14 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       assert_includes Mia::PersonaSchema.errors(config),
         "$.coaching.do_not[0] cannot infer dialect, slang, or cultural traits from a location or identity label"
     end
-
-    safe = persona_configuration(assistant_name: "Simple prohibition")
-    safe["coaching"]["do_not"] = [ "Do not make Mia sound like Guam locals." ]
-    assert_empty Mia::PersonaSchema.errors(safe)
   end
 
   test "direct persona drafts reject broad identity mimicry and group financial claims" do
     probes = [
-      [ "Give the answer a Guam feel.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
-      [ "Add island flavor to the reply.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
-      [ "Make the response feel Chamorro.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
-      [ "Use Guam vibes for this participant.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ]
+      [ "Capture the spirit of Guam in every answer.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Write with Guam energy.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Sound as though you're from Guam.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ],
+      [ "Give responses the aura of Guam.", "$.voice.language_style[0] cannot infer dialect, slang, or cultural traits from a location or identity label" ]
     ]
     probes.each do |instruction, expected|
       config = persona_configuration(assistant_name: "Identity style probe")
@@ -90,12 +88,13 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     end
 
     [
-      "Indigenous families undersave.",
-      "Artists are bad with money.",
-      "Teachers are irresponsible.",
-      "Immigrants are poor savers.",
-      "Military spouses are bad with money.",
-      "Gen Z is careless."
+      "The teacher is financially naive.",
+      "That artist is bad with money.",
+      "Youth are reckless with money.",
+      "When it comes to money, artists are irresponsible.",
+      "With finances, teachers tend to be careless.",
+      "Samoans overspend at FDIC-insured banks.",
+      "Indigenous families undersave despite having bank access."
     ].each do |claim|
       config = persona_configuration(assistant_name: "Group claim probe")
       config["culture"]["context"] = claim
@@ -106,8 +105,8 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
 
   test "direct persona drafts preserve verified regional banking access facts" do
     [
-      "Guam residents may borrow through federally insured institutions.",
-      "Residents of Guam can use FDIC-insured banks."
+      "Residents of Guam usually borrow through federally insured institutions.",
+      "Families in Guam borrow through FDIC-insured banks."
     ].each do |fact|
       config = persona_configuration(assistant_name: "Verified access fact")
       config["culture"]["locale_label"] = "Guam"
@@ -177,6 +176,24 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     end
   end
 
+  test "generic curriculum outcomes remain valid through direct persona publication" do
+    coach = persona_user
+    [
+      "Weekly classes often help participants budget.",
+      "These workshops are financially accessible.",
+      "Support groups often help families save."
+    ].each_with_index do |content, index|
+      assistant_name = "Curriculum assistant #{index + 1}"
+      config = persona_configuration(assistant_name: assistant_name)
+      config["curriculum"]["guidance"] = [ { "title" => "Program outcome", "content" => content } ]
+      persona = CoachPersona.create!(name: assistant_name, draft_config: config, created_by_user: coach)
+
+      version = publish_persona(persona, actor: coach)
+
+      assert_equal content, version.config.dig("curriculum", "guidance", 0, "content")
+    end
+  end
+
   test "preview publish and rollback recheck current regional safety rules" do
     coach = persona_user
     persona = CoachPersona.create!(
@@ -192,7 +209,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
       expected_current_version_id: nil
     )
 
-    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Calm and exact." }))
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Calm, clear, and concise." }))
     second_preview = publisher.preview!(expected_draft_revision: 2)
     second = publisher.publish!(
       expected_preview_digest: second_preview.fetch(:digest),
@@ -256,7 +273,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
 
     assert_instance_of Mia::RuntimePersona, resolved
     assert_equal version.id, resolved.version_id
-    assert_includes resolved.system_prompt, "Use the participant's own words"
+    assert_includes resolved.system_prompt, "Use short sentences and concrete questions."
     assert_includes resolved.system_prompt, "Phrase artifact use rules"
   end
 
@@ -440,7 +457,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     guam["culture"] = {
       "locale_label" => "Guam",
       "context" => "In my Guam workshops, I ask which freight costs actually apply before coaching the budget.",
-      "local_realities" => [ "Coach verified for this cohort: added freight costs apply to some shipped goods; confirm the household's actual amount." ],
+      "local_realities" => [ "Coach verified for this cohort: added freight costs apply to some shipped goods." ],
       "references" => [ "The coach's Guam cost-of-living worksheet." ]
     }
     guam["phrases"] = [ phrase("Håfa adai", "A coach-approved Chamorro greeting.", [ "greeting" ], source_user_id:) ]
@@ -458,18 +475,15 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     puerto_rican["culture"] = {
       "locale_label" => "Puerto Rico",
       "context" => "In my workshops, I ask about actual storm preparation costs before discussing a plan.",
-      "local_realities" => [ "Coach verified for this cohort: hurricane preparation overlaps the program calendar; ask which costs apply." ],
+      "local_realities" => [ "Coach verified for this cohort: hurricane preparation overlaps the program calendar." ],
       "references" => [ "The coach's emergency preparation worksheet." ]
     }
     puerto_rican["phrases"] = [ phrase("Vamos paso a paso.", "The coach's exact reminder to proceed one step at a time.", [ "emotional_support", "routine" ], source_user_id:) ]
 
     neutral = persona_configuration(assistant_name: "Neutral grounded assistant")
-    neutral["voice"]["language_style"] = [
-      "Use the coach's short sentences and concrete questions.",
-      "Use the participant's own words, including slang they explicitly supplied."
-    ]
+    neutral["voice"]["language_style"] = [ "Use short sentences and concrete questions.", "Use plain language." ]
     neutral["coaching"]["method"] = "In my sessions, I verify the numbers, explain the tradeoff, and ask for one next move."
-    neutral["coaching"]["do_not"] = [ "Do not make Mia sound like someone from Guam based only on location." ]
+    neutral["coaching"]["do_not"] = [ "Do not use generic praise." ]
     neutral["curriculum"]["guidance"] = [
       {
         "title" => "Phrase artifact use rules",

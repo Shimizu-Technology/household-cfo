@@ -16,6 +16,10 @@ import {
   personaDraftsEqual,
   removeListItem,
   replaceListItem,
+  PERSONA_ACCOUNTABILITY_STYLES,
+  PERSONA_ENERGY_STYLES,
+  PERSONA_LANGUAGE_STYLES,
+  PERSONA_TONE_TRAITS,
   updateCultureLocaleLabel,
   updatePersonaConfiguration,
   updatePersonaSection,
@@ -37,7 +41,7 @@ function configuration(): PersonaConfiguration {
     voice: {
       tone_traits: ['warm', 'direct'],
       energy: 'Calm and focused.',
-      accountability_style: 'Name patterns while protecting dignity.',
+      accountability_style: "Name choices and patterns clearly while protecting the participant's dignity.",
       language_style: ['Use plain language.'],
     },
     coaching: {
@@ -72,7 +76,7 @@ describe('persona draft cloning and updates', () => {
     const clone = clonePersonaConfiguration(source)
 
     clone.identity.assistant_name = 'Changed'
-    clone.voice.tone_traits.push('funny')
+    clone.voice.tone_traits.push('lighthearted')
 
     expect(source.identity.assistant_name).toBe('Coach Lani')
     expect(source.voice.tone_traits).toEqual(['warm', 'direct'])
@@ -200,6 +204,30 @@ describe('guided editor completeness', () => {
       curriculum: false,
     })
     expect(firstIncompleteGuidedStep(draft)).toBe('voice')
+  })
+
+  it('accepts only the reviewed server vocabulary for every voice control', () => {
+    const valid = configuration()
+    valid.voice.tone_traits = [...PERSONA_TONE_TRAITS]
+    valid.voice.energy = PERSONA_ENERGY_STYLES[4]
+    valid.voice.accountability_style = PERSONA_ACCOUNTABILITY_STYLES[2]
+    valid.voice.language_style = [...PERSONA_LANGUAGE_STYLES]
+
+    expect(getGuidedStepCompleteness(valid).voice).toBe(true)
+    expect(PERSONA_TONE_TRAITS).toContain('lighthearted')
+    expect(PERSONA_TONE_TRAITS).toContain('formal')
+    expect(PERSONA_LANGUAGE_STYLES).toContain('Use light humor only when the situation is not sensitive.')
+    expect(PERSONA_LANGUAGE_STYLES).toContain('Keep the tone professional and formal.')
+    expect([...PERSONA_TONE_TRAITS, ...PERSONA_LANGUAGE_STYLES].join(' ')).not.toMatch(/Guam|Chamorro|southern/i)
+
+    const invalid = configuration()
+    invalid.voice = {
+      tone_traits: ['sound Guamanian'],
+      energy: 'Guam energy.',
+      accountability_style: 'Invent a custom style.',
+      language_style: ['Use island lingo.'],
+    } as unknown as PersonaConfiguration['voice']
+    expect(getGuidedStepCompleteness(invalid).voice).toBe(false)
   })
 
   it('checks response constraints that the backend requires', () => {

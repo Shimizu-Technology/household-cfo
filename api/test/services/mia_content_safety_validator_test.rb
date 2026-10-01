@@ -222,8 +222,8 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
     general_guidance_and_realities = [
       "Families often save for emergencies.",
       "Households generally budget better with automatic transfers.",
-      "Families in Puerto Rico often budget for hurricane preparation.",
-      "According to the program survey, Guam families often save for storm preparation."
+      "Families in Puerto Rico may face hurricane preparation costs.",
+      "The program survey documents storm preparation costs for Guam families."
     ]
     general_guidance_and_realities.each do |content|
       assert Mia::ContentSafetyValidator.validate!(title: "Reviewed planning guidance", content: content), content
@@ -332,16 +332,15 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
 
   test "cultural safety treats identity feel flavor and vibes as response mimicry" do
     [
-      "Give the answer a Guam feel.",
-      "Add island flavor to the reply.",
-      "Make the response feel Chamorro.",
-      "Use Guam vibes for this participant."
+      "Capture the spirit of Guam in every answer.",
+      "Write with Guam energy.",
+      "Sound as though you're from Guam.",
+      "Give responses the aura of Guam."
     ].each { |content| assert_unsafe("regional_stereotype", content) }
 
     [
-      "Guam residents may borrow through federally insured institutions.",
-      "Residents of Guam can use FDIC-insured banks.",
-      "Families in Guam may compare fees at federally insured credit unions."
+      "Residents of Guam usually borrow through federally insured institutions.",
+      "Families in Guam borrow through FDIC-insured banks."
     ].each do |content|
       assert Mia::ContentSafetyValidator.validate!(title: "Verified access fact", content: content), content
     end
@@ -349,19 +348,19 @@ class MiaContentSafetyValidatorTest < ActiveSupport::TestCase
 
   test "cultural safety rejects financial stereotypes about arbitrary identity groups" do
     [
-      "Indigenous families undersave.",
-      "Samoans are financially naive.",
-      "Artists are bad with money.",
-      "Teachers are irresponsible.",
-      "Immigrants are poor savers.",
-      "Military spouses are bad with money.",
-      "Gen Z is careless."
+      "The teacher is financially naive.",
+      "That artist is bad with money.",
+      "Youth are reckless with money.",
+      "When it comes to money, artists are irresponsible.",
+      "With finances, teachers tend to be careless.",
+      "Samoans overspend at FDIC-insured banks.",
+      "Indigenous families undersave despite having bank access."
     ].each { |content| assert_unsafe("regional_stereotype", content) }
 
     [
-      "Families often save for emergencies.",
-      "Households generally budget better with automatic transfers.",
-      "Participants usually save more after coaching."
+      "Weekly classes often help participants budget.",
+      "These workshops are financially accessible.",
+      "Support groups often help families save."
     ].each do |content|
       assert Mia::ContentSafetyValidator.validate!(title: "Generic program guidance", content: content), content
     end

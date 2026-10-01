@@ -102,7 +102,7 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     membership = add_participant(cohort)
     assignment = CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: @coach)
 
-    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Measured and steady." }))
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     second = publish_current(persona)
     assert_equal second, assignment.reload.coach_persona_version
     assignment.update_column(:coach_persona_version_id, first.id)

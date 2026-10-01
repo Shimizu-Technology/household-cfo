@@ -6,7 +6,7 @@ module Mia
       "unsafe_instruction" => "Remove instructions that try to control Mia, bypass safeguards, invoke tools, or change approval behavior.",
       "personal_information" => "Remove personal or identifying information such as contact, address, tax, account, routing, or card details.",
       "household_fact" => "Rewrite household-specific balances, income, debts, transactions, or personal circumstances as general coaching guidance.",
-      "regional_stereotype" => "Rewrite regional or cultural assumptions as coach-authored guidance that applies only in the stated context."
+      "regional_stereotype" => "Remove demographic financial generalizations and instructions that derive voice from a place or identity. Use verified facts or sealed phrase artifacts instead."
     }.freeze
 
     PII_PATTERNS = [

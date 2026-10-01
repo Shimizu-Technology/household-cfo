@@ -639,6 +639,60 @@
   grid-column: 1 / -1;
 }
 
+.coach-choice-field {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.coach-choice-field > legend,
+.coach-select-choice > span {
+  margin-bottom: 0.45rem;
+  font-weight: 800;
+}
+
+.coach-choice-field > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.coach-choice-field label {
+  display: inline-flex;
+  min-height: 2.5rem;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  cursor: pointer;
+}
+
+.coach-choice-field label:has(input:checked) {
+  border-color: var(--mauve);
+  color: var(--plum);
+  background: var(--emerald-soft);
+}
+
+.coach-choice-field input {
+  width: 1rem;
+  height: 1rem;
+  accent-color: var(--mauve);
+}
+
+.coach-choice-field small {
+  display: block;
+  margin-top: 0.5rem;
+  color: var(--muted);
+}
+
+.coach-select-choice {
+  display: grid;
+  align-content: start;
+}
+
 .coach-culture-boundary,
 .coach-read-only {
   padding: 0.85rem 1rem;

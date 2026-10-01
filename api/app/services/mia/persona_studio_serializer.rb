@@ -6,7 +6,8 @@ module Mia
       "Use only approved household financial facts.",
       "Keep the participant in control of every financial write.",
       "Do not provide licensed advice or bypass crisis handling.",
-      "Do not imitate accents or invent cultural stereotypes."
+      "Do not imitate accents or invent cultural stereotypes.",
+      "Do not paste cultural mimicry into a prohibition; state the safe allowed behavior instead."
     ].freeze
 
     def initialize(persona, policy:)

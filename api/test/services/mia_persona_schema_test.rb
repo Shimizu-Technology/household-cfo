@@ -121,7 +121,7 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
 
   test "normal attribution and references to the human coach remain valid" do
     config = persona_configuration(coach_name: "Mrs. Mel")
-    config["voice"]["accountability_style"] = "Use the warm and direct teaching style Mrs. Mel approved."
+    config["voice"]["accountability_style"] = "Be direct about tradeoffs while staying respectful."
     config["coaching"]["principles"] << "Apply Mrs. Mel's published spending framework."
     config["coaching"]["do_not"] = [ "Do not respond as Mrs. Mel or imply that the assistant is the human coach." ]
     config["culture"]["references"] = [ "Mrs. Mel's community workshop example" ]
@@ -191,13 +191,54 @@ class MiaPersonaSchemaTest < ActiveSupport::TestCase
 
   test "arrays strings and total serialized bytes are bounded" do
     config = persona_configuration
-    config["voice"]["tone_traits"] = Array.new(13, "warm")
+    config["voice"]["tone_traits"] = Array.new(Mia::PersonaSchema::TONE_TRAITS.length + 1, "warm")
     config["coaching"]["philosophy"] = "a" * 1_201
 
     errors = Mia::PersonaSchema.errors(config)
 
-    assert_includes errors, "$.voice.tone_traits must contain 1 to 12 items"
+    assert_includes errors, "$.voice.tone_traits must contain 1 to #{Mia::PersonaSchema::TONE_TRAITS.length} items"
     assert_includes errors, "$.coaching.philosophy must be a non-blank string up to 1200 characters"
+  end
+
+  test "voice fields accept only reviewed server choices" do
+    valid = persona_configuration
+    valid["voice"] = {
+      "tone_traits" => Mia::PersonaSchema::TONE_TRAITS,
+      "energy" => Mia::PersonaSchema::ENERGY_STYLES.last,
+      "accountability_style" => Mia::PersonaSchema::ACCOUNTABILITY_STYLES.last,
+      "language_style" => Mia::PersonaSchema::LANGUAGE_STYLES
+    }
+    assert_empty Mia::PersonaSchema.errors(valid)
+
+    invalid = persona_configuration
+    invalid["voice"] = {
+      "tone_traits" => [ "empathetic" ],
+      "energy" => "Bright and lively.",
+      "accountability_style" => "Invent a custom accountability style.",
+      "language_style" => [ "Use memorable wording." ]
+    }
+    errors = Mia::PersonaSchema.errors(invalid)
+
+    assert_includes errors, "$.voice.tone_traits[0] is not supported"
+    assert_includes errors, "$.voice.energy is not a supported voice choice"
+    assert_includes errors, "$.voice.accountability_style is not a supported voice choice"
+    assert_includes errors, "$.voice.language_style[0] is not supported"
+  end
+
+  test "local realities accept concrete facts and reject free-form guidance" do
+    valid = persona_configuration
+    valid["culture"]["local_realities"] = [
+      "Residents of Guam usually borrow through federally insured institutions.",
+      "Families in Guam borrow through FDIC-insured banks.",
+      "Added freight costs apply to some shipped goods.",
+      "Hurricane preparation overlaps the workshop calendar."
+    ]
+    assert_empty Mia::PersonaSchema.errors(valid)
+
+    invalid = persona_configuration
+    invalid["culture"]["local_realities"] = [ "Be warm with Guam families." ]
+    assert_includes Mia::PersonaSchema.errors(invalid),
+      "$.culture.local_realities[0] must be a concrete access, cost, calendar, weather, or regulatory fact"
   end
 
   test "phrase contexts use stable supported identifiers" do

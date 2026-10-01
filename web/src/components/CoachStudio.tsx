@@ -23,8 +23,12 @@ import type {
   PersonaConfiguration,
 } from '../api'
 import {
+  PERSONA_ACCOUNTABILITY_STYLES,
+  PERSONA_ENERGY_STYLES,
+  PERSONA_LANGUAGE_STYLES,
   PERSONA_LIST_LIMITS,
   PERSONA_PHRASE_CONTEXTS,
+  PERSONA_TONE_TRAITS,
   appendListItem,
   arrayToLineList,
   isPersonaDraftDirty,
@@ -832,11 +836,11 @@ function renderEditorSection(
 
   if (step === 'voice') {
     return (
-      <EditorFieldset legend="How should it sound?" copy="Describe the coach's real communication style. The system applies these instructions without copying an accent or inventing slang.">
-        <LineList label="Tone traits" values={draft.voice.tone_traits} minItems={1} maxItems={12} itemMaxLength={80} help="One trait per line, such as warm, direct, grounded." onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, tone_traits: values } })} />
-        <TextInput label="Energy" value={draft.voice.energy} maxLength={160} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, energy: value } })} />
-        <TextArea label="Accountability style" value={draft.voice.accountability_style} maxLength={400} rows={3} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, accountability_style: value } })} />
-        <LineList label="Language style" values={draft.voice.language_style} minItems={1} maxItems={8} itemMaxLength={220} help="One approved instruction per line." onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, language_style: values } })} />
+      <EditorFieldset legend="How should it sound?" copy="Choose from reviewed voice options. Community wording can only come from sealed phrase artifacts.">
+        <ChoiceChips label="Tone traits" options={PERSONA_TONE_TRAITS} selected={draft.voice.tone_traits} minimum={1} onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, tone_traits: values } })} />
+        <SelectChoice label="Energy" options={PERSONA_ENERGY_STYLES} value={draft.voice.energy} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, energy: value } })} />
+        <SelectChoice label="Accountability style" options={PERSONA_ACCOUNTABILITY_STYLES} value={draft.voice.accountability_style} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, accountability_style: value } })} />
+        <ChoiceChips label="Language style" options={PERSONA_LANGUAGE_STYLES} selected={draft.voice.language_style} minimum={1} onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, language_style: values } })} />
       </EditorFieldset>
     )
   }
@@ -848,7 +852,7 @@ function renderEditorSection(
         <TextArea label="Method" value={draft.coaching.method} maxLength={600} rows={4} onChange={(value) => onChange({ ...draft, coaching: { ...draft.coaching, method: value } })} />
         <LineList label="Principles" values={draft.coaching.principles} minItems={1} maxItems={16} itemMaxLength={400} onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, principles: values } })} />
         <LineList label="Do" values={draft.coaching.do} maxItems={16} itemMaxLength={400} help="Optional behaviors to encourage, one per line." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do: values } })} />
-        <LineList label="Do not" values={draft.coaching.do_not} maxItems={16} itemMaxLength={400} help="Optional boundaries, one per line. Unsafe instructions are rejected even here." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do_not: values } })} />
+        <LineList label="Do not" values={draft.coaching.do_not} maxItems={16} itemMaxLength={400} help="State a safe boundary without quoting or embedding cultural mimicry. Every line is validated as an instruction." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do_not: values } })} />
       </EditorFieldset>
     )
   }
@@ -859,7 +863,7 @@ function renderEditorSection(
         <div className="coach-culture-boundary" role="note"><strong>Coach authored only.</strong> Choosing Guam, the South, or another place does not add phrases automatically.</div>
         <TextInput label="Locale label" value={draft.culture.locale_label} maxLength={120} help="For example: Guam families in Mrs. Mel's first cohort, or No locale selected." onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, locale_label: value } })} />
         <TextArea label="Cultural and community context" value={draft.culture.context} maxLength={1000} rows={5} onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, context: value } })} />
-        <LineList label="Local realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified reality per line, such as shipping costs or multigenerational obligations." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
+        <LineList label="Local realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified factual access, cost, calendar, weather, or regulatory reality per line." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
         <LineList label="Approved references" values={draft.culture.references} maxItems={16} itemMaxLength={300} help="Coach authored examples, programs, or community references." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, references: values } })} />
         <PhraseEditor draft={draft} mutate={mutate} />
       </EditorFieldset>
@@ -1067,6 +1071,18 @@ function TextInput({ label, value, onChange, maxLength, help }: { label: string;
 
 function TextArea({ label, value, onChange, rows, maxLength, help }: { label: string; value: string; onChange: (value: string) => void; rows: number; maxLength?: number; help?: string }) {
   return <label className="is-wide"><span>{label}</span><textarea value={value} rows={rows} maxLength={maxLength} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
+}
+
+function ChoiceChips<Option extends string>({ label, options, selected, onChange, minimum = 0 }: { label: string; options: readonly Option[]; selected: readonly Option[]; onChange: (values: Option[]) => void; minimum?: number }) {
+  const toggle = (option: Option, checked: boolean) => {
+    if (checked) onChange([...selected.filter((value) => value !== option), option])
+    else if (selected.length > minimum) onChange(selected.filter((value) => value !== option))
+  }
+  return <fieldset className="coach-choice-field is-wide"><legend>{label}</legend><div>{options.map((option) => <label key={option}><input type="checkbox" checked={selected.includes(option)} disabled={selected.includes(option) && selected.length <= minimum} onChange={(event) => toggle(option, event.target.checked)} /><span>{option.includes(' ') ? option : titleize(option)}</span></label>)}</div><small>Choose {minimum === 1 ? 'at least one reviewed option' : 'reviewed options'}.</small></fieldset>
+}
+
+function SelectChoice<Option extends string>({ label, options, value, onChange }: { label: string; options: readonly Option[]; value: Option; onChange: (value: Option) => void }) {
+  return <label className="coach-select-choice"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value as Option)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
 }
 
 function LineList({ label, values, onChange, minItems = 0, maxItems, itemMaxLength, help }: { label: string; values: string[]; onChange: (values: string[]) => void; minItems?: number; maxItems: number; itemMaxLength: number; help?: string }) {
