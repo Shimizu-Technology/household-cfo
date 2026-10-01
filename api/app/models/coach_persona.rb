@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class CoachPersona < ApplicationRecord
+  class DraftConflict < StandardError; end
+
   LIVE_COHORT_STATUSES = %w[draft enrolling active].freeze
 
   scope :active, -> { where(archived_at: nil) }
@@ -69,13 +71,15 @@ class CoachPersona < ApplicationRecord
     @force_draft_revision_and_preview_reset = false
   end
 
-  def replace_draft_content_pack_versions!(versions, actor:)
+  def replace_draft_content_pack_versions!(versions, actor:, expected_draft_revision: draft_revision)
     raise ArgumentError, "Not authorized to edit this persona" unless actor&.admin? || created_by_user_id == actor&.id
     raise ArgumentError, "Archived personas are read-only" if archived?
 
     normalized = Array(versions).uniq(&:id)
     raise ArgumentError, "A persona can use at most 12 content packs" if normalized.length > 12
     normalized.each do |version|
+      raise ArgumentError, "Content pack version is not a valid sealed publication" unless version.manifest_valid?
+
       pack = version.coach_content_pack
       next if pack.scope == "platform" || pack.created_by_user_id == created_by_user_id
 
@@ -83,6 +87,9 @@ class CoachPersona < ApplicationRecord
     end
 
     with_lock do
+      unless Integer(expected_draft_revision, exception: false) == draft_revision
+        raise DraftConflict, "The persona draft changed; reload it before changing content packs"
+      end
       return if draft_content_pack_links.order(:position).pluck(:coach_content_pack_version_id) == normalized.map(&:id)
 
       draft_content_pack_links.delete_all
@@ -98,8 +105,18 @@ class CoachPersona < ApplicationRecord
     end
   end
 
-  def draft_content_digests
-    draft_content_pack_links.includes(:coach_content_pack_version).order(:position).map { |link| link.coach_content_pack_version.content_digest }
+  def draft_content_pack_versions_ordered
+    draft_content_pack_links.includes(coach_content_pack_version: { entries: :coach_content_item_version }).order(:position).map(&:coach_content_pack_version)
+  end
+
+  def draft_content_manifest_digest
+    CoachPersonaVersion.content_manifest_digest_for(draft_content_pack_versions_ordered)
+  end
+
+  def draft_content_manifest_entries
+    draft_content_pack_versions_ordered.each_with_index.map do |version, position|
+      CoachPersonaVersion.content_manifest_entry(version, position: position)
+    end
   end
 
   private

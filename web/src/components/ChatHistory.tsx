@@ -73,7 +73,7 @@ export function ChatHistory({
                   : <SafeMessageText content={message.content} allowFormatting={message.role === 'assistant'} stripMiaPrefix={message.role === 'assistant'} />}
                 {message.role === 'assistant' && (message.citations ?? []).length > 0 && (
                   <details className="mia-content-sources">
-                    <summary>Coach-approved sources ({message.citations?.length})</summary>
+                    <summary>Coach-approved context supplied ({message.citations?.length})</summary>
                     <ul>
                       {message.citations?.map((citation) => (
                         <li key={`${citation.pack_name}-${citation.pack_version}-${citation.title}-${citation.item_version}`}>

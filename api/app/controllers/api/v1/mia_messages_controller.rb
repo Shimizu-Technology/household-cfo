@@ -1630,7 +1630,7 @@ module Api
           draft_capable: false,
           conversation_resolution: conversation_resolution
         )
-        @used_coach_content = responder.respond_to?(:used_content_citations) ? responder.used_content_citations : []
+        @used_coach_content = responder.respond_to?(:supplied_content_context) ? responder.supplied_content_context : []
         response
       end
 
@@ -1680,7 +1680,7 @@ module Api
           approved_content: @approved_coach_content
         )
         response = narrator.call
-        @used_coach_content = narrator.respond_to?(:used_content_citations) ? narrator.used_content_citations : []
+        @used_coach_content = narrator.respond_to?(:supplied_content_context) ? narrator.supplied_content_context : []
         response
       end
 

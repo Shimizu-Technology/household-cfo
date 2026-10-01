@@ -7,6 +7,7 @@ class CreateCoachContentLibrary < ActiveRecord::Migration[8.1]
       t.string :scope, null: false, default: "coach"
       t.string :kind, null: false
       t.text :draft_content, null: false
+      t.boolean :draft_always_on, null: false, default: false
       t.integer :draft_revision, null: false, default: 1
       t.references :created_by_user, null: false, foreign_key: { to_table: :users }
       t.datetime :archived_at
@@ -30,6 +31,7 @@ class CreateCoachContentLibrary < ActiveRecord::Migration[8.1]
       t.string :title, null: false
       t.string :kind, null: false
       t.text :content, null: false
+      t.boolean :always_on, null: false, default: false
       t.string :content_digest, null: false
       t.references :approved_by_user, null: false, foreign_key: { to_table: :users }
       t.timestamps
@@ -81,6 +83,7 @@ class CreateCoachContentLibrary < ActiveRecord::Migration[8.1]
       t.string :pack_kind, null: false
       t.string :content_digest, null: false
       t.references :published_by_user, null: false, foreign_key: { to_table: :users }
+      t.datetime :sealed_at
       t.timestamps
     end
     add_index :coach_content_pack_versions, [ :coach_content_pack_id, :version_number ], unique: true, name: "idx_content_pack_versions_number"

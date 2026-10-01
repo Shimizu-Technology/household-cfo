@@ -22,6 +22,7 @@ module Mia
       seen_digests = Set.new
       candidates.sort_by { |entry| entry.fetch(:sort_key) }.each do |entry|
         item = entry.fetch(:item_version)
+        next if entry.fetch(:score).zero? && !item.always_on?
         next if seen_digests.include?(item.content_digest)
         break if selected.length >= MAX_ITEMS
 
@@ -31,7 +32,7 @@ module Mia
         excerpt = utf8_prefix(item.content, remaining)
         next if excerpt.blank?
 
-        selected << entry.except(:sort_key).merge(content: excerpt, rank: selected.length + 1)
+        selected << entry.except(:sort_key, :score).merge(content: excerpt, rank: selected.length + 1)
         seen_digests << item.content_digest
         used_bytes += excerpt.bytesize
       end
@@ -46,9 +47,10 @@ module Mia
 
     def content_pack_links
       if pack_versions
-        return Array(pack_versions).each_with_index.map { |version, position| Link.new(coach_content_pack_version: version, position: position) }
+        return Array(pack_versions).select(&:manifest_valid?).each_with_index.map { |version, position| Link.new(coach_content_pack_version: version, position: position) }
       end
       return [] unless persona.respond_to?(:version) && persona.version
+      return [] unless persona.version.content_manifest_valid?
 
       persona.version.content_pack_links
         .includes(coach_content_pack_version: { entries: { coach_content_item_version: :coach_content_item } })
@@ -57,13 +59,16 @@ module Mia
 
     def candidates_for_link(link)
       pack = link.coach_content_pack_version
+      return [] unless pack.manifest_valid?
+
       pack.entries.sort_by(&:position).map do |entry|
         item = entry.coach_content_item_version
         score, terms = match_score(item)
         {
           item_version: item,
           pack_version: pack,
-          reason: terms.any? ? "Matched: #{terms.first(4).join(', ')}" : "Approved #{pack.pack_kind.humanize.downcase} guidance",
+          reason: terms.any? ? "Context supplied for: #{terms.first(4).join(', ')}" : "Always-on coach-approved context",
+          score: score,
           sort_key: [ pack.scope == "coach" ? 0 : 1, -score, link.position, entry.position, item.id ]
         }
       end

@@ -5,6 +5,12 @@ class AddContentManifestToPersonaVersions < ActiveRecord::Migration[8.1]
 
   def change
     add_column :coach_persona_versions, :content_manifest_digest, :string, null: false, default: EMPTY_MANIFEST_DIGEST
+    add_column :coach_persona_versions, :sealed_at, :datetime
+    reversible do |direction|
+      direction.up do
+        execute "UPDATE coach_persona_versions SET sealed_at = created_at WHERE sealed_at IS NULL"
+      end
+    end
     add_check_constraint :coach_persona_versions,
       "content_manifest_digest ~ '^[0-9a-f]{64}$'",
       name: "coach_persona_versions_content_manifest_sha256"

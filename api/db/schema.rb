@@ -135,6 +135,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050100) do
   end
 
   create_table "coach_content_item_versions", force: :cascade do |t|
+    t.boolean "always_on", default: false, null: false
     t.bigint "approved_by_user_id", null: false
     t.bigint "coach_content_item_id", null: false
     t.text "content", null: false
@@ -158,6 +159,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050100) do
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
     t.bigint "current_approved_version_id"
+    t.boolean "draft_always_on", default: false, null: false
     t.text "draft_content", null: false
     t.integer "draft_revision", default: 1, null: false
     t.string "kind", null: false
@@ -209,6 +211,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050100) do
     t.string "pack_kind", null: false
     t.bigint "published_by_user_id", null: false
     t.string "scope", null: false
+    t.datetime "sealed_at"
     t.datetime "updated_at", null: false
     t.integer "version_number", null: false
     t.index ["coach_content_pack_id", "version_number"], name: "idx_content_pack_versions_number", unique: true
@@ -284,6 +287,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_01_050100) do
     t.string "content_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
     t.datetime "created_at", null: false
     t.bigint "published_by_user_id", null: false
+    t.datetime "sealed_at"
     t.bigint "source_version_id"
     t.datetime "updated_at", null: false
     t.integer "version_number", null: false

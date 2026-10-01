@@ -36,8 +36,42 @@ class CoachPersonaVersion < ApplicationRecord
   before_validation :normalize_config, on: :create
   before_destroy :prevent_destroy
 
+  def self.content_manifest_entry(pack_version, position:)
+    {
+      position: position,
+      pack_version_id: pack_version.id,
+      pack_id: pack_version.coach_content_pack_id,
+      pack_version_number: pack_version.version_number,
+      content_digest: pack_version.content_digest
+    }
+  end
+
   def self.content_manifest_digest_for(pack_versions)
-    Digest::SHA256.hexdigest(JSON.generate(Array(pack_versions).map(&:content_digest)).b)
+    entries = Array(pack_versions).each_with_index.map { |version, position| content_manifest_entry(version, position: position) }
+    Digest::SHA256.hexdigest(JSON.generate(entries).b)
+  end
+
+  def sealed?
+    sealed_at.present?
+  end
+
+  def seal_content_manifest!
+    raise ArgumentError, "Published persona version is already sealed" if sealed?
+
+    digest = self.class.content_manifest_digest_for(content_pack_links.includes(:coach_content_pack_version).order(:position).map(&:coach_content_pack_version))
+    update_columns(content_manifest_digest: digest, sealed_at: Time.current, updated_at: Time.current)
+    self.content_manifest_digest = digest
+    self
+  end
+
+  def content_manifest_valid?
+    return false unless sealed?
+
+    versions = content_pack_links.includes(coach_content_pack_version: { entries: :coach_content_item_version }).order(:position).map(&:coach_content_pack_version)
+    return false unless versions.all?(&:manifest_valid?)
+
+    expected = self.class.content_manifest_digest_for(versions)
+    ActiveSupport::SecurityUtils.secure_compare(content_manifest_digest, expected)
   end
 
   def publication_digest

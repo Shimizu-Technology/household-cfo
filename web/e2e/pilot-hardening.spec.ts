@@ -378,6 +378,7 @@ type MockContentItemVersion = {
   title: string
   kind: string
   content: string
+  always_on: boolean
   version: number
   digest: string
   approved_at: string
@@ -388,8 +389,10 @@ type MockContentItem = {
   title: string
   scope: string
   kind: string
+  always_on: boolean
   draft_content: string
   draft_revision: number
+  draft_digest: string
   archived: boolean
   editable: boolean
   current_approved_version: MockContentItemVersion | null
@@ -419,6 +422,7 @@ type MockContentPack = {
   pack_kind: string
   item_version_ids: number[]
   draft_revision: number
+  draft_manifest_digest: string
   archived: boolean
   editable: boolean
   draft_items: MockContentItemVersion[]
@@ -586,9 +590,9 @@ async function mockDemoApi(page: Page) {
       return route.fulfill({ status: 200, json: { items: contentItems } })
     }
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
-      const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content'>
+      const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
       const item: MockContentItem = {
-        id: 901, ...input, draft_revision: 1, archived: false, editable: true,
+        id: 901, ...input, draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true,
         current_approved_version: null, versions: [], has_unapproved_changes: true,
         updated_at: '2026-10-01T01:00:00Z',
       }
@@ -599,12 +603,12 @@ async function mockDemoApi(page: Page) {
     if (contentItemMatch) {
       const item = contentItems.find((candidate) => candidate.id === Number(contentItemMatch[1]))!
       if (contentItemMatch[2] === 'approve') {
-        const version = { id: 911, item_id: item.id, title: item.title, kind: item.kind, content: item.draft_content, version: 1, digest: 'item-digest', approved_at: '2026-10-01T01:02:00Z' }
+        const version = { id: 911, item_id: item.id, title: item.title, kind: item.kind, content: item.draft_content, always_on: item.always_on, version: 1, digest: 'item-digest', approved_at: '2026-10-01T01:02:00Z' }
         Object.assign(item, { current_approved_version: version, versions: [version], has_unapproved_changes: false })
         return route.fulfill({ status: 200, json: { item, approved_version: version } })
       }
       if (route.request().method() === 'PATCH') {
-        Object.assign(item, route.request().postDataJSON().item, { draft_revision: item.draft_revision + 1, has_unapproved_changes: true })
+        Object.assign(item, route.request().postDataJSON().item, { draft_revision: item.draft_revision + 1, draft_digest: `item-draft-${item.draft_revision + 1}`, has_unapproved_changes: true })
         return route.fulfill({ status: 200, json: { item } })
       }
     }
@@ -615,7 +619,7 @@ async function mockDemoApi(page: Page) {
       const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'scope' | 'pack_kind' | 'item_version_ids'>
       const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
       const pack: MockContentPack = {
-        id: 921, ...input, draft_revision: 2, archived: false, editable: true, draft_items: selectedItems,
+        id: 921, ...input, draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, draft_items: selectedItems,
         current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: true, updated_at: '2026-10-01T01:03:00Z',
       }
       contentPacks = [pack]
@@ -629,7 +633,18 @@ async function mockDemoApi(page: Page) {
         Object.assign(pack, { current_published_version: version, versions: [version], has_unpublished_changes: false, item_updates_available: false, update_available: false })
         return route.fulfill({ status: 200, json: { pack, published_version: version } })
       }
-      if (route.request().method() === 'PATCH') return route.fulfill({ status: 200, json: { pack } })
+      if (route.request().method() === 'PATCH') {
+        const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'pack_kind' | 'item_version_ids'>
+        const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
+        Object.assign(pack, input, {
+          draft_items: selectedItems,
+          draft_revision: pack.draft_revision + 1,
+          draft_manifest_digest: `pack-draft-${pack.draft_revision + 1}`,
+          has_unpublished_changes: true,
+          update_available: true,
+        })
+        return route.fulfill({ status: 200, json: { pack } })
+      }
     }
     if (path === '/api/v1/admin/personas/81/content_packs' && route.request().method() === 'PATCH') {
       const ids = route.request().postDataJSON().content_packs.pack_version_ids
@@ -3361,6 +3376,10 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only after the participant raises them.')
   await itemPanel.getByRole('button', { name: 'Create draft' }).click()
   await expect(page.getByRole('status')).toContainText('Content draft created')
+  await itemPanel.getByLabel('Draft wording').fill('Mention extended-family obligations only when the participant raises them.')
+  await expect(itemPanel.getByRole('button', { name: 'Save draft before approving' })).toBeDisabled()
+  await itemPanel.getByRole('button', { name: 'Save draft', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Content draft saved')
   await itemPanel.getByRole('button', { name: 'Approve new version' }).click()
   await expect(page.getByRole('status')).toContainText('immutable version')
 
@@ -3371,6 +3390,10 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   await packPanel.getByLabel(/Guam family context/).check()
   await packPanel.getByRole('button', { name: 'Create pack draft' }).click()
   await expect(page.getByRole('status')).toContainText('Content pack draft created')
+  await packPanel.getByLabel('Description').fill('Reviewed Guam family context for participant-led conversations.')
+  await expect(packPanel.getByRole('button', { name: 'Save pack before publishing' })).toBeDisabled()
+  await packPanel.getByRole('button', { name: 'Save pack', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Pack draft saved')
   await packPanel.getByRole('button', { name: 'Publish exact version' }).click()
   await expect(page.getByRole('status')).toContainText('immutable version')
 

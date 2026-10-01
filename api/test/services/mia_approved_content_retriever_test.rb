@@ -41,6 +41,21 @@ class MiaApprovedContentRetrieverTest < ActiveSupport::TestCase
     assert_empty Mia::ApprovedContentRetriever.new(persona: runtime, query: "How should this sound?").call
   end
 
+  test "irrelevant content is excluded unless a coach explicitly marks it always on" do
+    coach = persona_user
+    irrelevant = approved_content_item(owner: coach, title: "Mortgage teaching", content: "Explain amortization only for mortgage questions.")
+    always_on = approved_content_item(owner: coach, title: "Participant control", content: "Keep the participant in control of the decision.", always_on: true)
+    pack = published_content_pack(owner: coach, items: [ irrelevant, always_on ])
+    persona = create_persona(creator: coach)
+    persona.replace_draft_content_pack_versions!([ pack.current_published_version ], actor: coach)
+    runtime = Mia::RuntimePersona.new(publish_persona(persona, actor: coach))
+
+    result = Mia::ApprovedContentRetriever.new(persona: runtime, query: "How should I plan groceries?").call
+
+    assert_equal [ always_on.current_approved_version_id ], result.map { |entry| entry.fetch(:item_version).id }
+    assert_equal "Always-on coach-approved context", result.first.fetch(:reason)
+  end
+
   test "coach packs precede platform references and exact versions remain stable" do
     admin = persona_user(role: "admin")
     coach = persona_user

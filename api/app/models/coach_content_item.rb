@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class CoachContentItem < ApplicationRecord
+  class ApprovalConflict < StandardError; end
+
   SCOPES = %w[coach platform].freeze
   KINDS = %w[guidance script example phrase culture finance_reference].freeze
 
@@ -16,6 +18,7 @@ class CoachContentItem < ApplicationRecord
   validates :scope, inclusion: { in: SCOPES }
   validates :kind, inclusion: { in: KINDS }
   validates :draft_content, presence: true, length: { maximum: 10_000 }
+  validates :draft_always_on, inclusion: { in: [ true, false ] }
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
   validate :creator_can_manage_scope, on: :create
   validate :current_version_belongs_to_item
@@ -28,15 +31,20 @@ class CoachContentItem < ApplicationRecord
     archived_at.present?
   end
 
-  def approve!(actor:)
+  def approve!(actor:, expected_draft_revision:, expected_draft_digest:)
     raise ArgumentError, "Only staff can approve content" unless actor&.staff?
     raise ArgumentError, "Only administrators can approve platform content" if scope == "platform" && !actor.admin?
     raise ArgumentError, "Not authorized for this content item" unless actor.admin? || created_by_user_id == actor.id
-    raise ArgumentError, "Archived content cannot be approved" if archived?
-
     with_lock do
-      digest = CoachContentItemVersion.digest_for(title: title, kind: kind, content: draft_content)
-      if current_approved_version&.content_digest == digest
+      raise ArgumentError, "Archived content cannot be approved" if archived?
+
+      digest = draft_digest
+      unless Integer(expected_draft_revision, exception: false) == draft_revision &&
+          expected_draft_digest.present? &&
+          ActiveSupport::SecurityUtils.secure_compare(expected_draft_digest.to_s, digest)
+        raise ApprovalConflict, "The content draft changed; reload it before approving"
+      end
+      if current_approved_version&.content_digest_valid? && current_approved_version.content_digest == digest
         return current_approved_version
       end
 
@@ -45,12 +53,17 @@ class CoachContentItem < ApplicationRecord
         title: title,
         kind: kind,
         content: draft_content,
+        always_on: draft_always_on,
         content_digest: digest,
         approved_by_user: actor
       )
       update_columns(current_approved_version_id: version.id, updated_at: Time.current, lock_version: lock_version + 1)
       version
     end
+  end
+
+  def draft_digest
+    CoachContentItemVersion.digest_for(title: title, kind: kind, content: draft_content, always_on: draft_always_on)
   end
 
   private
@@ -67,7 +80,7 @@ class CoachContentItem < ApplicationRecord
   end
 
   def advance_draft_revision
-    return unless will_save_change_to_title? || will_save_change_to_kind? || will_save_change_to_draft_content?
+    return unless will_save_change_to_title? || will_save_change_to_kind? || will_save_change_to_draft_content? || will_save_change_to_draft_always_on?
 
     self.draft_revision = draft_revision_was + 1
   end

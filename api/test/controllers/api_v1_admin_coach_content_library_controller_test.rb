@@ -31,16 +31,20 @@ class ApiV1AdminCoachContentLibraryControllerTest < ActionDispatch::IntegrationT
     post "/api/v1/admin/content_items", params: { item: { title: "Guam family context", scope: "coach", kind: "culture", draft_content: "Mention extended-family obligations only when the participant raises them." } }, headers: auth_headers(coach), as: :json
     assert_response :created
     item_id = response.parsed_body.dig("item", "id")
+    item_revision = response.parsed_body.dig("item", "draft_revision")
+    item_digest = response.parsed_body.dig("item", "draft_digest")
 
-    post "/api/v1/admin/content_items/#{item_id}/approve", headers: auth_headers(coach), as: :json
+    post "/api/v1/admin/content_items/#{item_id}/approve", params: { item: { draft_revision: item_revision, draft_digest: item_digest } }, headers: auth_headers(coach), as: :json
     assert_response :success
     item_version_id = response.parsed_body.dig("approved_version", "id")
 
     post "/api/v1/admin/content_packs", params: { pack: { name: "Guam context", description: "Coach-reviewed context", scope: "coach", pack_kind: "voice_culture", item_version_ids: [ item_version_id ] } }, headers: auth_headers(coach), as: :json
     assert_response :created
     pack_id = response.parsed_body.dig("pack", "id")
+    pack_revision = response.parsed_body.dig("pack", "draft_revision")
+    pack_manifest = response.parsed_body.dig("pack", "draft_manifest_digest")
 
-    post "/api/v1/admin/content_packs/#{pack_id}/publish", headers: auth_headers(coach), as: :json
+    post "/api/v1/admin/content_packs/#{pack_id}/publish", params: { pack: { draft_revision: pack_revision, draft_manifest_digest: pack_manifest, expected_published_version_id: nil } }, headers: auth_headers(coach), as: :json
     assert_response :success
     pack_version_id = response.parsed_body.dig("published_version", "id")
 
@@ -48,6 +52,45 @@ class ApiV1AdminCoachContentLibraryControllerTest < ActionDispatch::IntegrationT
     assert_response :success
     assert_equal [ pack_version_id ], response.parsed_body.dig("persona", "content_packs").pluck("id")
     assert_equal persona.draft_revision + 1, response.parsed_body.dig("persona", "draft_revision")
+  end
+
+  test "approval and publication reject stale tabs and mismatched canonical drafts" do
+    coach = persona_user
+    item = CoachContentItem.create!(title: "CAS item", scope: "coach", kind: "guidance", draft_content: "Original", created_by_user: coach)
+    stale_revision = item.draft_revision
+    stale_digest = item.draft_digest
+    item.update!(draft_content: "Changed elsewhere")
+
+    post "/api/v1/admin/content_items/#{item.id}/approve", params: { item: { draft_revision: stale_revision, draft_digest: stale_digest } }, headers: auth_headers(coach), as: :json
+    assert_response :conflict
+    assert_nil item.reload.current_approved_version
+
+    post "/api/v1/admin/content_items/#{item.id}/approve", params: { item: { draft_revision: item.draft_revision, draft_digest: "0" * 64 } }, headers: auth_headers(coach), as: :json
+    assert_response :conflict
+    assert_nil item.reload.current_approved_version
+
+    approved = approved_content_item(owner: coach, title: "CAS pack item")
+    pack = CoachContentPack.create!(name: "CAS pack", scope: "coach", pack_kind: "coaching_method", created_by_user: coach)
+    pack.replace_draft_item_versions!([ approved.current_approved_version ], actor: coach)
+    stale_pack_revision = pack.draft_revision
+    stale_pack_manifest = pack.draft_manifest_digest
+    pack.update!(description: "Changed elsewhere")
+
+    post "/api/v1/admin/content_packs/#{pack.id}/publish", params: { pack: { draft_revision: stale_pack_revision, draft_manifest_digest: stale_pack_manifest, expected_published_version_id: nil } }, headers: auth_headers(coach), as: :json
+    assert_response :conflict
+    assert_nil pack.reload.current_published_version
+
+    current_version = pack.publish!(
+      actor: coach,
+      expected_draft_revision: pack.draft_revision,
+      expected_draft_manifest_digest: pack.draft_manifest_digest,
+      expected_current_version_id: nil
+    )
+    pack.update!(description: "A new draft after publication")
+
+    post "/api/v1/admin/content_packs/#{pack.id}/publish", params: { pack: { draft_revision: pack.draft_revision, draft_manifest_digest: pack.draft_manifest_digest, expected_published_version_id: nil } }, headers: auth_headers(coach), as: :json
+    assert_response :conflict
+    assert_equal current_version, pack.reload.current_published_version
   end
 
   test "coach cannot attach another coach pack version" do

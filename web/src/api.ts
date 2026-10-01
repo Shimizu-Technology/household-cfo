@@ -790,6 +790,7 @@ export type AdminContentItemVersion = {
   title: string
   kind: AdminContentItemKind
   content: string
+  always_on: boolean
   version: number
   digest: string
   approved_at: string
@@ -800,8 +801,10 @@ export type AdminContentItem = {
   title: string
   scope: AdminContentScope
   kind: AdminContentItemKind
+  always_on: boolean
   draft_content: string | null
   draft_revision: number | null
+  draft_digest: string | null
   archived: boolean
   editable: boolean
   current_approved_version: AdminContentItemVersion | null
@@ -830,6 +833,7 @@ export type AdminContentPack = {
   scope: AdminContentScope
   pack_kind: AdminContentPackKind
   draft_revision: number | null
+  draft_manifest_digest: string | null
   archived: boolean
   editable: boolean
   draft_items: AdminContentItemVersion[]
@@ -1636,6 +1640,7 @@ export async function createAdminContentItem(values: {
   scope: AdminContentScope
   kind: AdminContentItemKind
   draft_content: string
+  always_on: boolean
 }): Promise<AdminContentItem> {
   const payload = await postJson<{ item: AdminContentItem }>('/api/v1/admin/content_items', { item: values })
   return payload.item
@@ -1645,6 +1650,7 @@ export async function updateAdminContentItem(id: number, values: {
   title: string
   kind: AdminContentItemKind
   draft_content: string
+  always_on: boolean
   draft_revision: number
 }): Promise<AdminContentItem> {
   const payload = await fetchJson<{ item: AdminContentItem }>(`/api/v1/admin/content_items/${id}`, {
@@ -1655,8 +1661,10 @@ export async function updateAdminContentItem(id: number, values: {
   return payload.item
 }
 
-export async function approveAdminContentItem(id: number): Promise<AdminContentItem> {
-  const payload = await postJson<{ item: AdminContentItem }>(`/api/v1/admin/content_items/${id}/approve`, {})
+export async function approveAdminContentItem(id: number, draftRevision: number, draftDigest: string): Promise<AdminContentItem> {
+  const payload = await postJson<{ item: AdminContentItem }>(`/api/v1/admin/content_items/${id}/approve`, {
+    item: { draft_revision: draftRevision, draft_digest: draftDigest },
+  })
   return payload.item
 }
 
@@ -1691,8 +1699,12 @@ export async function updateAdminContentPack(id: number, values: {
   return payload.pack
 }
 
-export async function publishAdminContentPack(id: number): Promise<AdminContentPack> {
-  const payload = await postJson<{ pack: AdminContentPack }>(`/api/v1/admin/content_packs/${id}/publish`, {})
+export async function publishAdminContentPack(id: number, values: {
+  draft_revision: number
+  draft_manifest_digest: string
+  expected_published_version_id: number | null
+}): Promise<AdminContentPack> {
+  const payload = await postJson<{ pack: AdminContentPack }>(`/api/v1/admin/content_packs/${id}/publish`, { pack: values })
   return payload.pack
 }
 

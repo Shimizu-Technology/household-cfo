@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 class CoachContentPack < ApplicationRecord
+  class PublicationConflict < StandardError; end
+
   SCOPES = CoachContentItem::SCOPES
   KINDS = %w[voice_culture coaching_method finance_reference].freeze
 
@@ -40,14 +42,25 @@ class CoachContentPack < ApplicationRecord
     end
   end
 
-  def publish!(actor:)
+  def publish!(actor:, expected_draft_revision:, expected_draft_manifest_digest:, expected_current_version_id:)
     raise ArgumentError, "Not authorized for this pack" unless manageable_by?(actor)
-    raise ArgumentError, "Archived packs cannot be published" if archived?
-    raise ArgumentError, "Add at least one approved item before publishing" if draft_entries.empty?
 
     with_lock do
-      digest = CoachContentPackVersion.digest_for(self, draft_entries.includes(:coach_content_item_version))
-      return current_published_version if current_published_version&.content_digest == digest
+      raise ArgumentError, "Archived packs cannot be published" if archived?
+
+      entries = draft_entries.includes(:coach_content_item_version).order(:position).to_a
+      raise ArgumentError, "Add at least one approved item before publishing" if entries.empty?
+
+      manifest_digest = CoachContentPackVersion.draft_manifest_digest_for(self, entries)
+      unless Integer(expected_draft_revision, exception: false) == draft_revision &&
+          normalize_version_id(expected_current_version_id) == current_published_version_id &&
+          expected_draft_manifest_digest.present? &&
+          ActiveSupport::SecurityUtils.secure_compare(expected_draft_manifest_digest.to_s, manifest_digest)
+        raise PublicationConflict, "The content pack changed; reload it before publishing"
+      end
+      if current_published_version&.manifest_valid? && CoachContentPackVersion.draft_equivalent_digest(current_published_version) == manifest_digest
+        return current_published_version
+      end
 
       version = versions.create!(
         version_number: versions.maximum(:version_number).to_i + 1,
@@ -55,15 +68,20 @@ class CoachContentPack < ApplicationRecord
         description: description,
         scope: scope,
         pack_kind: pack_kind,
-        content_digest: digest,
+        content_digest: "0" * 64,
         published_by_user: actor
       )
-      draft_entries.includes(:coach_content_item_version).each do |entry|
+      entries.each do |entry|
         version.entries.create!(coach_content_item_version: entry.coach_content_item_version, position: entry.position)
       end
+      version.seal!
       update_columns(current_published_version_id: version.id, updated_at: Time.current, lock_version: lock_version + 1)
       version
     end
+  end
+
+  def draft_manifest_digest
+    CoachContentPackVersion.draft_manifest_digest_for(self, draft_entries.includes(:coach_content_item_version).order(:position))
   end
 
   def manageable_by?(actor)
@@ -71,6 +89,12 @@ class CoachContentPack < ApplicationRecord
   end
 
   private
+
+  def normalize_version_id(value)
+    return nil if value.blank?
+
+    Integer(value, exception: false) || :invalid
+  end
 
   def validate_versions!(versions, actor:)
     raise ArgumentError, "Add at least one approved item" if versions.empty?

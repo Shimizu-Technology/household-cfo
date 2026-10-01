@@ -66,13 +66,13 @@ describe('Persona Studio API contract', () => {
     vi.stubGlobal('fetch', fetchMock)
 
     expect(await fetchAdminContentItems()).toEqual([item])
-    await createAdminContentItem({ title: 'One clear question', scope: 'coach', kind: 'guidance', draft_content: 'Ask one question.' })
-    await updateAdminContentItem(4, { title: 'One clear question', kind: 'guidance', draft_content: 'Ask one direct question.', draft_revision: 1 })
-    await approveAdminContentItem(4)
+    await createAdminContentItem({ title: 'One clear question', scope: 'coach', kind: 'guidance', draft_content: 'Ask one question.', always_on: false })
+    await updateAdminContentItem(4, { title: 'One clear question', kind: 'guidance', draft_content: 'Ask one direct question.', always_on: false, draft_revision: 1 })
+    await approveAdminContentItem(4, 2, 'item-draft-digest')
     expect(await fetchAdminContentPacks()).toEqual([pack])
     await createAdminContentPack({ name: 'Coach method', description: '', scope: 'coach', pack_kind: 'coaching_method', item_version_ids: [12] })
     await updateAdminContentPack(8, { name: 'Coach method', description: '', pack_kind: 'coaching_method', item_version_ids: [12], draft_revision: 2 })
-    await publishAdminContentPack(8)
+    await publishAdminContentPack(8, { draft_revision: 2, draft_manifest_digest: 'pack-draft-digest', expected_published_version_id: null })
     await updateAdminPersonaContentPacks(17, 3, [21])
 
     expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
@@ -88,6 +88,12 @@ describe('Persona Studio API contract', () => {
     ])
     expect(JSON.parse(String((fetchMock.mock.calls[8][1] as RequestInit).body))).toEqual({
       content_packs: { draft_revision: 3, pack_version_ids: [21] },
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({
+      item: { draft_revision: 2, draft_digest: 'item-draft-digest' },
+    })
+    expect(JSON.parse(String((fetchMock.mock.calls[7][1] as RequestInit).body))).toEqual({
+      pack: { draft_revision: 2, draft_manifest_digest: 'pack-draft-digest', expected_published_version_id: null },
     })
   })
 

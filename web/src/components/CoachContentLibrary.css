@@ -115,6 +115,23 @@
 
 .coach-content-form textarea { resize: vertical; }
 
+.coach-content-form .coach-content-always-on {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+  padding: 0.75rem;
+  border: 1px solid var(--line);
+  border-radius: 0.7rem;
+  background: var(--paper-warm);
+}
+
+.coach-content-form .coach-content-always-on input {
+  width: 1.1rem;
+  min-height: 1.1rem;
+  margin-top: 0.15rem;
+}
+
+.coach-content-form .coach-content-always-on span { display: grid; gap: 0.15rem; }
+
 .coach-content-form-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

@@ -14,7 +14,7 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     original_pack_version = pack.current_published_version
 
     item.update!(draft_content: "Use the revised coach wording.")
-    revised_item_version = item.approve!(actor: coach)
+    revised_item_version = item.approve!(actor: coach, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest)
 
     assert_equal original_item_version, original_pack_version.item_versions.first
     assert_not_equal revised_item_version, original_pack_version.item_versions.first
@@ -28,7 +28,7 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
 
     pack.replace_draft_item_versions!([ revised_item_version ], actor: coach)
     assert Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach)).pack(pack.reload).fetch(:has_unpublished_changes)
-    revised_pack_version = pack.publish!(actor: coach)
+    revised_pack_version = pack.publish!(actor: coach, expected_draft_revision: pack.draft_revision, expected_draft_manifest_digest: pack.draft_manifest_digest, expected_current_version_id: pack.current_published_version_id)
     assert_equal revised_item_version, revised_pack_version.item_versions.first
     assert_equal original_item_version, original_pack_version.reload.item_versions.first
   end
@@ -62,6 +62,7 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     second_item = approved_content_item(owner: coach, title: "Later")
     second_pack = published_content_pack(owner: coach, items: [ second_item ], name: "Later pack")
     persona.replace_draft_content_pack_versions!([ second_pack.current_published_version ], actor: coach)
+    assert Mia::PersonaStudioSerializer.new(persona.reload, policy: Mia::PersonaStudioPolicy.new(coach)).summary.fetch(:has_unpublished_changes)
     second_persona_version = publish_persona(persona, actor: coach)
 
     assert_equal [ first_pack.current_published_version_id ], first_persona_version.content_pack_version_ids
@@ -75,6 +76,61 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     )
     assert_equal [ first_pack.current_published_version_id ], restored.content_pack_version_ids
     assert_equal [ first_pack.current_published_version_id ], persona.reload.draft_content_pack_version_ids
+    assert restored.content_manifest_valid?
+  end
+
+  test "sealed pack and persona publications reject appended rows and fail closed after manifest tampering" do
+    coach = persona_user
+    first_item = approved_content_item(owner: coach, title: "Sealed first")
+    second_item = approved_content_item(owner: coach, title: "Sealed second")
+    pack = published_content_pack(owner: coach, items: [ first_item ])
+    persona = create_persona(creator: coach)
+    persona.replace_draft_content_pack_versions!([ pack.current_published_version ], actor: coach)
+    persona_version = publish_persona(persona, actor: coach)
+
+    assert pack.current_published_version.sealed?
+    assert persona_version.sealed?
+    assert_raises(ActiveRecord::RecordInvalid) do
+      pack.current_published_version.entries.create!(coach_content_item_version: second_item.current_approved_version, position: 1)
+    end
+    assert_raises(ActiveRecord::RecordInvalid) do
+      persona_version.content_pack_links.create!(coach_content_pack_version: pack.current_published_version, position: 1)
+    end
+
+    pack.current_published_version.update_column(:content_digest, "0" * 64)
+    refute pack.current_published_version.reload.manifest_valid?
+    refute persona_version.reload.content_manifest_valid?
+    assert_empty Mia::ApprovedContentRetriever.new(persona: Mia::RuntimePersona.new(persona_version), query: "sealed first").call
+
+    pack.current_published_version.update_column(
+      :content_digest,
+      CoachContentPackVersion.content_digest_for(pack.current_published_version)
+    )
+    first_item.current_approved_version.update_column(:content, "Tampered approved wording")
+    refute first_item.current_approved_version.reload.content_digest_valid?
+    refute pack.current_published_version.reload.manifest_valid?
+    refute persona_version.reload.content_manifest_valid?
+    assert_empty Mia::ApprovedContentRetriever.new(persona: Mia::RuntimePersona.new(persona_version), query: "tampered wording").call
+    assert_raises(Mia::PersonaPublisher::PublicationError) do
+      Mia::PersonaPublisher.new(persona: persona.reload, actor: coach).compile_preview!(expected_draft_revision: persona.draft_revision)
+    end
+    assert Mia::PersonaStudioSerializer.new(persona, policy: Mia::PersonaStudioPolicy.new(coach)).summary.fetch(:has_unpublished_changes)
+  end
+
+  test "manifests include immutable record identities even when approved text is identical" do
+    admin = persona_user(role: "admin")
+    coach = persona_user
+    platform_item = approved_content_item(owner: admin, title: "Same words", content: "Identical approved text.", scope: "platform")
+    coach_item = approved_content_item(owner: coach, title: "Same words", content: "Identical approved text.")
+    assert_equal platform_item.current_approved_version.content_digest, coach_item.current_approved_version.content_digest
+
+    platform_pack = published_content_pack(owner: admin, items: [ platform_item ], name: "Same pack", scope: "platform")
+    coach_pack = published_content_pack(owner: coach, items: [ coach_item ], name: "Same pack")
+    refute_equal platform_pack.current_published_version.content_digest, coach_pack.current_published_version.content_digest
+
+    first_manifest = CoachPersonaVersion.content_manifest_digest_for([ platform_pack.current_published_version ])
+    second_manifest = CoachPersonaVersion.content_manifest_digest_for([ coach_pack.current_published_version ])
+    refute_equal first_manifest, second_manifest
   end
 
   test "changing exact source links invalidates preview" do
@@ -114,5 +170,24 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
 
     message.delete
     assert_empty CoachContentCitation.where(chat_message_id: message.id)
+  end
+
+  test "citation item must belong to the cited pack snapshot" do
+    coach = persona_user
+    included = approved_content_item(owner: coach, title: "Included citation")
+    excluded = approved_content_item(owner: coach, title: "Excluded citation")
+    pack = published_content_pack(owner: coach, items: [ included ])
+    participant = persona_user(role: "participant")
+    household = Household.create!(created_by_user: participant, name: "Citation integrity")
+    message = household.chat_sessions.create!(user: participant, title: "Ask Mia").chat_messages.create!(role: "assistant", content: "Context")
+
+    citation = message.coach_content_citations.new(
+      coach_content_item_version: excluded.current_approved_version,
+      coach_content_pack_version: pack.current_published_version,
+      rank: 1,
+      reason: "Context supplied"
+    )
+    refute citation.valid?
+    assert_includes citation.errors[:coach_content_item_version], "must belong to the cited content pack version"
   end
 end

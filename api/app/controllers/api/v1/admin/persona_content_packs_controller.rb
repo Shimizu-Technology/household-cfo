@@ -11,7 +11,6 @@ module Api
           persona_policy = Mia::PersonaStudioPolicy.new(current_user)
           persona = persona_policy.editable_personas.find(params[:persona_id])
           expected = Integer(params.dig(:content_packs, :draft_revision), exception: false)
-          return conflict unless expected == persona.draft_revision
 
           ids = Array(params.dig(:content_packs, :pack_version_ids)).map(&:to_i).select(&:positive?).uniq
           content_policy = Mia::ContentLibraryPolicy.new(current_user)
@@ -25,12 +24,18 @@ module Api
           versions = visible_versions.or(selectable_versions).includes(:coach_content_pack).index_by(&:id)
           return unavailable unless versions.length == ids.length
 
-          persona.replace_draft_content_pack_versions!(ids.map { |id| versions.fetch(id) }, actor: current_user)
+          persona.replace_draft_content_pack_versions!(
+            ids.map { |id| versions.fetch(id) },
+            actor: current_user,
+            expected_draft_revision: expected
+          )
           render json: { persona: Mia::PersonaStudioSerializer.new(persona.reload, policy: persona_policy).detail }
         rescue ActiveRecord::RecordNotFound
           render json: { error: "Persona not found.", code: "persona_not_found" }, status: :not_found
         rescue ArgumentError => error
           render json: { error: error.message, code: "persona_content_packs_invalid" }, status: :unprocessable_entity
+        rescue CoachPersona::DraftConflict
+          conflict
         end
 
         private

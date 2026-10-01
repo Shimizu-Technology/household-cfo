@@ -128,8 +128,10 @@ module Mia
 
     def unpublished_changes?
       return true unless persona.current_published_version
+      return true unless persona.current_published_version.content_manifest_valid?
 
-      persona.current_published_version.config_digest != PersonaSchema.digest(persona.draft_config)
+      persona.current_published_version.config_digest != PersonaSchema.digest(persona.draft_config) ||
+        persona.current_published_version.content_manifest_digest != persona.draft_content_manifest_digest
     end
 
     def preview_required?
@@ -138,7 +140,7 @@ module Mia
       persona.preview_digest != PersonaPromptBuilder.digest(
         persona.draft_config,
         draft_revision: persona.draft_revision,
-        content_digests: persona.draft_content_digests
+        content_digests: persona.draft_content_manifest_entries
       )
     end
 

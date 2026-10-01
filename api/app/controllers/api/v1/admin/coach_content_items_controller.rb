@@ -32,8 +32,14 @@ module Api
 
         def approve
           item = policy.editable_items.find(params[:id])
-          version = item.approve!(actor: current_user)
+          version = item.approve!(
+            actor: current_user,
+            expected_draft_revision: params.dig(:item, :draft_revision),
+            expected_draft_digest: params.dig(:item, :draft_digest)
+          )
           render json: { item: serializer.item(item.reload), approved_version: serializer.item_version(version) }
+        rescue CoachContentItem::ApprovalConflict => error
+          conflict(error.message)
         rescue ArgumentError => error
           render json: { error: error.message, code: "content_approval_invalid" }, status: :unprocessable_entity
         end
@@ -57,7 +63,9 @@ module Api
         end
 
         def item_params
-          params.require(:item).permit(:title, :scope, :kind, :draft_content).to_h.symbolize_keys
+          permitted = params.require(:item).permit(:title, :scope, :kind, :draft_content, :always_on).to_h.symbolize_keys
+          permitted[:draft_always_on] = permitted.delete(:always_on) if permitted.key?(:always_on)
+          permitted
         end
 
         def invalid(record)

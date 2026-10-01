@@ -14,13 +14,15 @@ module Mia
         title: editable ? item.title : display_version&.title,
         scope: item.scope,
         kind: editable ? item.kind : display_version&.kind,
+        always_on: editable ? item.draft_always_on : display_version&.always_on,
         draft_content: editable ? item.draft_content : nil,
         draft_revision: editable ? item.draft_revision : nil,
+        draft_digest: editable ? item.draft_digest : nil,
         archived: item.archived?,
         editable: editable && !item.archived?,
         current_approved_version: item.current_approved_version && item_version(item.current_approved_version),
         versions: item.versions.order(version_number: :desc).map { |version| item_version(version) },
-        has_unapproved_changes: editable && (item.current_approved_version.nil? || item.current_approved_version.content_digest != CoachContentItemVersion.digest_for(title: item.title, kind: item.kind, content: item.draft_content)),
+        has_unapproved_changes: editable && (item.current_approved_version.nil? || item.current_approved_version.content_digest != item.draft_digest),
         updated_at: item.updated_at
       }
     end
@@ -31,6 +33,7 @@ module Mia
         item_id: version.coach_content_item_id,
         title: version.title,
         kind: version.kind,
+        always_on: version.always_on,
         content: version.content,
         version: version.version_number,
         digest: version.content_digest,
@@ -50,6 +53,7 @@ module Mia
         scope: pack.scope,
         pack_kind: editable ? pack.pack_kind : display_version&.pack_kind,
         draft_revision: editable ? pack.draft_revision : nil,
+        draft_manifest_digest: editable ? pack.draft_manifest_digest : nil,
         archived: pack.archived?,
         editable: editable && !pack.archived?,
         draft_items: editable ? pack.draft_entries.includes(:coach_content_item_version).order(:position).map { |entry| item_version(entry.coach_content_item_version) } : [],
@@ -84,7 +88,7 @@ module Mia
     def unpublished_changes?(pack)
       return true unless pack.current_published_version
 
-      CoachContentPackVersion.digest_for(pack, pack.draft_entries.includes(:coach_content_item_version)) != pack.current_published_version.content_digest
+      pack.draft_manifest_digest != CoachContentPackVersion.draft_equivalent_digest(pack.current_published_version)
     end
 
     def item_updates_available?(pack)

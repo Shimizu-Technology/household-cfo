@@ -44,8 +44,15 @@ module Api
 
         def publish
           pack = policy.editable_packs.find(params[:id])
-          version = pack.publish!(actor: current_user)
+          version = pack.publish!(
+            actor: current_user,
+            expected_draft_revision: params.dig(:pack, :draft_revision),
+            expected_draft_manifest_digest: params.dig(:pack, :draft_manifest_digest),
+            expected_current_version_id: params.dig(:pack, :expected_published_version_id)
+          )
           render json: { pack: serializer.pack(pack.reload), published_version: serializer.pack_version(version) }
+        rescue CoachContentPack::PublicationConflict
+          conflict
         rescue ArgumentError => error
           invalid_message(error.message)
         end

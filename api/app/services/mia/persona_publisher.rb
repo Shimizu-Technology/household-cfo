@@ -20,6 +20,7 @@ module Mia
         unless Integer(expected_draft_revision, exception: false) == persona.draft_revision
           raise PublicationError, "The persona draft changed; reload it before previewing"
         end
+        ensure_draft_content_manifests!
 
         digest = preview_digest
         prompt = [ PersonaPromptBuilder.call(persona.draft_config), content_pack_preview ].compact_blank.join("\n\n")
@@ -44,6 +45,7 @@ module Mia
         unless normalized_version_id(expected_current_version_id) == persona.current_published_version_id
           raise PublicationError, "The published persona changed; reload it before publishing"
         end
+        ensure_draft_content_manifests!
 
         current_digest = PersonaSchema.digest(persona.draft_config)
         current_preview_digest = preview_digest
@@ -58,14 +60,13 @@ module Mia
           version_number: persona.versions.maximum(:version_number).to_i + 1,
           config: persona.draft_config.deep_dup,
           config_digest: current_digest,
-          content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for(
-            persona.draft_content_pack_links.includes(:coach_content_pack_version).order(:position).map(&:coach_content_pack_version)
-          ),
+          content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
           published_by_user: actor
         )
         persona.draft_content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
         end
+        version.seal_content_manifest!
         advance_publication!(version)
         persona.publication_events.create!(
           coach_persona_version: version,
@@ -84,8 +85,15 @@ module Mia
       PersonaPromptBuilder.digest(
         persona.draft_config,
         draft_revision: persona.draft_revision,
-        content_digests: persona.draft_content_digests
+        content_digests: persona.draft_content_manifest_entries
       )
+    end
+
+    def ensure_draft_content_manifests!
+      valid = persona.draft_content_pack_links.includes(coach_content_pack_version: { entries: :coach_content_item_version }).all? do |link|
+        link.coach_content_pack_version.manifest_valid?
+      end
+      raise PublicationError, "Attached content pack is not a valid sealed publication" unless valid
     end
 
     def content_pack_preview

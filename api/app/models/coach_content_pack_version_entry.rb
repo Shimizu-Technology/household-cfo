@@ -5,10 +5,15 @@ class CoachContentPackVersionEntry < ApplicationRecord
   belongs_to :coach_content_item_version, inverse_of: :pack_version_entries
   validates :position, numericality: { only_integer: true, greater_than_or_equal_to: 0 }, uniqueness: { scope: :coach_content_pack_version_id }
   validates :coach_content_item_version_id, uniqueness: { scope: :coach_content_pack_version_id }
+  validate :parent_version_is_under_construction, on: :create
   validate :published_entry_is_immutable, on: :update
   before_destroy :prevent_destroy
 
   private
+
+  def parent_version_is_under_construction
+    errors.add(:base, "sealed content pack versions cannot accept entries") if coach_content_pack_version&.sealed?
+  end
 
   def published_entry_is_immutable
     errors.add(:base, "published pack entries are immutable") if has_changes_to_save?

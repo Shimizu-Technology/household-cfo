@@ -96,7 +96,7 @@ export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser 
           onSelect={setSelectedItemId}
           onCreate={(values) => mutate(async () => { const item = await createAdminContentItem(values); setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
           onSave={(item, values) => mutate(async () => { await updateAdminContentItem(item.id, { ...values, draft_revision: item.draft_revision ?? 0 }) }, 'Content draft saved. Approve the new version when it is ready.')}
-          onApprove={(item) => mutate(async () => { await approveAdminContentItem(item.id) }, `${item.title} is approved as an immutable version.`)}
+          onApprove={(item) => mutate(async () => { await approveAdminContentItem(item.id, item.draft_revision ?? 0, item.draft_digest ?? '') }, `${item.title} is approved as an immutable version.`)}
         />
         <ContentPacksPanel
           currentUser={currentUser}
@@ -107,7 +107,7 @@ export function CoachContentLibrary({ currentUser }: { currentUser: CurrentUser 
           onSelect={setSelectedPackId}
           onCreate={(values) => mutate(async () => { const pack = await createAdminContentPack(values); setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
           onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Pack draft saved. Its published version has not changed.')}
-          onPublish={(pack) => mutate(async () => { await publishAdminContentPack(pack.id) }, `${pack.name} is published as an immutable version.`)}
+          onPublish={(pack) => mutate(async () => { await publishAdminContentPack(pack.id, { draft_revision: pack.draft_revision ?? 0, draft_manifest_digest: pack.draft_manifest_digest ?? '', expected_published_version_id: pack.current_published_version?.id ?? null }) }, `${pack.name} is published as an immutable version.`)}
         />
       </div>
     </section>
@@ -120,8 +120,8 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
   selected: AdminContentItem | null
   busy: boolean
   onSelect: (id: number | null) => void
-  onCreate: (values: { title: string; scope: AdminContentScope; kind: AdminContentItemKind; draft_content: string }) => Promise<void>
-  onSave: (item: AdminContentItem, values: { title: string; kind: AdminContentItemKind; draft_content: string }) => Promise<void>
+  onCreate: (values: { title: string; scope: AdminContentScope; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<void>
+  onSave: (item: AdminContentItem, values: { title: string; kind: AdminContentItemKind; draft_content: string; always_on: boolean }) => Promise<void>
   onApprove: (item: AdminContentItem) => Promise<void>
 }) {
   const [creating, setCreating] = useState(false)
@@ -129,6 +129,13 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
   const [content, setContent] = useState('')
   const [kind, setKind] = useState<AdminContentItemKind>('guidance')
   const [scope, setScope] = useState<AdminContentScope>('coach')
+  const [alwaysOn, setAlwaysOn] = useState(false)
+  const itemDirty = Boolean(selected && (
+    title.trim() !== selected.title ||
+    content.trim() !== selected.draft_content ||
+    kind !== selected.kind ||
+    alwaysOn !== selected.always_on
+  ))
 
   function startCreate() {
     onSelect(null)
@@ -137,6 +144,7 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
     setContent('')
     setKind('guidance')
     setScope('coach')
+    setAlwaysOn(false)
   }
 
   function selectItem(item: AdminContentItem) {
@@ -145,23 +153,24 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
     setContent(item.draft_content ?? item.current_approved_version?.content ?? '')
     setKind(item.kind)
     setScope(item.scope)
+    setAlwaysOn(item.always_on)
     onSelect(item.id)
   }
 
   async function submit(event: FormEvent) {
     event.preventDefault()
-    if (selected) await onSave(selected, { title: title.trim(), kind, draft_content: content.trim() })
-    else await onCreate({ title: title.trim(), scope, kind, draft_content: content.trim() })
+    if (selected) await onSave(selected, { title: title.trim(), kind, draft_content: content.trim(), always_on: alwaysOn })
+    else await onCreate({ title: title.trim(), scope, kind, draft_content: content.trim(), always_on: alwaysOn })
     setCreating(false)
   }
 
   return (
     <article className="panel coach-content-panel">
-      <header><div><p className="eyebrow">1 · Content items</p><h3>Coach-authored building blocks</h3></div><Button size="compact" onClick={startCreate}>New item</Button></header>
+      <header><div><p className="eyebrow">1 · Content items</p><h3>Coach-authored building blocks</h3></div><Button size="compact" disabled={busy} onClick={startCreate}>New item</Button></header>
       <div className="coach-content-list" aria-label="Content items">
         {items.length === 0 && <p className="coach-content-empty">No approved teaching yet. Start with one short piece of guidance.</p>}
         {items.map((item) => (
-          <button type="button" key={item.id} className={selected?.id === item.id ? 'is-selected' : ''} onClick={() => selectItem(item)}>
+          <button type="button" disabled={busy} key={item.id} className={selected?.id === item.id ? 'is-selected' : ''} onClick={() => selectItem(item)}>
             <span><strong>{item.title}</strong><small>{label(item.kind)}</small></span>
             <small>{item.current_approved_version ? `Approved v${item.current_approved_version.version}` : 'Draft only'}{item.has_unapproved_changes ? ' · Changes waiting' : ''}</small>
           </button>
@@ -169,15 +178,16 @@ function ContentItemsPanel({ currentUser, items, selected, busy, onSelect, onCre
       </div>
       {(creating || selected) && (
         <form className="coach-content-form" onSubmit={(event) => void submit(event)}>
-          <label><span>Title</span><input required disabled={Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
+          <label><span>Title</span><input required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <div className="coach-content-form-row">
-            <label><span>Type</span><select disabled={Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            <label><span>Type</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
+            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
-          <label><span>Draft wording</span><textarea required disabled={Boolean(selected && !selected.editable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, phrase, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
+          <label><span>Draft wording</span><textarea required disabled={busy || Boolean(selected && !selected.editable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, phrase, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
+          <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
           <div className="coach-content-actions">
-            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim()}>{selected ? 'Save draft' : 'Create draft'}</Button>}
-            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
+            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
+            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
           </div>
           {selected && !selected.editable && <p className="coach-content-note">Platform content is visible for use and can be changed only by an administrator.</p>}
         </form>
@@ -204,6 +214,12 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onSelect
   const [scope, setScope] = useState<AdminContentScope>('coach')
   const [selectedVersions, setSelectedVersions] = useState<number[]>([])
   const approvedItems = items.filter((item) => item.current_approved_version && !item.archived && (scope === 'coach' || item.scope === 'platform'))
+  const packDirty = Boolean(selected && (
+    name.trim() !== selected.name ||
+    description.trim() !== selected.description ||
+    kind !== selected.pack_kind ||
+    selectedVersions.join(',') !== selected.draft_items.map((item) => item.id).join(',')
+  ))
 
   function startCreate() {
     onSelect(null)
@@ -253,11 +269,11 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onSelect
 
   return (
     <article className="panel coach-content-panel">
-      <header><div><p className="eyebrow">2 · Content packs</p><h3>Publish a reusable collection</h3></div><Button size="compact" onClick={startCreate}>New pack</Button></header>
+      <header><div><p className="eyebrow">2 · Content packs</p><h3>Publish a reusable collection</h3></div><Button size="compact" disabled={busy} onClick={startCreate}>New pack</Button></header>
       <div className="coach-content-list" aria-label="Content packs">
         {packs.length === 0 && <p className="coach-content-empty">Create a pack after approving at least one content item.</p>}
         {packs.map((pack) => (
-          <button type="button" key={pack.id} className={selected?.id === pack.id ? 'is-selected' : ''} onClick={() => selectPack(pack)}>
+          <button type="button" disabled={busy} key={pack.id} className={selected?.id === pack.id ? 'is-selected' : ''} onClick={() => selectPack(pack)}>
             <span><strong>{pack.name}</strong><small>{label(pack.pack_kind)}</small></span>
             <small>{pack.current_published_version ? `Published v${pack.current_published_version.version}` : 'Draft only'}{pack.update_available ? ' · Update available' : ''}</small>
           </button>
@@ -265,11 +281,11 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onSelect
       </div>
       {(creating || selected) && (
         <form className="coach-content-form" onSubmit={(event) => void submit(event)}>
-          <label><span>Pack name</span><input required disabled={Boolean(selected && !selected.editable)} maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
-          <label><span>Description</span><textarea disabled={Boolean(selected && !selected.editable)} rows={2} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
+          <label><span>Pack name</span><input required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={name} onChange={(event) => setName(event.target.value)} /></label>
+          <label><span>Description</span><textarea disabled={busy || Boolean(selected && !selected.editable)} rows={2} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <div className="coach-content-form-row">
-            <label><span>Purpose</span><select disabled={Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentPackKind)}>{packKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            <label><span>Purpose</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentPackKind)}>{packKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
+            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
           <fieldset className="coach-content-checklist"><legend>Exact approved item versions</legend>
             {approvedItems.map((item) => {
@@ -277,12 +293,12 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onSelect
               const pinned = selected?.draft_items.find((candidate) => candidate.item_id === item.id)
               const included = selectedVersions.includes(current.id) || Boolean(pinned && selectedVersions.includes(pinned.id))
               const updateAvailable = Boolean(pinned && pinned.id !== current.id && !selectedVersions.includes(current.id))
-              return <div className="coach-content-item-option" key={item.id}><label><input type="checkbox" disabled={Boolean(selected && !selected.editable)} checked={included} onChange={() => toggleItem(item)} /><span><strong>{item.title}</strong><small>{updateAvailable ? `Pinned v${pinned?.version} · current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && selected?.editable && <button type="button" className="coach-content-upgrade" onClick={() => upgradeItem(item)}>Use v{current.version}</button>}</div>
+              return <div className="coach-content-item-option" key={item.id}><label><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={included} onChange={() => toggleItem(item)} /><span><strong>{item.title}</strong><small>{updateAvailable ? `Pinned v${pinned?.version} · current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && selected?.editable && <button type="button" className="coach-content-upgrade" disabled={busy} onClick={() => upgradeItem(item)}>Use v{current.version}</button>}</div>
             })}
           </fieldset>
           <div className="coach-content-actions">
-            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || selectedVersions.length === 0}>{selected ? 'Save pack draft' : 'Create pack draft'}</Button>}
-            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
+            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || selectedVersions.length === 0 || Boolean(selected && !packDirty)}>{selected ? 'Save pack' : 'Create pack draft'}</Button>}
+            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
           </div>
           <p className="coach-content-note">Publishing creates a fixed snapshot. Later item edits never change a published pack or an assigned assistant automatically.</p>
         </form>
