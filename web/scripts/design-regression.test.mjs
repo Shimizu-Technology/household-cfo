@@ -125,6 +125,18 @@ for (const structuredControl of [
 assert.ok(!coachStudio.includes('<LineList label="Tone traits"'), 'tone traits must not accept free-form style instructions')
 assert.ok(!coachStudio.includes('<TextInput label="Energy"'), 'persona energy must not accept free-form style instructions')
 assert.ok(coachStudio.includes('State a safe boundary without quoting or embedding cultural mimicry.'), 'Do not help must explain that embedded mimicry is still rejected')
+assert.ok(
+  coachStudio.includes('ref={errorAlertRef}')
+    && coachStudio.includes('ref={conflictAlertRef}')
+    && coachStudio.includes('role="alert" tabIndex={-1}'),
+  'Coach Studio mutation errors and conflicts should be programmatically focusable alerts',
+)
+assert.ok(
+  coachStudio.includes("alert.scrollIntoView({ block: 'center' })")
+    && coachStudio.includes('alert.focus({ preventScroll: true })'),
+  'Coach Studio should move mutation feedback into view and focus it',
+)
+assert.ok(coachStudio.includes('void loadPersonas(selectedPersona?.id)'), 'Coach Studio errors should preserve their retry action')
 assert.ok(personaDraft.includes("'Use light humor only when the situation is not sensitive.'"), 'reviewed voice choices should include situational light humor')
 assert.ok(personaDraft.includes("'Keep the tone professional and formal.'"), 'reviewed voice choices should include formal language')
 

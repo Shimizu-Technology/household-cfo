@@ -88,6 +88,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const createNameRef = useRef<HTMLInputElement | null>(null)
   const libraryHeadingRef = useRef<HTMLHeadingElement | null>(null)
   const editorHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const errorAlertRef = useRef<HTMLDivElement | null>(null)
+  const conflictAlertRef = useRef<HTMLDivElement | null>(null)
 
   const dirty = useMemo(() => {
     if (!selectedPersona?.draft || !draft) return false
@@ -178,6 +180,16 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   useEffect(() => {
     onDirtyChange(studioDirty)
   }, [studioDirty, onDirtyChange])
+
+  useEffect(() => {
+    const alert = error ? errorAlertRef.current : conflict ? conflictAlertRef.current : null
+    if (!alert) return
+
+    window.requestAnimationFrame(() => {
+      alert.scrollIntoView({ block: 'center' })
+      alert.focus({ preventScroll: true })
+    })
+  }, [conflict, error])
 
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
@@ -539,10 +551,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 
-      {error && <div className="coach-studio-alert is-error" role="alert"><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
+      {error && <div className="coach-studio-alert is-error" role="alert" tabIndex={-1} ref={errorAlertRef}><span>{error}</span><button type="button" onClick={() => { setError(null); void loadPersonas(selectedPersona?.id) }}>Retry</button></div>}
       {notice && <p className="coach-studio-alert is-success" role="status">{notice}</p>}
       {conflict && (
-        <div className="coach-studio-alert is-conflict" role="alert">
+        <div className="coach-studio-alert is-conflict" role="alert" tabIndex={-1} ref={conflictAlertRef}>
           <span>{conflict}</span>
           <div>
             {selectedPersona && <button type="button" onClick={() => void loadPersona(selectedPersona.id)}>Reload server draft</button>}
