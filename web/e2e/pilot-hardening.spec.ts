@@ -3500,6 +3500,18 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await page.getByRole('button', { name: /long-private-filename/ }).click()
   await page.getByRole('button', { name: /One calm next step/ }).click()
 
+  if ((page.viewportSize()?.width ?? 1_000) <= 390) {
+    const touchTargets = [
+      page.getByRole('button', { name: 'Delete source' }),
+      page.getByRole('button', { name: 'New item' }),
+      page.getByRole('button', { name: 'New pack' }),
+    ]
+    for (const target of touchTargets) {
+      const height = await target.evaluate((element) => element.getBoundingClientRect().height)
+      expect(height).toBeGreaterThanOrEqual(44)
+    }
+  }
+
   const editor = page.locator('.coach-candidate-editor')
   await expect(editor.getByText('<script>quoted source text stays inert</script>', { exact: true })).toBeVisible()
   await editor.getByLabel('Draft wording').fill('Choose one calm, practical next step and review it together.')
@@ -3518,6 +3530,13 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await itemPanel.getByRole('button', { name: 'New item' }).click()
   await itemPanel.getByLabel('Title').fill('Unsaved manual lesson')
   await itemPanel.getByLabel('Draft wording').fill('Keep this exact unsaved manual wording.')
+  if ((page.viewportSize()?.width ?? 1_000) <= 390) {
+    const alwaysOn = itemPanel.getByLabel(/Supply for every question/)
+    const tapLabel = alwaysOn.locator('xpath=ancestor::label')
+    expect(await tapLabel.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
+    await tapLabel.getByText('Supply for every question').click()
+    await expect(alwaysOn).toBeChecked()
+  }
 
   await editor.getByRole('button', { name: 'Save and create draft' }).click()
   await expect(page.getByRole('status')).toContainText('not available to Mia yet')

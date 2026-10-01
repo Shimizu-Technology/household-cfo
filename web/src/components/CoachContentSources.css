@@ -199,6 +199,7 @@
   .coach-source-trust li { border-radius: 0.6rem; }
   .coach-source-detail,
   .coach-source-upload { padding: 0.8rem; }
+  .coach-source-detail-actions .button--compact { min-height: 2.75rem; }
   .coach-candidate-actions { align-items: stretch; flex-direction: column; }
   .coach-candidate-actions .button { width: 100%; }
 }
