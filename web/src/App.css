@@ -2629,7 +2629,8 @@ h3 {
   text-transform: none;
 }
 
-.debt-empty {
+.debt-empty,
+.account-empty {
   padding: 15px;
   border: 1px dashed rgba(95, 125, 97, 0.36);
   border-radius: 16px;
@@ -2637,6 +2638,7 @@ h3 {
 }
 
 .debt-empty p,
+.account-empty p,
 .debt-privacy-note {
   margin: 4px 0 0;
   color: var(--muted);
