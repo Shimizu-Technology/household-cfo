@@ -189,6 +189,52 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     assert_includes response.parsed_body.fetch("error"), "unsupported assertion type"
   end
 
+  test "run index preserves historical pass integrity while show and readiness use the current suite" do
+    owner = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    persona = create_persona(creator: owner, workspace: workspace)
+    headers = workspace_auth_headers(owner, workspace)
+    first_run = nil
+    latest_run = nil
+    with_live_evaluation do
+      first_run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
+      latest_run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
+    end
+    custom = persona.evaluation_cases.new(
+      coach_workspace: workspace,
+      created_by_user: owner,
+      name: "New current-suite case",
+      case_kind: "custom",
+      prompt: "Keep the household plan in context across this follow-up.",
+      assertions: [ { "type" => "not_fallback" } ],
+      required: false,
+      active: true,
+      request_key: "historical-index-#{SecureRandom.uuid}",
+      request_fingerprint: "d" * 64
+    )
+    custom.case_digest = CoachPersonaEvaluationCase.digest_for(custom)
+    custom.save!
+
+    get "/api/v1/admin/personas/#{persona.id}/evaluation_runs", headers: headers
+
+    assert_response :success
+    rows = response.parsed_body.fetch("evaluation_runs").index_by { |run| run.fetch("id") }
+    assert_equal true, rows.fetch(first_run.id).fetch("passed"), "historical rows should report immutable run integrity"
+    assert_equal false, rows.fetch(latest_run.id).fetch("passed"), "the latest row should reflect the current suite"
+
+    get "/api/v1/admin/personas/#{persona.id}/evaluation_runs/#{first_run.id}", headers: headers
+
+    assert_response :success
+    assert_equal false, response.parsed_body.dig("evaluation_run", "passed")
+
+    get "/api/v1/admin/personas/#{persona.id}/release_readiness", headers: headers
+
+    assert_response :success
+    assert_equal false, response.parsed_body.dig("readiness", "evaluation_run", "passed")
+    assert_includes response.parsed_body.dig("readiness", "blockers"),
+      "The latest evaluation must pass the current case suite without fallback output."
+  end
+
   test "new API personas cannot bypass gate v2 by omitting release evidence" do
     owner = persona_user
     workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)

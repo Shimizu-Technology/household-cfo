@@ -191,6 +191,8 @@ module Mia
     end
 
     def restore_blocked_reason(version)
+      return "persona_archived" if persona.archived?
+      return "edit_permission_required" unless restore_permitted?
       return "current_version" if version.id == persona.current_published_version_id
       digests = draft_digests
       return "draft_unavailable" unless digests
@@ -199,6 +201,12 @@ module Mia
         version.phrase_manifest_digest == digests.fetch(:phrases)
 
       nil
+    end
+
+    def restore_permitted?
+      return @restore_permitted if defined?(@restore_permitted)
+
+      @restore_permitted = policy.can_edit?(persona)
     end
 
     def draft_digests

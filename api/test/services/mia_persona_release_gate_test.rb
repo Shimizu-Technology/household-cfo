@@ -488,6 +488,39 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     assert_account_change_revokes_release_authority(role: "participant")
   end
 
+  test "review services translate lost current authority into their typed errors" do
+    owner = persona_user
+    config = persona_configuration(assistant_name: "Authority error assistant")
+    config["phrases"] = [
+      persona_phrase_artifact(
+        { "text" => "One step at a time", "meaning" => "A reviewed coaching reminder." },
+        source_user_id: owner.id
+      )
+    ]
+    persona = create_persona(creator: owner, config: config)
+    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
+    artifact = run.release_candidate.phrase_artifacts_snapshot.sole
+
+    original_current_review_role = Mia::PersonaRelease::ReviewAuthority.method(:current_review_role)
+    Mia::PersonaRelease::ReviewAuthority.define_singleton_method(:current_review_role) { |workspace:, reviewer:| nil }
+    begin
+      approval_error = assert_raises(Mia::PersonaRelease::RunApprover::Error) do
+        approve(run, owner)
+      end
+      assert_equal "Reviewer no longer has workspace review access", approval_error.message
+
+      attestation_error = assert_raises(Mia::PersonaRelease::AudienceAttester::Error) do
+        attest_phrase(persona, run.release_candidate, artifact, owner)
+      end
+      assert_equal "Reviewer no longer has workspace review access", attestation_error.message
+    ensure
+      Mia::PersonaRelease::ReviewAuthority.define_singleton_method(
+        :current_review_role,
+        original_current_review_role
+      )
+    end
+  end
+
   test "behavioral preview evidence is immutable bounded and sealed into publication evidence" do
     owner = persona_user
     persona = create_persona(creator: owner)

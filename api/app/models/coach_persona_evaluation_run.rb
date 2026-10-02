@@ -42,21 +42,17 @@ class CoachPersonaEvaluationRun < ApplicationRecord
   end
 
   def passed_and_valid?
-    return false unless status == "passed" && run_digest.present? && completed_at.present?
+    return false unless completed_pass?
 
-    entries = results.includes(:evaluation_case).to_a
-    return false if entries.empty? || entries.any? { |result| !result.integrity_valid? || result.status != "passed" || result.fallback_only? }
-    evaluated_cases_digest = Digest::SHA256.hexdigest(JSON.generate(
-      entries.sort_by(&:coach_persona_evaluation_case_id).map { |entry| entry.evaluation_case.case_digest }
-    ).b)
-    return false unless ActiveSupport::SecurityUtils.secure_compare(cases_digest, evaluated_cases_digest)
-    ActiveSupport::SecurityUtils.secure_compare(run_digest, self.class.digest_for(run: self, results: entries))
+    valid_results?(integrity_results)
   end
 
   def current_suite_pass?
-    return false unless passed_and_valid?
+    return false unless completed_pass?
 
-    entries = results.includes(:evaluation_case).to_a
+    entries = integrity_results
+    return false unless valid_results?(entries)
+
     evaluated_ids = entries.map(&:coach_persona_evaluation_case_id)
     active_ids = release_candidate.coach_persona.evaluation_cases.where(active: true).pluck(:id)
     required_keys = Mia::PersonaRelease::SystemCases::DEFINITIONS.pluck(:system_key)
@@ -77,6 +73,30 @@ class CoachPersonaEvaluationRun < ApplicationRecord
   end
 
   private
+
+  def completed_pass?
+    status == "passed" && run_digest.present? && completed_at.present?
+  end
+
+  def valid_results?(entries)
+    return false if entries.empty? || entries.any? { |result| !result.integrity_valid? || result.status != "passed" || result.fallback_only? }
+    evaluated_cases_digest = Digest::SHA256.hexdigest(JSON.generate(
+      entries.sort_by(&:coach_persona_evaluation_case_id).map { |entry| entry.evaluation_case.case_digest }
+    ).b)
+    return false unless ActiveSupport::SecurityUtils.secure_compare(cases_digest, evaluated_cases_digest)
+    ActiveSupport::SecurityUtils.secure_compare(run_digest, self.class.digest_for(run: self, results: entries))
+  end
+
+  def integrity_results
+    results_association = association(:results)
+    fully_loaded = results_association.loaded? &&
+      results_association.target.all? { |result| result.association(:evaluation_case).loaded? }
+    if fully_loaded
+      results.target
+    else
+      results.includes(:evaluation_case).to_a
+    end
+  end
 
   def lifecycle_is_coherent
     terminal = status.in?(%w[passed failed error])

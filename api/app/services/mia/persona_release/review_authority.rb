@@ -10,7 +10,7 @@ module Mia
 
       def snapshot(workspace:, actor:)
         role = current_review_role(workspace: workspace, reviewer: actor)
-        raise ArgumentError, "Reviewer no longer has workspace review access" unless role
+        raise ReviewRules::Error, "Reviewer no longer has workspace review access" unless role
 
         permissions = role == "platform_admin" ? CoachWorkspace::PERMISSIONS.fetch("owner") : CoachWorkspace::PERMISSIONS.fetch(role)
 

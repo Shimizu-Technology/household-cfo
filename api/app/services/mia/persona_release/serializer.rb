@@ -59,7 +59,7 @@ module Mia
         }
       end
 
-      def self.run(record, include_results: false)
+      def self.run(record, include_results: false, current_suite: true)
         payload = {
           id: record.id,
           candidate_id: record.release_candidate.id,
@@ -69,7 +69,7 @@ module Mia
           adapter_kind: record.adapter_kind,
           cases_digest: record.cases_digest,
           run_digest: record.run_digest,
-          passed: record.current_suite_pass?,
+          passed: current_suite ? record.current_suite_pass? : record.passed_and_valid?,
           started_at: record.started_at,
           completed_at: record.completed_at,
           enqueued_at: record.enqueued_at,

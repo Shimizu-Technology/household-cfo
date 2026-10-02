@@ -112,6 +112,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
   const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty
+  const personaDirty = dirty || personaSourcesDirty || setupDirty
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -399,7 +400,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   async function handlePreview() {
-    if (!selectedPersona || !draft || dirty || pendingAction) return
+    if (!selectedPersona || !draft || personaDirty || pendingAction) return
     const mutation = beginMutation('preview')
     setError(null)
     setConflict(null)
@@ -420,7 +421,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   async function handlePublish(evidence: PersonaPublishEvidence) {
-    if (!selectedPersona || dirty || pendingAction) return
+    if (!selectedPersona || personaDirty || pendingAction) return
     const previewDigest = savedPreviewDigestForCurrentDraft(selectedPersona)
     if (!previewDigest) {
       setError('Run an exact preview of the saved draft before publishing.')
@@ -460,7 +461,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleArchive() {
     if (!selectedPersona || pendingAction) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before archiving this assistant.')
       return
     }
@@ -497,7 +498,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleRestoreVersionToDraft(versionId: number, versionNumber: number) {
     if (!selectedPersona || pendingAction) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before restoring an earlier version to the draft.')
       return
     }
@@ -523,7 +524,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   async function handleAssignment(cohort: AdminPersonaAssignableCohort) {
     if (!selectedPersona?.published_version || pendingAction || !cohort.assignable) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
@@ -552,7 +553,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   async function handleRemoveAssignment(cohort: AdminPersonaAssignableCohort) {
     const assignedPersonaId = cohort.persona_assignment?.persona.id
     if (!assignedPersonaId || !selectedPersona || pendingAction) return
-    if (dirty) {
+    if (personaDirty) {
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
@@ -595,7 +596,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   async function handleRestorePhrasePromotion(promotionId: number) {
-    if (!selectedPersona || selectedPersona.draft_revision == null || dirty || pendingAction || workspaceMutations.pending) return
+    if (!selectedPersona || selectedPersona.draft_revision == null || personaDirty || pendingAction || workspaceMutations.pending) return
     const requestedPromotion = (selectedPersona.approved_phrase_promotions ?? []).find((promotion) => promotion.id === promotionId)
     const mutation = beginMutation('phrase_restore')
     setError(null)
@@ -873,7 +874,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                           phraseArtifactAccess={selectedPersona.phrase_artifact_access}
                           approvedPhrasePromotions={selectedPersona.approved_phrase_promotions ?? []}
                           phraseRestorePending={pendingAction === 'phrase_restore'}
-                          phraseRestoreDisabled={dirty || pendingAction !== null || workspaceMutations.pending}
+                          phraseRestoreDisabled={personaDirty || pendingAction !== null || workspaceMutations.pending}
                           onRestorePhrasePromotion={(promotionId) => void handleRestorePhrasePromotion(promotionId)}
                           description={description}
                           mode={mode}
@@ -923,7 +924,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 preview={preview}
                 previewEvidence={previewEvidence}
                 samplePrompt={samplePrompt}
-                dirty={dirty || personaSourcesDirty || setupDirty}
+                dirty={personaDirty}
                 parentBusy={pendingAction !== null || workspaceMutations.pending}
                 previewPending={pendingAction === 'preview'}
                 publishPending={pendingAction === 'publish'}
@@ -935,7 +936,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
               <LifecyclePanel
                 persona={selectedPersona}
-                dirty={dirty}
+                dirty={personaDirty}
                 pendingAction={pendingAction}
                 onRestoreVersionToDraft={(versionId, number) => void handleRestoreVersionToDraft(versionId, number)}
                 onArchive={() => void handleArchive()}
@@ -946,7 +947,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 persona={selectedPersona}
                 cohorts={assignmentCohorts}
                 pending={pendingAction === 'assignment'}
-                dirty={dirty}
+                dirty={personaDirty}
                 onAssign={(cohort) => void handleAssignment(cohort)}
                 onRemove={(cohort) => void handleRemoveAssignment(cohort)}
               />
@@ -1178,8 +1179,12 @@ function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft
                 ? <StatusBadge status="current" />
                 : version.restore_blocked_reason === 'draft_already_matches'
                   ? <StatusBadge status="matches draft" />
-                  : version.restore_blocked_reason === 'draft_unavailable'
-                    ? <StatusBadge status="draft unavailable" />
+                : version.restore_blocked_reason === 'draft_unavailable'
+                  ? <StatusBadge status="draft unavailable" />
+                : version.restore_blocked_reason === 'persona_archived'
+                  ? <StatusBadge status="archived" />
+                : version.restore_blocked_reason === 'edit_permission_required'
+                  ? <StatusBadge status="read only" />
                   : version.restore_to_draft_allowed && persona.permissions.edit
                     ? <Button size="compact" variant="ghost" disabled={dirty || pendingAction !== null} onClick={() => onRestoreVersionToDraft(version.id, version.number)}>{pendingAction === 'draft_restore' ? 'Restoring…' : 'Restore to draft'}</Button>
                     : null}

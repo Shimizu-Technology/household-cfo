@@ -950,7 +950,7 @@ export type AdminPersonaVersion = {
     number: number
   }
   restore_to_draft_allowed?: boolean
-  restore_blocked_reason?: 'current_version' | 'draft_already_matches' | 'draft_unavailable' | null
+  restore_blocked_reason?: 'current_version' | 'draft_already_matches' | 'draft_unavailable' | 'persona_archived' | 'edit_permission_required' | null
   content_packs?: AdminContentPackVersion[]
 }
 

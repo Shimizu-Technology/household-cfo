@@ -13,9 +13,8 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnlyTest < ActiveSupport::TestC
     assert connection.data_source_exists?(:coach_persona_draft_restore_events)
     restore_foreign_keys = connection.foreign_keys(:coach_persona_draft_restore_events)
     assert_equal %w[coach_persona_versions coach_personas users], restore_foreign_keys.map(&:to_table).sort
-    assert connection.indexes(:coach_persona_draft_restore_events).any? do |index|
-      index.unique && index.name == "idx_persona_draft_restore_events_digest"
-    end
+    assert connection.indexes(:coach_persona_draft_restore_events)
+      .any? { |index| index.unique && index.name == "idx_persona_draft_restore_events_digest" }
     assert_includes connection.check_constraints(:coach_persona_draft_restore_events).map(&:name),
       "persona_draft_restore_events_revision_sequence"
 

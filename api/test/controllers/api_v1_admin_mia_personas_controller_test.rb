@@ -144,6 +144,37 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "current_version", versions.fetch(second.id).fetch("restore_blocked_reason")
   end
 
+  test "version restore eligibility reflects edit access and archived state" do
+    owner = persona_user(role: "coach")
+    viewer = persona_user(role: "coach")
+    persona = persona_for(owner, assistant_name: "Restore eligibility assistant")
+    workspace = persona.coach_workspace
+    workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+    first = publish_persona(persona, actor: owner)
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
+    second = publish_persona(persona, actor: owner)
+
+    get "/api/v1/admin/personas/#{persona.id}",
+      headers: auth_headers(viewer).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+
+    assert_response :success
+    viewer_versions = response.parsed_body.dig("persona", "versions").index_by { |version| version.fetch("id") }
+    [ first, second ].each do |version|
+      assert_equal false, viewer_versions.fetch(version.id).fetch("restore_to_draft_allowed")
+      assert_equal "edit_permission_required", viewer_versions.fetch(version.id).fetch("restore_blocked_reason")
+    end
+
+    persona.archive!
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(owner)
+
+    assert_response :success
+    archived_versions = response.parsed_body.dig("persona", "versions").index_by { |version| version.fetch("id") }
+    [ first, second ].each do |version|
+      assert_equal false, archived_versions.fetch(version.id).fetch("restore_to_draft_allowed")
+      assert_equal "persona_archived", archived_versions.fetch(version.id).fetch("restore_blocked_reason")
+    end
+  end
+
   test "version not found responses do not expose internal lookup details" do
     admin = persona_user(role: "admin")
     persona = persona_for(admin, assistant_name: "Version lookup assistant")
