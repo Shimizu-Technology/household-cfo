@@ -16,7 +16,7 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          sources = policy.accessible_sources.where.not(status: "source_deleted").includes(:current_attempt)
+          sources = policy.accessible_sources.where.not(status: "source_deleted").includes(:current_attempt, :url_intake)
             .order(Arel.sql("CASE WHEN status = 'upload_cleanup_failed' THEN 0 ELSE 1 END ASC"), created_at: :desc).limit(100)
           render json: {
             sources: sources.map { |source| serialize_source(source, include_candidates: false) },
@@ -278,6 +278,9 @@ module Api
 
         def create_upload_intent!(metadata)
           with_advisory_lock("upload-quota:#{upload_owner_key(metadata)}") do
+            if quota_for(metadata).intake_scope.where.not(status: "deleted").exists?(request_id: metadata.fetch(:upload_request_id))
+              raise ContentSources::Error, "upload_conflict"
+            end
             existing = source_owner_scope(metadata).find_by(upload_request_id: metadata.fetch(:upload_request_id))
             if existing
               same_identity = metadata.slice(:scope, :filename, :content_type, :byte_size, :checksum_sha256).all? { |key, value| existing.public_send(key) == value }

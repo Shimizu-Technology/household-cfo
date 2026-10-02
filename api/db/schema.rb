@@ -443,11 +443,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.index ["staging_s3_key"], name: "index_coach_content_source_url_intakes_on_staging_s3_key", unique: true, where: "(staging_s3_key IS NOT NULL)"
     t.index ["status", "updated_at"], name: "idx_url_intakes_recovery"
     t.index ["url_identity_hmac", "hmac_key_version"], name: "idx_url_intakes_hmac_version"
+    t.check_constraint "(status::text = ANY (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NOT NULL OR (status::text <> ALL (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NULL", name: "url_intakes_source_state_coherent"
     t.check_constraint "fetched_checksum_sha256 IS NULL OR fetched_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_checksum_sha256"
     t.check_constraint "redirect_count >= 0 AND redirect_count <= 3", name: "url_intakes_redirects_bounded"
     t.check_constraint "reserved_bytes > 0 AND reserved_bytes <= 12582912", name: "url_intakes_reservation_bounded"
     t.check_constraint "scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL OR scope::text = 'platform'::text AND coach_workspace_id IS NULL", name: "url_intakes_workspace_matches_scope"
     t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "url_intakes_scope_valid"
+    t.check_constraint "status::text = 'deleted'::text OR encrypted_url_ciphertext IS NOT NULL AND encrypted_url_iv IS NOT NULL AND encrypted_url_auth_tag IS NOT NULL", name: "url_intakes_encrypted_payload_present"
     t.check_constraint "status::text = ANY (ARRAY['queued'::character varying::text, 'fetching'::character varying::text, 'staged'::character varying::text, 'registering'::character varying::text, 'registered'::character varying::text, 'failed'::character varying::text, 'cleanup_pending'::character varying::text, 'cleanup_failed'::character varying::text, 'deleted'::character varying::text])", name: "url_intakes_status_valid"
     t.check_constraint "url_identity_hmac::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_hmac_sha256"
   end

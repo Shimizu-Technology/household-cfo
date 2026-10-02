@@ -19,6 +19,7 @@ class CoachContentSourceUrlIntake < ApplicationRecord
   validates :fetched_checksum_sha256, allow_nil: true, format: { with: /\A[0-9a-f]{64}\z/ }
   validate :workspace_matches_scope
   validate :source_matches_boundary
+  validate :source_state_is_coherent
 
   scope :reserving_quota, -> { where(status: ACTIVE_RESERVATION_STATUSES) }
 
@@ -53,5 +54,12 @@ class CoachContentSourceUrlIntake < ApplicationRecord
         coach_content_source.created_by_user_id == created_by_user_id && coach_content_source.ingestion_method == "url_snapshot"
       errors.add(:coach_content_source, "must belong to the same URL intake boundary")
     end
+  end
+
+  def source_state_is_coherent
+    expects_source = status.in?(%w[registered deleted])
+    return if expects_source == coach_content_source.present?
+
+    errors.add(:coach_content_source, "must match the URL intake lifecycle state")
   end
 end

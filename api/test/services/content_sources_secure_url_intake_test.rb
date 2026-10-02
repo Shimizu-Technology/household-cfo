@@ -50,6 +50,11 @@ class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
     with_singleton_method(Resolv, :getaddresses, ->(*) { [ "fc00::1" ] }) do
       assert_raises(ContentSources::Error) { resolver.resolve!("internal.example") }
     end
+    %w[::ffff:127.0.0.1 64:ff9b::7f00:1 2002:7f00:1:: 3fff::1].each do |address|
+      with_singleton_method(Resolv, :getaddresses, ->(*) { [ address ] }) do
+        assert_raises(ContentSources::Error, address) { resolver.resolve!("transition.example") }
+      end
+    end
   end
 
   test "HTML extractor removes active and hidden content and keeps readable text" do
@@ -110,6 +115,29 @@ class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
     end
   ensure
     tempfile&.unlink
+  end
+
+  test "fetch sandbox returns only bounded metadata and an owned snapshot tempfile" do
+    fake = Object.new
+    fake.define_singleton_method(:call) do |_url, output_path:|
+      body = "Choose one clear next step for the household.\n"
+      File.binwrite(output_path, body)
+      ContentSources::PinnedHttpsFetcher::Result.new(
+        path: output_path, filename: "web-source.txt", content_type: "text/plain", byte_size: body.bytesize,
+        checksum_sha256: Digest::SHA256.hexdigest(body), redirect_count: 0
+      )
+    end
+    result = nil
+
+    with_singleton_method(ContentSources::PinnedHttpsFetcher, :new, -> { fake }) do
+      result = ContentSources::FetchSandbox.new.call("https://example.com/guide")
+    end
+
+    assert_equal "web-source.txt", result.filename
+    assert_equal "Choose one clear next step for the household.\n", File.binread(result.path)
+    assert_equal Digest::SHA256.file(result.path).hexdigest, result.checksum_sha256
+  ensure
+    result&.close!
   end
 
   private

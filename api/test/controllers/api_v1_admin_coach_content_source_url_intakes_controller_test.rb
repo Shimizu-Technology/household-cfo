@@ -31,6 +31,12 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     refute_includes response.body, "private=canary"
     assert_equal "https://example.com/Mrs-Mel-guide?private=canary", ContentSources::UrlCipher.decrypt(intake.encrypted_url_payload)
 
+    get endpoint, headers: workspace_auth_headers(coach, workspace)
+    assert_response :success
+    assert_equal [ intake.id ], response.parsed_body.fetch("intakes").map { |entry| entry.fetch("id") }
+    refute_includes response.body, "Mrs-Mel"
+    refute_includes response.body, "private=canary"
+
     assert_no_difference -> { CoachContentSourceUrlIntake.count } do
       with_storage_configured do
         post endpoint, params: {
@@ -58,6 +64,37 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_response :unprocessable_entity
     assert_equal "url_intake_conflict", response.parsed_body.fetch("code")
     assert_equal 1, CoachContentSourceUrlIntake.count
+  end
+
+  test "upload and URL intake request identities cannot collide" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    upload_request_id = SecureRandom.uuid
+    CoachContentSource.create!(
+      scope: "coach", coach_workspace: workspace, created_by_user: coach, status: "uploading",
+      filename: "guide.txt", content_type: "text/plain", byte_size: 5,
+      checksum_sha256: Digest::SHA256.hexdigest("guide"), s3_key: "test/#{SecureRandom.uuid}",
+      upload_request_id: upload_request_id
+    )
+
+    with_storage_configured do
+      post endpoint, params: { url: "https://example.com/guide", request_id: upload_request_id },
+        headers: workspace_auth_headers(coach, workspace), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "url_intake_conflict", response.parsed_body.fetch("code")
+
+    url_request_id = SecureRandom.uuid
+    with_storage_configured do
+      post endpoint, params: { url: "https://example.com/guide", request_id: url_request_id },
+        headers: workspace_auth_headers(coach, workspace), as: :json
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: Digest::SHA256.hexdigest("guide"), upload_request_id: url_request_id, scope: "coach"
+      }, headers: workspace_auth_headers(coach, workspace), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "upload_conflict", response.parsed_body.fetch("code")
   end
 
   test "viewer and participant cannot create or inspect workspace URL intakes" do
@@ -99,6 +136,29 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_response :unprocessable_entity
     assert_equal "source_quota_reached", response.parsed_body.fetch("code")
     assert_empty CoachContentSourceUrlIntake.all
+  end
+
+  test "only an administrator can retry terminal URL object cleanup" do
+    admin = persona_user(role: "admin")
+    coach = persona_user
+    encrypted = ContentSources::UrlCipher.encrypt("https://example.com/guide")
+    intake = CoachContentSourceUrlIntake.create!(
+      scope: "platform", created_by_user: admin, request_id: SecureRandom.uuid,
+      encrypted_url_ciphertext: encrypted.fetch(:ciphertext), encrypted_url_iv: encrypted.fetch(:iv),
+      encrypted_url_auth_tag: encrypted.fetch(:auth_tag), encryption_key_version: 1,
+      url_identity_hmac: ContentSources::UrlCipher.identity("https://example.com/guide"), hmac_key_version: 1,
+      status: "cleanup_failed", reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES,
+      staging_s3_key: "staging/#{SecureRandom.uuid}", cleanup_attempts: 5
+    )
+
+    post "#{endpoint}/#{intake.id}/retry_cleanup", headers: auth_headers(coach), as: :json
+    assert_response :not_found
+
+    assert_enqueued_with(job: CoachContentSourceUrlCleanupJob, args: [ intake.id ]) do
+      post "#{endpoint}/#{intake.id}/retry_cleanup", headers: auth_headers(admin), as: :json
+    end
+    assert_response :accepted
+    assert_equal true, response.parsed_body.dig("intake", "cleanup_retryable")
   end
 
   private

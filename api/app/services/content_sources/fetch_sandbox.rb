@@ -45,6 +45,7 @@ module ContentSources
       Process.fork do
         reader.close
         Process.setpgrp
+        ENV.replace(ENV.slice("PATH", "GEM_HOME", "GEM_PATH", "BUNDLE_GEMFILE", "BUNDLE_BIN_PATH", "RUBYOPT", "RUBYLIB", "SSL_CERT_FILE", "SSL_CERT_DIR"))
         apply_resource_limit
         payload = begin
           result = Timeout.timeout(MAX_RUNTIME) { PinnedHttpsFetcher.new.call(url, output_path: output_path) }
@@ -73,7 +74,7 @@ module ContentSources
           Process.wait(pid)
           raise Error, "url_fetch_failed"
         end
-        sleep 0.02
+        sleep 0.05
       end
       payload = JSON.parse(reader.read)
       raise Error, payload.fetch("code") unless payload.fetch("ok")

@@ -6,8 +6,12 @@ module Api
       class CoachContentSourceUrlIntakesController < BaseController
         before_action :authenticate_user!
         before_action :require_staff!
-        before_action :set_intake, only: :show
+        before_action :set_intake, only: %i[show retry_cleanup]
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
+
+        def index
+          render json: { intakes: visible_intakes.where.not(status: "deleted").order(created_at: :desc, id: :desc).limit(100).map { |intake| serialize(intake) } }
+        end
 
         def create
           return storage_unavailable unless S3Service.configured?
@@ -28,6 +32,9 @@ module Api
           intake = nil
           created = false
           ContentSources::OwnerLock.call("upload-quota:#{quota.owner_key}") do
+            if quota.source_scope.where.not(status: "source_deleted").exists?(upload_request_id: request_id)
+              raise ContentSources::Error, "url_intake_conflict"
+            end
             intake = intake_scope(scope, workspace).find_by(request_id: request_id)
             if intake
               same_identity = intake.url_identity_hmac == identity && intake.hmac_key_version == ContentSources::UrlCipher::CURRENT_VERSION
@@ -83,6 +90,24 @@ module Api
           render json: { intake: serialize(@intake) }
         end
 
+        def retry_cleanup
+          unless current_user.admin?
+            return render json: { error: "Only administrators can retry private URL cleanup.", code: "admin_required" }, status: :forbidden
+          end
+          retryable = @intake.status == "cleanup_failed" ||
+            (@intake.status == "registered" && @intake.staging_s3_key.present? && @intake.error_code == "url_staging_cleanup_failed")
+          unless retryable
+            return render json: { error: "This URL intake cleanup is not retryable.", code: "url_cleanup_not_retryable" }, status: :unprocessable_entity
+          end
+
+          job = CoachContentSourceUrlCleanupJob.perform_later(@intake.id)
+          raise ActiveJob::EnqueueError, "Secure URL cleanup could not be queued" unless job
+
+          render json: { intake: serialize(@intake) }, status: :accepted
+        rescue ActiveJob::EnqueueError
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
+        end
+
         private
 
         def policy
@@ -103,14 +128,17 @@ module Api
         end
 
         def set_intake
-          visible = if current_user.admin? && coach_workspace_for_policy.nil?
+          @intake = visible_intakes.find(params[:id])
+        end
+
+        def visible_intakes
+          if current_user.admin? && coach_workspace_for_policy.nil?
             CoachContentSourceUrlIntake.all
           elsif coach_workspace_for_policy && (current_user.admin? || coach_workspace_for_policy.allows?(current_user, :edit) || coach_workspace_for_policy.allows?(current_user, :review))
             CoachContentSourceUrlIntake.where(scope: "coach", coach_workspace: coach_workspace_for_policy)
           else
-            CoachContentSourceUrlIntake.where(created_by_user: current_user)
+            CoachContentSourceUrlIntake.none
           end
-          @intake = visible.find(params[:id])
         end
 
         def serialize(intake)
@@ -121,6 +149,10 @@ module Api
             source_id: intake.coach_content_source_id,
             error_code: intake.error_code,
             error: intake.error_code && ContentSources::Error::SAFE_MESSAGES.fetch(intake.error_code, ContentSources::Error::SAFE_MESSAGES.fetch("processing_failed")),
+            cleanup_retryable: current_user.admin? && (
+              intake.status == "cleanup_failed" ||
+              (intake.status == "registered" && intake.staging_s3_key.present? && intake.error_code == "url_staging_cleanup_failed")
+            ),
             redirect_count: intake.redirect_count,
             created_at: intake.created_at,
             completed_at: intake.completed_at

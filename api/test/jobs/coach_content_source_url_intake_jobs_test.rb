@@ -107,6 +107,37 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
     assert_empty CoachContentSourceUrlIntake.reserving_quota.where(id: intake.id)
   end
 
+  test "a normal duplicate delivery cannot race a staged intake" do
+    coach = persona_user
+    intake = url_intake(coach: coach)
+    intake.update!(
+      status: "staged", staging_s3_key: "staging/#{SecureRandom.uuid}", resolved_filename: "guide.txt",
+      resolved_content_type: "text/plain", fetched_byte_size: 42,
+      fetched_checksum_sha256: Digest::SHA256.hexdigest("snapshot"), fetched_at: Time.current
+    )
+
+    assert_no_enqueued_jobs do
+      CoachContentSourceUrlIntakeJob.perform_now(intake.id)
+    end
+
+    assert_equal "staged", intake.reload.status
+    assert_nil intake.final_s3_key
+  end
+
+  test "a stale boundary delivery claims cleanup for orphaned storage" do
+    coach = persona_user
+    intake = url_intake(coach: coach)
+    intake.update!(status: "fetching", staging_s3_key: "staging/#{SecureRandom.uuid}")
+    intake.update_column(:updated_at, 6.minutes.ago)
+
+    assert_enqueued_with(job: CoachContentSourceUrlCleanupJob, args: [ intake.id ]) do
+      CoachContentSourceUrlIntakeJob.perform_now(intake.id, recovery: true)
+    end
+
+    assert_equal "cleanup_pending", intake.reload.status
+    assert_equal "url_fetch_failed", intake.error_code
+  end
+
   test "source deletion redacts the encrypted URL and marks the intake deleted" do
     coach = persona_user
     source = CoachContentSource.create!(
@@ -116,14 +147,50 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
       upload_request_id: SecureRandom.uuid, deletion_requested_at: Time.current, source_deleted_by_user: coach
     )
     intake = url_intake(coach: coach, source: source, status: "registered")
+    staging_key = "staging/#{SecureRandom.uuid}"
+    intake.update!(staging_s3_key: staging_key)
+    deleted = []
 
-    with_singleton_method(S3Service, :delete!, ->(*) { true }) { CoachContentSourceDeletionJob.perform_now(source.id) }
+    with_singleton_method(S3Service, :delete!, ->(key) { deleted << key; true }) { CoachContentSourceDeletionJob.perform_now(source.id) }
 
     intake.reload
+    assert_equal [ source.s3_key, staging_key ], deleted
     assert_equal "deleted", intake.status
     assert_nil intake.encrypted_url_ciphertext
     assert_nil intake.encrypted_url_iv
     assert_nil intake.encrypted_url_auth_tag
+  end
+
+  test "registered source keeps working while staging cleanup retries durably" do
+    coach = persona_user
+    source = CoachContentSource.create!(
+      scope: "coach", created_by_user: coach, status: "queued", ingestion_method: "url_snapshot",
+      filename: "guide.txt", content_type: "text/plain", byte_size: 5,
+      checksum_sha256: Digest::SHA256.hexdigest("guide"), s3_key: "final/#{SecureRandom.uuid}",
+      upload_request_id: SecureRandom.uuid
+    )
+    intake = url_intake(coach: coach, source: source, status: "registered")
+    intake.update!(staging_s3_key: "staging/#{SecureRandom.uuid}")
+    service_error = Aws::S3::Errors::ServiceError.new(nil, "temporary")
+
+    with_singleton_method(S3Service, :delete!, ->(*) { raise service_error }) do
+      assert_enqueued_with(job: CoachContentSourceUrlCleanupJob, args: [ intake.id ]) do
+        CoachContentSourceUrlCleanupJob.perform_now(intake.id)
+      end
+    end
+
+    intake.reload
+    assert_equal "registered", intake.status
+    assert_equal "url_staging_cleanup_failed", intake.error_code
+    assert_equal 1, intake.cleanup_attempts
+    assert intake.staging_s3_key.present?
+
+    with_singleton_method(S3Service, :delete!, ->(*) { true }) do
+      CoachContentSourceUrlCleanupJob.perform_now(intake.id)
+    end
+    assert_nil intake.reload.staging_s3_key
+    assert_nil intake.error_code
+    assert_equal 0, intake.cleanup_attempts
   end
 
   test "accepted URL guidance seals snapshot ingestion into immutable provenance" do

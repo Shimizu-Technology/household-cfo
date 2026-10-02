@@ -6,13 +6,18 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
   queue_as :default
 
   RESERVATION_BYTES = ContentSources::UploadValidator::PDF_MAX_BYTES
+  STALE_BOUNDARY_AFTER = 5.minutes
 
-  def perform(intake_id)
+  def perform(intake_id, recovery: false)
     intake = CoachContentSourceUrlIntake.find_by(id: intake_id)
     return unless intake
+    return recover_boundary!(intake) if recovery
+    return enqueue_processing!(intake) if intake.status == "registered"
+    return unless intake.status == "queued"
 
     url = claim_fetch!(intake)
     return unless url
+    schedule_boundary_recheck!(intake)
 
     result = ContentSources::FetchSandbox.new.call(url)
     stage!(intake, result)
@@ -36,7 +41,7 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
     payload = nil
     intake.with_lock do
       return if intake.status == "registered"
-      return unless intake.status.in?(%w[queued failed])
+      return unless intake.status == "queued"
       unless current_permission?(intake)
         intake.update!(status: "failed", error_code: "url_intake_unavailable", completed_at: Time.current)
         return
@@ -46,6 +51,27 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
       payload = intake.encrypted_url_payload
     end
     ContentSources::UrlCipher.decrypt(payload)
+  end
+
+  def recover_boundary!(intake)
+    case intake.status
+    when "registered"
+      CoachContentSourceUrlCleanupJob.perform_later(intake.id) if intake.staging_s3_key.present?
+      enqueue_processing!(intake)
+    when "staged"
+      register!(intake)
+    when "fetching", "registering"
+      return if intake.updated_at > STALE_BOUNDARY_AFTER.ago
+
+      fail_safely(intake, "url_fetch_failed", cleanup: true)
+    when "cleanup_pending"
+      CoachContentSourceUrlCleanupJob.perform_later(intake.id)
+    end
+  end
+
+  def schedule_boundary_recheck!(intake)
+    job = self.class.set(wait_until: intake.updated_at + STALE_BOUNDARY_AFTER).perform_later(intake.id, recovery: true)
+    raise ActiveJob::EnqueueError, "Secure URL intake recovery could not be queued" unless job
   end
 
   def stage!(intake, result)
@@ -81,6 +107,7 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
       raise ContentSources::Error, "url_intake_conflict" unless intake.status == "staged"
       intake.update!(status: "registering", final_s3_key: destination)
     end
+    schedule_boundary_recheck!(intake)
     S3Service.copy!(intake.staging_s3_key, destination)
     verify_final_object!(intake, destination)
 
@@ -115,10 +142,7 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
     rescue Aws::S3::Errors::ServiceError, S3Service::MissingConfigurationError
       CoachContentSourceUrlCleanupJob.perform_later(intake.id)
     end
-    CoachContentSourceProcessingJob.perform_later(intake.coach_content_source_id)
-  rescue StandardError
-    schedule_cleanup!(intake)
-    raise
+    enqueue_processing!(intake)
   end
 
   def current_permission?(intake)
@@ -141,6 +165,14 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
       object.fetch(:server_side_encryption).to_s == "AES256" &&
       ActiveSupport::SecurityUtils.secure_compare(object.fetch(:checksum_sha256).to_s, expected_checksum)
     raise ContentSources::Error, "signature_mismatch" unless valid
+  end
+
+  def enqueue_processing!(intake)
+    source = intake.coach_content_source
+    return unless source&.status == "queued"
+
+    job = CoachContentSourceProcessingJob.perform_later(source.id)
+    raise ActiveJob::EnqueueError, "Content source processing could not be queued" unless job
   end
 
   def quota_for(intake)
@@ -166,14 +198,16 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
   end
 
   def schedule_cleanup!(intake)
+    should_enqueue = false
     intake.with_lock do
-      return if intake.status.in?(%w[deleted cleanup_pending cleanup_failed])
+      return if intake.status.in?(%w[deleted cleanup_failed])
       if intake.status == "registered"
-        CoachContentSourceUrlCleanupJob.perform_later(intake.id) if intake.staging_s3_key.present?
-        return
+        should_enqueue = intake.staging_s3_key.present?
+      else
+        intake.update!(status: "cleanup_pending") unless intake.status == "cleanup_pending"
+        should_enqueue = true
       end
-      intake.update!(status: "cleanup_pending")
     end
-    CoachContentSourceUrlCleanupJob.perform_later(intake.id)
+    CoachContentSourceUrlCleanupJob.perform_later(intake.id) if should_enqueue
   end
 end

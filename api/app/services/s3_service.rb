@@ -87,10 +87,9 @@ class S3Service
     def copy!(source_key, destination_key)
       raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
 
-      source = Aws::S3::Object.new(bucket_name, source_key, client: s3_client)
       destination = Aws::S3::Object.new(bucket_name, destination_key, client: s3_client)
       destination.copy_from(
-        copy_source: source,
+        copy_source: "#{bucket_name}/#{source_key}",
         server_side_encryption: "AES256",
         checksum_algorithm: "SHA256"
       )

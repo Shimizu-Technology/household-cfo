@@ -33,7 +33,8 @@ module ContentSources
         url_snapshot: source.url_intake && {
           intake_id: source.url_intake.id,
           redirect_count: source.url_intake.redirect_count,
-          fetched_at: source.url_intake.fetched_at
+          fetched_at: source.url_intake.fetched_at,
+          cleanup_required: source.url_intake.staging_s3_key.present?
         },
         candidates: candidates.map { |candidate| candidate(candidate) }
       }

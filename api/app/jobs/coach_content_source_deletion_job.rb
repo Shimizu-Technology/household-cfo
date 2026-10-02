@@ -4,21 +4,17 @@ class CoachContentSourceDeletionJob < ApplicationJob
   queue_as :default
 
   MAX_AUTOMATIC_ATTEMPTS = 5
+  DeletionPlan = Data.define(:source_key, :keys)
 
   def perform(source_id)
     source = CoachContentSource.find_by(id: source_id)
     return unless source
 
-    key = prepare_deletion!(source)
-    return if key == :skip
+    plan = prepare_deletion!(source)
+    return if plan == :skip
 
-    if key == :missing
-      finalize_deletion!(source, nil)
-      return
-    end
-
-    S3Service.delete!(key)
-    finalize_deletion!(source, key)
+    plan.keys.each { |key| S3Service.delete!(key) }
+    finalize_deletion!(source, plan.source_key)
   rescue Aws::S3::Errors::ServiceError, S3Service::MissingConfigurationError => error
     Rails.logger.warn("[CoachContentSourceDeletionJob] source=#{source_id} error_class=#{error.class}")
     persist_deletion_failure!(source) if defined?(source) && source
@@ -31,12 +27,15 @@ class CoachContentSourceDeletionJob < ApplicationJob
       return :skip if source.status == "source_deleted"
       return :skip unless source.status.in?(%w[deletion_pending deletion_failed])
 
-      return :missing if source.s3_key.blank?
+      staging_key = source.url_intake&.staging_s3_key
+      keys = [ source.s3_key, staging_key ].compact.uniq
+      if keys.any?
+        metadata = source.processing_metadata.to_h.slice("format", "page_count", "paragraph_count", "line_count", "cue_count", "character_count", "segment_count", "candidate_count")
+        metadata["delete_attempts"] = source.processing_metadata.to_h.fetch("delete_attempts", 0).to_i + 1
+        source.update!(status: "deletion_pending", source_delete_error_code: nil, processing_metadata: metadata)
+      end
 
-      metadata = source.processing_metadata.to_h.slice("format", "page_count", "paragraph_count", "line_count", "cue_count", "character_count", "segment_count", "candidate_count")
-      metadata["delete_attempts"] = source.processing_metadata.to_h.fetch("delete_attempts", 0).to_i + 1
-      source.update!(status: "deletion_pending", source_delete_error_code: nil, processing_metadata: metadata)
-      source.s3_key
+      DeletionPlan.new(source_key: source.s3_key, keys: keys)
     end
   end
 

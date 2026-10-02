@@ -61,6 +61,12 @@ class CreateCoachContentSourceUrlIntakes < ActiveRecord::Migration[8.1]
     add_check_constraint :coach_content_source_url_intakes,
       "fetched_checksum_sha256 IS NULL OR fetched_checksum_sha256 ~ '^[0-9a-f]{64}$'",
       name: "url_intakes_checksum_sha256"
+    add_check_constraint :coach_content_source_url_intakes,
+      "status = 'deleted' OR (encrypted_url_ciphertext IS NOT NULL AND encrypted_url_iv IS NOT NULL AND encrypted_url_auth_tag IS NOT NULL)",
+      name: "url_intakes_encrypted_payload_present"
+    add_check_constraint :coach_content_source_url_intakes,
+      "(status IN ('registered', 'deleted') AND coach_content_source_id IS NOT NULL) OR (status NOT IN ('registered', 'deleted') AND coach_content_source_id IS NULL)",
+      name: "url_intakes_source_state_coherent"
 
     add_column :coach_content_sources, :ingestion_method, :string, null: false, default: "upload"
     add_check_constraint :coach_content_sources,
