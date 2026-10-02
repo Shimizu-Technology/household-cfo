@@ -796,6 +796,38 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     refute_includes response.body, "SECRET DELIVERY ERROR"
   end
 
+  test "workspace-scoped user serialization hides a shared staff member's other workspace identity" do
+    admin = create_user(email: "staff-privacy-admin@example.com", role: "admin")
+    first_owner = create_user(email: "staff-privacy-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "staff-privacy-second-owner@example.com", role: "coach")
+    shared_staff = create_user(email: "staff-privacy-shared@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_workspace.update!(name: "Visible Staff Workspace")
+    first_workspace.coach_profile.update!(display_name: "Visible Coach", title: "Visible title", bio: "Visible bio")
+    second_workspace.update!(name: "SECRET OUTSIDE STAFF WORKSPACE")
+    second_workspace.coach_profile.update!(
+      display_name: "SECRET OUTSIDE COACH",
+      title: "SECRET OUTSIDE TITLE",
+      bio: "SECRET OUTSIDE BIO"
+    )
+    first_workspace.coach_workspace_memberships.create!(user: shared_staff, role: "editor")
+    second_workspace.coach_workspace_memberships.create!(user: shared_staff, role: "reviewer")
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(admin, first_workspace)
+
+    assert_response :success
+    row = response.parsed_body.fetch("users").find { |user| user.fetch("id") == shared_staff.id }
+    assert_equal [ first_workspace.id ], row.fetch("coach_workspaces").pluck("id")
+    assert_equal first_workspace.id, row.dig("active_coach_workspace", "id")
+    assert_equal "editor", row.dig("active_coach_workspace", "membership_role")
+    assert_equal "Visible Coach", row.dig("active_coach_workspace", "coach_profile", "display_name")
+    refute_includes response.body, "SECRET OUTSIDE STAFF WORKSPACE"
+    refute_includes response.body, "SECRET OUTSIDE COACH"
+    refute_includes response.body, "SECRET OUTSIDE TITLE"
+    refute_includes response.body, "SECRET OUTSIDE BIO"
+  end
+
   test "admin users index returns only five recent invite attempts" do
     admin = create_user(email: "recent-attempt-admin@example.com", role: "admin")
     user = create_user(email: "recent-attempt-user@example.com", role: "participant")

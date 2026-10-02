@@ -233,6 +233,7 @@ module Api
           scope = User.includes(
             :invited_by_user,
             :last_invite_email_sent_by_user,
+            :coach_workspace_memberships,
             cohort_memberships: :cohort
           )
           if current_user.admin?
@@ -623,12 +624,62 @@ module Api
             HouseholdFinance::PilotProgressBuilder.new(user, household: household).call
           end
 
-          user.as_api_json.merge(
+          serialized_user_identity(user).merge(
             invited_by: workspace_scoped_mode? ? nil : serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
             cohorts: serialized_memberships(user),
             workspace: progress
           )
+        end
+
+        def serialized_user_identity(user)
+          return user.as_api_json unless workspace_scoped_mode?
+
+          payload = {
+            id: user.id,
+            clerk_id: user.clerk_id,
+            email: user.email,
+            first_name: user.first_name,
+            last_name: user.last_name,
+            full_name: user.full_name,
+            role: user.role,
+            invitation_status: user.invitation_status,
+            invited_at: user.invited_at,
+            accepted_at: user.accepted_at,
+            last_sign_in_at: user.last_sign_in_at,
+            created_at: user.created_at,
+            is_admin: user.admin?,
+            is_coach: user.coach?,
+            is_participant: user.participant?,
+            is_staff: user.staff?
+          }
+          return payload unless user.staff?
+
+          membership = user.coach_workspace_memberships.find do |candidate|
+            candidate.coach_workspace_id == coach_workspace_for_policy.id
+          end
+          workspace_visible = user.admin? || membership.present?
+          workspace = workspace_visible ? serialized_active_workspace(user:, membership:) : nil
+          payload.merge(
+            coach_workspaces: workspace ? [ workspace ] : [],
+            active_coach_workspace: workspace
+          )
+        end
+
+        def serialized_active_workspace(user:, membership:)
+          workspace = coach_workspace_for_policy
+          profile = workspace.coach_profile
+          {
+            id: workspace.id,
+            name: workspace.name,
+            slug: workspace.slug,
+            membership_role: user.admin? ? "platform_admin" : membership&.role,
+            coach_profile: profile && {
+              display_name: profile.display_name,
+              title: profile.title,
+              bio: profile.bio.to_s
+            }
+          }
         end
 
         def serialized_memberships(user)
