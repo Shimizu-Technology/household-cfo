@@ -162,6 +162,7 @@ describe('cohort release API contract', () => {
             tool_registry_version: 3,
           },
         },
+        history: { limit: 25, total_count: 100, truncated: true },
         releases: [{
           id: 44,
           release_number: 4,
@@ -199,6 +200,7 @@ describe('cohort release API contract', () => {
       actor_user_id: 7,
       restore_reason: 'The assistant is archived. Choose another record.',
     })
+    expect(studio.history).toEqual({ limit: 25, total_count: 100, truncated: true })
 
     await sealCohortRelease(12, {
       expected_bundle_digest: 'bundle-next',

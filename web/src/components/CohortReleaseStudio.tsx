@@ -108,6 +108,10 @@ export function CohortReleaseStudio({
   const releases = useMemo(() => [...(studio?.releases ?? [])].sort((left, right) => (
     right.release_number - left.release_number || right.id - left.id
   )), [studio])
+  const historyTotal = studio?.history.total_count ?? releases.length
+  const historyLabel = studio?.history.truncated
+    ? `${releases.length} of ${historyTotal} sealed records`
+    : `${historyTotal} sealed record${historyTotal === 1 ? '' : 's'}`
 
   const closeConfirmation = useCallback(() => {
     setConfirmation(null)
@@ -301,7 +305,7 @@ export function CohortReleaseStudio({
 
           <article className="panel cohort-release-history">
             <header>
-              <div><p className="eyebrow">Immutable history</p><h3>{releases.length} sealed record{releases.length === 1 ? '' : 's'}</h3></div>
+              <div><p className="eyebrow">Immutable history</p><h3>{historyLabel}</h3></div>
             </header>
             {releases.length === 0 ? (
               <div className="cohort-release-empty"><strong>No release records yet.</strong><p>Seal the ready evidence to create this cohort's first record.</p></div>

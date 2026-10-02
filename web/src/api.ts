@@ -1821,6 +1821,11 @@ export type CohortReleaseStudio = {
   }
   candidate: CohortReleaseCandidate | null
   latest_release_match: boolean
+  history: {
+    limit: number
+    total_count: number
+    truncated: boolean
+  }
   releases: CohortReleaseRecord[]
 }
 
@@ -3341,6 +3346,7 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
   const rawRuntimeTruth = releaseRecord(rawStudio.runtime_truth)
   const rawPermissions = releaseRecord(rawStudio.permissions)
   const rawReadiness = releaseRecord(rawStudio.readiness)
+  const rawHistory = releaseRecord(rawStudio.history)
   const rawCandidateValue = rawStudio.candidate ?? rawReadiness.candidate ?? (Object.keys(rawReadiness).length > 0 ? rawReadiness : null)
   const rawCandidate = rawCandidateValue == null ? null : releaseRecord(rawCandidateValue)
   const rawReleases = Array.isArray(rawStudio.releases) ? rawStudio.releases : []
@@ -3391,6 +3397,11 @@ function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
       }),
     } : null,
     latest_release_match: releaseBoolean(rawStudio.latest_release_match ?? rawReadiness.latest_release_match),
+    history: {
+      limit: releaseInteger(rawHistory.limit) ?? rawReleases.length,
+      total_count: releaseInteger(rawHistory.total_count) ?? rawReleases.length,
+      truncated: releaseBoolean(rawHistory.truncated, (releaseInteger(rawHistory.total_count) ?? rawReleases.length) > rawReleases.length),
+    },
     releases: rawReleases.map((value) => {
       const release = releaseRecord(value)
       const actor = releaseRecord(release.actor)

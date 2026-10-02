@@ -42,6 +42,7 @@ const studioFixture: CohortReleaseStudioData = {
     ],
   },
   latest_release_match: false,
+  history: { limit: 25, total_count: 1, truncated: false },
   releases: [{
     id: 44,
     release_number: 4,
@@ -176,5 +177,15 @@ describe('CohortReleaseStudio', () => {
     expect(screen.getByText(/does not allow sealing records/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /seal record/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /restore record/i })).toBeNull()
+  })
+
+  it('reports the full immutable history count when the API returns only the newest records', async () => {
+    apiMocks.fetchCohortReleaseStudio.mockResolvedValue({
+      ...studioFixture,
+      history: { limit: 25, total_count: 100, truncated: true },
+    })
+    renderStudio()
+
+    expect(await screen.findByRole('heading', { name: '1 of 100 sealed records' })).toBeTruthy()
   })
 })
