@@ -1473,7 +1473,7 @@ module HouseholdFinance
           cents = cents_or_nil(value)
           [ key, cents ] if cents
         end.to_h
-        return false if source_text && proposed_money.many? && !money_fields_grounded_in_source?(proposed_money, source_text, SETUP_FIELD_PATTERNS.slice(*proposed_money.keys))
+        return false if source_text && proposed_money.any? && !money_fields_grounded_in_source?(proposed_money, source_text, SETUP_FIELD_PATTERNS)
 
         return setup_updates.all? do |key, value|
           next true unless MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(key)
@@ -1489,14 +1489,14 @@ module HouseholdFinance
 
       proposed = action_money_entries(action)
       return true if proposed.empty?
-      if source_text && proposed.many?
+      if source_text && proposed.any?
         semantic_patterns = case action[:type]
         when "create_debt", "update_debt", "update_debt_tracking" then DEBT_MONEY_FIELD_PATTERNS
         when "create_goal", "update_goal" then GOAL_MONEY_FIELD_PATTERNS
         else {}
         end
         proposed_fields = proposed.to_h { |entry| [ entry.fetch(:field), entry.fetch(:amount_cents) ] }
-        return false if semantic_patterns.any? && !money_fields_grounded_in_source?(proposed_fields, source_text, semantic_patterns.slice(*proposed_fields.keys))
+        return false if semantic_patterns.any? && !money_fields_grounded_in_source?(proposed_fields, source_text, semantic_patterns)
       end
 
       allowed = participant_money_cents(history_scope: history_scope, source_text: source_text)
@@ -1944,6 +1944,10 @@ module HouseholdFinance
 
         siblings = Array(source[:schedule_entries])
         source_named = source_mentions?(source_text, source[:label])
+        if schedule_date_discriminator_present?(source_text)
+          candidates = source_named ? siblings : all_entries
+          next schedule_entry_date_grounded?(source_text, entry, candidates)
+        end
         next true if source_named && siblings.one?
         next true if entry[:label].present? && source_mentions?(source_text, entry[:label]) && all_entries.count { |candidate| candidate[:label].to_s.casecmp?(entry[:label].to_s) } == 1
         candidates = source_named ? siblings : all_entries
@@ -1951,6 +1955,12 @@ module HouseholdFinance
 
         schedule_entry_type_and_amount_grounded?(source_text, entry, candidates)
       end
+    end
+
+    def schedule_date_discriminator_present?(source_text)
+      text = source_text.to_s
+      text.match?(ISO_DATE_PATTERN) || text.match?(/\b(?:#{month_names_pattern})\b/i) ||
+        text.match?(/\b(?:now|this month|next month|last month|20\d{2})\b/i)
     end
 
     def schedule_entry_date_grounded?(source_text, entry, siblings)
@@ -2077,11 +2087,23 @@ module HouseholdFinance
       recurring = text.match?(/\b(?:per month|monthly|every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i)
       all_year = text.match?(/\b(?:every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i)
       return false if all_year && action_months != (1..12).to_a
-      return false if mentioned_months.any? && !recurring && action_months != mentioned_months.sort
-      return false if mentioned_months.any? && recurring && (mentioned_months - action_months).any?
+      return false if mentioned_months.any? && action_months != mentioned_months.sort
+      return false if mentioned_months.empty? && recurring && action_months != (1..12).to_a
+
+      relative_years = []
+      if text.match?(/\b(?:this month|next month)\b/i)
+        today = Date.iso8601(context.dig(:calendar, :today).to_s)
+        relative_years << today.year if text.match?(/\bthis month\b/i)
+        relative_years << today.next_month.year if text.match?(/\bnext month\b/i)
+      end
+      return false if relative_years.any? && relative_years.uniq != [ action[:year].to_i ]
 
       mentioned_years = text.scan(/\b20\d{2}\b/).map(&:to_i).uniq
-      return false if mentioned_years.any? && !mentioned_years.include?(action[:year].to_i)
+      rejected_years = text.scan(/\b(?:not|ignore|skip|don['’]?t use|do not use|instead of)\s+(20\d{2})\b/i).flatten.map(&:to_i)
+      rejected_years.concat(text.scan(/\b(20\d{2})\s+(?:is|was)\s+(?:wrong|incorrect|not right)\b/i).flatten.map(&:to_i))
+      accepted_years = mentioned_years - rejected_years
+      return false if rejected_years.include?(action[:year].to_i)
+      return false if accepted_years.any? && !accepted_years.include?(action[:year].to_i)
 
       true
     rescue Date::Error

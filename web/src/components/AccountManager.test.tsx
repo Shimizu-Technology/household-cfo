@@ -147,7 +147,7 @@ describe('AccountManager', () => {
       accounts={[first, second]}
       portfolio={{ ...portfolio, active_count: 2, unknown_balance_account_ids: [1, 2] }}
       onChanged={vi.fn()}
-      focusRequest={{ key: 1, actionType: 'update_account', accountId: 2 }}
+      focusRequest={{ key: 1, actionType: 'update_account', accountId: 2, payload: {} }}
       onFocusRequestHandled={handled}
     />)
 
@@ -164,7 +164,7 @@ describe('AccountManager', () => {
       accounts={[archived]}
       portfolio={{ ...portfolio, active_count: 0, archived_count: 1, unknown_balance_account_ids: [] }}
       onChanged={vi.fn()}
-      focusRequest={{ key: 2, actionType: 'update_account', accountId: 7 }}
+      focusRequest={{ key: 2, actionType: 'update_account', accountId: 7, payload: {} }}
       onFocusRequestHandled={handled}
     />)
 
@@ -172,6 +172,20 @@ describe('AccountManager', () => {
     await waitFor(() => expect(document.activeElement).toBe(restore))
     expect(restore.closest('details')?.open).toBe(true)
     expect(handled).toHaveBeenCalledOnce()
+  })
+
+  it('prefills only proposed account fields and preserves explicit unknown values', async () => {
+    render(<AccountManager
+      accounts={[account({ id: 2, label: 'Emergency reserve', account_type: 'emergency_fund', balance: 900, balance_as_of_on: '2026-09-01' })]}
+      portfolio={{ ...portfolio, active_count: 1 }}
+      onChanged={vi.fn()}
+      focusRequest={{ key: 3, actionType: 'update_account', accountId: 2, payload: { balance_known: false, balance_cents: 0, balance_as_of_on: null } }}
+    />)
+
+    expect((await screen.findByLabelText('Account name') as HTMLInputElement).value).toBe('Emergency reserve')
+    expect((screen.getByLabelText('Type') as HTMLSelectElement).value).toBe('emergency_fund')
+    expect((document.querySelector('.account-form input[placeholder="Unknown"]') as HTMLInputElement).value).toBe('')
+    expect((screen.getByLabelText('Balance date') as HTMLInputElement).value).toBe('')
   })
 
   it('uses the household date when adding a bank observation', async () => {

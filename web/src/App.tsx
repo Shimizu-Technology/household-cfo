@@ -31,6 +31,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
+import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -362,6 +363,23 @@ function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: Wo
     draft[key] = values[key] === null || (values[key] === 0 && !confirmedFields.has(key)) ? '' : String(values[key])
   })
   return draft
+}
+
+function workspaceSetupDraftWithProposal(current: WorkspaceSetupDraft, payload: Record<string, unknown>) {
+  const next = { ...current }
+  if (payloadHas(payload, 'name')) next.household_name = proposedText(payload, 'name', next.household_name)
+  if (payloadHas(payload, 'primary_goal')) next.primary_goal = proposedText(payload, 'primary_goal', next.primary_goal)
+  if (payloadHas(payload, 'label')) next.primary_goal = proposedText(payload, 'label', next.primary_goal)
+  if (payloadHas(payload, 'target_months')) next.target_runway_months = proposedText(payload, 'target_months', next.target_runway_months)
+
+  const expectedValues = payload.expected_values
+  if (expectedValues && typeof expectedValues === 'object' && !Array.isArray(expectedValues)) {
+    Object.entries(expectedValues).forEach(([key, value]) => {
+      if (key === 'household_name' || key === 'primary_goal') next[key] = value === null ? '' : String(value)
+      else if (workspaceSetupMoneyKeys.includes(key as WorkspaceSetupMoneyKey)) next[key as WorkspaceSetupMoneyKey] = value === null ? '' : String(value)
+    })
+  }
+  return next
 }
 
 function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
@@ -1307,18 +1325,18 @@ function App() {
           ? accountItem.payload.decision
           : undefined
         accountFocusSequenceRef.current += 1
-        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId, reconcileDecision })
+        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId, payload: accountItem.payload, reconcileDecision })
       } else {
         window.setTimeout(focusAccountManager, 80)
       }
       return
     }
     if (targetItem && operationKey === 'goal.runway_policy.update') {
-      focusProfileSetupField('target_runway_months')
+      focusProfileSetupField('target_runway_months', targetItem.payload)
       return
     }
     if (targetItem && operationKey === 'goal.transition_policy.update') {
-      focusProfileSetupField('primary_goal')
+      focusProfileSetupField('primary_goal', targetItem.payload)
       return
     }
     if (targetItem && (operationKey.startsWith('goal.record.') || actionType?.endsWith('_goal'))) {
@@ -1327,7 +1345,7 @@ function App() {
       const actionType = goalItem?.action_type
       if (actionType && actionType.endsWith('_goal')) {
         goalFocusSequenceRef.current += 1
-        setGoalFocusRequest({ key: goalFocusSequenceRef.current, actionType: actionType as GoalFocusRequest['actionType'], goalId })
+        setGoalFocusRequest({ key: goalFocusSequenceRef.current, actionType: actionType as GoalFocusRequest['actionType'], goalId, payload: goalItem.payload })
       } else {
         window.setTimeout(focusGoalManager, 80)
       }
@@ -1336,7 +1354,7 @@ function App() {
     if (targetItem && (operationKey.startsWith('debt.') || actionType?.includes('debt'))) {
       const debtId = targetItem.target_record_id ?? (Number(targetItem.payload.debt_id ?? 0) || null)
       debtFocusSequenceRef.current += 1
-      setDebtFocusRequest({ key: debtFocusSequenceRef.current, actionType: actionType as DebtFocusRequest['actionType'], debtId })
+      setDebtFocusRequest({ key: debtFocusSequenceRef.current, actionType: actionType as DebtFocusRequest['actionType'], debtId, payload: targetItem.payload })
       return
     }
     if (targetItem && operationKey.startsWith('profile.')) {
@@ -1345,7 +1363,7 @@ function App() {
         : targetItem.payload.primary_goal !== undefined
           ? 'primary_goal'
           : ((targetItem.payload.confirm_only_fields as string[] | undefined)?.[0] ?? 'household_name')
-      focusProfileSetupField(field)
+      focusProfileSetupField(field, targetItem.payload)
       return
     }
     if (targetItem && operationKey.startsWith('income.source.')) {
@@ -1354,6 +1372,7 @@ function App() {
         key: incomeFocusSequenceRef.current,
         actionType: actionType as IncomeSourceFocusRequest['actionType'],
         sourceId: targetItem.target_record_id ?? (Number(targetItem.payload.income_source_id ?? 0) || null),
+        payload: targetItem.payload,
       })
       return
     }
@@ -1364,7 +1383,7 @@ function App() {
         operationKey,
         actionType: targetItem.action_type,
         categoryId: targetItem.target_record_id ?? (Number(targetItem.payload.category_id ?? 0) || null),
-        months: Array.isArray(targetItem.payload.months) ? targetItem.payload.months.map(Number) : [],
+        months: budgetMonthsFromPayload(targetItem.payload),
         incomeScheduleEntryId: Number(targetItem.payload.entry_id ?? 0) || null,
         payload: targetItem.payload,
       })
@@ -1376,7 +1395,8 @@ function App() {
     if (draft.draft_type === 'goal_plan') window.setTimeout(focusGoalManager, 80)
   }
 
-  function focusProfileSetupField(fieldName: string) {
+  function focusProfileSetupField(fieldName: string, payload: Record<string, unknown>) {
+    setSetupDraft((current) => current ? workspaceSetupDraftWithProposal(current, payload) : current)
     setIsProfileEditing(true)
     window.setTimeout(() => {
       const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
@@ -6783,6 +6803,7 @@ type DebtFocusRequest = {
   key: number
   actionType: 'create_debt' | 'update_debt' | 'archive_debt' | 'restore_debt' | 'update_debt_tracking'
   debtId: number | null
+  payload: MiaActionItem['payload']
 }
 
 const emptyDebtDraft: DebtDraft = {
@@ -6796,6 +6817,16 @@ function debtDraftFor(debt: DebtRecord): DebtDraft {
     balance: debt.balance === null ? '' : String(debt.balance),
     minimum_payment: debt.minimum_payment === null ? '' : String(debt.minimum_payment),
     interest_rate_percent: debt.interest_rate_percent === null ? '' : String(debt.interest_rate_percent),
+  }
+}
+
+function debtDraftWithProposal(base: DebtDraft, payload: MiaActionItem['payload']): DebtDraft {
+  return {
+    label: proposedText(payload, 'label', base.label),
+    debt_type: proposedChoice(payload, 'debt_type', base.debt_type, debtTypeOptions as DebtType[]),
+    balance: proposedMoney(payload, 'balance_cents', base.balance, 'balance_known'),
+    minimum_payment: proposedMoney(payload, 'minimum_payment_cents', base.minimum_payment, 'minimum_payment_known'),
+    interest_rate_percent: proposedText(payload, 'interest_rate_percent', base.interest_rate_percent),
   }
 }
 
@@ -6831,10 +6862,10 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
     const debt = debts.find((candidate) => candidate.id === focusRequest.debtId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_debt') {
-        beginCreate()
+        setDraft(debtDraftWithProposal(emptyDebtDraft, focusRequest.payload)); setEditingId('new'); setArchiveId(null); setError(null)
         requestAnimationFrame(() => debtNameRef.current?.focus())
       } else if (focusRequest.actionType === 'update_debt' && debt?.active) {
-        beginEdit(debt)
+        setDraft(debtDraftWithProposal(debtDraftFor(debt), focusRequest.payload)); setEditingId(debt.id); setArchiveId(null); setError(null)
         requestAnimationFrame(() => debtNameRef.current?.focus())
       } else {
         const action = focusRequest.actionType === 'archive_debt' ? 'archive'
@@ -6844,13 +6875,21 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, on
           ? document.querySelector<HTMLElement>('[data-debt-action="tracking"]')
           : document.querySelector<HTMLElement>(`[data-debt-id="${focusRequest.debtId}"] [data-debt-action="${action}"]`)
         const disclosure = target?.closest('details')
+        if (action === 'tracking') {
+          const nextMode = focusRequest.payload.mode === 'summary' || focusRequest.payload.mode === 'individual' ? focusRequest.payload.mode : modeDraft
+          setModeDraft(nextMode)
+          if (nextMode === 'summary') {
+            setSummaryBalance(proposedMoney(focusRequest.payload, 'summary_balance_cents', summaryBalance, 'summary_balance_known'))
+            setSummaryMinimum(proposedMoney(focusRequest.payload, 'summary_minimum_payment_cents', summaryMinimum, 'summary_minimum_payment_known'))
+          }
+        }
         if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         target?.focus({ preventScroll: true })
       }
       onFocusRequestHandled?.()
     })
-  }, [debts, focusRequest, onFocusRequestHandled])
+  }, [debts, focusRequest, modeDraft, onFocusRequestHandled, summaryBalance, summaryMinimum])
 
   function beginCreate() {
     setDraft(emptyDebtDraft); setEditingId('new'); setArchiveId(null); setError(null)
@@ -8346,6 +8385,7 @@ type IncomeSourceFocusRequest = {
   key: number
   actionType: 'create_income_source' | 'update_income_source' | 'archive_income_source' | 'restore_income_source'
   sourceId: number | null
+  payload: MiaActionItem['payload']
 }
 
 type BudgetFocusRequest = {
@@ -8376,6 +8416,16 @@ function incomeSourceDraftFor(source: IncomeTimelineSource): IncomeSourceDraft {
     amount: String(source.base_amount),
     cadence: source.base_cadence,
     starts_on: source.starts_on || blankIncomeSourceDraft().starts_on,
+  }
+}
+
+function incomeSourceDraftWithProposal(base: IncomeSourceDraft, payload: MiaActionItem['payload']): IncomeSourceDraft {
+  return {
+    label: proposedText(payload, 'label', base.label),
+    source_type: proposedChoice(payload, 'source_type', base.source_type, incomeSourceTypeOptions),
+    amount: proposedMoney(payload, 'amount_cents', base.amount),
+    cadence: proposedChoice(payload, 'cadence', base.cadence, ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']),
+    starts_on: proposedText(payload, 'starts_on', base.starts_on),
   }
 }
 
@@ -8459,12 +8509,14 @@ function IncomeSourceManager({
     const source = sources.find((candidate) => candidate.id === focusRequest.sourceId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_income_source') {
-        resetForm()
+        setDraft(incomeSourceDraftWithProposal(blankIncomeSourceDraft(), focusRequest.payload)); setEditingId(null); setEndingId(null); setFormError(null); lastActionTriggerRef.current = null
         requestAnimationFrame(() => sourceNameRef.current?.focus())
       } else if (focusRequest.actionType === 'update_income_source' && source) {
-        beginEdit(source)
+        setEndingId(null); setEditingId(source.id); setDraft(incomeSourceDraftWithProposal(incomeSourceDraftFor(source), focusRequest.payload)); setFormError(null)
+        requestAnimationFrame(() => { sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); sourceNameRef.current?.focus({ preventScroll: true }); sourceNameRef.current?.select() })
       } else if (focusRequest.actionType === 'archive_income_source' && source) {
         beginEnd(source.id)
+        if (payloadHas(focusRequest.payload, 'ends_on')) setEndingMonth(proposedText(focusRequest.payload, 'ends_on', '').slice(0, 7))
       } else if (focusRequest.actionType === 'restore_income_source' && source) {
         const target = sourceCardRefs.current.get(source.id)?.querySelector<HTMLButtonElement>('[data-income-source-action="restore"]')
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -8784,18 +8836,21 @@ function AnnualIncomePlanner({
         onFocusRequestHandled?.()
       })
     } else if (focusRequest.operationKey === 'income.schedule.update' && located) {
+      const payload = focusRequest.payload
+      const baseEntryType = located.entry.entry_type
+      const entryType = proposedChoice(payload, 'entry_type', baseEntryType, ['one_time', 'recurring_change'] as const)
       requestAnimationFrame(() => {
         setRemovingId(null)
         setEditingId(located.entry.id)
         setFormError(null)
         setDraft({
-          income_source_id: String(located.source.id),
-          entry_type: located.entry.entry_type,
-          label: located.entry.label ?? '',
-          amount: String(located.entry.amount),
-          cadence: located.entry.entry_type === 'one_time' ? 'one_time' : located.entry.cadence,
-          effective_on: located.entry.effective_on,
-          retained_after_transition: located.entry.retained_after_transition === true,
+          income_source_id: proposedText(payload, payloadHas(payload, 'income_source_id') ? 'income_source_id' : 'source_id', String(located.source.id)),
+          entry_type: entryType,
+          label: proposedText(payload, 'label', located.entry.label ?? ''),
+          amount: proposedMoney(payload, 'amount_cents', String(located.entry.amount)),
+          cadence: entryType === 'one_time' ? 'one_time' : proposedChoice(payload, 'cadence', located.entry.cadence, ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']),
+          effective_on: proposedText(payload, 'effective_on', located.entry.effective_on),
+          retained_after_transition: proposedBoolean(payload, 'retained_after_transition', located.entry.retained_after_transition === true),
         })
         requestAnimationFrame(() => amountInputRef.current?.focus())
         onFocusRequestHandled?.()
@@ -9207,11 +9262,45 @@ function AnnualBudgetPlanner({
     const tool = focusRequest.operationKey === 'budget.category.create'
       ? 'category'
       : focusRequest.operationKey.startsWith('income.schedule.') ? 'income' : 'monthly'
+    const allocationDrafts: Record<string, string> = {}
+    const categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }> = {}
+    const row = plan.rows.find((candidate) => candidate.id === focusRequest.categoryId)
+    const changes = Array.isArray(focusRequest.payload.changes) ? focusRequest.payload.changes : []
+    if (row && focusRequest.operationKey === 'budget.allocation.set') {
+      changes.forEach((rawChange) => {
+        if (!rawChange || typeof rawChange !== 'object') return
+        const change = rawChange as Record<string, unknown>
+        const monthNumber = Number(change.month)
+        const month = row.months[monthNumber - 1]
+        const cents = Number(change.after_cents)
+        if (month && Number.isFinite(cents)) allocationDrafts[allocationDraftKey(month)] = String(cents / 100)
+      })
+      if (changes.length === 0 && payloadHas(focusRequest.payload, 'amount_cents')) {
+        const cents = Number(focusRequest.payload.amount_cents)
+        focusRequest.months.forEach((monthNumber) => {
+          const month = row.months[monthNumber - 1]
+          if (month && Number.isFinite(cents)) allocationDrafts[allocationDraftKey(month)] = String(cents / 100)
+        })
+      }
+    }
+    if (row && focusRequest.operationKey === 'budget.category.update') {
+      categoryDrafts[categoryDraftKey(row)] = {
+        name: proposedText(focusRequest.payload, 'name', row.name),
+        stack_key: proposedChoice(focusRequest.payload, 'stack_key', row.stack_key, ['non_discretionary', 'discretionary', 'sinking_expected', 'sinking_unexpected']),
+      }
+    }
+    if (focusRequest.operationKey === 'budget.category.create') {
+      onNewCategoryChange({
+        name: proposedText(focusRequest.payload, 'name', ''),
+        stack_key: proposedChoice(focusRequest.payload, 'stack_key', 'discretionary' as BudgetStackKey, ['non_discretionary', 'discretionary', 'sinking_expected', 'sinking_unexpected']),
+        monthly_amount: proposedMoney(focusRequest.payload, 'monthly_amount_cents', ''),
+      })
+    }
     setBudgetEditState({
       signature: planSignature,
       isEditing: tool === 'monthly',
-      allocationDrafts: {},
-      categoryDrafts: {},
+      allocationDrafts,
+      categoryDrafts,
     })
     setManualTool(tool)
     requestAnimationFrame(() => requestAnimationFrame(() => {
@@ -9241,7 +9330,7 @@ function AnnualBudgetPlanner({
       }
       if (tool !== 'income') onFocusRequestHandled?.()
     }))
-  }, [focusRequest, onFocusRequestHandled, planSignature])
+  }, [focusRequest, onFocusRequestHandled, onNewCategoryChange, plan.rows, planSignature])
 
   function beginBudgetEdit() {
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
