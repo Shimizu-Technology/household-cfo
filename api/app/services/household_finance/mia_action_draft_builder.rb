@@ -12,8 +12,12 @@ module HouseholdFinance
     ALL_YEAR_TERMS = /\b(all year|every month|for the year|annual(?:ly)?)\b/i
     STACK_LABELS = SnapshotBuilder::STACK_LABELS
 
-    Result = Struct.new(:proposal, :response, :annual_plan, :existing_draft, keyword_init: true)
-    Item = Struct.new(:action_type, :label, :description, :payload, :before_snapshot, :after_snapshot, :target_record_type, :target_record_id, keyword_init: true)
+    Result = Struct.new(:proposal, :response, :annual_plan, :existing_draft, :selected_item_ids, keyword_init: true)
+    Item = Struct.new(
+      :action_type, :label, :description, :payload, :before_snapshot, :after_snapshot,
+      :target_record_type, :target_record_id, :source_text, :source_start, :source_end, :dependencies,
+      keyword_init: true
+    )
 
     class Proposal
       attr_reader :household, :user, :year, :draft_type, :title, :summary, :rationale, :source_prompt, :items, :metadata
@@ -32,6 +36,8 @@ module HouseholdFinance
       end
 
       def create_draft!(source_chat_message:, assistant_chat_message:)
+        raise ArgumentError, "Mia action plans must contain between 1 and 12 changes" unless items.length.between?(1, 12)
+
         ApplicationRecord.transaction do
           household.lock!
           draft = household.mia_action_drafts.create!(
@@ -58,7 +64,11 @@ module HouseholdFinance
               description: item.description,
               payload: item.payload,
               before_snapshot: item.before_snapshot,
-              after_snapshot: item.after_snapshot
+              after_snapshot: item.after_snapshot,
+              source_text: item.source_text,
+              source_start: item.source_start,
+              source_end: item.source_end,
+              dependencies: Array(item.dependencies)
             )
             prepared = Operations::MiaItemAdapter.prepare(household, action_item, year: year)
             if prepared

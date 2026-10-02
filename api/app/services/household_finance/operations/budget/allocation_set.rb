@@ -45,7 +45,8 @@ module HouseholdFinance
           end
           {
             category: category_snapshot(category),
-            allocations: allocations.map { |allocation| allocation_snapshot(allocation) }
+            allocations: allocations.map { |allocation| allocation_snapshot(allocation) },
+            expenses: expense_snapshots(category, lock: lock)
           }
         end
 
@@ -55,13 +56,17 @@ module HouseholdFinance
 
         def predicted_after(before, input)
           amounts = input.fetch(:changes).index_by { |change| change.fetch(:allocation_id) }
-          {
+          predicted = {
             category: before.fetch("category"),
             allocations: before.fetch("allocations").map do |allocation|
               change = amounts.fetch(allocation.fetch("id"))
               allocation.merge("planned_amount_cents" => change.fetch(:after_cents), "source" => "manual")
-            end
+            end,
+            expenses: before.fetch("expenses")
           }
+          sync = uniform_full_year_amount(predicted.fetch(:allocations), input.fetch(:year))
+          predicted[:expenses] = synced_expense_prediction(before.fetch("expenses"), before.fetch("category"), sync) if sync
+          predicted
         end
 
         def mutate!(_category, input, prepared:)
@@ -70,6 +75,11 @@ module HouseholdFinance
             allocation = allocations.fetch(change.fetch(:allocation_id)) { raise ActiveRecord::RecordNotFound, "Budget allocation not found" }
             allocation.update!(planned_amount_cents: change.fetch(:after_cents), source: "manual")
           end
+          sync = uniform_full_year_amount(
+            allocations.values.map { |allocation| allocation_snapshot(allocation.reload) },
+            input.fetch(:year)
+          )
+          sync_expense_item!(prepared.before_snapshot.fetch("expenses"), sync) if sync
           allocations.fetch(input.fetch(:changes).first.fetch(:allocation_id))
         end
 
@@ -100,6 +110,31 @@ module HouseholdFinance
             planned_amount_cents: allocation.planned_amount_cents,
             source: allocation.source
           }
+        end
+
+        def uniform_full_year_amount(allocations, year)
+          rows = Array(allocations).select { |row| row.fetch("year", row[:year]).to_i == year.to_i }
+          return unless rows.map { |row| row.fetch("month", row[:month]).to_i }.uniq.sort == (1..12).to_a
+
+          amounts = rows.map { |row| row.fetch("planned_amount_cents", row[:planned_amount_cents]).to_i }.uniq
+          amounts.one? ? amounts.first : nil
+        end
+
+        def synced_expense_prediction(expenses, category, amount_cents)
+          chosen = expenses.find { |expense| expense.fetch("label").casecmp?(category.fetch("name")) && expense.fetch("stack_key") == category.fetch("stack_key") }
+          return expenses unless chosen
+
+          expenses.map do |expense|
+            expense.fetch("id") == chosen.fetch("id") ? expense.merge("amount_cents" => amount_cents, "cadence" => "monthly", "active" => true) : expense
+          end
+        end
+
+        def sync_expense_item!(expenses, amount_cents)
+          category = household.budget_categories.find(stale_input.fetch(:category_id))
+          chosen = expenses.find { |expense| expense.fetch("label").casecmp?(category.name) && expense.fetch("stack_key") == category.stack_key }
+          return unless chosen
+
+          household.expense_items.lock.find(chosen.fetch("id")).update!(amount_cents: amount_cents, cadence: "monthly", active: true)
         end
       end
     end

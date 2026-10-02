@@ -56,9 +56,11 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :created
-    item = response.parsed_body.fetch("mia_action_draft").fetch("items").sole
+    items = response.parsed_body.fetch("mia_action_draft").fetch("items")
+    item = items.find { |candidate| candidate.fetch("action_type") == "update_household_profile" }
     assert_equal "primary_goal", item.dig("payload", "key")
     assert_equal "Build a three-month emergency fund", item.dig("payload", "value")
+    assert_equal [ "primary_goal" ], items.last.dig("payload", "confirmed_fields")
   end
 
   test "chat setup summary creates one review and changes nothing until apply" do
@@ -78,10 +80,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     draft = response.parsed_body.fetch("mia_action_draft")
     assert_equal "household_setup", draft.fetch("draft_type")
     assert_equal "pending", draft.fetch("status")
-    assert_equal(
-      %w[fixed_expenses flexible_spend household_name primary_goal primary_income target_runway_months],
-      draft.fetch("items").map { |item| item.dig("payload", "key") }.sort
-    )
+    assert_equal %w[create_category create_category create_income_source update_household_profile update_household_profile update_runway_policy update_transition_policy confirm_household_setup].sort,
+      draft.fetch("items").map { |item| item.fetch("action_type") }.sort
+    assert_equal %w[fixed_expenses flexible_spend household_name primary_goal primary_income target_runway_months],
+      draft.fetch("items").last.dig("payload", "confirmed_fields").sort
     assert_equal setup_before, HouseholdFinance::DataPresenter.new(household.reload, user: user).setup_values
 
     post "/api/v1/mia_action_drafts/#{draft.fetch('id')}/apply",
@@ -119,9 +121,10 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     end
 
     assert_response :created
-    item = response.parsed_body.fetch("mia_action_draft").fetch("items").sole
-    assert_equal "primary_income", item.dig("payload", "key")
-    assert_equal 6_200, item.dig("payload", "value")
+    items = response.parsed_body.fetch("mia_action_draft").fetch("items")
+    assert_equal %w[create_income_source confirm_household_setup], items.map { |item| item.fetch("action_type") }
+    assert_equal 620_000, items.first.dig("payload", "amount_cents")
+    assert_equal [ "primary_income" ], items.last.dig("payload", "confirmed_fields")
   end
 
   test "bare zero replies advance only the exact server-asked required setup field through review and apply" do
@@ -157,8 +160,8 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
       assert_response :created
       draft_payload = response.parsed_body.fetch("mia_action_draft")
       item = draft_payload.fetch("items").sole
-      assert_equal field, item.dig("payload", "key")
-      assert_equal 0, item.dig("payload", "value")
+      assert_equal "confirm_household_setup", item.fetch("action_type")
+      assert_equal [ field ], item.dig("payload", "confirmed_fields")
       refute_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, field
 
       post "/api/v1/mia_action_drafts/#{draft_payload.fetch('id')}/apply",
@@ -197,8 +200,8 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_response :created
     draft_payload = response.parsed_body.fetch("mia_action_draft")
     item = draft_payload.fetch("items").sole
-    assert_equal "primary_income", item.dig("payload", "key")
-    assert_equal 0, item.dig("payload", "value")
+    assert_equal "confirm_household_setup", item.fetch("action_type")
+    assert_equal [ "primary_income" ], item.dig("payload", "confirmed_fields")
     refute_includes HouseholdFinance::SetupStatus.new(household.reload).confirmed_field_keys, "primary_income"
   end
 
@@ -1515,6 +1518,67 @@ class ApiV1MiaActionDraftsControllerTest < ActionDispatch::IntegrationTest
     assert_equal 50_000, planned_amount_for_month(groceries, 8)
     assert_equal 31_000, planned_amount_for_month(dining, 8)
     assert_equal "pending", MiaActionDraft.find(draft.fetch("id")).status
+  end
+
+  test "compound plan apply requires an external idempotency key and binds it to the selected steps" do
+    user = create_user(email: "mia-action-plan-idempotency@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    account = household.accounts.create!(label: "Checking", account_type: "checking", balance_cents: 100_00, balance_known: true)
+    goal = household.goals.create!(label: "Trip", goal_type: "travel", record_kind: "tracked", current_amount_cents: 500_00, current_amount_known: true)
+    prompt = "Set Checking to $250 and Trip progress to $900"
+    result = HouseholdFinance::MiaActionPlanBuilder.new(
+      household, user: user,
+      annual_budget_manager: HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year),
+      selected_month: Date.current.month, raw_input: prompt,
+      actions: [
+        { source_text: "Set Checking to $250", depends_on: [], action: { type: "update_account", account_id: account.id, account_name: account.label, amount: "250" } },
+        { source_text: "Trip progress to $900", depends_on: [], action: { type: "update_goal", goal_id: goal.id, goal_name: goal.label, current_amount: "900" } }
+      ]
+    ).call
+    session = household.chat_sessions.create!(user: user, title: "Ask Mia")
+    draft = result.proposal.create_draft!(
+      source_chat_message: session.chat_messages.create!(role: "user", content: prompt),
+      assistant_chat_message: session.chat_messages.create!(role: "assistant", content: "Review this plan")
+    )
+    account_item, goal_item = draft.mia_action_items.to_a
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply", params: { item_ids: [ account_item.id ] }, headers: auth_headers(user), as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors"), "Idempotency-Key header is required"
+
+    headers = auth_headers(user).merge("Idempotency-Key" => "browser-plan-1")
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply", params: { item_ids: [ account_item.id ] }, headers: headers, as: :json
+    assert_response :success
+    assert_equal "partially_applied", response.parsed_body.dig("mia_action_draft", "status")
+    assert_equal 250_00, account.reload.balance_cents
+    assert_equal 500_00, goal.reload.current_amount_cents
+
+    assistant_messages_after_partial = session.chat_messages.where(role: "assistant").count
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply", params: { item_ids: [ account_item.id ] }, headers: headers, as: :json
+    assert_response :success
+    assert_equal assistant_messages_after_partial, session.chat_messages.where(role: "assistant").count
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/apply", params: { item_ids: [ goal_item.id ] }, headers: headers, as: :json
+    assert_response :conflict
+    assert_includes response.parsed_body.fetch("errors").to_sentence, "different Mia plan selection"
+    assert_equal 500_00, goal.reload.current_amount_cents
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/cancel", headers: auth_headers(user), as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors"), "Idempotency-Key header is required"
+
+    cancel_headers = auth_headers(user).merge("Idempotency-Key" => "browser-plan-cancel")
+    assistant_messages_before_cancel = session.chat_messages.where(role: "assistant").count
+    post "/api/v1/mia_action_drafts/#{draft.id}/cancel", headers: cancel_headers, as: :json
+    assert_response :success
+    assert_equal "cancel", response.parsed_body.dig("mia_action_draft_application", "request_kind")
+    assert_equal "applied", response.parsed_body.dig("mia_action_draft", "items", 0, "status")
+    assert_equal "canceled", response.parsed_body.dig("mia_action_draft", "items", 1, "status")
+    assert_equal assistant_messages_before_cancel + 1, session.chat_messages.where(role: "assistant").count
+
+    post "/api/v1/mia_action_drafts/#{draft.id}/cancel", headers: cancel_headers, as: :json
+    assert_response :success
+    assert_equal assistant_messages_before_cancel + 1, session.chat_messages.where(role: "assistant").count
   end
 
   private

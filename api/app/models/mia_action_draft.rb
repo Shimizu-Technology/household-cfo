@@ -1,6 +1,6 @@
 class MiaActionDraft < ApplicationRecord
-  STATUSES = %w[pending applied canceled].freeze
-  DRAFT_TYPES = %w[budget_edit household_setup income_schedule debt_plan asset_plan goal_plan].freeze
+  STATUSES = %w[pending partially_applied applied canceled].freeze
+  DRAFT_TYPES = %w[budget_edit household_setup income_schedule debt_plan asset_plan goal_plan action_plan].freeze
 
   belongs_to :household
   belongs_to :requested_by_user, class_name: "User"
@@ -10,6 +10,7 @@ class MiaActionDraft < ApplicationRecord
   belongs_to :canceled_by_user, class_name: "User", optional: true
 
   has_many :mia_action_items, -> { order(:position, :id) }, dependent: :destroy, inverse_of: :mia_action_draft
+  has_many :mia_action_draft_applications, dependent: :destroy
 
   validates :status, inclusion: { in: STATUSES }
   validates :draft_type, inclusion: { in: DRAFT_TYPES }
@@ -20,10 +21,15 @@ class MiaActionDraft < ApplicationRecord
   validate :chat_messages_belong_to_household
 
   scope :pending, -> { where(status: "pending") }
+  scope :reviewable, -> { where(status: %w[pending partially_applied]) }
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
 
   def pending?
     status == "pending"
+  end
+
+  def reviewable?
+    status.in?(%w[pending partially_applied])
   end
 
   private

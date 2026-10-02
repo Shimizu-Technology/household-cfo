@@ -29,7 +29,11 @@ module HouseholdFinance
         "create_goal" => "goal.record.create",
         "update_goal" => "goal.record.update",
         "archive_goal" => "goal.record.archive",
-        "restore_goal" => "goal.record.restore"
+        "restore_goal" => "goal.record.restore",
+        "update_runway_policy" => "goal.runway_policy.update",
+        "update_transition_policy" => "goal.transition_policy.update",
+        "update_household_profile" => "profile.household.update",
+        "confirm_household_setup" => "profile.setup_confirmation.update"
       }.freeze
 
       def self.operation_key(item)

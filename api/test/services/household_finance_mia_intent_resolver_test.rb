@@ -1,6 +1,75 @@
 require "test_helper"
 
 class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
+  test "resolves named pending action-plan steps from authoritative item ids after conversation context expires" do
+    context = intent_context.deep_merge(
+      conversation: { active_thread: nil, open_threads: [], older_summary: nil, recent_messages: [] },
+      pending_budget_reviews: [
+        {
+          id: 321, title: "Household action plan", draft_type: "action_plan", status: "partially_applied",
+          items: [
+            { id: 901, position: 0, domain: "account", label: "Checking balance", operation_type: "account.record.update", status: "applied" },
+            { id: 902, position: 1, domain: "debt", label: "Visa debt", operation_type: "debt.record.update", status: "pending" },
+            { id: 903, position: 2, domain: "goal", label: "Car replacement goal", operation_type: "goal.record.update", status: "pending" }
+          ]
+        }
+      ]
+    )
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Bring back only the debt and car-goal parts from that plan",
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "budget_action", continuation: true,
+          resolved_message: "Review the Visa debt and Car replacement goal steps",
+          topic: { type: "action_plan", title: "Selected plan steps", subject: "Debt and car goal" },
+          action: default_action.merge(type: "review_pending_action", draft_id: 321, selected_item_ids: [ 902, 903 ])
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?, result.to_h.inspect
+    assert_equal [ 902, 903 ], result.action.fetch(:selected_item_ids)
+  end
+
+  test "resolves an ordered cross-domain write plan only from exact user spans" do
+    context = intent_context.deep_merge(
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],
+      archived_accounts: [],
+      active_goals: [ { id: 99, label: "Family trip", goal_type: "travel", current_amount: 500 } ],
+      archived_goals: []
+    )
+    message = "Set Everyday Checking to $250 and set Family trip progress to $900"
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "action_plan", continuation: false, resolved_message: message,
+          topic: { type: "action_plan", title: "Two household changes", subject: "Checking and trip" },
+          action: default_action,
+          write_plan: {
+            title: "Checking and trip",
+            actions: [
+              { source_text: "Set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") },
+              { source_text: "set Family trip progress to $900", depends_on: [], action: default_action.merge(type: "update_goal", goal_id: 99, goal_name: "Family trip", current_amount: "900") }
+            ]
+          }
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert result.actionable?, result.to_h.inspect
+    assert result.action_plan?
+    assert_equal [ "update_account", "update_goal" ], result.write_plan.fetch(:actions).map { |entry| entry.dig(:action, :type) }
+  end
+
   test "resolves a grounded negative checking balance as an actionable asset review" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Add Everyday Checking with a -$125.50 balance",
@@ -2980,7 +3049,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     }
   end
 
-  def resolution_json(intent:, continuation:, resolved_message:, topic:, action:, confidence: 0.98, needs_clarification: false, clarification: "", read_only_plan: { title: "", items: [] })
+  def resolution_json(intent:, continuation:, resolved_message:, topic:, action:, confidence: 0.98, needs_clarification: false, clarification: "", read_only_plan: { title: "", items: [] }, write_plan: { title: "", actions: [] })
     {
       intent: intent,
       confidence: confidence,
@@ -2990,6 +3059,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       clarification: clarification,
       topic: topic,
       read_only_plan: read_only_plan,
+      write_plan: write_plan,
       action: action
     }.to_json
   end
@@ -3038,6 +3108,7 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
       months: [],
       year: 0,
       draft_id: 0,
+      selected_item_ids: [],
       occurred_on: "",
       merchant: "",
       all_pending: false,

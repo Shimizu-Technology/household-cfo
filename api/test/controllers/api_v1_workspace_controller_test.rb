@@ -182,6 +182,103 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal({ "setup_complete" => true }, setup_audit.metadata)
   end
 
+  test "manual setup uses typed household operations and replays one idempotent request" do
+    user = create_user(email: "typed-manual-setup@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    headers = auth_headers(user).merge("Idempotency-Key" => "manual-typed-setup-1")
+    request = {
+      workspace: {
+        household_name: "Typed Household", primary_goal: "Build runway", primary_income: 6_500,
+        fixed_expenses: 2_700, flexible_spend: 800, emergency_fund: 9_000, target_runway_months: 5
+      }
+    }
+
+    assert_difference("HouseholdAuditEvent.where(event_type: 'workspace.setup_saved').count", 1) do
+      patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+    end
+
+    assert_response :success
+    executions = household.household_operation_executions.order(:id)
+    operation_keys = executions.pluck(:operation_key)
+    assert_includes operation_keys, "profile.household.update"
+    assert_includes operation_keys, "income.source.create"
+    assert operation_keys.any? { |key| key.in?(%w[budget.category.create budget.allocation.set]) }
+    assert_includes operation_keys, "account.record.create"
+    assert_includes operation_keys, "goal.runway_policy.update"
+    assert_includes operation_keys, "goal.transition_policy.update"
+    assert_equal "profile.setup_confirmation.update", executions.find_by!(idempotency_key: "manual-typed-setup-1").operation_key
+    assert_equal [ "manual" ], household.household_operation_executions.distinct.pluck(:source)
+    assert_equal [ "Build runway" ], household.goals.where(goal_type: "transition").pluck(:label)
+
+    execution_count = executions.count
+    audit_count = household.household_audit_events.where(event_type: "workspace.setup_saved").count
+    patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+
+    assert_response :success
+    assert_equal execution_count, executions.reload.count
+    assert_equal audit_count, household.household_audit_events.where(event_type: "workspace.setup_saved").count
+
+    assert_no_changes -> { household.reload.name } do
+      patch "/api/v1/workspace/setup",
+        params: { workspace: request.fetch(:workspace).merge(household_name: "Conflicting Household") },
+        headers: headers,
+        as: :json
+    end
+    assert_response :conflict
+    assert_includes response.parsed_body.fetch("errors").join, "idempotency key"
+  end
+
+  test "manual setup keeps max-length child idempotency keys unique and conflict-safe" do
+    user = create_user(email: "typed-manual-max-key@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    key = "k" * 200
+    headers = auth_headers(user).merge("Idempotency-Key" => key)
+    request = { workspace: { household_name: "Long Key Household", primary_income: 5_800, fixed_expenses: 2_400 } }
+
+    patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+
+    assert_response :success
+    keys = household.household_operation_executions.pluck(:idempotency_key)
+    assert_equal keys.length, keys.uniq.length
+    assert keys.all? { |stored| stored.length <= 200 }
+    first_count = keys.length
+    household.update!(name: "Later manual name")
+
+    patch "/api/v1/workspace/setup", params: request, headers: headers, as: :json
+    assert_response :success
+    assert_equal first_count, household.household_operation_executions.count
+    assert_equal "Later manual name", household.reload.name
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: request.fetch(:workspace).merge(primary_income: 5_900) },
+      headers: headers,
+      as: :json
+    assert_response :conflict
+    assert_equal 580_000, household.income_sources.find_by!(source_type: "job").amount_cents
+  end
+
+  test "manual setup clearing removes explicit confirmations through the typed confirmation operation" do
+    user = create_user(email: "typed-manual-clear-confirmation@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    household.update!(primary_goal: "Leave work safely", confirmed_setup_fields: %w[primary_goal emergency_fund])
+    household.accounts.create!(
+      label: "Emergency fund", account_type: "emergency_fund", balance_cents: 800_000,
+      balance_known: true, balance_as_of_on: Date.current, source_type: "setup"
+    )
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { primary_goal: "", emergency_fund: "" } },
+      headers: auth_headers(user).merge("Idempotency-Key" => "manual-clear-confirmations"),
+      as: :json
+
+    assert_response :success
+    assert_nil household.reload.primary_goal
+    assert_empty household.confirmed_setup_fields & %w[primary_goal emergency_fund]
+    refute household.accounts.find_by!(account_type: "emergency_fund").balance_known?
+    confirmation = household.household_operation_executions.find_by!(idempotency_key: "manual-clear-confirmations")
+    assert_equal %w[emergency_fund primary_goal], confirmation.normalized_input.fetch("unconfirmed_fields")
+  end
+
   test "five-field first-session setup leaves optional assets unknown" do
     user = create_user(email: "five-field-setup@example.com", first_name: "Mel")
 
@@ -2165,12 +2262,24 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert body.fetch("assistant_message").fetch("content").present?
   end
 
-  test "mia chat rejects messages above the storage limit" do
+  test "mia chat accepts exactly the storage limit and rejects one extra character without side effects" do
     user = create_user(email: "long-mia@example.com")
+    exact = "a" * ChatMessage::MAX_CONTENT_LENGTH
 
-    assert_no_difference("ChatMessage.count") do
+    assert_difference({ "ChatMessage.count" => 2, "MiaMessageRequest.count" => 1 }) do
+      assert_no_difference([ "MiaActionDraft.count", "MiaActionDraftApplication.count" ]) do
+        post "/api/v1/mia/messages",
+          params: { message: exact, request_id: "mia-exact-message-limit" },
+          headers: auth_headers(user),
+          as: :json
+      end
+    end
+    assert_response :created
+    assert_equal exact, response.parsed_body.dig("user_message", "content")
+
+    assert_no_difference([ "ChatMessage.count", "MiaMessageRequest.count", "MiaActionDraft.count", "MiaActionDraftApplication.count" ]) do
       post "/api/v1/mia/messages",
-           params: { message: "a" * (ChatMessage::MAX_CONTENT_LENGTH + 1) },
+           params: { message: "a" * (ChatMessage::MAX_CONTENT_LENGTH + 1), request_id: "mia-over-message-limit" },
            headers: auth_headers(user),
            as: :json
     end

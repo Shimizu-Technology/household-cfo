@@ -115,15 +115,35 @@ module HouseholdFinance
     end
 
     def pending_budget_reviews
-      Array(annual_plan[:pending_mia_action_drafts]).first(MAX_PENDING_DRAFTS).map do |draft|
+      presented = Array(annual_plan[:pending_mia_action_drafts]).first(MAX_PENDING_DRAFTS)
+      drafts_by_id = household.mia_action_drafts
+        .where(id: presented.filter_map { |draft| draft[:id] }, status: %w[pending partially_applied])
+        .includes(:mia_action_items)
+        .index_by(&:id)
+      presented.map do |draft|
+        persisted = drafts_by_id[draft[:id].to_i]
         {
           id: draft[:id],
           title: bounded(draft[:title], 120),
           summary: bounded(draft[:summary], 240),
           status: draft[:status],
-          year: draft[:year]
+          year: draft[:year],
+          draft_type: draft[:draft_type],
+          remaining_item_count: draft[:remaining_item_count],
+          items: persisted&.draft_type == "action_plan" ? persisted.mia_action_items.first(12).map { |item| pending_plan_item(item) } : []
         }
       end
+    end
+
+    def pending_plan_item(item)
+      {
+        id: item.id,
+        position: item.position,
+        domain: item.operation_key.to_s.split(".").first.presence || "plan",
+        label: bounded(item.label, 120),
+        operation_type: bounded(item.operation_key, 120),
+        status: item.applied_at.present? ? "applied" : item.canceled_at.present? ? "canceled" : "pending"
+      }
     end
 
     def pending_transaction_reviews

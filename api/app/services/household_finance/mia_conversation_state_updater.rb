@@ -80,6 +80,25 @@ module HouseholdFinance
         }
       end
 
+      if intent_result.respond_to?(:action_plan?) && intent_result.action_plan?
+        topic = intent_result.topic.to_h.deep_symbolize_keys
+        return {
+          "schema_version" => 5,
+          "id" => continuation_topic_id(current, { type: "action_plan", subject: topic[:subject].presence || "Household action plan" }),
+          "type" => "action_plan",
+          "title" => bounded(topic[:title].presence || mia_action_draft&.title || "Household action plan", 160),
+          "subject" => bounded(topic[:subject].presence || "Household action plan", 160),
+          "status" => topic_status,
+          "latest_user_context" => bounded(user_message.content, MAX_TEXT_LENGTH),
+          "latest_mia_summary" => bounded(assistant_message.content, MAX_TEXT_LENGTH),
+          "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),
+          "intent" => "action_plan",
+          "confidence" => intent_result.confidence.to_f.round(3),
+          "mia_action_draft_id" => mia_action_draft&.id,
+          "updated_at" => Time.current.iso8601
+        }.compact
+      end
+
       topic = intent_result.topic.to_h.deep_symbolize_keys
       return current if topic[:title].blank? && intent_result.continuation
       return nil if topic[:title].blank?

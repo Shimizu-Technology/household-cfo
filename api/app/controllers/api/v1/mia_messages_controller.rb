@@ -218,7 +218,7 @@ module Api
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
-          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
+          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
           budget: annual_plan && !intent_result&.read_only_plan? ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
@@ -574,7 +574,7 @@ module Api
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
-          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
+          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
           budget: response_budget,
           spending_report: nil
         }
@@ -590,9 +590,9 @@ module Api
 
       def supported_attached_action_intent?(intent_result)
         return false unless intent_result
-        return false unless intent_result.intent.in?(%w[budget_action household_action income_action])
+        return false unless intent_result.intent.in?(%w[action_plan budget_action household_action income_action debt_action asset_action goal_action])
 
-        intent_result.action.to_h[:type].to_s != "none"
+        intent_result.action_plan? || intent_result.action.to_h[:type].to_s != "none"
       end
 
       def attachment_action_boundary(intent_result, conversation_context)
@@ -1218,7 +1218,20 @@ module Api
           end
 
           case transaction_lookup_answer ? nil : intent_result.intent
-          when "budget_action", "household_action", "income_action", "debt_action", "asset_action"
+          when "action_plan"
+            if intent_result.actionable?
+              action_result = HouseholdFinance::MiaActionDraftBuilder.new(
+                current_household,
+                user: current_user,
+                annual_budget_manager: annual_budget_manager,
+                selected_month: budget_month_param,
+                raw_input: content,
+                command: { type: "compound_action_plan", actions: intent_result.write_plan.to_h[:actions] }
+              ).call
+            else
+              direct_answer = clarification_answer(intent_result)
+            end
+          when "budget_action", "household_action", "income_action", "debt_action", "asset_action", "goal_action"
             if intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(
                 current_household,
@@ -1549,7 +1562,7 @@ module Api
         topic = intent_result.topic.to_h.deep_symbolize_keys
         action = intent_result.action.to_h.deep_symbolize_keys
         {
-          schema_version: intent_result.read_only_plan? ? 3 : 2,
+          schema_version: intent_result.action_plan? ? 5 : intent_result.read_only_plan? ? 3 : 2,
           type: topic[:type],
           title: topic[:title],
           subject: topic[:subject],
@@ -1764,8 +1777,10 @@ module Api
         [ "mia-transaction", current_user.id, current_chat_session.id, request_key, action, draft_id ].compact.join(":").first(200)
       end
 
-      def serialize_mia_action_draft(draft)
-        HouseholdFinance::MiaActionDraftPresenter.new(draft).call
+      def serialize_mia_action_draft(draft, selected_item_ids: nil)
+        HouseholdFinance::MiaActionDraftPresenter.new(draft).call.tap do |payload|
+          payload[:suggested_selected_item_ids] = Array(selected_item_ids) if selected_item_ids.present?
+        end
       end
 
       def serialize_transaction_draft(draft)

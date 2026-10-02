@@ -469,6 +469,7 @@ function App() {
   const voiceChunksRef = useRef<Blob[]>([])
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
+  const setupSaveIdempotencyKeyRef = useRef<string | null>(null)
   const spendingReportRequestRef = useRef(0)
   const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
@@ -1274,8 +1275,8 @@ function App() {
     requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
   }
 
-  function openManualControls(draft: MiaActionDraft) {
-    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget')
+  function openManualControls(draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) {
+    switchSection(item?.manual_section ?? (draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget'))
     if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
     if (draft.draft_type === 'asset_plan') {
       const accountItem = draft.items.find((item) => item.target_record_type === 'Account' || item.operation_key?.startsWith('account.'))
@@ -1434,7 +1435,20 @@ function App() {
         attachment_count: attachmentsToSend.length,
       })
       if (response.budget) {
-        setData((current) => current ? { ...current, budget: response.budget! } : current)
+        const responseBudget = response.mia_action_draft?.suggested_selected_item_ids?.length && response.budget.annual_plan
+          ? {
+              ...response.budget,
+              annual_plan: {
+                ...response.budget.annual_plan,
+                pending_mia_action_drafts: (response.budget.annual_plan.pending_mia_action_drafts ?? []).map((draft) => (
+                  draft.id === response.mia_action_draft?.id
+                    ? { ...draft, suggested_selected_item_ids: response.mia_action_draft.suggested_selected_item_ids }
+                    : draft
+                )),
+              },
+            }
+          : response.budget
+        setData((current) => current ? { ...current, budget: responseBudget } : current)
         const responseMonthIndex = response.transaction_draft ? monthIndexFromIsoDate(response.transaction_draft.occurred_on) : selectedBudgetMonthIndex
         if (response.transaction_draft && response.budget.annual_plan) {
           setBudgetView({ year: response.budget.annual_plan.year, monthIndex: responseMonthIndex })
@@ -1848,14 +1862,17 @@ function App() {
     }
   }
 
-  async function handleApplyMiaActionDraft(draft: MiaActionDraft) {
+  async function handleApplyMiaActionDraft(draft: MiaActionDraft, itemIds?: number[]) {
     if (!isRealWorkspace) return
 
     setBudgetAction(`apply-mia-action:${draft.id}`)
     setBudgetError(null)
     setMiaError(null)
+    const selection = itemIds?.slice().sort((left, right) => left - right)
+    const signature = `apply-mia-action:${draft.id}:${selection?.join(',') ?? 'remaining'}`
     try {
-      const workspace = await applyMiaActionDraft(draft.id)
+      const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection)
+      budgetOperationKeysRef.current.complete(signature)
       setData(workspace)
       if (draft.draft_type === 'household_setup') {
         setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
@@ -1884,8 +1901,10 @@ function App() {
     setBudgetAction(`cancel-mia-action:${draft.id}`)
     setBudgetError(null)
     setMiaError(null)
+    const signature = `cancel-mia-action:${draft.id}`
     try {
-      const workspace = await cancelMiaActionDraft(draft.id)
+      const workspace = await cancelMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
@@ -2435,7 +2454,10 @@ function App() {
       const submittedSetupValues = Object.fromEntries(Object.entries(setupValues).filter(([key]) => (
         wasSetupComplete ? !excludedSetupKeys.includes(key) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
       )))
-      const payload = await saveWorkspaceSetup(submittedSetupValues)
+      const idempotencyKey = setupSaveIdempotencyKeyRef.current ?? clientSideId('workspace-setup')
+      setupSaveIdempotencyKeyRef.current = idempotencyKey
+      const payload = await saveWorkspaceSetup(submittedSetupValues, idempotencyKey)
+      setupSaveIdempotencyKeyRef.current = null
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
@@ -2474,6 +2496,7 @@ function App() {
     if (!isProfileEditing && !isFirstSessionSetup) return
 
     setSetupError(null)
+    setupSaveIdempotencyKeyRef.current = null
     setSetupDraft((current) => {
       if (!current) return current
       return { ...current, [key]: value }
@@ -6935,9 +6958,9 @@ function MiaActionDraftReviewStack({
   compact?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
-  onApply: (draft: MiaActionDraft) => void
+  onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
-  onEditManually?: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
 }) {
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
@@ -6976,15 +6999,62 @@ function MiaActionDraftReviewCard({
   isRealWorkspace: boolean
   action: string | null
   draftActionsDisabled: boolean
-  onApply: (draft: MiaActionDraft) => void
+  onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
-  onEditManually?: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
 }) {
-  const isPending = draft.status === 'pending'
+  const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(
+    draft.suggested_selected_item_ids?.length ? draft.suggested_selected_item_ids : remainingItems.map((item) => item.id),
+  ))
+  const [isChoosingChanges, setIsChoosingChanges] = useState(Boolean(draft.suggested_selected_item_ids?.length))
+  const planRequiresFullApply = remainingItems.some((item) => item.action_type === 'confirm_household_setup')
+  const positions = new Map(draft.items.map((item, index) => [item.position ?? index, item]))
+  const togglePlanItem = (item: MiaActionDraft['items'][number]) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(item.id)) {
+        next.delete(item.id)
+        let changed = true
+        while (changed) {
+          changed = false
+          draft.items.forEach((candidate) => {
+            if (!next.has(candidate.id)) return
+            if ((candidate.dependencies ?? []).some((dependency) => {
+              const required = positions.get(dependency)
+              return Boolean(required && !required.applied_at && !next.has(required.id))
+            })) {
+              next.delete(candidate.id)
+              changed = true
+            }
+          })
+        }
+      } else {
+        next.add(item.id)
+        const addDependencies = (candidate: MiaActionDraft['items'][number]) => {
+          ;(candidate.dependencies ?? []).forEach((position) => {
+            const dependency = positions.get(position)
+            if (dependency && !dependency.applied_at) {
+              next.add(dependency.id)
+              addDependencies(dependency)
+            }
+          })
+        }
+        addDependencies(item)
+      }
+      return next
+    })
+  }
   const proposedSetupKeys = new Set(draft.items
-    .filter((item) => item.action_type === 'update_setup_value')
-    .map((item) => String(item.payload.key ?? '')))
+    .flatMap((item) => {
+      if (item.action_type === 'update_setup_value') return [String(item.payload.key ?? '')]
+      if (item.action_type === 'update_household_profile') return [item.payload.name !== undefined ? 'household_name' : '', item.payload.primary_goal !== undefined ? 'primary_goal' : '']
+      if (item.action_type === 'confirm_household_setup') return [...Object.keys((item.payload.updates as Record<string, unknown> | undefined) ?? {}), ...(((item.payload.confirm_only_fields as string[] | undefined) ?? []))]
+      return []
+    })
+    .filter(Boolean))
   const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
   const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
   const applyLabel = setupCoverage?.complete
@@ -6992,6 +7062,9 @@ function MiaActionDraftReviewCard({
     : setupCoverage
       ? `Apply these ${draft.items.length} value${draft.items.length === 1 ? '' : 's'}`
       : 'Apply reviewed change'
+  const planApplyLabel = !isChoosingChanges || selectedIds.size === remainingItems.length
+    ? `Apply all ${remainingItems.length} ${remainingItems.length === 1 ? 'change' : 'changes'}`
+    : `Apply ${selectedIds.size} selected`
 
   return (
     <article className="mia-action-draft-card">
@@ -7000,18 +7073,47 @@ function MiaActionDraftReviewCard({
           <strong>{draft.title}</strong>
           <div className="mia-action-draft-labels">
             <span className="document-status">{miaActionDraftTypeLabel(draft.draft_type)}</span>
-            <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+            <span className={`document-status ${draft.status === 'pending' || draft.status === 'partially_applied' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
           </div>
         </div>
         <p>{draft.summary}</p>
         {draft.rationale && <p>{draft.rationale}</p>}
-        <div className="mia-action-item-list">
-          {draft.items.map((item) => {
+        {draft.draft_type === 'action_plan' && (
+          <div className="mia-action-plan-toolbar">
+            <span><strong>{remainingItems.length}</strong> reviewed {remainingItems.length === 1 ? 'change remains' : 'changes remain'} in this ordered plan.</span>
+            {remainingItems.length > 1 && !planRequiresFullApply && (
+              <button type="button" className="secondary-button" aria-expanded={isChoosingChanges} onClick={() => {
+                if (isChoosingChanges) setSelectedIds(new Set(remainingItems.map((item) => item.id)))
+                setIsChoosingChanges((current) => !current)
+              }} disabled={actionsDisabled || Boolean(action)}>
+                {isChoosingChanges ? 'Apply the full plan' : 'Choose changes'}
+              </button>
+            )}
+          </div>
+        )}
+        <div className={`mia-action-item-list${draft.draft_type === 'action_plan' ? ' ordered-plan' : ''}`}>
+          {draft.items.map((item, itemIndex) => {
             const reviewFields = miaActionItemReviewFields(item)
 
             return (
-              <div className="mia-action-item" key={item.id}>
-                <strong>{item.label}</strong>
+              <div className={`mia-action-item${item.applied_at ? ' is-applied' : ''}${item.canceled_at ? ' is-canceled' : ''}`} key={item.id}>
+                {draft.draft_type === 'action_plan' && isChoosingChanges && !item.applied_at && !item.canceled_at ? (
+                  <label className="mia-action-selection-row">
+                    <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => togglePlanItem(item)} aria-label={`Include ${item.label}`} />
+                    <span className="mia-action-step-number" aria-hidden="true">{(item.position ?? itemIndex) + 1}</span>
+                    <strong>{item.label}</strong>
+                    <span className="document-status">{miaActionItemDomainLabel(item)}</span>
+                  </label>
+                ) : (
+                <div className="mia-action-item-heading">
+                  {draft.draft_type === 'action_plan' && <span className="mia-action-step-number" aria-hidden="true">{(item.position ?? itemIndex) + 1}</span>}
+                  <strong>{item.label}</strong>
+                  {draft.draft_type === 'action_plan' && <span className="document-status">{miaActionItemDomainLabel(item)}</span>}
+                  {item.applied_at && <span className="document-status green">Applied</span>}
+                  {item.canceled_at && <span className="document-status red">Canceled</span>}
+                </div>
+                )}
+                {item.source_text && <small className="mia-action-source">From your message: “{item.source_text}”</small>}
                 {item.description && <span>{item.description}</span>}
                 {reviewFields.length > 0 && (
                   <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
@@ -7024,6 +7126,11 @@ function MiaActionDraftReviewCard({
                   </dl>
                 )}
                 {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
+                {onEditManually && draft.draft_type === 'action_plan' && !item.applied_at && !item.canceled_at && (
+                  <button type="button" className="mia-item-manual-link" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft, item)}>
+                    Open {item.manual_section ?? 'manual controls'}
+                  </button>
+                )}
               </div>
             )
           })}
@@ -7040,17 +7147,20 @@ function MiaActionDraftReviewCard({
           </section>
         )}
         {draft.impact && <MiaActionImpact impact={draft.impact} />}
+        {draft.draft_type === 'action_plan' && isChoosingChanges && (
+          <small className="mia-action-selection-note">Selected changes apply in one transaction. Required earlier steps are selected automatically; removing one also removes changes that depend on it.</small>
+        )}
         <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft against your latest saved data when you apply it, keep an audit record, and leave actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">
-          <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
-            {action === `apply-mia-action:${draft.id}` ? 'Applying' : applyLabel}
+          <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}` || (draft.draft_type === 'action_plan' && selectedIds.size === 0)} onClick={() => onApply(draft, draft.draft_type === 'action_plan' && isChoosingChanges ? [...selectedIds] : undefined)}>
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : draft.draft_type === 'action_plan' ? planApplyLabel : applyLabel}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
-            {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
+            {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : draft.draft_type === 'action_plan' ? 'Cancel plan' : 'Cancel draft'}
           </button>
-          {onEditManually && (
+          {onEditManually && draft.draft_type !== 'action_plan' && (
             <button type="button" className="secondary-button" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft)}>
               Open manual controls
             </button>
@@ -7058,7 +7168,7 @@ function MiaActionDraftReviewCard({
         </div>
       ) : (
         <div className="mia-action-draft-actions terminal">
-          <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : 'Canceled. No household numbers changed.'}</span>
+          <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : draft.draft_type === 'action_plan' && (draft.applied_item_count ?? 0) > 0 ? `Canceled the remaining plan. ${draft.applied_item_count} previously applied ${draft.applied_item_count === 1 ? 'step remains' : 'steps remain'} in effect.` : 'Canceled. No household numbers changed.'}</span>
         </div>
       )}
     </article>
@@ -7109,11 +7219,23 @@ function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
   if (draftType === 'debt_plan') return 'Debt plan'
   if (draftType === 'asset_plan') return 'Accounts & assets'
   if (draftType === 'goal_plan') return 'Tracked goals'
+  if (draftType === 'action_plan') return 'Action plan'
   return 'Budget plan'
 }
 
+function miaActionItemDomainLabel(item: MiaActionItem) {
+  const domain = item.operation_key?.split('.')[0]
+  if (domain === 'profile') return 'Profile'
+  if (domain === 'income') return 'Income'
+  if (domain === 'budget') return 'Budget'
+  if (domain === 'debt') return 'Debt'
+  if (domain === 'account') return 'Account'
+  if (domain === 'goal') return 'Goal'
+  return 'Plan'
+}
+
 function miaActionDraftRenderKey(draft: MiaActionDraft) {
-  return [draft.id, draft.status, draft.items.map((item) => `${item.id}:${item.label}`).join(',')].join('|')
+  return [draft.id, draft.status, draft.suggested_selected_item_ids?.join(',') ?? '', draft.items.map((item) => `${item.id}:${item.label}:${item.applied_at ?? ''}:${item.canceled_at ?? ''}`).join(',')].join('|')
 }
 
 function miaActionItemFinePrint(item: MiaActionItem) {
@@ -8776,7 +8898,7 @@ function AnnualBudgetPlanner({
   onRestoreCategory: (categoryId: number) => void
   onApplyMiaActionDraft: (draft: MiaActionDraft) => void
   onCancelMiaActionDraft: (draft: MiaActionDraft) => void
-  onOpenManualMiaAction: (draft: MiaActionDraft) => void
+  onOpenManualMiaAction: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void

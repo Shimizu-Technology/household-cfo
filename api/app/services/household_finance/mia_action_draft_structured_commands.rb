@@ -14,6 +14,15 @@ module HouseholdFinance
       end
 
       case command.fetch(:type).to_s
+      when "compound_action_plan"
+        MiaActionPlanBuilder.new(
+          household,
+          user: user,
+          annual_budget_manager: annual_budget_manager,
+          selected_month: selected_month,
+          raw_input: raw_input,
+          actions: command.fetch(:actions, [])
+        ).call
       when "set_allocation"
         structured_allocation_proposal(:set)
       when "increase_allocation"
@@ -281,14 +290,36 @@ module HouseholdFinance
     end
 
     def structured_existing_draft_result
-      draft = household.mia_action_drafts.pending.find_by(id: command[:draft_id].to_i)
+      draft = household.mia_action_drafts.where(status: %w[pending partially_applied]).find_by(id: command[:draft_id].to_i)
       return validation_result("I could not find that pending review. Nothing changed; ask me to prepare the change again.") unless draft
+
+      selected_ids = Array(command[:selected_item_ids]).map(&:to_i).select(&:positive?).uniq
+      if selected_ids.any?
+        items = draft.mia_action_items.order(:position, :id).to_a
+        available_ids = items.reject { |item| item.applied_at.present? || item.canceled_at.present? }.map(&:id)
+        return validation_result("I could not match every requested plan step. Nothing changed; choose the steps on the review card.") unless
+          draft.draft_type == "action_plan" && (selected_ids - available_ids).empty?
+
+        positions = items.index_by(&:position)
+        selected = items.select { |item| selected_ids.include?(item.id) }
+        selected.each do |item|
+          Array(item.dependencies).each do |position|
+            dependency = positions[position]
+            return validation_result("A required earlier plan step is unavailable. Nothing changed; ask Mia to prepare a fresh plan.") unless dependency
+            selected << dependency unless dependency.applied_at.present? || selected.include?(dependency)
+          end
+        end
+        selected_ids = selected.sort_by(&:position).map(&:id)
+      end
 
       MiaActionDraftBuilder::Result.new(
         proposal: nil,
         existing_draft: draft,
+        selected_item_ids: selected_ids,
         annual_plan: annual_plan,
-        response: "That review card is ready below. Use Apply to make the change, or Cancel to leave your approved numbers as they are. Nothing else changed."
+        response: selected_ids.any? ?
+          "I selected the requested steps on the review card. Check the selection, then apply it when you are ready. Nothing changed yet." :
+          "That review card is ready below. Use Apply to make the change, or Cancel to leave your approved numbers as they are. Nothing else changed."
       )
     end
 

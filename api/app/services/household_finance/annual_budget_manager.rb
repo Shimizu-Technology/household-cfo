@@ -548,7 +548,7 @@ module HouseholdFinance
     end
 
     def pending_mia_action_drafts_payload(budget_year)
-      household.mia_action_drafts.pending.includes(:mia_action_items)
+      household.mia_action_drafts.reviewable.includes(:mia_action_items)
         .where("draft_type IN (:timeless) OR year = :year", timeless: %w[household_setup debt_plan], year: budget_year.year)
         .recent_first
         .limit(10)

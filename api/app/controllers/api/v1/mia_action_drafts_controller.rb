@@ -6,35 +6,51 @@ module Api
       before_action :set_draft
 
       def apply
-        result = HouseholdFinance::MiaActionDraftApplier.new(@draft, user: current_user).call
+        idempotency_key = request.headers["Idempotency-Key"].to_s.strip
+        if idempotency_key.blank? && @draft.draft_type == "action_plan"
+          return render json: { errors: [ "Idempotency-Key header is required" ] }, status: :unprocessable_entity
+        end
+        idempotency_key = "legacy-mia-action:#{@draft.id}:#{current_user.id}" if idempotency_key.blank?
+        result = HouseholdFinance::MiaActionDraftApplier.new(@draft, user: current_user).call(
+          idempotency_key: idempotency_key,
+          selected_item_ids: params[:item_ids]
+        )
         unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
+          return render json: { errors: result.errors }, status: result.conflict? ? :conflict : :unprocessable_entity
         end
 
         unless result.replayed?
           status_message = applied_message(result.draft)
           append_chat_status_message(status_message)
-          update_conversation_action_status("applied", status_message)
+          update_conversation_action_status(result.draft.status, status_message)
         end
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),
+          mia_action_draft_application: result.application&.slice(:id, :idempotency_key, :selected_item_ids, :status, :completed_at),
           workspace: workspace_payload_for(result.draft.year)
         }
       end
 
       def cancel
-        result = HouseholdFinance::MiaActionDraftCanceler.new(@draft, user: current_user).call
+        idempotency_key = request.headers["Idempotency-Key"].to_s.strip
+        if idempotency_key.blank? && @draft.draft_type == "action_plan"
+          return render json: { errors: [ "Idempotency-Key header is required" ] }, status: :unprocessable_entity
+        end
+        result = HouseholdFinance::MiaActionDraftCanceler.new(@draft, user: current_user).call(idempotency_key: idempotency_key)
         unless result.success?
-          return render json: { errors: result.errors }, status: :unprocessable_entity
+          return render json: { errors: result.errors }, status: result.conflict? ? :conflict : :unprocessable_entity
         end
 
-        status_message = canceled_message(result.draft)
-        append_chat_status_message(status_message)
-        update_conversation_action_status("canceled", status_message)
+        unless result.replayed?
+          status_message = canceled_message(result.draft)
+          append_chat_status_message(status_message)
+          update_conversation_action_status("canceled", status_message)
+        end
 
         render json: {
           mia_action_draft: serialize_action_draft(result.draft),
+          mia_action_draft_application: result.application&.slice(:id, :idempotency_key, :request_kind, :selected_item_ids, :status, :completed_at),
           workspace: workspace_payload_for(result.draft.year)
         }
       end
@@ -81,6 +97,11 @@ module Api
       end
 
       def applied_message(draft)
+        if draft.status == "partially_applied"
+          remaining = draft.mia_action_items.count { |item| item.applied_at.blank? }
+          return "Applied the selected reviewed changes together. #{remaining} #{'step'.pluralize(remaining)} remain in this plan, and no unselected change was applied."
+        end
+
         case draft.draft_type
         when "budget_edit"
           "Applied the reviewed budget edit: #{applied_summary(draft.summary)} The official annual budget is updated, and actual spending stayed unchanged."
@@ -89,6 +110,8 @@ module Api
         when "household_setup"
           base = "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
           "#{base} #{HouseholdFinance::MiaSetupGuide.new(draft.household.reload).after_apply_message}"
+        when "action_plan"
+          "Applied all reviewed steps in the household action plan. Every step was rechecked against current approved data before the plan committed."
         else
           "Applied the reviewed household update: #{applied_summary(draft.summary)} The assistant and Home snapshot now use the approved values."
         end
@@ -101,6 +124,12 @@ module Api
       end
 
       def canceled_message(draft)
+        if draft.draft_type == "action_plan"
+          applied = draft.mia_action_items.count { |item| item.applied_at.present? }
+          canceled = draft.mia_action_items.count { |item| item.canceled_at.present? }
+          return "Canceled the remaining #{canceled} #{'step'.pluralize(canceled)} in #{draft.title}. #{applied} previously applied #{'step'.pluralize(applied)} stayed applied."
+        end
+
         unchanged = case draft.draft_type
         when "budget_edit" then "No budget numbers changed."
         when "income_schedule" then "No income timeline changed."

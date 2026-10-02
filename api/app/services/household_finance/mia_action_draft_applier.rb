@@ -1,6 +1,6 @@
 module HouseholdFinance
   class MiaActionDraftApplier
-    Result = Struct.new(:success?, :draft, :errors, :replayed?, keyword_init: true)
+    Result = Struct.new(:success?, :draft, :application, :errors, :replayed?, :conflict?, keyword_init: true)
     StaleDraftError = Class.new(StandardError)
     INCOMPLETE_DRAFT_MESSAGE = "Mia’s review card is incomplete. Ask Mia to draft a fresh edit. Nothing changed."
 
@@ -10,35 +10,154 @@ module HouseholdFinance
       @user = user
     end
 
-    def call
+    def call(idempotency_key: nil, selected_item_ids: nil)
+      key = normalized_application_key(idempotency_key)
+      selected_ids = normalized_selected_item_ids(selected_item_ids)
+      request_fingerprint = application_fingerprint(key, selected_ids)
+      application = nil
+
       ApplicationRecord.transaction do
         # Canonical budget-write lock order: household first, then child rows.
         # Keep this consistent with AnnualBudgetManager and action cancelation to
         # avoid deadlocks between concurrent budget/draft operations.
         household.lock!
         draft.lock!
-        return Result.new(success?: true, draft: draft.reload, errors: [], replayed?: true) if draft.status == "applied"
-        raise ArgumentError, "Mia action draft is not pending" unless draft.pending?
+        ensure_actor_membership!
+        existing = household.mia_action_draft_applications.find_by(user: user, idempotency_key: key)
+        return replay_application(existing, request_fingerprint) if existing
+        raise ArgumentError, "Mia action draft is no longer available for review" unless draft.reviewable?
 
-        draft.mia_action_items.order(:position, :id).each { |item| apply_item!(item) }
-        draft.update!(status: "applied", applied_by_user: user, applied_at: Time.current)
-        audit!("mia_action_draft.applied") unless draft.mia_action_items.all? { |item| registered_operation?(item) }
+        items = draft.mia_action_items.lock.order(:position, :id).to_a
+        selected = selected_items(items, selected_ids)
+        validate_partial_selection!(items, selected, selected_ids)
+        validate_dependencies!(items, selected)
+        application = household.mia_action_draft_applications.create!(
+          mia_action_draft: draft,
+          user: user,
+          idempotency_key: key,
+          request_kind: "apply",
+          request_fingerprint: request_fingerprint,
+          selected_item_ids: selected.map(&:id)
+        )
+
+        selected.each do |item|
+          @application_item_key = draft.draft_type == "action_plan" ? "mia-action-application:#{application.id}:item:#{item.id}" : "mia-action-item:#{item.id}"
+          apply_item!(item)
+          item.update!(applied_at: Time.current)
+        end
+        all_applied = items.all? { |item| item.applied_at.present? || selected.include?(item) }
+        status = all_applied ? "applied" : "partially_applied"
+        draft.update!(
+          status: status,
+          applied_by_user: user,
+          applied_at: all_applied ? Time.current : nil
+        )
+        audit!(all_applied ? "mia_action_draft.applied" : "mia_action_draft.partially_applied") unless selected.all? { |item| registered_operation?(item) }
+        application.update!(
+          status: "completed",
+          completed_at: Time.current,
+          response_payload: { draft_id: draft.id, draft_status: status, selected_item_ids: selected.map(&:id) }
+        )
       end
 
-      Result.new(success?: true, draft: draft.reload, errors: [], replayed?: false)
+      Result.new(success?: true, draft: draft.reload, application: application.reload, errors: [], replayed?: false)
     rescue ActiveRecord::RecordNotUnique
-      Result.new(success?: false, draft: draft, errors: [ stale_category_name_message ])
+      Result.new(success?: false, draft: draft, application: nil, errors: [ stale_category_name_message ])
     rescue ActiveRecord::RecordInvalid => e
-      Result.new(success?: false, draft: draft, errors: e.record.errors.full_messages)
+      Result.new(success?: false, draft: draft, application: nil, errors: e.record.errors.full_messages)
     rescue KeyError
-      Result.new(success?: false, draft: draft, errors: [ INCOMPLETE_DRAFT_MESSAGE ])
-    rescue ArgumentError, ActiveRecord::RecordNotFound, StaleDraftError => e
-      Result.new(success?: false, draft: draft, errors: [ e.message ])
+      Result.new(success?: false, draft: draft, application: nil, errors: [ INCOMPLETE_DRAFT_MESSAGE ])
+    rescue Operations::Runner::IdempotencyConflict => e
+      Result.new(success?: false, draft: draft, application: nil, errors: [ e.message ], conflict?: true)
+    rescue ArgumentError, ActiveRecord::RecordNotFound, StaleDraftError,
+      Operations::Base::StaleOperation => e
+      Result.new(success?: false, draft: draft, application: nil, errors: [ e.message ])
     end
 
     private
 
     attr_reader :draft, :household, :user
+
+    def normalized_application_key(value)
+      key = value.to_s.strip.presence || "legacy-mia-action:#{draft.id}:#{user.id}"
+      raise ArgumentError, "Idempotency key is too long" if key.length > 200
+      key
+    end
+
+    def normalized_selected_item_ids(values)
+      return nil if values.nil?
+
+      ids = Array(values).map { |value| Integer(value) }
+      raise ArgumentError, "Select at least one review step" if ids.empty?
+      raise ArgumentError, "Review step IDs must be unique positive integers" unless ids.all?(&:positive?) && ids.uniq.length == ids.length
+      ids.sort
+    rescue TypeError, ArgumentError => e
+      raise e if e.message.start_with?("Select", "Review")
+
+      raise ArgumentError, "Review step IDs must be positive integers"
+    end
+
+    def application_fingerprint(key, selected_ids)
+      Digest::SHA256.hexdigest(
+        { household_id: household.id, draft_id: draft.id, user_id: user.id, selected_item_ids: selected_ids || "remaining" }.to_json
+      )
+    end
+
+    def replay_application(application, fingerprint)
+      unless secure_equal?(application.request_fingerprint, fingerprint)
+        raise Operations::Runner::IdempotencyConflict, "That idempotency key was already used for a different Mia plan selection. Nothing changed."
+      end
+      unless application.status == "completed"
+        raise ArgumentError, "That Mia plan application is still processing. Try again shortly."
+      end
+
+      Result.new(success?: true, draft: draft.reload, application: application, errors: [], replayed?: true)
+    end
+
+    def selected_items(items, selected_ids)
+      available = items.reject { |item| item.applied_at.present? || item.canceled_at.present? }
+      return available if selected_ids.nil?
+
+      selected = available.select { |item| selected_ids.include?(item.id) }
+      raise ActiveRecord::RecordNotFound, "One or more selected review steps are unavailable" unless selected.length == selected_ids.length
+      selected
+    end
+
+    def validate_dependencies!(items, selected)
+      applied_positions = items.select { |item| item.applied_at.present? }.map(&:position)
+      selected_positions = selected.map(&:position)
+      selected.each do |item|
+        missing = Array(item.dependencies) - applied_positions - selected_positions
+        next if missing.empty?
+
+        raise ArgumentError, "Select the earlier required review steps before applying #{item.label}. Nothing changed."
+      end
+    end
+
+    def validate_partial_selection!(items, selected, selected_ids)
+      return if selected_ids.nil?
+
+      unless draft.draft_type == "action_plan"
+        raise ArgumentError, "Only household action plans support choosing individual review steps. Nothing changed."
+      end
+
+      remaining = items.reject { |item| item.applied_at.present? || item.canceled_at.present? }
+      return unless remaining.any? { |item| item.action_type == "confirm_household_setup" }
+      return if selected.length == remaining.length
+
+      raise ArgumentError, "Starting-picture confirmations must be applied with every remaining step in this plan. Nothing changed."
+    end
+
+    def ensure_actor_membership!
+      membership = household.household_memberships.lock.find_by(user_id: user.id)
+      return if membership&.role.in?(%w[owner partner])
+
+      raise ArgumentError, "You no longer have permission to change this household. Nothing changed."
+    end
+
+    def secure_equal?(left, right)
+      left.bytesize == right.bytesize && ActiveSupport::SecurityUtils.secure_compare(left, right)
+    end
 
     def apply_item!(item)
       return apply_registered_operation!(item) if operation_identity_present?(item)
@@ -90,7 +209,7 @@ module HouseholdFinance
       Operations::Runner.new(household, user: user).run_prepared(
         prepared: item.prepared_operation,
         prepared_fingerprint: item.prepared_operation_fingerprint,
-        idempotency_key: "mia-action-item:#{item.id}",
+        idempotency_key: @application_item_key || "mia-action-item:#{item.id}",
         source: "mia",
         reviewable: item
       )

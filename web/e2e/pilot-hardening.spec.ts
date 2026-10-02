@@ -212,6 +212,34 @@ const miaIncomeDraft = {
   }],
 }
 
+const miaCompoundActionPlan = {
+  id: 79, status: 'pending', draft_type: 'action_plan', year: currentYear,
+  title: 'Review 2 household changes',
+  summary: 'I prepared an ordered plan from 2 parts of your request. Apply all, or select a dependency-safe subset.',
+  rationale: 'Every selected change is rechecked against the latest approved household data, then applied together or not at all.',
+  source_prompt: 'Set checking to $250 and set trip progress to $900.',
+  created_at: '2026-10-02T00:00:00Z', applied_at: null, canceled_at: null,
+  applied_item_count: 0, remaining_item_count: 2, impact: null,
+  items: [
+    {
+      id: 791, position: 0, action_type: 'update_account', operation_key: 'account.record.update', operation_version: 1,
+      target_record_type: 'Account', target_record_id: 22, label: 'Update Everyday checking',
+      description: 'Review the approved balance before saving.', payload: { account_id: 22, amount_cents: 25_000 },
+      before_snapshot: {}, after_snapshot: {}, source_text: 'Set checking to $250', source_start: 0, source_end: 20,
+      dependencies: [], applied_at: null, manual_section: 'My Profile',
+      review_fields: [{ label: 'Approved balance', before: '$100.00', after: '$250.00' }],
+    },
+    {
+      id: 792, position: 1, action_type: 'update_goal', operation_key: 'goal.record.update', operation_version: 1,
+      target_record_type: 'Goal', target_record_id: 31, label: 'Update Family trip',
+      description: 'Review the tracked progress before saving.', payload: { goal_id: 31, current_amount_cents: 90_000 },
+      before_snapshot: {}, after_snapshot: {}, source_text: 'and set trip progress to $900', source_start: 21, source_end: 50,
+      dependencies: [0], applied_at: null, manual_section: 'My Profile',
+      review_fields: [{ label: 'Current progress', before: '$500.00', after: '$900.00' }],
+    },
+  ],
+}
+
 const miaAssetDraft = {
   id: 74, status: 'pending', draft_type: 'asset_plan', year: currentYear,
   title: 'Update the emergency reserve', summary: 'Mia prepared an account change for review.',
@@ -5305,7 +5333,94 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await expect(miaCard).toContainText('leave actual spending untouched')
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
   await miaCard.getByRole('button', { name: 'Cancel draft' }).click()
-  await cancelRequest
+  expect((await cancelRequest).headers()['idempotency-key']).toBeTruthy()
+})
+
+test('mobile Ask Mia action plans keep apply-all simple and partial selection dependency-safe', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [miaCompoundActionPlan]
+  const appliedWorkspace = realWorkspaceData(true)
+  appliedWorkspace.budget.annual_plan.pending_mia_action_drafts = []
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/79/apply', (route) => route.fulfill({
+    status: 200,
+    json: { workspace: appliedWorkspace },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('Set checking to $250', { exact: false })).toBeVisible()
+  await expect(card.getByText('and set trip progress to $900', { exact: false })).toBeVisible()
+  await expect(card.getByText('Account', { exact: true })).toBeVisible()
+  await expect(card.getByText('Goal', { exact: true })).toBeVisible()
+  await expect(card.getByRole('checkbox')).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Apply all 2 changes' })).toBeEnabled()
+
+  await card.getByRole('button', { name: 'Choose changes' }).click()
+  const accountChange = card.getByRole('checkbox', { name: 'Include Update Everyday checking' })
+  const goalChange = card.getByRole('checkbox', { name: 'Include Update Family trip' })
+  await expect(accountChange).toBeChecked()
+  await expect(goalChange).toBeChecked()
+  await expect(card.locator('.mia-action-selection-row').first()).toHaveCSS('min-height', '44px')
+  await goalChange.uncheck()
+  await expect(accountChange).toBeChecked()
+  await expect(card.getByRole('button', { name: 'Apply 1 selected' })).toBeEnabled()
+
+  const applyRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/79/apply') && request.method() === 'POST')
+  await card.getByRole('button', { name: 'Apply 1 selected' }).click()
+  const request = await applyRequest
+  expect(request.headers()['idempotency-key']).toBeTruthy()
+  expect(request.postDataJSON()).toEqual({ item_ids: [791] })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('partial action plans keep dependencies satisfied by already-applied steps', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{
+    ...miaCompoundActionPlan,
+    status: 'partially_applied',
+    applied_item_count: 1,
+    remaining_item_count: 2,
+    items: [
+      { ...miaCompoundActionPlan.items[0], applied_at: '2026-10-02T01:00:00Z' },
+      { ...miaCompoundActionPlan.items[1], id: 792, dependencies: [0] },
+      {
+        ...miaCompoundActionPlan.items[1], id: 793, position: 2, label: 'Update Car replacement goal',
+        source_text: 'and update the car goal', dependencies: [], applied_at: null,
+      },
+    ],
+  }]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  await card.getByRole('button', { name: 'Choose changes' }).click()
+  const dependent = card.getByRole('checkbox', { name: 'Include Update Family trip' })
+  const independent = card.getByRole('checkbox', { name: 'Include Update Car replacement goal' })
+  await expect(dependent).toBeChecked()
+  await independent.uncheck()
+  await expect(dependent).toBeChecked()
+})
+
+test('Ask Mia opens an authoritative named-step selection in explicit review mode', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{
+    ...miaCompoundActionPlan,
+    suggested_selected_item_ids: [792],
+    items: [miaCompoundActionPlan.items[0], { ...miaCompoundActionPlan.items[1], dependencies: [] }],
+  }]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  await expect(card.getByRole('checkbox', { name: 'Include Update Everyday checking' })).not.toBeChecked()
+  await expect(card.getByRole('checkbox', { name: 'Include Update Family trip' })).toBeChecked()
+  await expect(card.getByRole('button', { name: 'Apply 1 selected' })).toBeEnabled()
+  await expect(card.getByRole('button', { name: 'Cancel plan' })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('manual transaction capture joins the unified review queue without changing actuals', async ({ page }) => {

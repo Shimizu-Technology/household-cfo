@@ -40,12 +40,20 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     )
 
     assert_equal "household_setup", result.proposal.draft_type
-    assert_equal 4, result.proposal.items.length
-    assert_equal [ "update_setup_value" ], result.proposal.items.map(&:action_type).uniq
+    assert_equal 6, result.proposal.items.length
+    assert_equal %w[confirm_household_setup create_category update_account update_household_profile update_transition_policy upsert_income_schedule_entry], result.proposal.items.map(&:action_type).sort
     assert_equal 5_500.0, result.proposal.metadata.dig(:impact, :before_monthly_income)
     assert_equal 6_700.0, result.proposal.metadata.dig(:impact, :after_monthly_income)
 
     draft = persist(result.proposal)
+    operation_keys = draft.mia_action_items.pluck(:operation_key)
+    assert_equal "profile.setup_confirmation.update", operation_keys.last
+    assert_includes operation_keys, "profile.household.update"
+    assert_includes operation_keys, "goal.transition_policy.update"
+    assert_includes operation_keys, "income.schedule.create"
+    assert_includes operation_keys, "budget.category.create"
+    assert_includes operation_keys, "account.record.update"
+    refute_includes draft.mia_action_items.pluck(:action_type), "update_setup_value"
     apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
 
     assert apply.success?, apply.errors.to_sentence
@@ -55,6 +63,34 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert_equal 3_500.0, setup.fetch(:emergency_fund)
     assert_equal 225.0, setup.fetch(:unexpected_sinking_fund)
     assert_equal "applied", draft.reload.status
+    executions = HouseholdOperationExecution.where(reviewable: draft.mia_action_items)
+    assert_equal operation_keys.sort, executions.pluck(:operation_key).sort
+  end
+
+  test "setup confirmation cannot bypass typed financial operations" do
+    error = assert_raises(ArgumentError) do
+      HouseholdFinance::Operations::Profile::SetupConfirmationUpdate.new(@household).prepare(
+        updates: { primary_income: 9_999 },
+        confirmed_fields: [ "primary_income" ]
+      )
+    end
+
+    assert_includes error.message, "cannot change household values"
+    assert_equal 5_000.0, HouseholdFinance::DataPresenter.new(@household.reload).setup_values.fetch(:primary_income)
+  end
+
+  test "household profile operation does not mutate an untracked transition policy" do
+    transition = @household.goals.policy.find_by!(goal_type: "transition")
+    original_label = transition.label
+
+    HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: "profile.household.update",
+      input: { primary_goal: "Choose a new direction" },
+      idempotency_key: "profile-goal-without-policy-side-effect"
+    )
+
+    assert_equal "Choose a new direction", @household.reload.primary_goal
+    assert_equal original_label, transition.reload.label
   end
 
   test "setup impact keeps outflow and surplus unknown when the debt minimum is unknown" do
@@ -91,7 +127,7 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
       }
     )
 
-    assert_equal 7, result.proposal.items.length
+    assert_equal 9, result.proposal.items.length
     assert_equal 3_400.0, result.proposal.metadata.dig(:impact, :before_monthly_outflow)
     assert_equal 4_325.0, result.proposal.metadata.dig(:impact, :after_monthly_outflow)
     before = HouseholdFinance::DataPresenter.new(@household.reload, user: @user).setup_values
@@ -155,8 +191,9 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
       setup_updates: { household_name: @household.name, flexible_spend: "0" }
     )
 
-    assert_equal 2, result.proposal.items.length
-    assert result.proposal.items.all? { |item| item.description.start_with?("Confirm ") }
+    assert_equal 1, result.proposal.items.length
+    assert_equal "confirm_household_setup", result.proposal.items.sole.action_type
+    assert_equal %w[flexible_spend household_name], result.proposal.items.sole.payload.fetch(:confirmed_fields).sort
 
     draft = persist(result.proposal)
     apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
@@ -166,6 +203,24 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert status.complete?
     assert_includes status.confirmed_field_keys, "household_name"
     assert_includes status.confirmed_field_keys, "flexible_spend"
+  end
+
+  test "confirmation-only setup reviews reject a value that changed after review" do
+    @household.expense_items.where(stack_key: "discretionary").update_all(amount_cents: 0, active: false)
+    @household.update!(confirmed_setup_fields: @household.confirmed_setup_fields - [ "flexible_spend" ])
+    result = build_command(type: "update_household_setup", setup_updates: { flexible_spend: "0" })
+    draft = persist(result.proposal)
+    @household.expense_items.create!(
+      label: "New flexible spending", stack_key: "discretionary", amount_cents: 100_00,
+      cadence: "monthly", active: true
+    )
+
+    apply = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+
+    refute apply.success?
+    assert_includes apply.errors.to_sentence, "changed since Mia prepared"
+    refute_includes HouseholdFinance::SetupStatus.new(@household.reload).confirmed_field_keys, "flexible_spend"
+    assert_equal "pending", draft.reload.status
   end
 
   test "rejects a stale household value instead of overwriting a newer manual edit" do

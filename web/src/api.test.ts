@@ -51,6 +51,7 @@ import {
   deleteIncomeScheduleEntry,
   matchTransactionDraft,
   reopenTransactionDraft,
+  saveWorkspaceSetup,
   updateTransactionDraft,
 } from './api'
 
@@ -104,6 +105,18 @@ describe('budget operation idempotency contract', () => {
 
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'category-attempt' })
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'allocation-attempt' })
+  })
+})
+
+describe('manual setup idempotency contract', () => {
+  it('sends the caller-owned stable key for the typed setup transaction', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ workspace: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await saveWorkspaceSetup({ household_name: 'Typed Household' }, 'workspace-setup-attempt')
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit
+    expect((request.headers as Record<string, string>)['Idempotency-Key']).toBe('workspace-setup-attempt')
   })
 })
 

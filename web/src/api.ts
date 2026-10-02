@@ -519,6 +519,7 @@ export type SpendingReport = {
 
 export type MiaActionItem = {
   id: number
+  position?: number
   action_type:
     | 'create_category'
     | 'update_category'
@@ -550,6 +551,9 @@ export type MiaActionItem = {
     | 'update_goal'
     | 'archive_goal'
     | 'restore_goal'
+    | 'update_runway_policy'
+    | 'update_household_profile'
+    | 'confirm_household_setup'
   target_record_type: string | null
   target_record_id: number | null
   label: string
@@ -559,6 +563,14 @@ export type MiaActionItem = {
   after_snapshot: Record<string, unknown>
   operation_key: string | null
   operation_version: number | null
+  source_text?: string | null
+  source_start?: number | null
+  source_end?: number | null
+  dependencies?: number[]
+  applied_at?: string | null
+  canceled_at?: string | null
+  status?: 'pending' | 'applied' | 'canceled'
+  manual_section?: 'Budget' | 'My Profile'
   review_fields?: Array<{
     label: string
     before: string
@@ -568,8 +580,8 @@ export type MiaActionItem = {
 
 export type MiaActionDraft = {
   id: number
-  status: 'pending' | 'applied' | 'canceled'
-  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan' | 'goal_plan'
+  status: 'pending' | 'partially_applied' | 'applied' | 'canceled'
+  draft_type: 'budget_edit' | 'household_setup' | 'income_schedule' | 'debt_plan' | 'asset_plan' | 'goal_plan' | 'action_plan'
   year: number
   title: string
   summary: string
@@ -588,6 +600,10 @@ export type MiaActionDraft = {
     after_baseline_surplus?: number
   } | null
   setup_coverage_after_apply?: WorkspaceSetupStatus | null
+  applied_item_count?: number
+  canceled_item_count?: number
+  remaining_item_count?: number
+  suggested_selected_item_ids?: number[]
   items: MiaActionItem[]
 }
 
@@ -2414,10 +2430,10 @@ export async function fetchAppData(realWorkspace = false): Promise<AppData> {
   }
 }
 
-export async function saveWorkspaceSetup(values: Partial<WorkspaceSetupValues>): Promise<AppData> {
+export async function saveWorkspaceSetup(values: Partial<WorkspaceSetupValues>, idempotencyKey: string): Promise<AppData> {
   return fetchJson<AppData>('/api/v1/workspace/setup', {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
     body: JSON.stringify({ workspace: values }),
   })
 }
@@ -2702,13 +2718,21 @@ export async function deleteIncomeScheduleEntry(id: number, year: number | undef
   return payload.budget
 }
 
-export async function applyMiaActionDraft(id: number): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/apply`, {})
+export async function applyMiaActionDraft(id: number, idempotencyKey: string, itemIds?: number[]): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/apply`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify(itemIds ? { item_ids: itemIds } : {}),
+  })
   return payload.workspace
 }
 
-export async function cancelMiaActionDraft(id: number): Promise<AppData> {
-  const payload = await postJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/cancel`, {})
+export async function cancelMiaActionDraft(id: number, idempotencyKey: string): Promise<AppData> {
+  const payload = await fetchJson<{ workspace: AppData }>(`/api/v1/mia_action_drafts/${id}/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({}),
+  })
   return payload.workspace
 }
 

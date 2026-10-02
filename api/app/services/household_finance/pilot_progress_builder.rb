@@ -60,7 +60,7 @@ module HouseholdFinance
       return operational_signals.fetch(:pending_review_work) if operational_signals
 
       household.transaction_drafts.pending.exists? ||
-        household.mia_action_drafts.pending.exists? ||
+        household.mia_action_drafts.reviewable.exists? ||
         household.financial_document_imports.pending_review.exists?
     end
 
