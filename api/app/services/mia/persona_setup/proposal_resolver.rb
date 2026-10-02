@@ -221,10 +221,19 @@ module Mia
         coaching\s+philosophy|
         locale\s+label|
         persona\s+(?:name|voice|tone)
-      )\s+(?:(?:is|are)\s+(?:now\s+)?(?!not\b|unchanged\b|under\s+review\b|still\s+pending\b|proposed\b)|(?:now\s+)?(?:reads?|shows?)\s+)\S/ix
+      )\s+(?:(?:is|are)\s+(?>(?:now\s+)?)(?!not\b|unchanged\b|under\s+review\b|still\s+pending\b|proposed\b)|(?:now\s+)?(?:reads?|shows?)\s+)\S/ix
       PERSONA_MEMBERSHIP_STATE_CLAIM_PATTERN = /\A\s*[^.!?\n]{1,120}?\s+(?:is|are)\s+(?:now\s+)?(?:in|part\s+of|included\s+in)\s+(?:the|your|this)\s+(?:persona|setup)\b(?:\s+now\b)?/ix
       CONFIGURATION_FRAGMENT_CLAIM_PATTERN = /\A\s*(?:the\s+)?(?:assistant\s+)?(?:name|phrase|persona|setup|changes?|update|everything)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
-      CLAIM_CLAUSE_BOUNDARY_PATTERN = /\s*(?:;|,(?=\s+(?:and|but|yet|so)\b))\s*|(?<=[.!?])\s+/i
+      CLAIM_CLAUSE_START_PATTERN = /(?:
+        (?:I|we|Mia)\b|
+        [^.!?;\n—–]{1,80}?\s+(?:is|are|was|were|has|have)\b|
+        (?:name|phrase|persona|setup|changes?|everything)\s+(?:now\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b
+      )/ix
+      CLAIM_CLAUSE_BOUNDARY_PATTERN = /(?:
+        \s*(?:;|[—–])\s*|
+        (?<=[.!?])\s+|
+        (?:\s*,\s*|\s+)(?:and|but|yet|so)\s+(?=#{CLAIM_CLAUSE_START_PATTERN})
+      )/ix
       SAFE_NON_WRITE_SENTENCE_PATTERNS = [
         /\A\s*(?:I|we)\s+changed\s+(?:my|our)\s+mind\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:I|we)\s+changed\s+the\s+tone\s+of\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
