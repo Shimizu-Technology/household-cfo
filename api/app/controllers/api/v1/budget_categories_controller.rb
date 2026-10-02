@@ -92,7 +92,7 @@ module Api
       end
 
       def category_params
-        params.require(:category).permit(:name, :stack_key, :monthly_amount)
+        params.require(:category).permit(:name, :stack_key, :monthly_amount, month_numbers: [])
       end
 
       def render_category_response(category, status: :ok)

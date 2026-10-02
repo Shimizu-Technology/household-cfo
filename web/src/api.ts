@@ -2620,7 +2620,7 @@ function yearQuery(year?: number) {
   return year ? `?year=${encodeURIComponent(year)}` : ''
 }
 
-export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string }, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
+export async function createBudgetCategory(values: { name: string; stack_key: BudgetStackKey; monthly_amount?: number | string; month_numbers?: number[] }, year: number | undefined, idempotencyKey: string): Promise<BudgetData> {
   const payload = await fetchJson<{ budget: BudgetData }>(`/api/v1/budget_categories${yearQuery(year)}`, {
     method: 'POST', headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey }, body: JSON.stringify({ category: values }),
   })

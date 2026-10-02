@@ -8567,6 +8567,50 @@ h3 {
   gap: 7px;
 }
 
+.annual-category-months {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.annual-category-months legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.annual-category-months > div {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.annual-category-months label {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+}
+
+.annual-category-form .annual-category-months input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
+}
+
 .annual-category-form input,
 .annual-category-form select,
 .annual-budget-table input {
@@ -9493,6 +9537,10 @@ h3 {
   .annual-category-form,
   .transaction-split-editor {
     grid-template-columns: 1fr;
+  }
+
+  .annual-category-months > div {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .transaction-draft-stack,

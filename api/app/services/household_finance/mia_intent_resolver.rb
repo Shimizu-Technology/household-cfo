@@ -48,6 +48,8 @@ module HouseholdFinance
     ISO_DATE_PATTERN = /\b(20\d{2}-\d{2}-\d{2})\b/.freeze
     MONEY_TEXT_PATTERN = /\$\s*((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/.freeze
     NUMBER_TEXT_PATTERN = /(?<![\w$,])((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\w|,\d)/.freeze
+    BUDGET_RECURRING_SCOPE_PATTERN = /\b(?:per month|monthly|every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i.freeze
+    BUDGET_ALL_YEAR_SCOPE_PATTERN = /\b(?:every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i.freeze
     EXPLICIT_ZERO_PATTERN = /(?<![\d,])\$?\s*0(?:\.0{1,2})?(?![\d,])|\bzero\b/i.freeze
     SETUP_ZERO_FIELD_PATTERNS = {
       primary_income: /\b(?:primary(?: monthly)? income|monthly income|take[ -]?home pay|bring home|job income|salary|paycheck)\b/i,
@@ -2072,41 +2074,93 @@ module HouseholdFinance
 
     def budget_period_grounded_in_source?(action, source_text)
       text = source_text.to_s
+      month_text, year_text = corrected_budget_period_components(text, action: action)
       mentioned_months = Date::MONTHNAMES.each_with_index.filter_map do |name, index|
         next if name.blank?
         abbreviation = Date::ABBR_MONTHNAMES.fetch(index)
-        index if text.match?(/\b(?:#{Regexp.escape(name)}|#{Regexp.escape(abbreviation)})\b/i)
+        index if month_text.match?(/\b(?:#{Regexp.escape(name)}|#{Regexp.escape(abbreviation)})\b/i)
       end
-      if text.match?(/\b(?:this month|next month)\b/i)
+      if month_text.match?(/\b(?:this month|next month|last month)\b/i)
         today = Date.iso8601(context.dig(:calendar, :today).to_s)
-        mentioned_months << today.month if text.match?(/\bthis month\b/i)
-        mentioned_months << today.next_month.month if text.match?(/\bnext month\b/i)
+        mentioned_months << today.month if month_text.match?(/\bthis month\b/i)
+        mentioned_months << today.next_month.month if month_text.match?(/\bnext month\b/i)
+        mentioned_months << today.prev_month.month if month_text.match?(/\blast month\b/i)
       end
       mentioned_months.uniq!
       action_months = Array(action[:months]).map(&:to_i).uniq.sort
-      recurring = text.match?(/\b(?:per month|monthly|every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i)
-      all_year = text.match?(/\b(?:every month|all year|for the (?:whole )?year|annual(?:ly)?)\b/i)
+      recurring = month_text.match?(BUDGET_RECURRING_SCOPE_PATTERN)
+      all_year = month_text.match?(BUDGET_ALL_YEAR_SCOPE_PATTERN)
       return false if all_year && action_months != (1..12).to_a
       return false if mentioned_months.any? && action_months != mentioned_months.sort
       return false if mentioned_months.empty? && recurring && action_months != (1..12).to_a
 
       relative_years = []
-      if text.match?(/\b(?:this month|next month)\b/i)
+      if year_text.match?(/\b(?:this month|next month|last month)\b/i)
         today = Date.iso8601(context.dig(:calendar, :today).to_s)
-        relative_years << today.year if text.match?(/\bthis month\b/i)
-        relative_years << today.next_month.year if text.match?(/\bnext month\b/i)
+        relative_years << today.year if year_text.match?(/\bthis month\b/i)
+        relative_years << today.next_month.year if year_text.match?(/\bnext month\b/i)
+        relative_years << today.prev_month.year if year_text.match?(/\blast month\b/i)
+      end
+      if year_text.match?(/\bnext year\b/i)
+        relative_years << Date.iso8601(context.dig(:calendar, :today).to_s).year + 1
+      end
+      if year_text.match?(/\bthis year\b/i)
+        relative_years << Date.iso8601(context.dig(:calendar, :today).to_s).year
       end
       return false if relative_years.any? && relative_years.uniq != [ action[:year].to_i ]
 
-      mentioned_years = text.scan(/\b20\d{2}\b/).map(&:to_i).uniq
-      rejected_years = text.scan(/\b(?:not|ignore|skip|don['’]?t use|do not use|instead of)\s+(20\d{2})\b/i).flatten.map(&:to_i)
-      rejected_years.concat(text.scan(/\b(20\d{2})\s+(?:is|was)\s+(?:wrong|incorrect|not right)\b/i).flatten.map(&:to_i))
+      mentioned_years = budget_literal_years(year_text, amount: action[:amount])
+      rejected_years = year_text.scan(/\b(?:not|ignore|skip|don['’]?t use|do not use|instead of)\s+(20\d{2})\b/i).flatten.map(&:to_i)
+      rejected_years.concat(year_text.scan(/\b(20\d{2})\s+(?:is|was)\s+(?:wrong|incorrect|not right)\b/i).flatten.map(&:to_i))
       accepted_years = mentioned_years - rejected_years
       return false if rejected_years.include?(action[:year].to_i)
       return false if accepted_years.any? && !accepted_years.include?(action[:year].to_i)
 
       true
     rescue Date::Error
+      false
+    end
+
+    def corrected_budget_period_components(source_text, action:)
+      matches = source_text.to_enum(:scan, /\b(?:sorry|i\s+mean|actually)\b[\s,:-]*/i).map { Regexp.last_match }
+      return [ source_text, source_text ] if matches.empty?
+
+      correction = matches.last
+      before = source_text[0...correction.begin(0)].to_s
+      after = source_text[correction.end(0)..].to_s
+      month_text = budget_month_component?(after) ? after : before
+      year_text = budget_year_component?(after, amount: action[:amount]) ? after : before
+      [ month_text, year_text ]
+    end
+
+    def budget_month_component?(text)
+      text.match?(/\b(?:#{month_names_pattern}|this month|next month|last month)\b/i) ||
+        text.match?(BUDGET_RECURRING_SCOPE_PATTERN)
+    end
+
+    def budget_year_component?(text, amount: nil)
+      text.match?(/\b(?:this month|next month|last month|this year|next year)\b/i) || budget_literal_years(text, amount: amount).any?
+    end
+
+    def budget_literal_years(text, amount: nil)
+      text.to_enum(:scan, /\b20\d{2}\b/).filter_map do
+        match = Regexp.last_match
+        prefix = text[0...match.begin(0)].to_s
+        suffix = text[match.end(0)..].to_s
+        next if prefix.match?(/(?:\$|\b(?:usd|dollars?)\s*)\s*\z/i)
+        next if suffix.match?(/\A\s*(?:usd|dollars?)\b/i)
+        next if budget_amount_year_token?(match, prefix: prefix, amount: amount)
+
+        match[0].to_i
+      end.uniq
+    end
+
+    def budget_amount_year_token?(match, prefix:, amount:)
+      return false if amount.blank?
+      return false unless cents_or_nil(match[0]) == cents_or_nil(amount)
+
+      prefix.match?(/\b(?:to|at|amount(?:\s+(?:to|is))?|budget(?:\s+(?:to|is))?|allocation(?:\s+(?:to|is))?|make\s+it)\s*\z/i)
+    rescue ArgumentError
       false
     end
 

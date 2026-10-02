@@ -334,6 +334,116 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert relative.call(2027).action_plan?
   end
 
+  test "grounds last month and unanchored next year from the calendar rather than the viewed budget" do
+    context = intent_context.deep_merge(
+      calendar: { today: "2026-01-15", current_month: "2026-01-01", previous_month: "2025-12-01" },
+      budget_view_period: { year: 2028, month: 7, label: "Jul 2028" },
+      budget_categories: [ { id: 44, name: "Dining out", stack_key: "discretionary" } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    account_action = { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+    resolve_budget = lambda do |source_text, months, year|
+      resolve_compound(message: "#{source_text}; set Everyday Checking to $250", context: context, actions: [
+        { source_text: source_text, depends_on: [], action: default_action.merge(type: "set_allocation", category_id: 44, category_name: "Dining out", amount: "500", months: months, year: year) },
+        account_action
+      ])
+    end
+
+    assert resolve_budget.call("Set Dining out to $500 last month", [ 12 ], 2025).action_plan?
+    refute resolve_budget.call("Set Dining out to $500 last month", [ 12 ], 2026).action_plan?
+    assert resolve_budget.call("Set Dining out to $500 in March next year", [ 3 ], 2027).action_plan?
+    refute resolve_budget.call("Set Dining out to $500 in March next year", [ 3 ], 2029).action_plan?
+    refute resolve_budget.call("Set Dining out to $500 in March next year", [ 3 ], 2028).action_plan?
+    assert resolve_budget.call("Set Dining out to $500 in March this year", [ 3 ], 2026).action_plan?
+    refute resolve_budget.call("Set Dining out to $500 in March this year", [ 3 ], 2028).action_plan?
+    refute resolve_budget.call("Set Dining out to $500 in March this year", [ 3 ], 2027).action_plan?
+  end
+
+  test "uses the corrected budget month and year after conversational correction cues" do
+    context = intent_context.deep_merge(
+      budget_view_period: { year: 2026, month: 7, label: "Jul 2026" },
+      budget_categories: [ { id: 44, name: "Dining out", stack_key: "discretionary" } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    account_action = { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+
+    [ "sorry", "I mean", "actually" ].each do |cue|
+      source_text = "Set Dining out to $500 in January 2026, #{cue} February 2027"
+      resolve_budget = lambda do |months, year|
+        resolve_compound(message: "#{source_text}; set Everyday Checking to $250", context: context, actions: [
+          { source_text: source_text, depends_on: [], action: default_action.merge(type: "set_allocation", category_id: 44, category_name: "Dining out", amount: "500", months: months, year: year) },
+          account_action
+        ])
+      end
+
+      assert resolve_budget.call([ 2 ], 2027).action_plan?, "rejected corrected period after #{cue.inspect}"
+      refute resolve_budget.call([ 1 ], 2026).action_plan?, "accepted superseded period after #{cue.inspect}"
+      refute resolve_budget.call([ 2 ], 2026).action_plan?, "accepted corrected month with the wrong year after #{cue.inspect}"
+      refute resolve_budget.call([ 1 ], 2027).action_plan?, "accepted corrected year with the wrong month after #{cue.inspect}"
+    end
+  end
+
+  test "corrects budget period components independently and does not parse corrected money as a year" do
+    context = intent_context.deep_merge(
+      calendar: { today: "2026-10-02", current_month: "2026-10-01", previous_month: "2026-09-01" },
+      budget_view_period: { year: 2026, month: 10, label: "Oct 2026" },
+      budget_categories: [ { id: 44, name: "Dining out", stack_key: "discretionary" } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    account_action = { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+    resolve_budget = lambda do |source_text, months, year, amount = "500"|
+      resolve_compound(message: "#{source_text}; set Everyday Checking to $250", context: context, actions: [
+        { source_text: source_text, depends_on: [], action: default_action.merge(type: "set_allocation", category_id: 44, category_name: "Dining out", amount: amount, months: months, year: year) },
+        account_action
+      ])
+    end
+
+    year_only = "Set Dining out to $500 in January 2026, sorry I mean 2027"
+    assert resolve_budget.call(year_only, [ 1 ], 2027).action_plan?
+    refute resolve_budget.call(year_only, [ 2 ], 2027).action_plan?
+    refute resolve_budget.call(year_only, [ 1 ], 2026).action_plan?
+
+    month_only = "Set Dining out to $500 in January 2026, actually February"
+    assert resolve_budget.call(month_only, [ 2 ], 2026).action_plan?
+    refute resolve_budget.call(month_only, [ 1 ], 2026).action_plan?
+    refute resolve_budget.call(month_only, [ 2 ], 2027).action_plan?
+
+    recurring_year_only = "Set Dining out to $500 monthly in 2026, sorry 2027"
+    assert resolve_budget.call(recurring_year_only, (1..12).to_a, 2027).action_plan?
+    refute resolve_budget.call(recurring_year_only, [ 1 ], 2027).action_plan?
+
+    money_only = "Set Dining out to $500 in January 2026, actually make it $2027"
+    assert resolve_budget.call(money_only, [ 1 ], 2026, "2027").action_plan?
+    refute resolve_budget.call(money_only, [ 1 ], 2027, "2027").action_plan?
+    refute resolve_budget.call(money_only, [ 2 ], 2026, "2027").action_plan?
+
+    [ "monthly", "per month", "every month", "all year", "for the year", "for the whole year", "annual", "annually" ].each do |scope|
+      corrected_scope = "Set Dining out to $500 in January 2026, actually #{scope}"
+      assert resolve_budget.call(corrected_scope, (1..12).to_a, 2026).action_plan?, "rejected corrected #{scope.inspect} scope"
+      refute resolve_budget.call(corrected_scope, [ 1 ], 2026).action_plan?, "kept superseded January for #{scope.inspect} scope"
+      refute resolve_budget.call(corrected_scope, (1..12).to_a, 2027).action_plan?, "lost inherited year for #{scope.inspect} scope"
+    end
+
+    corrected_month = "Set Dining out to $500 all year in 2026, actually January"
+    assert resolve_budget.call(corrected_month, [ 1 ], 2026).action_plan?
+    refute resolve_budget.call(corrected_month, (1..12).to_a, 2026).action_plan?
+    refute resolve_budget.call(corrected_month, [ 1 ], 2027).action_plan?
+
+    [ "2027 dollars", "2027 USD" ].each do |amount|
+      suffixed_money = "Set Dining out to 500 dollars in January 2026, actually make it #{amount}"
+      assert resolve_budget.call(suffixed_money, [ 1 ], 2026, "2027").action_plan?, "parsed #{amount.inspect} as a year"
+      refute resolve_budget.call(suffixed_money, [ 1 ], 2027, "2027").action_plan?, "accepted #{amount.inspect} as a year"
+    end
+
+    plain_four_digit_amount = "Set Dining out to 2027 in January 2026"
+    assert resolve_budget.call(plain_four_digit_amount, [ 1 ], 2026, "2027").action_plan?
+    refute resolve_budget.call(plain_four_digit_amount, [ 1 ], 2027, "2027").action_plan?
+
+    same_amount_and_year = "Set Dining out to 2027 in January 2027"
+    assert resolve_budget.call(same_amount_and_year, [ 1 ], 2027, "2027").action_plan?
+    refute resolve_budget.call(same_amount_and_year, [ 1 ], 2026, "2027").action_plan?
+  end
+
   test "rejects an account balance date with the right month and wrong day" do
     context = intent_context.deep_merge(
       active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],

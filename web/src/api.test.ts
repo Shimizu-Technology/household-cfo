@@ -100,10 +100,13 @@ describe('budget operation idempotency contract', () => {
       .mockResolvedValueOnce(jsonResponse({ budget: { total_monthly_outflow: 325 } }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await createBudgetCategory({ name: 'Dining', stack_key: 'discretionary', monthly_amount: 250 }, 2026, 'category-attempt')
+    await createBudgetCategory({ name: 'Dining', stack_key: 'discretionary', monthly_amount: 250, month_numbers: [1, 2, 3] }, 2026, 'category-attempt')
     await updateBudgetAllocation(44, 325, 'allocation-attempt')
 
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'category-attempt' })
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({
+      category: { name: 'Dining', stack_key: 'discretionary', monthly_amount: 250, month_numbers: [1, 2, 3] },
+    })
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'allocation-attempt' })
   })
 })

@@ -172,7 +172,7 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     budget = JSON.parse(response.body).fetch("budget")
     row = budget.fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Dining out" }
     assert row.present?
-    assert_equal 250, row.fetch("months").first.fetch("planned")
+    assert_equal Array.new(12, 250), row.fetch("months").map { |month| month.fetch("planned") }
 
     allocation_id = row.fetch("months").first.fetch("allocation_id")
     patch "/api/v1/budget_allocations/#{allocation_id}",
@@ -183,6 +183,36 @@ class ApiV1AnnualBudgetControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     refreshed_row = JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("name") == "Dining out" }
     assert_equal 325, refreshed_row.fetch("months").first.fetch("planned")
+  end
+
+  test "participant can create a category for only selected months" do
+    user = create_user(email: "annual-scoped-category@example.com")
+    HouseholdFinance::WorkspaceResolver.new(user).household
+
+    post "/api/v1/budget_categories?year=2026",
+      params: {
+        category: {
+          name: "School supplies",
+          stack_key: "sinking_expected",
+          monthly_amount: 120,
+          month_numbers: [ 1, 2, 3 ]
+        }
+      },
+      headers: auth_headers(user).merge("Idempotency-Key" => "scoped-category-create"),
+      as: :json
+
+    assert_response :created
+    household = user.households.first
+    category = household.budget_categories.find_by!(name: "School supplies")
+    allocations = category.budget_allocations
+      .joins(budget_period: :budget_year)
+      .where(budget_years: { year: 2026 })
+      .order("budget_periods.starts_on")
+      .pluck(:planned_amount_cents)
+    assert_equal [ 12_000, 12_000, 12_000, *Array.new(9, 0) ], allocations
+
+    row = JSON.parse(response.body).fetch("budget").fetch("annual_plan").fetch("rows").find { |candidate| candidate.fetch("id") == category.id }
+    assert_equal [ 120, 120, 120, *Array.new(9, 0) ], row.fetch("months").map { |month| month.fetch("planned") }
   end
 
   test "reclassifying a budget category case-insensitively updates the matching expense item instead of duplicating totals" do

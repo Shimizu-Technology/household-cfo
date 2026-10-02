@@ -329,6 +329,24 @@ const documentUploadCards: Array<{
 type WorkspaceSetupMoneyKey = Exclude<keyof WorkspaceSetupValues, 'household_name' | 'primary_goal'>
 type WorkspaceSetupDraft = Omit<WorkspaceSetupValues, WorkspaceSetupMoneyKey> & Record<WorkspaceSetupMoneyKey, string>
 
+type NewBudgetCategoryDraft = {
+  name: string
+  stack_key: BudgetStackKey
+  monthly_amount: string
+  month_numbers: number[]
+}
+
+const allBudgetMonthNumbers = Array.from({ length: 12 }, (_, index) => index + 1)
+
+function blankBudgetCategoryDraft(): NewBudgetCategoryDraft {
+  return {
+    name: '',
+    stack_key: 'discretionary',
+    monthly_amount: '',
+    month_numbers: [...allBudgetMonthNumbers],
+  }
+}
+
 const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
   'primary_income',
   'business_income',
@@ -376,6 +394,7 @@ function workspaceSetupDraftWithProposal(current: WorkspaceSetupDraft, payload: 
   if (expectedValues && typeof expectedValues === 'object' && !Array.isArray(expectedValues)) {
     Object.entries(expectedValues).forEach(([key, value]) => {
       if (key === 'household_name' || key === 'primary_goal') next[key] = value === null ? '' : String(value)
+      else if (key === 'target_runway_months') next.target_runway_months = value === null ? '' : String(value)
       else if (workspaceSetupMoneyKeys.includes(key as WorkspaceSetupMoneyKey)) next[key as WorkspaceSetupMoneyKey] = value === null ? '' : String(value)
     })
   }
@@ -434,11 +453,7 @@ function App() {
   const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
   const [spendingReportLoading, setSpendingReportLoading] = useState(false)
   const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
-  const [newBudgetCategory, setNewBudgetCategory] = useState<{ name: string; stack_key: BudgetStackKey; monthly_amount: string }>({
-    name: '',
-    stack_key: 'discretionary',
-    monthly_amount: '',
-  })
+  const [newBudgetCategory, setNewBudgetCategory] = useState<NewBudgetCategoryDraft>(blankBudgetCategoryDraft)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [showMiaSuggestions, setShowMiaSuggestions] = useState(false)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
@@ -1699,6 +1714,10 @@ function App() {
       setBudgetError('Add a category name first.')
       return
     }
+    if (newBudgetCategory.month_numbers.length === 0) {
+      setBudgetError('Choose at least one month for this category.')
+      return
+    }
 
     setBudgetAction('create-category')
     setBudgetError(null)
@@ -1706,6 +1725,7 @@ function App() {
       name: newBudgetCategory.name,
       stack_key: newBudgetCategory.stack_key,
       monthly_amount: newBudgetCategory.monthly_amount || 0,
+      month_numbers: newBudgetCategory.month_numbers,
     }
     const signature = `create-category:${selectedBudgetYear}:${JSON.stringify(input)}`
     try {
@@ -1713,7 +1733,7 @@ function App() {
       budgetOperationKeysRef.current.complete(signature)
       setData((current) => current ? { ...current, budget } : current)
       refreshSpendingReportForBudget(budget)
-      setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
+      setNewBudgetCategory(blankBudgetCategoryDraft())
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
@@ -9176,8 +9196,8 @@ function AnnualBudgetPlanner({
   spendingReport: SpendingReport | null
   spendingReportLoading: boolean
   spendingReportError: string | null
-  newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
-  onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
+  newCategory: NewBudgetCategoryDraft
+  onNewCategoryChange: (value: NewBudgetCategoryDraft) => void
   onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
   onSaveIncomeScheduleEntry: (values: IncomeScheduleEntryInput, entryId?: number) => Promise<void>
   onDeleteIncomeScheduleEntry: (entry: IncomeScheduleEntry) => void
@@ -9290,10 +9310,12 @@ function AnnualBudgetPlanner({
       }
     }
     if (focusRequest.operationKey === 'budget.category.create') {
+      const proposedMonths = budgetMonthsFromPayload(focusRequest.payload)
       onNewCategoryChange({
         name: proposedText(focusRequest.payload, 'name', ''),
         stack_key: proposedChoice(focusRequest.payload, 'stack_key', 'discretionary' as BudgetStackKey, ['non_discretionary', 'discretionary', 'sinking_expected', 'sinking_unexpected']),
         monthly_amount: proposedMoney(focusRequest.payload, 'monthly_amount_cents', ''),
+        month_numbers: proposedMonths.length > 0 ? proposedMonths : [...allBudgetMonthNumbers],
       })
     }
     setBudgetEditState({
@@ -9502,6 +9524,50 @@ function AnnualBudgetPlanner({
                   <span>Monthly plan</span>
                   <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={action === 'create-category'} />
                 </label>
+                <label>
+                  <span>Month scope</span>
+                  <select
+                    aria-label="Category month scope"
+                    value={newCategory.month_numbers.length === 12 ? 'all' : 'selected'}
+                    onChange={(event) => onNewCategoryChange({
+                      ...newCategory,
+                      month_numbers: event.target.value === 'all'
+                        ? [...allBudgetMonthNumbers]
+                        : [currentMonthIndex + 1],
+                    })}
+                    disabled={action === 'create-category'}
+                  >
+                    <option value="all">All year</option>
+                    <option value="selected">Selected months</option>
+                  </select>
+                </label>
+                {newCategory.month_numbers.length < 12 && (
+                  <fieldset className="annual-category-months">
+                    <legend>Choose months</legend>
+                    <div>
+                      {plan.months.map((month, index) => {
+                        const monthNumber = index + 1
+                        return (
+                          <label key={month.id}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Fund new category in ${month.label}`}
+                              checked={newCategory.month_numbers.includes(monthNumber)}
+                              onChange={(event) => {
+                                const monthNumbers = event.target.checked
+                                  ? [...newCategory.month_numbers, monthNumber]
+                                  : newCategory.month_numbers.filter((candidate) => candidate !== monthNumber)
+                                onNewCategoryChange({ ...newCategory, month_numbers: [...new Set(monthNumbers)].sort((left, right) => left - right) })
+                              }}
+                              disabled={action === 'create-category'}
+                            />
+                            <span>{month.label}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </fieldset>
+                )}
                 <button type="submit" disabled={action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
               </form>
             </div>

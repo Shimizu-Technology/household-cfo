@@ -1,6 +1,11 @@
 module Api
   module V1
     class MiaMessagesController < BaseController
+      ATTACHMENT_ACTION_VERB_SOURCE = "set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop|link|unlink|reconcile".freeze
+      ATTACHMENT_ACTION_NOUN_SOURCE = "budget|category|allocation|income|goal|household|runway|expense|spending|debt|asset|account|bank".freeze
+      ATTACHMENT_ACTION_VERB_PATTERN = /\b(?:#{ATTACHMENT_ACTION_VERB_SOURCE})\b/i.freeze
+      ATTACHMENT_ACTION_NOUN_PATTERN = /\b(?:#{ATTACHMENT_ACTION_NOUN_SOURCE})\b/i.freeze
+
       before_action :authenticate_user!
       before_action :require_writable_household!, only: %i[create destroy]
 
@@ -607,16 +612,15 @@ module Api
       def attachment_action_request?(message = params[:message])
         return false if pure_attachment_review_request?(message)
 
-        message.to_s.match?(
-          /\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b.{0,100}\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b|\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b.{0,100}\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i
-        )
+        text = message.to_s
+        text.match?(/#{ATTACHMENT_ACTION_VERB_PATTERN.source}.{0,100}#{ATTACHMENT_ACTION_NOUN_PATTERN.source}|#{ATTACHMENT_ACTION_NOUN_PATTERN.source}.{0,100}#{ATTACHMENT_ACTION_VERB_PATTERN.source}/i)
       end
 
       def pure_attachment_review_request?(message)
         normalized = message.to_s.squish
         return false unless HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(normalized)
 
-        !normalized.match?(/\b(?:also|and then|then)\b|\band\s+(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i)
+        !normalized.match?(/\b(?:also|and then|then)\b|\band\s+(?:please\s+)?#{ATTACHMENT_ACTION_VERB_PATTERN.source}/i)
       end
 
       def attached_document_evidence_prompt(content, intent_result)
@@ -625,11 +629,11 @@ module Api
         return content unless structured_action || attachment_action_request?(content)
 
         segments = content.to_s.split(
-          /(?<=[?!.;])\s+|\s+\b(?:also|and then|then)\b\s*|\s+(?=(?:and\s+)?(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b)/i
+          /(?<=[?!.;])\s+|\s+\b(?:also|and then|then)\b\s*|\s+(?=(?:and\s+)?(?:please\s+)?#{ATTACHMENT_ACTION_VERB_PATTERN.source})/i
         )
         evidence_segments = segments.reject do |segment|
           attachment_action_request?(segment) ||
-            segment.match?(/\A\s*(?:also\s+|and\s+)?(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i)
+            segment.match?(/\A\s*(?:also\s+|and\s+)?(?:please\s+)?#{ATTACHMENT_ACTION_VERB_PATTERN.source}/i)
         end.select do |segment|
           segment.match?(HouseholdFinance::AttachedDocumentQuestionAnswerer::SUBSTANTIVE_QUESTION_PATTERN) ||
             HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(segment)
