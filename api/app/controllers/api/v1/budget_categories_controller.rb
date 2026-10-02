@@ -7,7 +7,7 @@ module Api
       def create
         result = operation_runner.run(
           operation_key: "budget.category.create",
-          input: category_params.to_h.merge(year: budget_year_param),
+          input: create_category_params.to_h.merge(year: budget_year_param),
           idempotency_key: request_idempotency_key
         )
         category = result.subject || current_household.budget_categories.find(result.execution.subject_id)
@@ -22,7 +22,7 @@ module Api
         category = scoped_category
         result = operation_runner.run(
           operation_key: "budget.category.update",
-          input: category_params.to_h.merge(category_id: category.id, year: budget_year_param),
+          input: update_category_params.to_h.merge(category_id: category.id, year: budget_year_param),
           idempotency_key: request_idempotency_key
         )
         category = result.subject || category.reload
@@ -91,8 +91,12 @@ module Api
         current_household.budget_categories.find(params[:id])
       end
 
-      def category_params
+      def create_category_params
         params.require(:category).permit(:name, :stack_key, :monthly_amount, month_numbers: [])
+      end
+
+      def update_category_params
+        params.require(:category).permit(:name, :stack_key, :monthly_amount)
       end
 
       def render_category_response(category, status: :ok)

@@ -150,6 +150,49 @@ class HouseholdFinanceMiaHouseholdActionDraftsTest < ActiveSupport::TestCase
     assert HouseholdFinance::SetupStatus.new(@household).complete?
   end
 
+  test "persists a complete eleven-field setup even when it expands to thirteen reviewed operations" do
+    result = build_command(
+      type: "update_household_setup",
+      setup_updates: {
+        household_name: "Complete Setup Household",
+        primary_goal: "Build enough runway for a careful transition",
+        primary_income: "6200",
+        business_income: "900",
+        fixed_expenses: "3100",
+        flexible_spend: "825",
+        expected_sinking_fund: "275",
+        unexpected_sinking_fund: "150",
+        emergency_fund: "4500",
+        other_assets: "7200",
+        target_runway_months: "8"
+      }
+    )
+
+    assert_equal 13, result.proposal.items.length
+    draft = persist(result.proposal)
+
+    assert_equal 13, draft.mia_action_items.count
+    assert_equal "profile.setup_confirmation.update", draft.mia_action_items.last.operation_key
+  end
+
+  test "transition goal review shows the exact normalized label that will be saved" do
+    primary_goal = "Build a thoughtful transition plan with enough time to protect the household and make the next decision carefully " * 2
+    result = build_command(type: "update_household_setup", setup_updates: { primary_goal: primary_goal })
+    draft = persist(result.proposal)
+    transition_item = draft.mia_action_items.find_by!(operation_key: "goal.transition_policy.update")
+    expected_label = primary_goal.squish.truncate(80, omission: "…")
+
+    review = HouseholdFinance::MiaActionDraftPresenter.new(draft).call.fetch(:items)
+      .find { |item| item.fetch(:id) == transition_item.id }
+    transition_field = review.fetch(:review_fields).sole
+
+    assert_equal "Transition goal", transition_field.fetch(:label)
+    assert_equal expected_label, transition_field.fetch(:after)
+    applied = HouseholdFinance::MiaActionDraftApplier.new(draft, user: @user).call
+    assert applied.success?, applied.errors.to_sentence
+    assert_equal expected_label, @household.goals.policy.find_by!(goal_type: "transition").label
+  end
+
   test "shows which first-session fields will still be missing after a partial review" do
     @household.update!(confirmed_setup_fields: [ "household_name" ], primary_goal: nil)
     @household.expense_items.delete_all

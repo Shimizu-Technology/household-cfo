@@ -140,12 +140,29 @@ module HouseholdFinance
       return unless normalized.key?(field)
 
       cents = normalized.fetch(field)
+      categories = household.budget_categories.active.where(stack_key: stack_key).order(:id).to_a
       current_cents = household.expense_items.where(active: true, stack_key: stack_key).sum do |expense|
         Money.monthly_cents(expense.amount_cents, expense.cadence)
       end
-      return if current_cents == cents
+      return if categories.empty? && current_cents == cents
 
-      categories = household.budget_categories.active.where(stack_key: stack_key).order(:id).to_a
+      allocations = if categories.any?
+        BudgetAllocation.joins(:budget_category, budget_period: :budget_year)
+          .where(budget_categories: { household_id: household.id, id: categories.map(&:id) })
+          .where(budget_years: { household_id: household.id, year: year })
+          .order("budget_periods.starts_on", :id).to_a
+      else
+        []
+      end
+      if categories.any?
+        complete = allocations.length == categories.length * 12 &&
+          allocations.group_by { |allocation| allocation.budget_period.starts_on.month }.values.all? { |rows| rows.length == categories.length }
+        raise ArgumentError, "The annual budget is incomplete. Reload setup and try again." unless complete
+
+        allocation_totals = allocations.group_by { |allocation| allocation.budget_period.starts_on.month }
+          .transform_values { |rows| rows.sum(&:planned_amount_cents) }
+        return if allocation_totals.keys.sort == (1..12).to_a && allocation_totals.values.all? { |total| total == cents } && current_cents == cents
+      end
       if categories.many?
         raise ArgumentError, "#{setup_label(field)} is tracked by multiple budget categories. Edit the specific categories so detailed planned dollars do not change silently"
       end
@@ -158,10 +175,6 @@ module HouseholdFinance
       end
 
       category = categories.first
-      allocations = category.budget_allocations.joins(budget_period: :budget_year)
-        .where(budget_years: { household_id: household.id, year: year }).order("budget_periods.starts_on").to_a
-      raise ArgumentError, "The annual budget is incomplete. Reload setup and try again." unless allocations.length == 12
-
       specs << {
         operation_key: "budget.allocation.set",
         input: {

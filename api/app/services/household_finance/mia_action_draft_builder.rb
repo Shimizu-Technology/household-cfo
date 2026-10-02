@@ -36,7 +36,10 @@ module HouseholdFinance
       end
 
       def create_draft!(source_chat_message:, assistant_chat_message:)
-        raise ArgumentError, "Mia action plans must contain between 1 and 12 changes" unless items.length.between?(1, 12)
+        raise ArgumentError, "Mia reviews must contain at least one change" if items.empty?
+        if draft_type == "action_plan" && items.length > MiaActionPlanBuilder::MAX_ACTIONS
+          raise ArgumentError, "Mia action plans must contain between 1 and #{MiaActionPlanBuilder::MAX_ACTIONS} changes"
+        end
 
         ApplicationRecord.transaction do
           household.lock!

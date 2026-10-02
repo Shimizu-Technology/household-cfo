@@ -228,6 +228,27 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_includes response.parsed_body.fetch("errors").join, "idempotency key"
   end
 
+  test "manual setup repairs a changed allocation even when the legacy expense total matches" do
+    user = create_user(email: "setup-allocation-drift@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    manager = HouseholdFinance::AnnualBudgetManager.new(household, year: Date.current.year)
+    category = manager.create_category!(name: "Fixed essentials", stack_key: "non_discretionary", monthly_amount: 1_000)
+    changed = category.budget_allocations.joins(:budget_period)
+      .find_by!(budget_periods: { starts_on: Date.new(Date.current.year, 6, 1) })
+    changed.update!(planned_amount_cents: 125_000)
+
+    patch "/api/v1/workspace/setup",
+      params: { workspace: { fixed_expenses: 1_000 } },
+      headers: auth_headers(user).merge("Idempotency-Key" => "repair-setup-allocation-drift"),
+      as: :json
+
+    assert_response :success
+    assert_equal Array.new(12, 100_000), category.budget_allocations.joins(:budget_period)
+      .where(budget_periods: { starts_on: Date.new(Date.current.year, 1, 1)..Date.new(Date.current.year, 12, 31) })
+      .order("budget_periods.starts_on").pluck(:planned_amount_cents)
+    assert household.household_operation_executions.exists?(operation_key: "budget.allocation.set")
+  end
+
   test "manual setup keeps max-length child idempotency keys unique and conflict-safe" do
     user = create_user(email: "typed-manual-max-key@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household

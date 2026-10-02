@@ -548,8 +548,7 @@ module HouseholdFinance
     end
 
     def pending_mia_action_drafts_payload(budget_year)
-      household.mia_action_drafts.reviewable.includes(:mia_action_items)
-        .where("draft_type IN (:timeless) OR year = :year", timeless: %w[household_setup debt_plan], year: budget_year.year)
+      household.mia_action_drafts.reviewable.for_budget_year(budget_year.year).includes(:mia_action_items)
         .recent_first
         .limit(10)
         .map { |draft| MiaActionDraftPresenter.new(draft).call }

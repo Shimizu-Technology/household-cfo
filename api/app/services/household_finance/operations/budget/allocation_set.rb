@@ -36,11 +36,13 @@ module HouseholdFinance
 
         def canonical_snapshot(category, input, lock:)
           ids = input.fetch(:changes).map { |change| change.fetch(:allocation_id) }
-          scope = scoped_allocations.where(id: ids).order(:id)
+          scope = scoped_allocations.where(
+            budget_categories: { id: category.id },
+            budget_years: { year: input.fetch(:year) }
+          ).order(:id)
           scope = scope.lock if lock
           allocations = scope.to_a
-          raise ActiveRecord::RecordNotFound, "Budget allocation not found" unless allocations.length == ids.length
-          unless allocations.all? { |allocation| allocation.budget_category_id == category.id && allocation.budget_period.budget_year.year == input.fetch(:year) }
+          unless allocations.length == 12 && (ids - allocations.map(&:id)).empty?
             raise ActiveRecord::RecordNotFound, "Budget allocation not found"
           end
           {
@@ -59,8 +61,8 @@ module HouseholdFinance
           predicted = {
             category: before.fetch("category"),
             allocations: before.fetch("allocations").map do |allocation|
-              change = amounts.fetch(allocation.fetch("id"))
-              allocation.merge("planned_amount_cents" => change.fetch(:after_cents), "source" => "manual")
+              change = amounts[allocation.fetch("id")]
+              change ? allocation.merge("planned_amount_cents" => change.fetch(:after_cents), "source" => "manual") : allocation
             end,
             expenses: before.fetch("expenses")
           }
@@ -70,7 +72,12 @@ module HouseholdFinance
         end
 
         def mutate!(_category, input, prepared:)
-          allocations = scoped_allocations.lock.where(id: input.fetch(:changes).map { |change| change.fetch(:allocation_id) }).index_by(&:id)
+          allocations = scoped_allocations.lock.where(
+            budget_categories: { id: input.fetch(:category_id) },
+            budget_years: { year: input.fetch(:year) }
+          ).index_by(&:id)
+          raise ActiveRecord::RecordNotFound, "Budget allocation not found" unless allocations.length == 12
+
           input.fetch(:changes).each do |change|
             allocation = allocations.fetch(change.fetch(:allocation_id)) { raise ActiveRecord::RecordNotFound, "Budget allocation not found" }
             allocation.update!(planned_amount_cents: change.fetch(:after_cents), source: "manual")

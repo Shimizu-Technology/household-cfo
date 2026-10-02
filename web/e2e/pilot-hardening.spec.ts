@@ -5769,6 +5769,26 @@ test('mobile Ask Mia 390px schedule-update link merges proposed values into the 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('a missing scheduled-income manual target is cleared after the first routing attempt', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 807, action_type: 'update_income_schedule_entry', operation_key: 'income.schedule.update',
+    target_record_type: 'IncomeScheduleEntry', target_record_id: 999, label: 'Update removed scheduled income',
+    payload: { entry_id: 999, income_source_id: 1, amount_cents: 160_000, effective_on: `${currentYear}-10-01` },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  await expect(page.locator('.budget-manual-manager')).toBeVisible()
+  await page.getByRole('button', { name: 'Close manual tools' }).click()
+  await openSection(page, 'Home')
+  await openSection(page, 'Budget')
+
+  await expect(page.locator('.budget-manual-manager')).toHaveCount(0)
+})
+
 test('mobile Ask Mia 390px action-plan transition-policy link focuses the exact profile control', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 })
   const workspace = realWorkspaceData(true)

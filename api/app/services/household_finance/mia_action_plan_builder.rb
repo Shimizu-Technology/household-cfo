@@ -5,6 +5,10 @@ module HouseholdFinance
       set_allocation increase_allocation decrease_allocation move_allocation
       create_category rename_category reclassify_category archive_category restore_category
     ].freeze
+    YEAR_DEPENDENT_OPERATION_KEYS = %w[
+      budget.category.create budget.category.update budget.category.archive budget.category.restore budget.allocation.set
+      income.schedule.create income.schedule.update income.schedule.delete
+    ].freeze
 
     def initialize(household, user:, annual_budget_manager:, selected_month:, raw_input:, actions:)
       @household = household

@@ -22,6 +22,28 @@ class MiaActionDraft < ApplicationRecord
 
   scope :pending, -> { where(status: "pending") }
   scope :reviewable, -> { where(status: %w[pending partially_applied]) }
+  scope :for_budget_year, ->(year) do
+    timeless_types = %w[household_setup debt_plan]
+    year_dependent_operations = HouseholdFinance::MiaActionPlanBuilder::YEAR_DEPENDENT_OPERATION_KEYS
+    where(
+      <<~SQL.squish,
+        draft_type IN (:timeless_types)
+        OR year = :year
+        OR (
+          draft_type = 'action_plan'
+          AND NOT EXISTS (
+            SELECT 1
+            FROM mia_action_items
+            WHERE mia_action_items.mia_action_draft_id = mia_action_drafts.id
+              AND mia_action_items.operation_key IN (:year_dependent_operations)
+          )
+        )
+      SQL
+      timeless_types: timeless_types,
+      year: year.to_i,
+      year_dependent_operations: year_dependent_operations
+    )
+  end
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
 
   def pending?

@@ -402,6 +402,27 @@ class HouseholdFinanceOperationsRunnerTest < ActiveSupport::TestCase
     assert_equal "mia", mia_execution.source
   end
 
+  test "a partial allocation update syncs its expense after all persisted months become uniform" do
+    category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
+      .create_category!(name: "Utilities", stack_key: "non_discretionary", monthly_amount: 100)
+    allocations = category.budget_allocations.joins(:budget_period)
+      .where(budget_periods: { starts_on: Date.new(2026, 1, 1)..Date.new(2026, 12, 31) })
+      .order("budget_periods.starts_on").to_a
+    allocations.drop(1).each { |allocation| allocation.update!(planned_amount_cents: 20_000) }
+
+    result = HouseholdFinance::Operations::Runner.new(@household, user: @user).run(
+      operation_key: "budget.allocation.set",
+      input: { allocation_id: allocations.first.id, category_id: category.id, year: 2026, planned_amount: 200 },
+      idempotency_key: "complete-uniform-budget"
+    )
+
+    assert_equal Array.new(12, 20_000), category.budget_allocations.joins(:budget_period)
+      .where(budget_periods: { starts_on: Date.new(2026, 1, 1)..Date.new(2026, 12, 31) })
+      .order("budget_periods.starts_on").pluck(:planned_amount_cents)
+    assert_equal 20_000, @household.expense_items.find_by!(label: "Utilities").amount_cents
+    assert_equal result.execution.predicted_after_snapshot, result.after_snapshot
+  end
+
   test "a manual request cannot preempt a Mia item idempotency identity" do
     category = HouseholdFinance::AnnualBudgetManager.new(@household, year: 2026)
       .create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)

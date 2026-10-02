@@ -512,6 +512,24 @@ class HouseholdFinanceDataPresenterTest < ActiveSupport::TestCase
     assert_equal Date.current.month - 1, action_center.fetch(:current_month_index)
   end
 
+  test "action center counts a year-independent action plan from another year" do
+    household, user = create_household
+    draft = household.mia_action_drafts.create!(
+      requested_by_user: user, year: Date.current.prev_year.year, draft_type: "action_plan", status: "pending",
+      title: "Update a savings goal", summary: "Review the saved goal change"
+    )
+    draft.mia_action_items.create!(
+      position: 0, action_type: "update_goal", operation_key: "goal.record.update", operation_version: 1,
+      prepared_operation: { "operation_key" => "goal.record.update" }, prepared_operation_fingerprint: "goal-plan",
+      label: "Update goal", payload: {}, before_snapshot: {}, after_snapshot: {}
+    )
+
+    action_center = HouseholdFinance::DataPresenter.new(household, user: user).dashboard.fetch(:action_center)
+
+    assert_equal 1, action_center.fetch(:mia_action_review_count)
+    assert_equal 1, action_center.fetch(:total_review_count)
+  end
+
   test "chat history preloads citation provenance with a bounded query count" do
     household, user = create_household
     coach = persona_user(email: "history-citation-coach@example.com")

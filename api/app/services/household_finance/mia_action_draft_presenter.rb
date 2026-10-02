@@ -97,10 +97,20 @@ module HouseholdFinance
         goal_create_review_fields(after.fetch("goal", {}))
       when "goal.record.update", "goal.record.archive", "goal.record.restore"
         goal_review_fields(before.fetch("goal", {}), after.fetch("goal", {}))
+      when "goal.transition_policy.update"
+        before_policy = before["policy"] || {}
+        after_policy = after["policy"] || {}
+        [ {
+          label: "Transition goal",
+          before: before_policy["label"].presence || "Does not exist",
+          after: after_policy["label"].presence || "Removed"
+        } ]
       when "budget.allocation.set"
         before_rows = Array(before["allocations"]).index_by { |row| row["id"] }
-        Array(after["allocations"]).map do |row|
+        Array(after["allocations"]).filter_map do |row|
           previous = before_rows.fetch(row["id"], {})
+          next if previous["planned_amount_cents"] == row["planned_amount_cents"]
+
           {
             label: "#{month_label(row["month"])} planned amount",
             before: money_from_cents(previous["planned_amount_cents"]),

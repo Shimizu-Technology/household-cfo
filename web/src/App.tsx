@@ -8882,6 +8882,8 @@ function AnnualIncomePlanner({
         target?.focus({ preventScroll: true })
         onFocusRequestHandled?.()
       })
+    } else {
+      onFocusRequestHandled?.()
     }
   }, [focusRequest, onFocusRequestHandled, plan])
 
@@ -9207,7 +9209,7 @@ function AnnualBudgetPlanner({
   onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
-  onApplyMiaActionDraft: (draft: MiaActionDraft) => void
+  onApplyMiaActionDraft: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancelMiaActionDraft: (draft: MiaActionDraft) => void
   onOpenManualMiaAction: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
