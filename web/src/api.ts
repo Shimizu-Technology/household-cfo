@@ -1176,7 +1176,7 @@ export type AdminPersonaSetupTurn = {
   position: number
   status: 'processing' | 'ready' | 'failed' | 'stale'
   user_message: string
-  assistant_message: string
+  assistant_message: string | null
   error_code: string | null
   created_at: string
 }

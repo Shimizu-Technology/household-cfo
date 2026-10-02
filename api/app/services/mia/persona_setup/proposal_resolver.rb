@@ -22,21 +22,33 @@ module Mia
       end
 
       class NetHttpTransport
-        def initialize(api_key:, open_timeout: OPEN_TIMEOUT_SECONDS, read_timeout: READ_TIMEOUT_SECONDS)
+        def initialize(
+          api_key:,
+          open_timeout: OPEN_TIMEOUT_SECONDS,
+          read_timeout: READ_TIMEOUT_SECONDS,
+          endpoint: -> { HouseholdFinance::MiaProviderEndpoint.uri },
+          http: Net::HTTP
+        )
           @api_key = api_key
           @open_timeout = open_timeout
           @read_timeout = read_timeout
+          @endpoint = endpoint
+          @http = http
         end
 
         def call(payload)
-          uri = HouseholdFinance::MiaProviderEndpoint.uri
+          uri = @endpoint.call
+          unless uri.scheme == "https"
+            raise Error.new("Persona setup requires a secure provider endpoint.", code: "persona_setup_unavailable")
+          end
+
           request = Net::HTTP::Post.new(uri)
           request["Authorization"] = "Bearer #{@api_key}"
           request["Content-Type"] = "application/json"
           request["HTTP-Referer"] = "https://github.com/Shimizu-Technology/household-cfo"
           request["X-Title"] = "Household CFO Persona Setup"
           request.body = JSON.generate(payload)
-          Net::HTTP.start(
+          @http.start(
             uri.hostname,
             uri.port,
             use_ssl: uri.scheme == "https",
@@ -123,6 +135,8 @@ module Mia
                 coach_quote. Names, community facts, locale details, and phrases must use exact coach wording.
                 A location or identity label never authorizes dialect, slang, cadence, accent, or stereotypes.
                 Use mia_drafted only for coaching.philosophy when the coach explicitly asks you to draft a philosophy.
+                Write assistant_message only as proposal or review wording and explicitly say that nothing has been saved.
+                Never claim or imply that you changed, set, added, saved, applied, created, or completed a persona or setup value.
               PROMPT
             },
             {

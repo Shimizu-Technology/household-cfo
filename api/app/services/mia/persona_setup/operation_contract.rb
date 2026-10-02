@@ -9,6 +9,7 @@ module Mia
       MAX_OPERATIONS = 24
       MAX_OPERATIONS_BYTES = 32_768
       MAX_STATE_BYTES = 65_536
+      JSONB_TEXT_MARGIN_BYTES = 1_024
       SET_PATHS = %w[
         description
         identity.assistant_name identity.human_coach_name identity.human_coach_title identity.assistant_relationship
@@ -66,9 +67,9 @@ module Mia
           allow_coach_artifact_edits: true
         )
         after_state["draft_config"] = PersonaSchema.validate!(prepared)
-        if JSON.generate(normalized).b.bytesize > MAX_OPERATIONS_BYTES ||
-            JSON.generate(before_state).b.bytesize > MAX_STATE_BYTES ||
-            JSON.generate(after_state).b.bytesize > MAX_STATE_BYTES
+        if postgres_jsonb_text_upper_bound(normalized) > MAX_OPERATIONS_BYTES ||
+            postgres_jsonb_text_upper_bound(before_state) > MAX_STATE_BYTES ||
+            postgres_jsonb_text_upper_bound(after_state) > MAX_STATE_BYTES
           raise ContractError, "Mia returned a setup proposal that is too large to review safely."
         end
         if PersonaDraftUpdater.state_digest(before_state) == PersonaDraftUpdater.state_digest(after_state)
@@ -95,9 +96,10 @@ module Mia
         evidence = normalize_text(operation.fetch("evidence_quote"), max: 500, allow_blank: source == "mia_drafted")
         raise ContractError, "Mia returned an unsupported change operation." unless op.in?(OPERATIONS)
         raise ContractError, "Mia returned an unsupported evidence type." unless source.in?(SOURCES)
-        validate_evidence!(op:, path:, value: operation["value"], source:, evidence:)
+        value = op == "add_phrase" ? normalize_phrase_value(operation["value"]) : operation["value"]
+        validate_evidence!(op:, path:, value:, source:, evidence:)
 
-        normalized = { "op" => op, "path" => path, "value" => operation["value"], "source_basis" => source, "evidence_quote" => evidence }
+        normalized = { "op" => op, "path" => path, "value" => value, "source_basis" => source, "evidence_quote" => evidence }
         yield normalized
         case op
         when "set"
@@ -107,7 +109,7 @@ module Mia
         when "add_phrase"
           raise ContractError, "Phrase changes must use the phrases field." unless path == "phrases"
 
-          add_phrase!(after_state, operation.fetch("value"))
+          add_phrase!(after_state, value)
         when "remove_phrase"
           raise ContractError, "Phrase changes must use the phrases field." unless path == "phrases"
 
@@ -176,13 +178,23 @@ module Mia
       end
 
       def add_phrase!(state, raw_value)
-        value = PersonaSchema.normalize(raw_value)
+        value = normalize_phrase_value(raw_value)
         permitted = %w[text meaning allowed_contexts prohibited_contexts frequency caution]
-        unless value.is_a?(Hash) && (value.keys - permitted).empty? && value.key?("text")
-          raise ContractError, "Mia returned an unsupported phrase shape."
-        end
         phrase = value.slice(*permitted).merge("provenance" => "coach_authored")
         state.fetch("draft_config").fetch("phrases") << phrase
+      end
+
+      def normalize_phrase_value(raw_value)
+        value = PersonaSchema.normalize(raw_value)
+        required = %w[text meaning allowed_contexts prohibited_contexts frequency caution]
+        string_keys = %w[text meaning frequency caution]
+        array_keys = %w[allowed_contexts prohibited_contexts]
+        valid = value.is_a?(Hash) && value.keys.sort == required.sort &&
+          string_keys.all? { |key| value[key].is_a?(String) } &&
+          array_keys.all? { |key| value[key].is_a?(Array) && value[key].all? { |item| item.is_a?(String) } }
+        raise ContractError, "Mia returned an unsupported phrase shape." unless valid
+
+        value
       end
 
       def remove_phrase!(state, raw_value)
@@ -224,6 +236,11 @@ module Mia
         raise ContractError, "Text is missing or too long." if (!allow_blank && text.blank?) || text.length > max
 
         text
+      end
+
+      def postgres_jsonb_text_upper_bound(value)
+        compact = JSON.generate(value).b
+        compact.bytesize + compact.count(",:") + JSONB_TEXT_MARGIN_BYTES
       end
     end
   end

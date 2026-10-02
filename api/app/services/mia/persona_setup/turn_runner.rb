@@ -43,6 +43,15 @@ module Mia
       rescue Error
         stale_reserved_turn!(turn&.id)
         raise
+      rescue StandardError => error
+        Rails.logger.error("Persona setup turn failed after reservation turn_id=#{turn&.id} error=#{error.class}")
+        failed_result = fail_turn!(turn&.id, "persona_setup_failed")
+        raise Error.new(
+          "Mia could not prepare a safe proposal. Nothing changed. Try again.",
+          code: "persona_setup_failed",
+          status: :service_unavailable,
+          result: failed_result
+        )
       end
 
       private

@@ -192,4 +192,63 @@ describe('PersonaSetupChat', () => {
     await screen.findByText('Human coach name')
     expect(apiMocks.createAdminPersonaSetupTurn.mock.calls[1][3]).not.toBe(apiMocks.createAdminPersonaSetupTurn.mock.calls[0][3])
   })
+
+  it('reuses a proposal action key after a lost response', async () => {
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    apiMocks.resolveAdminPersonaSetupProposal
+      .mockRejectedValueOnce(new Error('The response was lost.'))
+      .mockResolvedValueOnce({ session: session(), persona: persona() })
+    render(<Harness />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply to saved draft' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('The response was lost.')
+    await userEvent.click(screen.getByRole('button', { name: 'Apply to saved draft' }))
+    await vi.waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledTimes(2))
+
+    expect(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[1][4])
+      .toBe(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[0][4])
+  })
+
+  it('shows a real retry path when the setup session cannot be loaded', async () => {
+    apiMocks.createAdminPersonaSetupSession
+      .mockRejectedValueOnce(new Error('Network unavailable.'))
+      .mockResolvedValueOnce(session())
+    render(<Harness />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Try again' }))
+
+    expect(await screen.findByLabelText('Message Mia')).toBeTruthy()
+    expect(apiMocks.createAdminPersonaSetupSession).toHaveBeenCalledTimes(2)
+  })
+
+  it('opens a fresh session from an inactive chat without using load recovery', async () => {
+    apiMocks.createAdminPersonaSetupSession
+      .mockResolvedValueOnce(session({ status: 'completed' }))
+      .mockResolvedValueOnce(session({ id: 52 }))
+    render(<Harness />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Open a fresh chat' }))
+
+    expect(await screen.findByLabelText('Message Mia')).toBeTruthy()
+    expect(apiMocks.createAdminPersonaSetupSession).toHaveBeenCalledTimes(2)
+    expect(apiMocks.abandonAdminPersonaSetupSession).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Try again' })).toBeNull()
+  })
+
+  it('renders a null assistant message from a processing turn', async () => {
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(session({
+      turns: [{
+        id: 93,
+        position: 1,
+        status: 'processing',
+        user_message: 'Use a calm voice.',
+        assistant_message: null,
+        error_code: null,
+        created_at: '2026-10-02T00:00:00Z',
+      }],
+    }))
+    render(<Harness />)
+
+    expect(await screen.findByText('Mia is still preparing this proposal.')).toBeTruthy()
+  })
 })

@@ -44,6 +44,56 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal Mia::PersonaSchema.artifact_fingerprint(phrase), phrase.fetch("fingerprint")
   end
 
+  test "operation contract rejects malformed phrase values with a stable contract error" do
+    base = {
+      "text" => "Håfa adai", "meaning" => "A reviewed greeting.",
+      "allowed_contexts" => [ "greeting" ], "prohibited_contexts" => [ "crisis" ],
+      "frequency" => "rare", "caution" => "Use only as reviewed."
+    }
+    malformed_values = [
+      "Håfa adai",
+      base.except("meaning"),
+      base.merge("private" => "not allowed"),
+      base.merge("allowed_contexts" => "greeting"),
+      base.merge("prohibited_contexts" => [ { "context" => "crisis" } ])
+    ]
+
+    malformed_values.each do |value|
+      error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+        Mia::PersonaSetup::OperationContract.new(
+          actor: @coach, user_message: "Use the exact phrase Håfa adai.", persona: @persona
+        ).build([ {
+          "op" => "add_phrase", "path" => "phrases", "value" => value,
+          "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai"
+        } ])
+      end
+      assert_equal "Mia returned an unsupported phrase shape.", error.message
+    end
+  end
+
+  test "operation contract size projection covers PostgreSQL jsonb text expansion at the database boundary" do
+    payload = {}
+    index = 0
+    while JSON.generate(payload).b.bytesize < Mia::PersonaSetup::OperationContract::MAX_OPERATIONS_BYTES - 128
+      payload["field_#{index}"] = index
+      index += 1
+    end
+    payload.delete(payload.keys.last) while JSON.generate(payload).b.bytesize > Mia::PersonaSetup::OperationContract::MAX_OPERATIONS_BYTES
+
+    compact_bytes = JSON.generate(payload).b.bytesize
+    connection = ActiveRecord::Base.connection
+    postgres_bytes = connection.select_value(
+      "SELECT octet_length((#{connection.quote(JSON.generate(payload))})::jsonb::text)"
+    ).to_i
+    contract = Mia::PersonaSetup::OperationContract.new(actor: @coach, user_message: "approved", persona: @persona)
+    projected_bytes = contract.send(:postgres_jsonb_text_upper_bound, payload)
+
+    assert_operator compact_bytes, :<=, Mia::PersonaSetup::OperationContract::MAX_OPERATIONS_BYTES
+    assert_operator postgres_bytes, :>, Mia::PersonaSetup::OperationContract::MAX_OPERATIONS_BYTES
+    assert_operator projected_bytes, :>=, postgres_bytes
+    assert_operator projected_bytes, :>, Mia::PersonaSetup::OperationContract::MAX_OPERATIONS_BYTES
+  end
+
   test "operation contract validates only changed community facts" do
     @persona.update!(draft_config: @persona.draft_config.deep_merge("culture" => { "local_realities" => [ "Shipping takes longer to Guam." ] }))
     result = Mia::PersonaSetup::OperationContract.new(
@@ -353,6 +403,42 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal "applied", result.proposal.reload.status
   end
 
+  test "turn runner fails unexpected standard errors and leaves the session available" do
+    [ KeyError.new("simulated key failure"), ActiveRecord::StatementInvalid.new("simulated database failure") ].each_with_index do |failure, index|
+      runner = Mia::PersonaSetup::TurnRunner.new(
+        session: @session,
+        actor: @coach,
+        workspace: @workspace,
+        resolver: fake_resolver { raise failure }
+      )
+      key = "unexpected-failure-#{index}"
+
+      error = assert_raises(Mia::PersonaSetup::TurnRunner::Error) do
+        runner.call(user_message: "Call the assistant Lina.", idempotency_key: key)
+      end
+
+      assert_equal "persona_setup_failed", error.code
+      assert_equal :service_unavailable, error.status
+      assert_equal "failed", error.result.turn.reload.status
+      assert_equal "persona_setup_failed", error.result.turn.error_code
+      assert_equal true, runner.call(user_message: "Call the assistant Lina.", idempotency_key: key).replayed
+      refute @session.turns.where(status: "processing").exists?
+    end
+
+    fresh = Mia::PersonaSetup::TurnRunner.new(
+      session: @session,
+      actor: @coach,
+      workspace: @workspace,
+      resolver: fake_resolver do
+        resolver_result("I prepared one proposal for review. Nothing has been saved.", [
+          operation("identity.assistant_name", "Lina", evidence: "Lina")
+        ])
+      end
+    ).call(user_message: "Call the assistant Lina.", idempotency_key: "after-unexpected-failure")
+
+    assert_equal "ready", fresh.turn.status
+  end
+
   test "turn reserved on an older persona snapshot stays stale if a pending proposal is applied during provider work" do
     prior = ready_proposal(name: "Lina")
     resolver = fake_resolver do
@@ -524,6 +610,23 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     operation_schema.fetch(:oneOf).excluding(philosophy_schema).each do |schema|
       assert_equal [ "coach_quote" ], schema.dig(:properties, "source_basis", :enum)
     end
+    prompt = payload.fetch(:messages).pluck(:content).join(" ")
+    assert_includes prompt, "proposal or review wording"
+    assert_includes prompt, "nothing has been saved"
+    assert_includes prompt, "changed, set, added, saved, applied, created, or completed"
+  end
+
+  test "provider transport refuses plaintext endpoints before creating an authorization request" do
+    http = Object.new
+    http.define_singleton_method(:start) { |*| raise "plaintext provider transport must not start" }
+    transport = Mia::PersonaSetup::ProposalResolver::NetHttpTransport.new(
+      api_key: "secret",
+      endpoint: -> { URI("http://127.0.0.1:4567/chat") },
+      http:
+    )
+
+    error = assert_raises(Mia::PersonaSetup::ProposalResolver::Error) { transport.call("private" => true) }
+    assert_equal "persona_setup_unavailable", error.code
   end
 
   test "provider rejects fenced output wrong model and admission denial without fallback" do

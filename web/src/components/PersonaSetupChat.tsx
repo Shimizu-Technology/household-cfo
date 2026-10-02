@@ -35,6 +35,8 @@ export function PersonaSetupChat({
   const [message, setMessage] = useState('')
   const [retryKey, setRetryKey] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadFailed, setLoadFailed] = useState(false)
+  const [loadAttempt, setLoadAttempt] = useState(0)
   const [pending, setPending] = useState<'send' | 'apply' | 'reject' | 'rebase' | 'abandon' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [announcement, setAnnouncement] = useState('')
@@ -45,6 +47,7 @@ export function PersonaSetupChat({
   const personaIdRef = useRef(persona.id)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const proposalHeadingRef = useRef<HTMLHeadingElement | null>(null)
+  const resolutionRetryRef = useRef<{ proposalId: number; action: 'apply' | 'reject'; key: string } | null>(null)
   useLayoutEffect(() => {
     personaIdRef.current = persona.id
   }, [persona.id])
@@ -57,8 +60,12 @@ export function PersonaSetupChat({
 
   useEffect(() => {
     let cancelled = false
+    resolutionRetryRef.current = null
     queueMicrotask(() => {
       if (cancelled) return
+      setLoading(true)
+      setLoadFailed(false)
+      setSession(null)
       const sequence = ++requestSequence.current
       const personaId = persona.id
       const ticket = beginMutation()
@@ -66,10 +73,13 @@ export function PersonaSetupChat({
         .then((next) => {
           if (sequence !== requestSequence.current || personaIdRef.current !== personaId || !mutationIsCurrent(ticket)) return
           setSession(next)
+          setError(null)
+          setLoadFailed(false)
         })
         .catch((caught) => {
           if (sequence === requestSequence.current && personaIdRef.current === personaId && mutationIsCurrent(ticket)) {
             setError(setupErrorMessage(caught, 'Setup chat could not be loaded.'))
+            setLoadFailed(true)
           }
         })
         .finally(() => {
@@ -81,7 +91,7 @@ export function PersonaSetupChat({
       cancelled = true
       requestSequence.current += 1
     }
-  }, [beginMutation, finishMutation, mutationIsCurrent, persona.id])
+  }, [beginMutation, finishMutation, loadAttempt, mutationIsCurrent, persona.id])
 
   const groupedChanges = useMemo(() => session?.proposal?.grouped_changes ?? [], [session])
 
@@ -134,11 +144,17 @@ export function PersonaSetupChat({
     const ticket = beginMutation()
     const sequence = ++requestSequence.current
     const personaId = persona.id
+    const priorAttempt = resolutionRetryRef.current
+    const key = priorAttempt?.proposalId === proposal.id && priorAttempt.action === action
+      ? priorAttempt.key
+      : requestKey()
+    resolutionRetryRef.current = { proposalId: proposal.id, action, key }
     setPending(action)
     setError(null)
     try {
-      const result = await resolveAdminPersonaSetupProposal(personaId, session.id, proposal.id, action, requestKey())
+      const result = await resolveAdminPersonaSetupProposal(personaId, session.id, proposal.id, action, key)
       if (!isCurrent(sequence, personaId, ticket)) return
+      resolutionRetryRef.current = null
       setSession(result.session)
       if (result.persona) onPersonaChange(result.persona)
       setAnnouncement(action === 'apply' ? 'Proposal applied to the saved draft.' : 'Proposal rejected. You can keep chatting.')
@@ -149,6 +165,13 @@ export function PersonaSetupChat({
       if (isCurrent(sequence, personaId, ticket)) setPending(null)
       finishMutation(ticket)
     }
+  }
+
+  function retryOpenSession() {
+    if (loading || pending) return
+    setError(null)
+    setLoading(true)
+    setLoadAttempt((attempt) => attempt + 1)
   }
 
   async function updateSession(action: 'rebase' | 'abandon') {
@@ -203,7 +226,13 @@ export function PersonaSetupChat({
           Your setup messages and this persona draft may be sent to the configured model. Participant household and financial data are excluded. Nothing changes until you apply a reviewed proposal.
         </div>
         {error && <div className="form-error" role="alert">{error}</div>}
-        {session?.status !== 'active' ? (
+        {loadFailed && !session ? (
+          <div className="persona-setup-stale" role="alert">
+            <strong>This setup chat could not be opened.</strong>
+            <span>Try loading your private setup chat again.</span>
+            <Button variant="secondary" disabled={loading || pending !== null} onClick={retryOpenSession}>Try again</Button>
+          </div>
+        ) : session?.status !== 'active' ? (
           <div className="persona-setup-stale" role="alert">
             <strong>This setup chat is closed.</strong>
             <span>Open a fresh private chat to continue shaping this assistant.</span>
@@ -221,7 +250,11 @@ export function PersonaSetupChat({
           {session?.turns.length ? session.turns.map((turn) => (
             <div className="persona-setup-turn" key={turn.id}>
               <div className="is-coach"><strong>You</strong><p>{turn.user_message}</p></div>
-              <div className="is-mia"><strong>Mia</strong><p>{turn.assistant_message || (turn.status === 'failed' ? 'I could not prepare that proposal.' : 'This response is no longer current.')}</p></div>
+              <div className="is-mia"><strong>Mia</strong><p>{turn.assistant_message || (turn.status === 'failed'
+                ? 'I could not prepare that proposal.'
+                : turn.status === 'processing'
+                  ? 'Mia is still preparing this proposal.'
+                  : 'This response is no longer current.')}</p></div>
             </div>
           )) : <p className="persona-setup-empty">Start with what makes this coach’s approach distinct. Use exact wording for names, local facts, references, and phrases.</p>}
         </div>
