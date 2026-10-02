@@ -17,6 +17,7 @@ class CoachWorkspace < ApplicationRecord
   has_many :coach_content_sources, dependent: :restrict_with_exception
   has_many :coach_content_items, dependent: :restrict_with_exception
   has_many :coach_content_packs, dependent: :restrict_with_exception
+  has_many :coach_phrase_proposals, dependent: :restrict_with_exception
 
   normalizes :name, with: ->(value) { value.to_s.squish }
   normalizes :slug, with: ->(value) { value.to_s.strip.downcase }

@@ -22,6 +22,7 @@ module Mia
         end
         ensure_draft_is_safe!
         ensure_draft_content_manifests!
+        ensure_draft_phrase_manifest!
 
         digest = preview_digest
         prompt = [ PersonaPromptBuilder.call(persona.draft_config), content_pack_preview ].compact_blank.join("\n\n")
@@ -48,6 +49,7 @@ module Mia
         end
         ensure_draft_is_safe!
         ensure_draft_content_manifests!
+        promotions = ensure_draft_phrase_manifest!
 
         current_digest = PersonaSchema.digest(persona.draft_config)
         current_preview_digest = preview_digest
@@ -63,12 +65,22 @@ module Mia
           config: persona.draft_config.deep_dup,
           config_digest: current_digest,
           content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
+          phrase_manifest_digest: Mia::PhraseManifest.digest_for([]),
           published_by_user: actor
         )
         persona.draft_content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
         end
-        version.seal_content_manifest!
+        promotions.each do |promotion, position|
+          version.phrase_artifact_links.create!(
+            coach_persona_phrase_promotion: promotion,
+            position: position,
+            artifact_id: promotion.artifact_id,
+            artifact_fingerprint: promotion.artifact_fingerprint,
+            promotion_digest: promotion.promotion_digest
+          )
+        end
+        version.seal_manifests!
         advance_publication!(version)
         persona.publication_events.create!(
           coach_persona_version: version,
@@ -87,7 +99,8 @@ module Mia
       PersonaPromptBuilder.digest(
         persona.draft_config,
         draft_revision: persona.draft_revision,
-        content_digests: persona.draft_content_manifest_entries
+        content_digests: persona.draft_content_manifest_entries,
+        phrase_digests: persona.draft_phrase_manifest_entries
       )
     end
 
@@ -96,6 +109,12 @@ module Mia
         link.coach_content_pack_version.manifest_valid?
       end
       raise PublicationError, "Attached content pack is not a valid sealed publication" unless valid
+    end
+
+    def ensure_draft_phrase_manifest!
+      Mia::PhraseManifest.promotions_for_config(persona)
+    rescue ArgumentError
+      raise PublicationError, "An approved-source phrase failed its sealed evidence check"
     end
 
     def ensure_draft_is_safe!

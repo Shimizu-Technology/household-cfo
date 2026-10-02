@@ -86,6 +86,8 @@ module Mia
 
       pack.entries.sort_by(&:position).map do |entry|
         item = entry.coach_content_item_version
+        next if item.kind == "phrase"
+
         score, terms = match_score(item)
         {
           item_version: item,
@@ -94,7 +96,7 @@ module Mia
           score: score,
           sort_key: [ pack.scope == "coach" ? 0 : 1, -score, link.position, entry.position, item.id ]
         }
-      end
+      end.compact
     end
 
     def match_score(item)

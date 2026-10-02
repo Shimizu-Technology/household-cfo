@@ -22,6 +22,10 @@ class CoachPersona < ApplicationRecord
   has_many :cohort_persona_assignments, dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohorts, through: :cohort_persona_assignments
   has_many :setup_sessions, class_name: "CoachPersonaSetupSession", dependent: :restrict_with_exception
+  has_many :phrase_promotions,
+    class_name: "CoachPersonaPhrasePromotion",
+    dependent: :restrict_with_exception,
+    inverse_of: :coach_persona
   has_many :draft_content_pack_links,
     -> { order(:position) },
     class_name: "CoachPersonaDraftContentPack",
@@ -124,6 +128,16 @@ class CoachPersona < ApplicationRecord
     end
   end
 
+  def draft_phrase_manifest_entries
+    Mia::PhraseManifest.promotions_for_config(self).map do |promotion, position|
+      Mia::PhraseManifest.entry(promotion, position: position)
+    end
+  end
+
+  def draft_phrase_manifest_digest
+    Mia::PhraseManifest.digest_for(draft_phrase_manifest_entries)
+  end
+
   def apply_authoring_state!(description:, draft_config:)
     @force_draft_revision_and_preview_reset = true
     update!(description: description, draft_config: draft_config)
@@ -168,9 +182,16 @@ class CoachPersona < ApplicationRecord
         source_user_id.present? && captured_role.in?(%w[admin coach])
       elsif phrase["provenance"] == "participant_supplied"
         source_user_id.present? && captured_role == "participant"
+      elsif phrase["provenance"] == "approved_source"
+        source_user_id.present? && captured_role.in?(%w[admin coach])
       end
       errors.add(:draft_config, "$.phrases[#{index}] has invalid provenance") unless valid
     end
+    return unless errors[:draft_config].empty?
+
+    Mia::PhraseManifest.promotions_for_config(self, draft_config)
+  rescue ArgumentError => error
+    errors.add(:draft_config, error.message)
   end
 
   def preview_fields_are_complete

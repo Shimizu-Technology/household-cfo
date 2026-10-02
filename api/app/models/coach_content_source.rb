@@ -18,6 +18,7 @@ class CoachContentSource < ApplicationRecord
   has_many :candidates, class_name: "CoachContentSourceCandidate", dependent: :restrict_with_exception
   has_many :draft_provenances, class_name: "CoachContentItemDraftProvenance", dependent: :restrict_with_exception
   has_many :version_provenances, class_name: "CoachContentItemVersionProvenance", dependent: :restrict_with_exception
+  has_many :phrase_proposals, class_name: "CoachPhraseProposal", dependent: :restrict_with_exception
 
   validates :scope, inclusion: { in: SCOPES }
   validates :status, inclusion: { in: STATUSES }

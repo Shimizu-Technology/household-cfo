@@ -56,6 +56,7 @@ module Mia
       if private_configuration_visible?
         payload[:draft] = persona.draft_config
         payload[:phrase_artifact_access] = phrase_artifact_access
+        payload[:approved_phrase_promotions] = approved_phrase_promotions
         payload[:preview] = serialize_preview
         payload[:content_packs] = persona.draft_content_pack_links.includes(coach_content_pack_version: :coach_content_pack).order(:position).map do |link|
           serialize_content_pack_version(link.coach_content_pack_version)
@@ -105,6 +106,7 @@ module Mia
         number: version.version_number,
         digest: version.config_digest,
         content_manifest_digest: version.content_manifest_digest,
+        phrase_manifest_digest: version.phrase_manifest_digest,
         publication_digest: version.publication_digest,
         published_at: version.created_at,
         published_by: serialize_user(version.published_by_user)
@@ -136,9 +138,13 @@ module Mia
     def unpublished_changes?
       return true unless persona.current_published_version
       return true unless persona.current_published_version.content_manifest_valid?
+      return true unless persona.current_published_version.phrase_manifest_valid?
 
       persona.current_published_version.config_digest != PersonaSchema.digest(persona.draft_config) ||
-        persona.current_published_version.content_manifest_digest != persona.draft_content_manifest_digest
+        persona.current_published_version.content_manifest_digest != persona.draft_content_manifest_digest ||
+        persona.current_published_version.phrase_manifest_digest != persona.draft_phrase_manifest_digest
+    rescue ArgumentError
+      true
     end
 
     def preview_required?
@@ -147,8 +153,11 @@ module Mia
       persona.preview_digest != PersonaPromptBuilder.digest(
         persona.draft_config,
         draft_revision: persona.draft_revision,
-        content_digests: persona.draft_content_manifest_entries
+        content_digests: persona.draft_content_manifest_entries,
+        phrase_digests: persona.draft_phrase_manifest_entries
       )
+    rescue ArgumentError
+      true
     end
 
     def serialize_preview
@@ -167,25 +176,44 @@ module Mia
         can_add: can_manage,
         artifacts: Array(persona.draft_config["phrases"]).map do |phrase|
           participant_supplied = phrase["provenance"] == "participant_supplied"
-          can_edit = can_manage && !participant_supplied
+          approved_source = phrase["provenance"] == "approved_source"
+          can_edit = can_manage && !participant_supplied && !approved_source
           {
             artifact_id: phrase["artifact_id"],
             provenance: phrase["provenance"],
             source_role_at_capture: phrase["source_role_at_capture"],
-            source_label: participant_supplied ? "Participant supplied" : "Coach authored",
+            source_label: participant_supplied ? "Participant supplied" : approved_source ? "Approved private source" : "Coach authored",
             can_edit: can_edit,
             can_move: can_manage,
             can_remove: can_manage,
             locked: !can_edit,
-            locked_reason: phrase_locked_reason(participant_supplied:, can_manage:)
+            locked_reason: phrase_locked_reason(participant_supplied:, approved_source:, can_manage:)
           }
         end
       }
     end
 
-    def phrase_locked_reason(participant_supplied:, can_manage:)
+    def phrase_locked_reason(participant_supplied:, approved_source:, can_manage:)
       return "Participant-supplied wording is sealed and cannot be edited." if participant_supplied
+      return "Approved-source wording is sealed to its review record. Remove it or restore the reviewed artifact." if approved_source
       "Select a coach workspace where you have edit access to change this sealed phrase." unless can_manage
+    end
+
+    def approved_phrase_promotions
+      current_ids = Array(persona.draft_config["phrases"]).filter_map do |phrase|
+        phrase["artifact_id"] if phrase.is_a?(Hash) && phrase["provenance"] == "approved_source"
+      end
+      persona.phrase_promotions.includes(:promoted_by_user).order(:created_at, :id).map do |promotion|
+        {
+          id: promotion.id,
+          artifact_id: promotion.artifact_id,
+          phrase: promotion.artifact.slice(*CoachPhraseProposal::PAYLOAD_KEYS),
+          source_label: "Approved private source",
+          active: current_ids.include?(promotion.artifact_id.to_s),
+          can_restore: policy.can_publish?(persona) && !persona.archived? && !current_ids.include?(promotion.artifact_id.to_s),
+          promoted_at: promotion.promoted_at
+        }
+      end
     end
 
     def permissions

@@ -177,6 +177,7 @@ module Api
             end
 
             now = Time.current
+            CoachPhraseProposal.supersede_open_for_source!(@source, at: now)
             current_attempt = @source.current_attempt
             if current_attempt&.status == "processing"
               current_attempt.update!(status: "superseded", error_code: "source_deletion", error_message: "Source deletion superseded this attempt.", completed_at: now)

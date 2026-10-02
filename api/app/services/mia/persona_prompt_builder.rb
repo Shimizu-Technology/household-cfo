@@ -18,7 +18,7 @@ module Mia
         new(configuration).call
       end
 
-      def digest(configuration, draft_revision:, content_digests: [])
+      def digest(configuration, draft_revision:, content_digests: [], phrase_digests: [])
         raise PersonaSchema::InvalidConfiguration, [ "draft revision must be a positive integer" ] unless draft_revision.is_a?(Integer) && draft_revision.positive?
 
         payload = {
@@ -27,6 +27,7 @@ module Mia
           "safety_policy_version" => PersonaSafetyPolicy::VERSION
         }
         payload["content_digests"] = Array(content_digests) if Array(content_digests).any?
+        payload["phrase_digests"] = Array(phrase_digests) if Array(phrase_digests).any?
         Digest::SHA256.hexdigest(JSON.generate(payload).b)
       end
     end

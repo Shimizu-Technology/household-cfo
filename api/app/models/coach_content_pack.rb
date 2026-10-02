@@ -62,6 +62,9 @@ class CoachContentPack < ApplicationRecord
       unless item_versions.length == entries.length && item_versions.values.all?(&:integrity_valid?)
         raise PublicationIntegrityError, "One or more selected approved item versions failed integrity validation"
       end
+      if item_versions.values.any? { |version| version.kind == "phrase" }
+        raise PublicationIntegrityError, "Phrase items must be promoted through approved phrase review, not a content pack"
+      end
 
       manifest_digest = CoachContentPackVersion.draft_manifest_digest_for(self, entries)
       unless Integer(expected_draft_revision, exception: false) == draft_revision &&
@@ -129,6 +132,9 @@ class CoachContentPack < ApplicationRecord
     raise ArgumentError, "Choose only one approved version of each item" if versions.map(&:coach_content_item_id).uniq.length != versions.length
 
     versions.each do |version|
+      if version.kind == "phrase"
+        raise ArgumentError, "Phrase items must be promoted through approved phrase review, not a content pack"
+      end
       item = version.coach_content_item
       if scope == "platform" && item.scope != "platform"
         raise ArgumentError, "Platform packs can contain only platform content"
