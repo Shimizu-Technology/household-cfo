@@ -49,7 +49,7 @@ class CoachPhraseAttestation < ApplicationRecord
 
   def proposal_snapshot_matches?
     proposal = coach_phrase_proposal
-    proposal && proposal_digest == proposal.proposal_digest && evidence_digest == proposal.evidence_digest
+    proposal&.integrity_valid? && proposal_digest == proposal.proposal_digest && evidence_digest == proposal.evidence_digest
   end
 
   def digest_matches_snapshot

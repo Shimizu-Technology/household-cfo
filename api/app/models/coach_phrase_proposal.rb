@@ -31,6 +31,7 @@ class CoachPhraseProposal < ApplicationRecord
   validate :lifecycle_is_coherent
 
   before_validation :normalize_payloads
+  before_destroy :prevent_destroy
 
   class << self
     def snapshot(attributes)
@@ -78,6 +79,25 @@ class CoachPhraseProposal < ApplicationRecord
     status == "submitted"
   end
 
+  def integrity_valid?
+    return false unless phrase_payload.is_a?(Hash) && phrase_payload.keys.sort == PAYLOAD_KEYS.sort
+    return false unless linked_records_match? && lifecycle_coherent?
+    return false unless revision.to_i.positive? && evidence_start_byte.to_i >= 0 && evidence_end_byte.to_i > evidence_start_byte.to_i
+    return false unless DIGEST_FIELDS.all? { |field| public_send(field).to_s.match?(/\A[0-9a-f]{64}\z/) }
+
+    expected = self.class.digest_for(self)
+    return false unless secure_match?(proposal_digest, expected)
+    return false unless secure_match?(source_checksum_sha256, coach_content_source.checksum_sha256)
+    return false unless secure_match?(approved_content_digest, coach_content_item_version.content_digest)
+    return false unless secure_match?(source_provenance_digest, coach_content_item_version.source_provenance&.provenance_digest)
+    return false unless secure_match?(phrase_digest, Digest::SHA256.hexdigest(phrase_payload.fetch("text").to_s.b))
+
+    Mia::PersonaSchema.validate_phrase_authoring_payload!(phrase_payload)
+    coach_content_item_version.integrity_valid?
+  rescue ActiveRecord::RecordNotFound, KeyError, Mia::PersonaSchema::InvalidConfiguration
+    false
+  end
+
   def self.supersede_open_for_source!(source, at: Time.current)
     ids = left_outer_joins(:attestation)
       .where(coach_content_source_id: source.id, status: %w[draft submitted], coach_phrase_attestations: { id: nil })
@@ -101,11 +121,17 @@ class CoachPhraseProposal < ApplicationRecord
   end
 
   def linked_records_match
-    return unless coach_workspace && coach_content_source && coach_content_source_attempt && coach_content_source_candidate && coach_content_item_version
+    return if linked_records_match?
+
+    errors.add(:base, "phrase proposal source chain is invalid")
+  end
+
+  def linked_records_match?
+    return false unless coach_workspace && coach_content_source && coach_content_source_attempt && coach_content_source_candidate && coach_content_item_version
 
     item = coach_content_item_version.coach_content_item
     provenance = coach_content_item_version.source_provenance
-    valid = coach_content_source.scope == "coach" && coach_content_source.coach_workspace_id == coach_workspace_id &&
+    coach_content_source.scope == "coach" && coach_content_source.coach_workspace_id == coach_workspace_id &&
       item.scope == "coach" && item.coach_workspace_id == coach_workspace_id && coach_content_item_version.kind == "phrase" &&
       coach_content_source_attempt.coach_content_source_id == coach_content_source_id &&
       coach_content_source_candidate.coach_content_source_id == coach_content_source_id &&
@@ -114,7 +140,6 @@ class CoachPhraseProposal < ApplicationRecord
       provenance&.coach_content_source_id == coach_content_source_id &&
       provenance&.coach_content_source_attempt_id == coach_content_source_attempt_id &&
       provenance&.coach_content_source_candidate_id == coach_content_source_candidate_id
-    errors.add(:base, "phrase proposal source chain is invalid") unless valid
   end
 
   def digest_matches_snapshot
@@ -148,11 +173,29 @@ class CoachPhraseProposal < ApplicationRecord
   end
 
   def lifecycle_is_coherent
-    if status == "draft"
-      errors.add(:submitted_at, "must be blank for a draft") if submitted_at.present?
-    elsif status.in?(%w[submitted rejected])
-      errors.add(:submitted_at, "is required after submission") if submitted_at.blank?
-    end
+    errors.add(:submitted_at, "does not match the proposal lifecycle") unless lifecycle_coherent?
     errors.add(:superseded_at, "must match superseded status") unless (status == "superseded") == superseded_at.present?
+  end
+
+  def lifecycle_coherent?
+    case status
+    when "draft"
+      submitted_at.blank? && superseded_at.blank?
+    when "submitted", "rejected"
+      submitted_at.present? && superseded_at.blank?
+    when "superseded"
+      superseded_at.present?
+    else
+      false
+    end
+  end
+
+  def secure_match?(left, right)
+    left.to_s.bytesize == right.to_s.bytesize && ActiveSupport::SecurityUtils.secure_compare(left.to_s, right.to_s)
+  end
+
+  def prevent_destroy
+    errors.add(:base, "phrase proposals cannot be deleted")
+    throw :abort
   end
 end

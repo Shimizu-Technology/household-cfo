@@ -28,9 +28,9 @@ module Mia
         },
         promotion_count: proposal.persona_promotions.size,
         permissions: {
-          edit: policy.can_propose? && proposal.status == "draft",
-          submit: policy.can_propose? && proposal.status == "draft",
-          review: policy.can_review? && proposal.status == "submitted" && attestation.nil?,
+          edit: policy.can_edit_proposal?(proposal) && proposal.status == "draft",
+          submit: policy.can_edit_proposal?(proposal) && proposal.status == "draft",
+          review: policy.can_review_proposal?(proposal) && proposal.status == "submitted" && attestation.nil?,
           promote: policy.can_review? && attestation&.decision == "approved"
         }
       }

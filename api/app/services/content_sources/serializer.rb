@@ -36,6 +36,7 @@ module ContentSources
     end
 
     def candidate(candidate)
+      accepted_version = candidate.accepted_content_item&.current_approved_version
       {
         id: candidate.id,
         source_id: candidate.coach_content_source_id,
@@ -51,7 +52,9 @@ module ContentSources
         digest: candidate.content_digest,
         safety_code: candidate.safety_code,
         accepted_content_item_id: candidate.accepted_content_item_id,
-        accepted_content_item_version_id: candidate.accepted_content_item&.current_approved_version_id,
+        accepted_content_item_version_id: accepted_version&.id,
+        accepted_content_item_version_kind: accepted_version&.kind,
+        accepted_content_item_version_content: accepted_version&.content,
         reviewed_at: candidate.reviewed_at,
         updated_at: candidate.updated_at
       }

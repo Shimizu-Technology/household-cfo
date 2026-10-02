@@ -21,12 +21,15 @@ module Mia
         authorization = authorize!
         proposal_identity = CoachPhraseProposal.find_by!(id: proposal_id, coach_workspace_id: authorization.workspace.id)
         source = CoachContentSource.lock.find(proposal_identity.coach_content_source_id)
+        version = CoachContentItemVersion.find(proposal_identity.coach_content_item_version_id)
+        CoachContentItem.lock.find(version.coach_content_item_id)
+        CoachContentItemVersion.lock.find(version.id)
         proposal = CoachPhraseProposal.lock.find_by!(id: proposal_identity.id, coach_workspace_id: authorization.workspace.id)
         existing = CoachPhraseAttestation.lock.find_by(coach_phrase_proposal_id: proposal.id)
-        return existing if existing && existing.decision == decision.to_s && secure_match?(existing.proposal_digest, expected_digest)
+        return existing if existing&.integrity_valid? && existing.decision == decision.to_s && secure_match?(existing.proposal_digest, expected_digest)
         raise Error.new("This phrase proposal was already reviewed.", code: "phrase_attestation_exists") if existing
 
-        unless proposal.status == "submitted" && secure_match?(proposal.proposal_digest, expected_digest)
+        unless proposal.integrity_valid? && proposal.status == "submitted" && secure_match?(proposal.proposal_digest, expected_digest)
           raise Error.new("The phrase proposal changed or is no longer awaiting review.", code: "phrase_attestation_conflict")
         end
         unless decision.to_s.in?(CoachPhraseAttestation::DECISIONS)
@@ -87,10 +90,8 @@ module Mia
     def self_review?(authorization, proposal)
       return false unless proposal.proposed_by_user_id == authorization.actor.id
 
-      membership = authorization.workspace.membership_for(authorization.actor)
-      eligible = membership&.role == "owner" &&
-        !authorization.workspace.coach_workspace_memberships.where(role: %w[owner reviewer]).where.not(user_id: authorization.actor.id).exists?
-      unless eligible
+      policy = ApprovedPhrasePolicy.new(authorization.actor, workspace: authorization.workspace)
+      unless policy.can_review_proposal?(proposal)
         raise Error.new("A different workspace owner or reviewer must review this phrase.", code: "phrase_self_review_not_allowed")
       end
       true

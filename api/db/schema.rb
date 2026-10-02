@@ -795,7 +795,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.index ["coach_workspace_id", "proposal_digest"], name: "idx_phrase_proposals_workspace_digest", unique: true
     t.index ["coach_workspace_id"], name: "index_coach_phrase_proposals_on_coach_workspace_id"
     t.index ["proposed_by_user_id"], name: "index_coach_phrase_proposals_on_proposed_by_user_id"
-    t.check_constraint "(status::text = ANY (ARRAY['draft'::character varying, 'superseded'::character varying]::text[])) OR submitted_at IS NOT NULL", name: "phrase_proposals_submission_coherent"
+    t.check_constraint "status::text = 'draft'::text AND submitted_at IS NULL OR (status::text = ANY (ARRAY['submitted'::character varying::text, 'rejected'::character varying::text])) AND submitted_at IS NOT NULL OR status::text = 'superseded'::text", name: "phrase_proposals_submission_coherent"
     t.check_constraint "evidence_start_byte >= 0 AND evidence_end_byte > evidence_start_byte", name: "phrase_proposals_evidence_offsets_valid"
     t.check_constraint "jsonb_typeof(evidence_locator) = 'object'::text", name: "phrase_proposals_locator_object"
     t.check_constraint "jsonb_typeof(phrase_payload) = 'object'::text", name: "phrase_proposals_payload_object"

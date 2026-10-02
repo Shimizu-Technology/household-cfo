@@ -25,7 +25,7 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     }
   end
 
-  test "verifies exact parsed source wording and seals proposal evidence" do
+  test "requires exact wording in both approved content and parsed source evidence" do
     proposal = with_source_download(@source_text) { create_proposal }
 
     assert_equal "draft", proposal.status
@@ -37,7 +37,46 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     error = assert_raises(Mia::PhraseProposalWriter::Error) do
       with_source_download(@source_text) { create_proposal(@payload.merge("text" => "håfa adai")) }
     end
-    assert_equal "phrase_source_not_exact", error.code
+    assert_equal "phrase_approved_content_not_exact", error.code
+
+    unapproved_sentence = assert_raises(Mia::PhraseProposalWriter::Error) do
+      with_source_download(@source_text) do
+        create_proposal(@payload.merge("text" => "Keep one practical next step"))
+      end
+    end
+    assert_equal "phrase_approved_content_not_exact", unapproved_sentence.code
+
+    item = @version.coach_content_item
+    item.update!(draft_content: "Håfa adai\nhåfa adai")
+    expanded_version = item.approve!(
+      actor: @owner,
+      expected_draft_revision: item.draft_revision,
+      expected_draft_digest: item.draft_digest
+    )
+    source_mismatch = assert_raises(Mia::PhraseProposalWriter::Error) do
+      with_source_download(@source_text) do
+        writer.create!(
+          source_id: @source.id,
+          candidate_id: @candidate.id,
+          content_item_version_id: expanded_version.id,
+          phrase_payload: @payload.merge("text" => "håfa adai")
+        )
+      end
+    end
+    assert_equal "phrase_source_not_exact", source_mismatch.code
+  end
+
+  test "identical create replay returns the existing integrity-valid proposal" do
+    proposal = with_source_download(@source_text) { create_proposal }
+    replay = with_source_download(@source_text) { create_proposal }
+
+    assert_equal proposal.id, replay.id
+    assert replay.integrity_valid?
+    assert_equal 1, CoachPhraseProposal.where(
+      coach_workspace_id: @workspace.id,
+      proposed_by_user_id: @editor.id,
+      proposal_digest: proposal.proposal_digest
+    ).count
   end
 
   test "rechecks metadata bytes checksum parser locator and current approved chain" do
@@ -178,6 +217,58 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     assert_equal promotion.artifact, persona.reload.draft_config.fetch("phrases").sole
   end
 
+  test "promote replay succeeds with a stale revision only while its exact artifact is active" do
+    persona, promotion = promoted_persona
+    stale_revision = persona.draft_revision - 1
+
+    replay = Mia::PersonaPhrasePromoter.new(actor: @reviewer, workspace: @workspace).promote!(
+      persona_id: persona.id,
+      proposal_id: promotion.coach_phrase_proposal_id,
+      expected_draft_revision: stale_revision
+    )
+    assert_equal promotion.id, replay.id
+    assert_equal persona.draft_revision, persona.reload.draft_revision
+
+    remove_approved_phrase(persona)
+    error = assert_raises(Mia::PersonaPhrasePromoter::Error) do
+      Mia::PersonaPhrasePromoter.new(actor: @reviewer, workspace: @workspace).promote!(
+        persona_id: persona.id,
+        proposal_id: promotion.coach_phrase_proposal_id,
+        expected_draft_revision: stale_revision
+      )
+    end
+    assert_equal "persona_draft_conflict", error.code
+  end
+
+  test "restore replay succeeds with its stale request revision but inactive restore does not" do
+    persona, promotion = promoted_persona
+    remove_approved_phrase(persona)
+    stale_inactive_revision = persona.draft_revision - 1
+    promoter = Mia::PersonaPhrasePromoter.new(actor: @reviewer, workspace: @workspace)
+    inactive_error = assert_raises(Mia::PersonaPhrasePromoter::Error) do
+      promoter.restore!(
+        persona_id: persona.id,
+        promotion_id: promotion.id,
+        expected_draft_revision: stale_inactive_revision
+      )
+    end
+    assert_equal "persona_draft_conflict", inactive_error.code
+
+    request_revision = persona.reload.draft_revision
+    restored = promoter.restore!(
+      persona_id: persona.id,
+      promotion_id: promotion.id,
+      expected_draft_revision: request_revision
+    )
+    replay = promoter.restore!(
+      persona_id: persona.id,
+      promotion_id: promotion.id,
+      expected_draft_revision: request_revision
+    )
+    assert_equal restored.id, replay.id
+    assert_equal request_revision + 1, persona.reload.draft_revision
+  end
+
   test "prepared setup preserves participant artifacts while allowing approved-source removal" do
     persona, = promoted_persona
     participant = persona_phrase_artifact(
@@ -275,12 +366,25 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
       )
     end
 
+    submitted_at = submitted.submitted_at
     CoachPhraseProposal.supersede_open_for_source!(@source)
 
     assert_equal "superseded", draft.reload.status
+    assert_nil draft.submitted_at
     assert_equal "superseded", submitted.reload.status
+    assert_equal submitted_at, submitted.submitted_at
     assert_equal "submitted", approved.reload.status
     assert approved.attestation.integrity_valid?
+  end
+
+  test "proposal audit records cannot be destroyed before or after supersession" do
+    proposal = with_source_download(@source_text) { create_proposal }
+    assert_raises(ActiveRecord::RecordNotDestroyed) { proposal.destroy! }
+
+    CoachPhraseProposal.supersede_open_for_source!(@source)
+    assert_equal "superseded", proposal.reload.status
+    assert_nil proposal.submitted_at
+    assert_raises(ActiveRecord::RecordNotDestroyed) { proposal.destroy! }
   end
 
   test "submitted evidence and all sealed audit records reject direct persistence changes" do
@@ -310,6 +414,21 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     assert_not link.update(position: link.position + 1)
     assert link.errors.full_messages.any? { |message| message.include?("published phrase artifact links are immutable") }
     assert_raises(ActiveRecord::RecordNotDestroyed) { link.reload.destroy! }
+  end
+
+  test "direct proposal field tampering invalidates every downstream integrity layer" do
+    persona, promotion = promoted_persona
+    version = publish_persona(persona, actor: @reviewer)
+    proposal = promotion.coach_phrase_proposal
+    original_proposer_id = proposal.proposed_by_user_id
+
+    proposal.update_column(:proposed_by_user_id, @owner.id)
+    assert_broken_phrase_chain(proposal.reload, promotion.reload, version.reload)
+
+    proposal.update_column(:proposed_by_user_id, original_proposer_id)
+    assert proposal.reload.integrity_valid?
+    proposal.update_column(:evidence_end_byte, proposal.evidence_end_byte + 1)
+    assert_broken_phrase_chain(proposal.reload, promotion.reload, version.reload)
   end
 
   test "solo owner self-review is explicit and disabled when another reviewer exists" do
@@ -363,6 +482,24 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
   end
 
   private
+
+  def remove_approved_phrase(persona)
+    config = persona.reload.draft_config.deep_dup
+    config["phrases"].reject! { |phrase| phrase["provenance"] == "approved_source" }
+    Mia::PersonaDraftUpdater.new(persona: persona, actor: @editor, workspace: @workspace).call!(
+      expected_draft_revision: persona.draft_revision,
+      description: persona.description,
+      draft_config: config
+    )
+  end
+
+  def assert_broken_phrase_chain(proposal, promotion, version)
+    refute proposal.integrity_valid?
+    refute proposal.attestation.reload.integrity_valid?
+    refute promotion.integrity_valid?
+    refute version.phrase_manifest_valid?
+    assert_raises(Mia::PersonaSchema::InvalidConfiguration) { Mia::RuntimePersona.new(version) }
+  end
 
   def writer
     @writer ||= Mia::PhraseProposalWriter.new(actor: @editor, workspace: @workspace)

@@ -17,6 +17,7 @@ module Mia
     end
 
     def create!(source_id:, candidate_id:, content_item_version_id:, phrase_payload:)
+      proposal = nil
       ApplicationRecord.transaction do
         authorization = authorize!
         chain = lock_chain!(authorization.workspace, source_id:, candidate_id:, content_item_version_id:)
@@ -31,12 +32,20 @@ module Mia
           **evidence.to_h
         )
         proposal.proposal_digest = CoachPhraseProposal.digest_for(proposal)
-        proposal.save!
-        proposal
+        existing = exact_existing_proposal(proposal)
+        if existing
+          existing
+        else
+          proposal.save!
+          proposal
+        end
       end
     rescue ActiveRecord::RecordNotFound
       raise Error.new("Approved phrase source not found.", code: "phrase_source_not_found")
     rescue ActiveRecord::RecordNotUnique
+      existing = exact_existing_proposal(proposal)
+      return existing if existing
+
       raise Error.new("This exact phrase proposal already exists.", code: "phrase_proposal_duplicate")
     rescue ActiveRecord::RecordInvalid => error
       raise Error.new(error.record.errors.full_messages.first, code: "phrase_proposal_invalid")
@@ -68,7 +77,9 @@ module Mia
       ApplicationRecord.transaction do
         authorization = authorize!
         proposal = locked_proposal_with_source!(authorization.workspace, proposal_id)
-        return proposal if proposal.status == "submitted" && secure_match?(proposal.proposal_digest, expected_digest)
+        if proposal.integrity_valid? && proposal.status == "submitted" && secure_match?(proposal.proposal_digest, expected_digest)
+          return proposal
+        end
 
         verify_cas!(proposal, expected_revision, expected_digest)
         raise Error.new("Only draft phrase proposals can be submitted.", code: "phrase_proposal_sealed") unless proposal.status == "draft"
@@ -98,6 +109,8 @@ module Mia
       source = CoachContentSource.lock.find_by!(id: source_id, scope: "coach", coach_workspace_id: workspace.id)
       candidate = source.candidates.lock.find(candidate_id)
       attempt = source.attempts.lock.find(candidate.coach_content_source_attempt_id)
+      version_identity = CoachContentItemVersion.find(content_item_version_id)
+      CoachContentItem.lock.find(version_identity.coach_content_item_id)
       version = CoachContentItemVersion.includes(:coach_content_item, source_provenance: %i[
         coach_content_source coach_content_source_attempt coach_content_source_candidate
       ]).lock.find(content_item_version_id)
@@ -107,6 +120,9 @@ module Mia
     def locked_proposal_with_source!(workspace, proposal_id)
       identity = CoachPhraseProposal.find_by!(id: proposal_id, coach_workspace_id: workspace.id, proposed_by_user_id: actor_id)
       CoachContentSource.lock.find(identity.coach_content_source_id)
+      version = CoachContentItemVersion.find(identity.coach_content_item_version_id)
+      CoachContentItem.lock.find(version.coach_content_item_id)
+      CoachContentItemVersion.lock.find(version.id)
       CoachPhraseProposal.lock.find(identity.id)
     rescue ActiveRecord::RecordNotFound
       raise Error.new("Phrase proposal not found.", code: "phrase_proposal_not_found")
@@ -139,6 +155,20 @@ module Mia
 
     def secure_match?(left, right)
       left.to_s.bytesize == right.to_s.bytesize && ActiveSupport::SecurityUtils.secure_compare(left.to_s, right.to_s)
+    end
+
+    def exact_existing_proposal(proposal)
+      return unless proposal&.proposal_digest.present?
+
+      existing = CoachPhraseProposal.find_by(
+        coach_workspace_id: workspace_id,
+        proposed_by_user_id: actor_id,
+        proposal_digest: proposal.proposal_digest
+      )
+      return unless existing&.integrity_valid?
+      return unless CoachPhraseProposal.snapshot(existing) == CoachPhraseProposal.snapshot(proposal)
+
+      existing
     end
   end
 end

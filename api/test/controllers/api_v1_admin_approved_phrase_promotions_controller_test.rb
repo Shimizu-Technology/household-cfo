@@ -28,6 +28,8 @@ class ApiV1AdminApprovedPhrasePromotionsControllerTest < ActionDispatch::Integra
     get "/api/v1/admin/content_sources/#{@source.id}", headers: workspace_headers(@editor)
     assert_response :success
     assert_equal @version.id, response.parsed_body.dig("source", "candidates", 0, "accepted_content_item_version_id")
+    assert_equal @version.kind, response.parsed_body.dig("source", "candidates", 0, "accepted_content_item_version_kind")
+    assert_equal @version.content, response.parsed_body.dig("source", "candidates", 0, "accepted_content_item_version_content")
 
     get "/api/v1/admin/content_sources/#{@source.id}/phrase_proposals", headers: workspace_headers(@editor)
     assert_response :success
@@ -85,6 +87,48 @@ class ApiV1AdminApprovedPhrasePromotionsControllerTest < ActionDispatch::Integra
     refute_includes response.body, @source.filename
   end
 
+  test "source candidate serialization follows the current approved version instead of stale candidate content" do
+    item = @version.coach_content_item
+    item.update!(draft_content: "Håfa adai. Use this revised reviewed wording.")
+    current = item.approve!(
+      actor: @owner,
+      expected_draft_revision: item.draft_revision,
+      expected_draft_digest: item.draft_digest
+    )
+
+    get "/api/v1/admin/content_sources/#{@source.id}", headers: workspace_headers(@editor)
+    assert_response :success
+    candidate = response.parsed_body.dig("source", "candidates", 0)
+    assert_equal current.id, candidate.fetch("accepted_content_item_version_id")
+    assert_equal current.kind, candidate.fetch("accepted_content_item_version_kind")
+    assert_equal current.content, candidate.fetch("accepted_content_item_version_content")
+    refute_equal candidate.fetch("content"), candidate.fetch("accepted_content_item_version_content")
+  end
+
+  test "identical create retry returns the proposal from the lost response" do
+    request = {
+      phrase_proposal: {
+        candidate_id: @candidate.id,
+        content_item_version_id: @version.id,
+        phrase: @phrase
+      }
+    }
+    with_source_download do
+      post "/api/v1/admin/content_sources/#{@source.id}/phrase_proposals",
+        params: request, headers: workspace_headers(@editor), as: :json
+    end
+    assert_response :created
+    proposal_id = response.parsed_body.dig("phrase_proposal", "id")
+
+    with_source_download do
+      post "/api/v1/admin/content_sources/#{@source.id}/phrase_proposals",
+        params: request, headers: workspace_headers(@editor), as: :json
+    end
+    assert_response :created
+    assert_equal proposal_id, response.parsed_body.dig("phrase_proposal", "id")
+    assert_equal 1, CoachPhraseProposal.where(id: proposal_id).count
+  end
+
   test "selected workspace is mandatory and tenant boundaries conceal records" do
     proposal = with_source_download do
       Mia::PhraseProposalWriter.new(actor: @editor, workspace: @workspace).create!(
@@ -119,6 +163,69 @@ class ApiV1AdminApprovedPhrasePromotionsControllerTest < ActionDispatch::Integra
       attestation: { decision: "approved", proposal_digest: proposal.proposal_digest }
     }, headers: workspace_headers(@editor), as: :json
     assert_response :not_found
+  end
+
+  test "another editor can view a draft but cannot edit or submit the proposer's record" do
+    other_editor = persona_user
+    @workspace.coach_workspace_memberships.create!(user: other_editor, role: "editor")
+    proposal = with_source_download do
+      Mia::PhraseProposalWriter.new(actor: @editor, workspace: @workspace).create!(
+        source_id: @source.id,
+        candidate_id: @candidate.id,
+        content_item_version_id: @version.id,
+        phrase_payload: @phrase
+      )
+    end
+
+    get "/api/v1/admin/phrase_proposals/#{proposal.id}", headers: workspace_headers(other_editor)
+    assert_response :success
+    assert_equal false, response.parsed_body.dig("phrase_proposal", "permissions", "edit")
+    assert_equal false, response.parsed_body.dig("phrase_proposal", "permissions", "submit")
+
+    patch "/api/v1/admin/phrase_proposals/#{proposal.id}", params: {
+      phrase_proposal: {
+        revision: proposal.revision,
+        digest: proposal.proposal_digest,
+        phrase: @phrase.merge(caution: "Other editor change")
+      }
+    }, headers: workspace_headers(other_editor), as: :json
+    assert_response :not_found
+    assert_equal "phrase_proposal_not_found", response.parsed_body.fetch("code")
+
+    post "/api/v1/admin/phrase_proposals/#{proposal.id}/submit", params: {
+      phrase_proposal: { revision: proposal.revision, digest: proposal.proposal_digest }
+    }, headers: workspace_headers(other_editor), as: :json
+    assert_response :not_found
+    assert_equal "phrase_proposal_not_found", response.parsed_body.fetch("code")
+  end
+
+  test "an owner cannot review their own submitted proposal while another reviewer is available" do
+    writer = Mia::PhraseProposalWriter.new(actor: @owner, workspace: @workspace)
+    proposal = with_source_download do
+      draft = writer.create!(
+        source_id: @source.id,
+        candidate_id: @candidate.id,
+        content_item_version_id: @version.id,
+        phrase_payload: @phrase.merge(caution: "Owner proposal requiring independent review.")
+      )
+      writer.submit!(proposal_id: draft.id, expected_revision: draft.revision, expected_digest: draft.proposal_digest)
+    end
+
+    get "/api/v1/admin/phrase_proposals/#{proposal.id}", headers: workspace_headers(@owner)
+    assert_response :success
+    assert_equal false, response.parsed_body.dig("phrase_proposal", "permissions", "review")
+
+    get "/api/v1/admin/phrase_proposals/#{proposal.id}", headers: workspace_headers(@reviewer)
+    assert_response :success
+    assert_equal true, response.parsed_body.dig("phrase_proposal", "permissions", "review")
+
+    with_source_download do
+      post "/api/v1/admin/phrase_proposals/#{proposal.id}/attestation", params: {
+        attestation: { decision: "approved", proposal_digest: proposal.proposal_digest }
+      }, headers: workspace_headers(@owner), as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "phrase_self_review_not_allowed", response.parsed_body.fetch("code")
   end
 
   test "source deletion request supersedes an open phrase proposal before storage cleanup" do

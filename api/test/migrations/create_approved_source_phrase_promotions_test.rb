@@ -18,6 +18,11 @@ class CreateApprovedSourcePhrasePromotionsTest < ActiveSupport::TestCase
     assert connection.indexes(:coach_persona_version_phrase_artifacts).any? { |index| index.unique && index.columns == %w[coach_persona_version_id position] }
     assert_includes connection.check_constraints(:coach_phrase_proposals).map(&:name), "phrase_proposals_digests_sha256"
     assert_includes connection.check_constraints(:coach_persona_versions).map(&:name), "coach_persona_versions_phrase_manifest_sha256"
+    submission_check = connection.check_constraints(:coach_phrase_proposals)
+      .find { |constraint| constraint.name == "phrase_proposals_submission_coherent" }
+    assert_match(/status.*draft.*submitted_at IS NULL/i, submission_check.expression)
+    assert_match(/status.*submitted.*rejected.*submitted_at IS NOT NULL/i, submission_check.expression)
+    assert_match(/status.*superseded/i, submission_check.expression)
 
     column = connection.columns(:coach_persona_versions).find { |candidate| candidate.name == "phrase_manifest_digest" }
     refute column.null

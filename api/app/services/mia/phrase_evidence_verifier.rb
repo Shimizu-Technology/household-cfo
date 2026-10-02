@@ -58,11 +58,18 @@ module Mia
         end
 
         phrase = phrase_payload.fetch("text").to_s
+        unless content_item_version.content.to_s.b.include?(phrase.b)
+          raise Error.new(
+            "The phrase must exactly match wording in the current approved phrase item.",
+            code: "phrase_approved_content_not_exact"
+          )
+        end
         start_byte = segment.text.b.index(phrase.b)
         unless start_byte
           raise Error.new("The phrase must exactly match wording in the approved source, including case and punctuation.", code: "phrase_source_not_exact")
         end
 
+        verify_chain!
         Result.new(
           phrase_payload: phrase_payload,
           evidence_locator: segment.locator,

@@ -50,7 +50,8 @@ class CreateApprovedSourcePhrasePromotions < ActiveRecord::Migration[8.1]
       "octet_length(phrase_payload::text) <= 4096 AND octet_length(evidence_locator::text) <= 2048",
       name: "phrase_proposals_payload_sizes"
     add_check_constraint :coach_phrase_proposals,
-      "(status IN ('draft', 'superseded')) OR submitted_at IS NOT NULL",
+      "(status = 'draft' AND submitted_at IS NULL) OR " \
+        "(status IN ('submitted', 'rejected') AND submitted_at IS NOT NULL) OR status = 'superseded'",
       name: "phrase_proposals_submission_coherent"
     add_check_constraint :coach_phrase_proposals,
       "(status = 'superseded' AND superseded_at IS NOT NULL) OR (status <> 'superseded' AND superseded_at IS NULL)",

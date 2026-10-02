@@ -20,18 +20,28 @@ module Mia
       ApplicationRecord.transaction do
         authorization = authorize!
         persona = locked_persona!(authorization.workspace, persona_id)
+        promotion = CoachPersonaPhrasePromotion.lock.find_by(
+          coach_persona_id: persona.id,
+          coach_phrase_proposal_id: proposal_id
+        )
+        return promotion if promotion&.integrity_valid? && active_exact_artifact?(persona, promotion)
+
         verify_revision!(persona, expected_draft_revision)
         proposal_identity = CoachPhraseProposal.find_by!(id: proposal_id, coach_workspace_id: authorization.workspace.id)
         source = CoachContentSource.lock.find(proposal_identity.coach_content_source_id)
+        version = CoachContentItemVersion.find(proposal_identity.coach_content_item_version_id)
+        CoachContentItem.lock.find(version.coach_content_item_id)
+        CoachContentItemVersion.lock.find(version.id)
         proposal = CoachPhraseProposal.lock.find_by!(id: proposal_identity.id, coach_workspace_id: authorization.workspace.id)
         attestation = CoachPhraseAttestation.lock.find_by!(coach_phrase_proposal_id: proposal.id, decision: "approved")
-        unless proposal.status == "submitted" && attestation.integrity_valid?
+        unless proposal.integrity_valid? && proposal.status == "submitted" && attestation.integrity_valid?
           raise Error.new("This phrase does not have a valid approval.", code: "phrase_promotion_unapproved")
         end
         verify_evidence!(authorization.workspace, source, proposal)
 
-        promotion = CoachPersonaPhrasePromotion.lock.find_by(coach_persona_id: persona.id, coach_phrase_proposal_id: proposal.id)
         promotion ||= create_promotion!(persona:, proposal:, attestation:, actor: authorization.actor)
+        raise Error.new("The approved phrase audit chain is invalid.", code: "phrase_promotion_invalid") unless promotion.integrity_valid?
+
         apply_promotion!(persona:, promotion:, actor: authorization.actor)
         promotion
       end
@@ -47,10 +57,11 @@ module Mia
       ApplicationRecord.transaction do
         authorization = authorize!
         persona = locked_persona!(authorization.workspace, persona_id)
-        verify_revision!(persona, expected_draft_revision)
         promotion = CoachPersonaPhrasePromotion.lock.find_by!(id: promotion_id, coach_persona_id: persona.id)
         raise Error.new("The approved phrase audit chain is invalid.", code: "phrase_promotion_invalid") unless promotion.integrity_valid?
+        return promotion if active_exact_artifact?(persona, promotion)
 
+        verify_revision!(persona, expected_draft_revision)
         apply_promotion!(persona:, promotion:, actor: authorization.actor)
         promotion
       end
@@ -80,6 +91,12 @@ module Mia
       return if Integer(expected, exception: false) == persona.draft_revision
 
       raise Error.new("The persona changed; reload it before promoting this phrase.", code: "persona_draft_conflict")
+    end
+
+    def active_exact_artifact?(persona, promotion)
+      Array(Mia::PersonaSchema.normalize(persona.draft_config)["phrases"]).any? do |phrase|
+        phrase.is_a?(Hash) && phrase["artifact_id"] == promotion.artifact_id.to_s && phrase == promotion.artifact
+      end
     end
 
     def create_promotion!(persona:, proposal:, attestation:, actor:)
