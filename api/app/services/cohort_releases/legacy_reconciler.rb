@@ -2,7 +2,7 @@
 
 module CohortReleases
   class LegacyReconciler
-    REQUEST_KEY = "legacy-backfill-v1"
+    REQUEST_KEY = CohortRelease::LEGACY_RECONCILIATION_REQUEST_KEY
 
     def initialize(scope: Cohort.all)
       @scope = scope
@@ -13,6 +13,9 @@ module CohortReleases
       scope.find_each(batch_size: batch_size) do |cohort|
         candidate = CandidateBuilder.new(cohort: cohort, strict: false).call
         existing = cohort.cohort_releases.find_by(request_key: REQUEST_KEY)
+        if existing && (existing.publication_source != "legacy_backfill" || existing.event_type != "reconciliation")
+          raise "Reserved legacy request key belongs to non-reconciliation release evidence"
+        end
         release = existing || Sealer.new(
           cohort: cohort,
           actor: nil,

@@ -17,7 +17,10 @@ module CohortReleases
     def canonicalize(value)
       case value
       when Hash
-        value.to_h.deep_stringify_keys.keys.sort.index_with { |key| canonicalize(value.to_h.deep_stringify_keys.fetch(key)) }
+        value.to_h
+          .each_with_object({}) { |(key, entry), result| result[key.to_s] = canonicalize(entry) }
+          .sort_by(&:first)
+          .to_h
       when Array
         value.map { |entry| canonicalize(entry) }
       else

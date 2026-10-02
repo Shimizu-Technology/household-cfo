@@ -46,6 +46,39 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
     assert_equal 1, cohort.cohort_releases.count
   end
 
+  test "legacy reconciliation key cannot be claimed by a user release or replay mismatched evidence" do
+    owner, cohort, = governed_release_components
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
+
+    assert_raises(ArgumentError) do
+      CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+        request_key: CohortRelease::LEGACY_RECONCILIATION_REQUEST_KEY,
+        expected_bundle_digest: candidate.bundle_digest
+      )
+    end
+    assert_empty cohort.cohort_releases
+
+    release = CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+      request_key: "ordinary-user-release",
+      expected_bundle_digest: candidate.bundle_digest
+    )
+    forged = duplicate_release(
+      release,
+      release_number: 2,
+      request_key: CohortRelease::LEGACY_RECONCILIATION_REQUEST_KEY
+    )
+    refute forged.valid?
+    assert_includes forged.errors[:request_key], "is reserved for legacy reconciliation"
+
+    forged_attributes = forged.attributes.except("id")
+    forged_attributes["created_at"] = Time.current
+    forged_attributes["updated_at"] = Time.current
+    CohortRelease.insert_all!([ forged_attributes ])
+    counts = CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    assert_equal 1, counts.fetch(:errors)
+    assert_equal 2, cohort.cohort_releases.count
+  end
+
   test "governed persona and tools can be sealed idempotently as one immutable bundle" do
     owner, cohort, assignment, persona_version, experience_version = governed_release_components
     candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
@@ -277,6 +310,50 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
     assert_equal "drifted", CohortReleases::ShadowParity.new(cohort).call.fetch(:state)
   end
 
+  test "user restore rejects legacy fallback evidence" do
+    owner = persona_user
+    cohort = Cohort.create!(
+      name: "Legacy restore #{SecureRandom.hex(4)}",
+      status: "active",
+      created_by_user: owner
+    )
+    CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
+    legacy_release = cohort.cohort_releases.sole
+
+    error = assert_raises(CohortReleases::Sealer::Incomplete) do
+      CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+        request_key: "restore-legacy-fallback",
+        expected_bundle_digest: legacy_release.bundle_digest,
+        event_type: "restore",
+        source_release: legacy_release
+      )
+    end
+    assert_includes error.blockers, "Restore a release with a governed, active coach persona."
+    assert_includes error.blockers, "Restore a release with published participant tools."
+    assert_equal 1, cohort.cohort_releases.count
+  end
+
+  test "user restore rejects a release whose persona was archived" do
+    owner, cohort, = governed_release_components
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
+    source = CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+      request_key: "pre-archive-release",
+      expected_bundle_digest: candidate.bundle_digest
+    )
+    source.coach_persona.archive!
+
+    error = assert_raises(CohortReleases::Sealer::Incomplete) do
+      CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+        request_key: "restore-archived-persona",
+        expected_bundle_digest: source.bundle_digest,
+        event_type: "restore",
+        source_release: source
+      )
+    end
+    assert_includes error.blockers, "Restore a release with a governed, active coach persona."
+    assert_equal 1, cohort.cohort_releases.count
+  end
+
   test "direct creation cannot seal an unassigned persona from the same workspace" do
     owner, cohort, = governed_release_components
     canonical = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
@@ -389,6 +466,11 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
 
   test "same-persona multi-cohort tool differences block user sealing and are counted during reconciliation" do
     owner, cohort, assignment, persona_version = governed_release_components
+    release_candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
+    source_release = CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+      request_key: "pre-ambiguity-release",
+      expected_bundle_digest: release_candidate.bundle_digest
+    )
     workspace = cohort.coach_workspace
     second_cohort = Cohort.create!(name: "Ambiguous second #{SecureRandom.hex(4)}", status: "active",
       created_by_user: owner, coach_workspace: workspace)
@@ -403,6 +485,15 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
     candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
     assert_equal 1, candidate.ambiguous_participant_count
     assert candidate.blockers.any? { |value| value.include?("conflicting active cohort configurations") }
+    restore_error = assert_raises(CohortReleases::Sealer::Incomplete) do
+      CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+        request_key: "restore-with-ambiguity",
+        expected_bundle_digest: source_release.bundle_digest,
+        event_type: "restore",
+        source_release: source_release
+      )
+    end
+    assert restore_error.blockers.any? { |value| value.include?("conflicting active cohort configurations") }
     counts = CohortReleases::LegacyReconciler.new(scope: Cohort.where(id: cohort.id)).call
     assert_equal 1, counts.fetch(:ambiguous_cohorts)
     assert_equal 1, counts.fetch(:ambiguous_participants)

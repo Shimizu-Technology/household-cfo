@@ -5,6 +5,8 @@ class CohortRelease < ApplicationRecord
   EVENT_TYPES = %w[release restore reconciliation].freeze
   PERSONA_MODES = %w[published_version neutral_builtin].freeze
   EXPERIENCE_MODES = %w[published_version safe_default].freeze
+  LEGACY_RECONCILIATION_REQUEST_KEY = "legacy-backfill-v1"
+  USER_RELEASE_COHORT_STATUSES = %w[draft enrolling active].freeze
 
   belongs_to :cohort
   belongs_to :coach_workspace
@@ -34,6 +36,7 @@ class CohortRelease < ApplicationRecord
     :bundle_digest, :manifest_digest, :request_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }
   validate :workspace_and_component_boundaries
   validate :source_and_actor_shape
+  validate :reserved_request_key_scope
   validate :user_actor_authority, on: :create
   validate :snapshot_and_manifest_integrity
   validate :canonical_release_source, on: :create
@@ -96,13 +99,15 @@ class CohortRelease < ApplicationRecord
 
   def user_actor_authority
     return unless publication_source == "user" && cohort_id && released_by_user
-    return unless defined?(CohortReleases::Authorization)
 
     locked_cohort = Cohort.lock.find(cohort_id)
     authorized_actor, authorized_role = CohortReleases::Authorization.new(
       cohort: locked_cohort,
       actor: released_by_user
     ).call!
+    unless locked_cohort.status.in?(USER_RELEASE_COHORT_STATUSES)
+      errors.add(:cohort, "must be open for a user release")
+    end
     return if authorized_actor.id == released_by_user_id && authorized_role == actor_role_snapshot
 
     errors.add(:released_by_user, "authority must match the recorded release role")
@@ -110,9 +115,14 @@ class CohortRelease < ApplicationRecord
     errors.add(:released_by_user, "must currently have release authority for this workspace")
   end
 
-  def snapshot_and_manifest_integrity
-    return unless defined?(CohortReleases::Integrity)
+  def reserved_request_key_scope
+    return unless request_key == LEGACY_RECONCILIATION_REQUEST_KEY
+    return if publication_source == "legacy_backfill" && event_type == "reconciliation"
 
+    errors.add(:request_key, "is reserved for legacy reconciliation")
+  end
+
+  def snapshot_and_manifest_integrity
     report = integrity_report
     report.fetch(:errors).each { |message| errors.add(:base, message) }
     if new_record? && !report.fetch(:runtime_compatible)
@@ -121,7 +131,7 @@ class CohortRelease < ApplicationRecord
   end
 
   def canonical_release_source
-    return unless cohort && defined?(CohortReleases::CandidateBuilder)
+    return unless cohort
 
     if event_type == "restore"
       validate_restore_source
@@ -146,6 +156,11 @@ class CohortRelease < ApplicationRecord
   def validate_restore_source
     unless source_release && source_matches?
       errors.add(:base, "restored cohort release must exactly match its immutable source")
+    end
+    return unless publication_source == "user" && source_release && cohort
+
+    CohortReleases::RestoreGovernance.new(cohort: cohort, source_release: source_release).call.each do |message|
+      errors.add(:base, message)
     end
   end
 

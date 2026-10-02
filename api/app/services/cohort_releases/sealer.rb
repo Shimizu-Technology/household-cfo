@@ -16,8 +16,6 @@ module CohortReleases
     class Stale < Error; end
     class RequestConflict < Error; end
 
-    USER_COHORT_STATUSES = %w[draft enrolling active].freeze
-
     def initialize(cohort:, actor:, publication_source: "user")
       @cohort = cohort
       @actor = actor
@@ -28,6 +26,7 @@ module CohortReleases
       expected_persona_version_id: nil, expected_experience_version_id: nil,
       event_type: "release", source_release: nil)
       key = normalize_key(request_key)
+      validate_reserved_request_key!(key, event_type)
       cohort.with_lock do
         authorize!
         require_user_preview!(expected_bundle_digest)
@@ -129,7 +128,9 @@ module CohortReleases
         persisted_actor, role = Authorization.new(cohort: cohort, actor: actor).call!
         @actor = persisted_actor
         @actor_role_snapshot = role
-        raise ReadOnly, "Completed and archived cohorts are read-only" unless cohort.status.in?(USER_COHORT_STATUSES)
+        unless cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES)
+          raise ReadOnly, "Completed and archived cohorts are read-only"
+        end
       elsif !publication_source.in?(%w[legacy_backfill system]) || actor.present?
         raise NotAuthorized, "System release evidence cannot be attributed to a user"
       end
@@ -161,6 +162,10 @@ module CohortReleases
       integrity = source_release.integrity_report
       raise Stale, "The restore source failed its immutable evidence check" unless integrity.fetch(:valid)
       raise Incomplete, [ "The restore source is not compatible with the current runtime." ] unless integrity.fetch(:runtime_compatible)
+      if publication_source == "user"
+        blockers = RestoreGovernance.new(cohort: cohort, source_release: source_release).call
+        raise Incomplete, blockers if blockers.any?
+      end
 
       CandidateBuilder::Candidate.new(
         cohort: cohort,
@@ -219,6 +224,13 @@ module CohortReleases
       raise ArgumentError, "request_key must be between 1 and 100 characters" unless key.length.between?(1, 100)
 
       key
+    end
+
+    def validate_reserved_request_key!(key, event_type)
+      return unless key == CohortRelease::LEGACY_RECONCILIATION_REQUEST_KEY
+      return if publication_source == "legacy_backfill" && event_type == "reconciliation"
+
+      raise ArgumentError, "request_key is reserved for legacy reconciliation"
     end
 
     def normalized_id(value)
