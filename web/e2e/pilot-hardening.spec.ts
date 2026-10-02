@@ -3899,6 +3899,9 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   }
   const requestedWorkspaceIds: string[] = []
   const mutationWorkspaceIds: string[] = []
+  let saveStarted = false
+  let releaseSave: (() => void) | undefined
+  const delayedSave = new Promise<void>((resolve) => { releaseSave = resolve })
 
   await page.addInitScript(() => {
     window.localStorage.setItem('household-cfo:coach-workspace-id', '1')
@@ -3911,12 +3914,14 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
       json: { personas: workspaceId === '2' ? [secondPersona] : [firstPersona] },
     })
   })
-  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/personas\/(81|82)$/, (route) => {
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/personas\/(81|82)$/, async (route) => {
     const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
     requestedWorkspaceIds.push(workspaceId)
     if (route.request().method() === 'PATCH') {
       mutationWorkspaceIds.push(workspaceId)
       const body = route.request().postDataJSON() as { persona: { description: string; draft_config: typeof personaConfiguration } }
+      saveStarted = true
+      await delayedSave
       firstPersona = {
         ...firstPersona,
         description: body.persona.description,
@@ -3977,8 +3982,18 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
   await page.getByLabel('Internal description').fill('Saved after returning to the owner workspace')
   await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect.poll(() => saveStarted).toBe(true)
+  await expect(workspacePicker).toBeDisabled()
+  await expect(workspacePicker).toHaveValue('1')
+  releaseSave?.()
   await expect(page.getByRole('status')).toContainText('Draft saved')
+  await expect(workspacePicker).toBeEnabled()
   expect(mutationWorkspaceIds).toEqual(['1'])
+
+  await workspacePicker.selectOption('2')
+  await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
+  await expect(page.getByText(secondPersona.description, { exact: true })).toBeVisible()
+  await expect(page.getByText('Draft saved. Run an exact preview before publishing.')).toHaveCount(0)
 })
 
 test('Coach Studio platform administrator deliberately switches between global and selected workspace scope', async ({ page }) => {

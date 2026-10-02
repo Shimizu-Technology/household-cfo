@@ -67,6 +67,47 @@ class CohortMembershipConcurrencyTest < ActiveSupport::TestCase
     User.where(id: [ staff&.id, owner&.id ].compact).delete_all
   end
 
+  test "opposite dual transfers lock access pairs in one order and leave accurate derived memberships" do
+    suffix = SecureRandom.hex(6)
+    first_owner = create_staff("opposite-first-owner-#{suffix}")
+    second_owner = create_staff("opposite-second-owner-#{suffix}")
+    first_staff = create_staff("opposite-first-staff-#{suffix}")
+    second_staff = create_staff("opposite-second-staff-#{suffix}")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    cohorts = [
+      Cohort.create!(name: "Opposite first old #{suffix}", status: "active", created_by_user: first_owner, coach_workspace: first_workspace),
+      Cohort.create!(name: "Opposite second target #{suffix}", status: "active", created_by_user: second_owner, coach_workspace: second_workspace),
+      Cohort.create!(name: "Opposite second old #{suffix}", status: "active", created_by_user: second_owner, coach_workspace: second_workspace),
+      Cohort.create!(name: "Opposite first target #{suffix}", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    ]
+    first_membership = CohortMembership.create!(cohort: cohorts[0], user: first_staff, role: "coach")
+    second_membership = CohortMembership.create!(cohort: cohorts[2], user: second_staff, role: "coach")
+
+    concurrently([
+      [ first_membership.id, cohorts[1].id, second_staff.id ],
+      [ second_membership.id, cohorts[3].id, first_staff.id ]
+    ]) do |membership_id, cohort_id, user_id|
+      CohortMembership.find(membership_id).update!(cohort_id: cohort_id, user_id: user_id)
+    end
+
+    assert_equal [ [ first_workspace.id, first_staff.id ], [ second_workspace.id, second_staff.id ] ],
+      CoachWorkspaceMembership.where(user: [ first_staff, second_staff ], cohort_managed: true)
+        .order(:coach_workspace_id, :user_id).pluck(:coach_workspace_id, :user_id)
+    assert_nil first_workspace.coach_workspace_memberships.find_by(user: second_staff)
+    assert_nil second_workspace.coach_workspace_memberships.find_by(user: first_staff)
+  ensure
+    CohortMembership.where(id: [ first_membership&.id, second_membership&.id ].compact).delete_all
+    CoachWorkspaceMembership.where(user_id: [ first_staff&.id, second_staff&.id ].compact).delete_all
+    CohortExperienceConfiguration.where(cohort_id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
+    Cohort.where(id: cohorts&.map(&:id)).delete_all if defined?(cohorts)
+    workspace_ids = [ first_workspace&.id, second_workspace&.id ].compact
+    CoachProfile.where(coach_workspace_id: workspace_ids).delete_all
+    CoachWorkspaceMembership.where(coach_workspace_id: workspace_ids).delete_all
+    CoachWorkspace.where(id: workspace_ids).delete_all
+    User.where(id: [ first_staff&.id, second_staff&.id, first_owner&.id, second_owner&.id ].compact).delete_all
+  end
+
   private
 
   def concurrently(values)

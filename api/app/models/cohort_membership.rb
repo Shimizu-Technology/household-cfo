@@ -34,6 +34,7 @@ class CohortMembership < ApplicationRecord
     affected_cohorts.product(affected_users)
       .map { |affected_cohort, affected_user| [ affected_cohort.coach_workspace, affected_user ] }
       .uniq { |workspace, member| [ workspace.id, member.id ] }
+      .sort_by { |workspace, member| [ workspace.id, member.id ] }
   end
 
   class << self

@@ -55,6 +55,7 @@ type EditorMode = 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
+type MutationContext = { sequence: number; workspaceId: number | null }
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
   const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
@@ -91,6 +92,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
   const loadPersonasRequestRef = useRef(0)
+  const mutationSequenceRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
   const createNameRef = useRef<HTMLInputElement | null>(null)
   const libraryHeadingRef = useRef<HTMLHeadingElement | null>(null)
@@ -238,9 +240,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   function chooseWorkspace(nextId: number | null) {
-    if (nextId === activeWorkspaceId) return
+    if (nextId === activeWorkspaceId || pendingAction) return
     if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch workspaces?')) return
 
+    mutationSequenceRef.current += 1
     selectCoachWorkspace(nextId)
     // Ignore an assistant detail response that began in the workspace we are leaving.
     loadPersonaRequestRef.current += 1
@@ -319,28 +322,43 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     window.requestAnimationFrame(() => libraryHeadingRef.current?.focus())
   }
 
+  function beginMutation(action: Exclude<PendingAction, null>): MutationContext {
+    const context = { sequence: ++mutationSequenceRef.current, workspaceId: activeWorkspaceIdRef.current }
+    setPendingAction(action)
+    return context
+  }
+
+  function mutationIsCurrent(context: MutationContext) {
+    return context.sequence === mutationSequenceRef.current && context.workspaceId === activeWorkspaceIdRef.current
+  }
+
+  function finishMutation(context: MutationContext) {
+    if (mutationIsCurrent(context)) setPendingAction(null)
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!createName.trim() || pendingAction) return
-    setPendingAction('create')
+    const mutation = beginMutation('create')
     setError(null)
     try {
       const persona = await createAdminPersona({ name: createName.trim(), description: createDescription.trim() })
+      if (!mutationIsCurrent(mutation)) return
       setCreateOpen(false)
       setCreateName('')
       setCreateDescription('')
       setNotice(`${persona.name} is ready to shape.`)
       await loadPersonas(persona.id)
     } catch (caught) {
-      setError(errorMessage(caught, 'The assistant draft could not be created.'))
+      if (mutationIsCurrent(mutation)) setError(errorMessage(caught, 'The assistant draft could not be created.'))
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
   async function saveDraft() {
     if (!selectedPersona || !draft || !selectedPersona.permissions.edit || pendingAction) return null
-    setPendingAction('save')
+    const mutation = beginMutation('save')
     setError(null)
     setConflict(null)
     try {
@@ -349,6 +367,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         description,
         draft_config: draft,
       })
+      if (!mutationIsCurrent(mutation)) return null
       setSelectedPersona(persona)
       setDraft(persona.draft ?? draft)
       setDescription(persona.description)
@@ -357,29 +376,30 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setNotice('Draft saved. Run an exact preview before publishing.')
       return persona
     } catch (caught) {
-      handleMutationError(caught, 'The draft could not be saved.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The draft could not be saved.')
       return null
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
   async function handlePreview() {
     if (!selectedPersona || !draft || dirty || pendingAction) return
-    setPendingAction('preview')
+    const mutation = beginMutation('preview')
     setError(null)
     setConflict(null)
     try {
       const response = await previewAdminPersona(selectedPersona.id, selectedPersona.draft_revision ?? 0, samplePrompt.trim() || undefined)
+      if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
       setPreview(response.preview)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(response.preview.status === 'ready' ? 'Exact draft preview is ready for review.' : 'The exact draft was checked, but a behavioral sample is unavailable right now.')
     } catch (caught) {
-      handleMutationError(caught, 'The exact draft preview could not run.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The exact draft preview could not run.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -396,7 +416,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (selectedPersona.assignments.length > 0 && !window.confirm(
       `Publish this version now? Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`,
     )) return
-    setPendingAction('publish')
+    const mutation = beginMutation('publish')
     setError(null)
     setConflict(null)
     try {
@@ -405,16 +425,19 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         preview_digest: preview.digest,
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
       })
+      if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(`${response.persona.name} version ${response.published_version.number} is published.`)
-      await refreshCohorts()
+      await refreshCohorts(mutation)
     } catch (caught) {
-      setPreview(null)
-      handleMutationError(caught, 'The assistant could not be published.')
+      if (mutationIsCurrent(mutation)) {
+        setPreview(null)
+        handleMutationError(caught, 'The assistant could not be published.')
+      }
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -425,31 +448,33 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       return
     }
     if (!window.confirm(`Archive ${selectedPersona.name}? Its published history will remain available.`)) return
-    setPendingAction('archive')
+    const mutation = beginMutation('archive')
     setError(null)
     try {
       const persona = await archiveAdminPersona(selectedPersona.id)
+      if (!mutationIsCurrent(mutation)) return
       acceptPersona(persona)
       setNotice(`${persona.name} is archived.`)
     } catch (caught) {
-      handleMutationError(caught, 'The assistant could not be archived.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The assistant could not be archived.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
   async function handleRestore() {
     if (!selectedPersona || pendingAction) return
-    setPendingAction('restore')
+    const mutation = beginMutation('restore')
     setError(null)
     try {
       const persona = await restoreAdminPersona(selectedPersona.id)
+      if (!mutationIsCurrent(mutation)) return
       acceptPersona(persona)
       setNotice(`${persona.name} is restored as an editable draft.`)
     } catch (caught) {
-      handleMutationError(caught, 'The assistant could not be restored.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The assistant could not be restored.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -463,21 +488,22 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       ? ` Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`
       : ''
     if (!window.confirm(`Publish a new version using the content from version ${versionNumber}? Current history will stay intact.${assignmentImpact}`)) return
-    setPendingAction('rollback')
+    const mutation = beginMutation('rollback')
     setError(null)
     try {
       const response = await rollbackAdminPersonaVersion(selectedPersona.id, versionId, {
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
         draft_revision: selectedPersona.draft_revision ?? 0,
       })
+      if (!mutationIsCurrent(mutation)) return
       acceptPersona(response.persona)
       setPreview(null)
       setNotice(`Version ${response.published_version.number} is now published from version ${versionNumber}.`)
-      await refreshCohorts()
+      await refreshCohorts(mutation)
     } catch (caught) {
-      handleMutationError(caught, 'The version could not be restored.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The version could not be restored.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -487,7 +513,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
-    setPendingAction('assignment')
+    const mutation = beginMutation('assignment')
     setError(null)
     try {
       await updateAdminCohortPersonaAssignment(
@@ -495,13 +521,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         selectedPersona.id,
         cohort.persona_assignment?.persona.id ?? null,
       )
-      await Promise.all([refreshCohorts(), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
+      await Promise.all([refreshCohorts(mutation), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
       setNotice(`${selectedPersona.name} is assigned to ${cohort.name}.`)
     } catch (caught) {
-      handleMutationError(caught, 'The cohort assignment could not be changed.')
-      await refreshCohorts()
+      if (mutationIsCurrent(mutation)) {
+        handleMutationError(caught, 'The cohort assignment could not be changed.')
+        await refreshCohorts(mutation)
+      }
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -513,25 +543,31 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       return
     }
     if (!window.confirm(`Remove the coaching assistant from ${cohort.name}? Participants will receive the neutral product voice until another persona is assigned.`)) return
-    setPendingAction('assignment')
+    const mutation = beginMutation('assignment')
     setError(null)
     try {
       await deleteAdminCohortPersonaAssignment(cohort.id, assignedPersonaId)
-      await Promise.all([refreshCohorts(), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
+      await Promise.all([refreshCohorts(mutation), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
       setNotice(`The coaching assistant was removed from ${cohort.name}.`)
     } catch (caught) {
-      handleMutationError(caught, 'The cohort assignment could not be removed.')
-      await refreshCohorts()
+      if (mutationIsCurrent(mutation)) {
+        handleMutationError(caught, 'The cohort assignment could not be removed.')
+        await refreshCohorts(mutation)
+      }
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
-  async function refreshCohorts() {
+  async function refreshCohorts(mutation?: MutationContext) {
     try {
-      setCohorts(await fetchAdminPersonaAssignableCohorts())
+      const nextCohorts = await fetchAdminPersonaAssignableCohorts()
+      if (mutation && !mutationIsCurrent(mutation)) return
+      setCohorts(nextCohorts)
     } catch (caught) {
-      setError(errorMessage(caught, 'Cohort assignments could not be refreshed.'))
+      if (!mutation || mutationIsCurrent(mutation)) setError(errorMessage(caught, 'Cohort assignments could not be refreshed.'))
     }
   }
 
@@ -568,7 +604,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           {workspaceOptions.length > 0 && (
             <label className="coach-workspace-picker">
               <span>Coach workspace</span>
-              <select value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
+              <select disabled={pendingAction !== null} value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
                 {currentUser.is_admin && <option value="platform">All workspaces / Platform</option>}
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
