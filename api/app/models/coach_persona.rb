@@ -27,6 +27,7 @@ class CoachPersona < ApplicationRecord
     dependent: :restrict_with_exception,
     inverse_of: :coach_persona
   has_many :release_candidates, class_name: "CoachPersonaReleaseCandidate", dependent: :restrict_with_exception
+  has_many :cohort_releases, dependent: :restrict_with_exception
   has_many :evaluation_cases, class_name: "CoachPersonaEvaluationCase", dependent: :restrict_with_exception
   has_many :draft_restore_events, class_name: "CoachPersonaDraftRestoreEvent", dependent: :restrict_with_exception
   has_many :draft_content_pack_links,

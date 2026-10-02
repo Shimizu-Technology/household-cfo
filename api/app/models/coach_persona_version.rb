@@ -22,6 +22,7 @@ class CoachPersonaVersion < ApplicationRecord
     inverse_of: :source_version
   has_many :cohort_persona_assignments, dependent: :restrict_with_exception, inverse_of: :coach_persona_version
   has_many :chat_messages, dependent: :restrict_with_exception, inverse_of: :coach_persona_version
+  has_many :cohort_releases, dependent: :restrict_with_exception
   has_many :content_pack_links,
     -> { order(:position) },
     class_name: "CoachPersonaVersionContentPack",

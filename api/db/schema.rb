@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_040000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -960,6 +960,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
     t.index ["coach_workspace_id"], name: "index_cohort_experience_configurations_on_coach_workspace_id"
     t.index ["cohort_id"], name: "index_cohort_experience_configurations_on_cohort_id", unique: true
     t.index ["current_published_version_id"], name: "idx_on_current_published_version_id_c3dd196ade"
+    t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_experience_configurations_id_cohort_workspace", unique: true
     t.index ["last_edited_by_user_id"], name: "idx_on_last_edited_by_user_id_f58c8a3820"
     t.check_constraint "draft_revision > 0", name: "cohort_experience_configurations_positive_revision"
     t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "cohort_experience_configurations_draft_object"
@@ -993,12 +994,71 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
     t.datetime "updated_at", null: false
     t.integer "version_number", null: false
     t.index ["cohort_experience_configuration_id", "version_number"], name: "index_cohort_experience_versions_on_config_and_number", unique: true
+    t.index ["id", "cohort_experience_configuration_id"], name: "idx_experience_versions_id_configuration", unique: true
     t.index ["published_by_user_id"], name: "index_cohort_experience_versions_on_published_by_user_id"
     t.index ["source_version_id"], name: "index_cohort_experience_versions_on_source_version_id"
     t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_experience_versions_digest"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "cohort_experience_versions_config_object"
     t.check_constraint "octet_length(config::text) <= 4096", name: "cohort_experience_versions_config_bytes"
     t.check_constraint "version_number > 0", name: "cohort_experience_versions_positive_number"
+  end
+
+  create_table "cohort_releases", force: :cascade do |t|
+    t.string "actor_role_snapshot"
+    t.jsonb "bundle", default: {}, null: false
+    t.string "bundle_digest", null: false
+    t.bigint "coach_persona_id"
+    t.bigint "coach_persona_version_id"
+    t.bigint "coach_workspace_id", null: false
+    t.bigint "cohort_experience_configuration_id", null: false
+    t.bigint "cohort_experience_version_id"
+    t.bigint "cohort_id", null: false
+    t.datetime "created_at", null: false
+    t.string "event_type", null: false
+    t.string "experience_mode", null: false
+    t.jsonb "experience_snapshot", default: {}, null: false
+    t.string "experience_snapshot_digest", null: false
+    t.jsonb "manifest", default: {}, null: false
+    t.string "manifest_digest", null: false
+    t.string "manifest_schema", null: false
+    t.string "persona_mode", null: false
+    t.jsonb "persona_snapshot", default: {}, null: false
+    t.string "persona_snapshot_digest", null: false
+    t.string "publication_source", null: false
+    t.integer "release_number", null: false
+    t.datetime "released_at", null: false
+    t.bigint "released_by_user_id"
+    t.string "request_fingerprint", null: false
+    t.string "request_key", null: false
+    t.bigint "source_release_id"
+    t.string "tool_registry_digest", null: false
+    t.jsonb "tool_registry_snapshot", default: {}, null: false
+    t.integer "tool_registry_version", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_id"], name: "index_cohort_releases_on_coach_persona_id"
+    t.index ["coach_persona_version_id"], name: "index_cohort_releases_on_coach_persona_version_id"
+    t.index ["coach_workspace_id"], name: "index_cohort_releases_on_coach_workspace_id"
+    t.index ["cohort_experience_configuration_id"], name: "idx_cohort_releases_experience_configuration"
+    t.index ["cohort_experience_version_id"], name: "idx_cohort_releases_experience_version"
+    t.index ["cohort_id", "release_number"], name: "idx_cohort_releases_number", unique: true
+    t.index ["cohort_id", "released_at", "id"], name: "idx_cohort_releases_history"
+    t.index ["cohort_id", "request_key"], name: "idx_cohort_releases_request_key", unique: true
+    t.index ["cohort_id"], name: "index_cohort_releases_on_cohort_id"
+    t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_cohort_releases_id_cohort_workspace", unique: true
+    t.index ["released_by_user_id"], name: "index_cohort_releases_on_released_by_user_id"
+    t.index ["source_release_id"], name: "index_cohort_releases_on_source_release_id"
+    t.check_constraint "(experience_mode::text = ANY (ARRAY['published_version'::character varying, 'safe_default'::character varying]::text[])) AND (experience_mode::text = 'published_version'::text AND cohort_experience_version_id IS NOT NULL OR experience_mode::text = 'safe_default'::text AND cohort_experience_version_id IS NULL)", name: "cohort_releases_experience_shape"
+    t.check_constraint "(persona_mode::text = ANY (ARRAY['published_version'::character varying, 'neutral_builtin'::character varying]::text[])) AND (persona_mode::text = 'published_version'::text AND coach_persona_id IS NOT NULL AND coach_persona_version_id IS NOT NULL OR persona_mode::text = 'neutral_builtin'::text AND coach_persona_id IS NULL AND coach_persona_version_id IS NULL)", name: "cohort_releases_persona_shape"
+    t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "cohort_releases_request_key_bounded"
+    t.check_constraint "event_type::text = 'restore'::text AND source_release_id IS NOT NULL OR (event_type::text = ANY (ARRAY['release'::character varying, 'reconciliation'::character varying]::text[])) AND source_release_id IS NULL", name: "cohort_releases_source_shape"
+    t.check_constraint "event_type::text = ANY (ARRAY['release'::character varying, 'restore'::character varying, 'reconciliation'::character varying]::text[])", name: "cohort_releases_event_type_valid"
+    t.check_constraint "jsonb_typeof(persona_snapshot) = 'object'::text AND jsonb_typeof(experience_snapshot) = 'object'::text AND jsonb_typeof(tool_registry_snapshot) = 'object'::text AND jsonb_typeof(bundle) = 'object'::text AND jsonb_typeof(manifest) = 'object'::text", name: "cohort_releases_json_shape"
+    t.check_constraint "manifest_schema::text = 'cohort_release_manifest_v1'::text", name: "cohort_releases_manifest_schema_valid"
+    t.check_constraint "octet_length(persona_snapshot::text) <= 65536 AND octet_length(experience_snapshot::text) <= 16384 AND octet_length(tool_registry_snapshot::text) <= 65536 AND octet_length(bundle::text) <= 196608 AND octet_length(manifest::text) <= 262144", name: "cohort_releases_json_bounded"
+    t.check_constraint "persona_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND experience_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND tool_registry_digest::text ~ '^[0-9a-f]{64}$'::text AND bundle_digest::text ~ '^[0-9a-f]{64}$'::text AND manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text", name: "cohort_releases_digest_shape"
+    t.check_constraint "publication_source::text = 'user'::text AND released_by_user_id IS NOT NULL AND (actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])) OR (publication_source::text = ANY (ARRAY['legacy_backfill'::character varying, 'system'::character varying]::text[])) AND released_by_user_id IS NULL AND actor_role_snapshot IS NULL", name: "cohort_releases_actor_shape"
+    t.check_constraint "publication_source::text = ANY (ARRAY['user'::character varying, 'legacy_backfill'::character varying, 'system'::character varying]::text[])", name: "cohort_releases_publication_source_valid"
+    t.check_constraint "release_number > 0 AND tool_registry_version > 0", name: "cohort_releases_positive_versions"
   end
 
   create_table "cohort_memberships", force: :cascade do |t|
@@ -2074,6 +2134,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
   add_foreign_key "cohort_experience_versions", "cohort_experience_configurations"
   add_foreign_key "cohort_experience_versions", "cohort_experience_versions", column: "source_version_id"
   add_foreign_key "cohort_experience_versions", "users", column: "published_by_user_id"
+  add_foreign_key "cohort_releases", "coach_persona_versions", column: ["coach_persona_version_id", "coach_persona_id"], primary_key: ["id", "coach_persona_id"], name: "fk_cohort_releases_persona_version", on_delete: :restrict
+  add_foreign_key "cohort_releases", "coach_persona_versions", on_delete: :restrict
+  add_foreign_key "cohort_releases", "coach_personas", column: ["coach_persona_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_releases_persona_workspace", on_delete: :restrict
+  add_foreign_key "cohort_releases", "coach_personas", on_delete: :restrict
+  add_foreign_key "cohort_releases", "coach_workspaces", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohort_experience_configurations", column: ["cohort_experience_configuration_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_releases_experience_configuration", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohort_experience_configurations", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohort_experience_versions", column: ["cohort_experience_version_id", "cohort_experience_configuration_id"], primary_key: ["id", "cohort_experience_configuration_id"], name: "fk_cohort_releases_experience_version", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohort_experience_versions", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohort_releases", column: "source_release_id", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohort_releases", column: ["source_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_cohort_releases_source", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_cohort_releases_cohort_workspace", on_delete: :restrict
+  add_foreign_key "cohort_releases", "cohorts", on_delete: :restrict
+  add_foreign_key "cohort_releases", "users", column: "released_by_user_id", on_delete: :restrict
   add_foreign_key "cohort_memberships", "cohorts"
   add_foreign_key "cohort_memberships", "users"
   add_foreign_key "cohort_persona_assignments", "coach_persona_versions"
@@ -2205,4 +2279,22 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
   add_foreign_key "coach_persona_versions", "coach_persona_release_candidates"
   add_foreign_key "coach_phrase_audience_attestations", "coach_persona_release_candidates"
   add_foreign_key "coach_phrase_audience_attestations", "users", column: "reviewed_by_user_id"
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION prevent_cohort_release_mutation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      RAISE EXCEPTION 'cohort releases are immutable'
+        USING ERRCODE = 'integrity_constraint_violation';
+    END;
+    $$
+  SQL
+  execute <<~SQL
+    DROP TRIGGER IF EXISTS cohort_releases_immutable ON cohort_releases;
+    CREATE TRIGGER cohort_releases_immutable
+    BEFORE UPDATE OR DELETE ON cohort_releases
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_cohort_release_mutation()
+  SQL
 end
