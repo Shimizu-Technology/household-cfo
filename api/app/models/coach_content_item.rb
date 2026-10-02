@@ -85,6 +85,13 @@ class CoachContentItem < ApplicationRecord
     CoachContentItemVersion.digest_for(title: title, kind: kind, content: draft_content, always_on: draft_always_on)
   end
 
+  def governed_phrase_provenance?
+    provenance = draft_source_provenance
+    candidate = provenance&.coach_content_source_candidate
+    source = provenance&.coach_content_source
+    provenance&.integrity_valid? && source&.scope == "coach" && candidate&.kind == "phrase"
+  end
+
   private
 
   def coach_scoped?
@@ -144,6 +151,7 @@ class CoachContentItem < ApplicationRecord
 
   def phrase_kind_is_governed
     return unless kind == "phrase"
+    return if persisted? && !will_save_change_to_kind?
 
     valid = if new_record?
       candidate = creation_source_candidate
@@ -162,12 +170,5 @@ class CoachContentItem < ApplicationRecord
 
     protected_changes = changes_to_save.keys & %w[title kind draft_content draft_always_on]
     errors.add(:base, "approved source phrase wording is read-only") if protected_changes.any?
-  end
-
-  def governed_phrase_provenance?
-    provenance = draft_source_provenance
-    candidate = provenance&.coach_content_source_candidate
-    source = provenance&.coach_content_source
-    provenance&.integrity_valid? && source&.scope == "coach" && candidate&.kind == "phrase"
   end
 end

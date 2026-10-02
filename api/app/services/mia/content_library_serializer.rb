@@ -111,11 +111,7 @@ module Mia
     end
 
     def source_reviewed_phrase?(item)
-      return false unless item.kind == "phrase"
-
-      provenance = item.draft_source_provenance
-      provenance&.integrity_valid? && provenance.coach_content_source.scope == "coach" &&
-        provenance.coach_content_source_candidate.kind == "phrase"
+      item.kind == "phrase" && item.governed_phrase_provenance?
     end
 
     def preload_pack(pack)

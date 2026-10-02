@@ -84,6 +84,21 @@ class ApiV1AdminCoachContentLibraryControllerTest < ActionDispatch::IntegrationT
     assert_equal "guidance", item.reload.kind
   end
 
+  test "legacy phrase items can still be archived" do
+    coach = persona_user
+    item = CoachContentItem.create!(
+      title: "Legacy phrase", scope: "coach", kind: "guidance",
+      draft_content: "Old manually entered phrase", created_by_user: coach
+    )
+    item.update_columns(kind: "phrase")
+
+    delete "/api/v1/admin/content_items/#{item.id}", headers: auth_headers(coach), as: :json
+
+    assert_response :success
+    assert_predicate item.reload, :archived?
+    refute item.governed_phrase_provenance?
+  end
+
   test "approval and publication reject stale tabs and mismatched canonical drafts" do
     coach = persona_user
     item = CoachContentItem.create!(title: "CAS item", scope: "coach", kind: "guidance", draft_content: "Original", created_by_user: coach)

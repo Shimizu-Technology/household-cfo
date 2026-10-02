@@ -58,6 +58,7 @@ export function CoachPhraseProposalPanel({
   const [draft, setDraft] = useState<AdminApprovedPhrase>(() => initialPhrase(candidate))
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(Boolean(versionId))
+  const [loadFailed, setLoadFailed] = useState(false)
   const [loadAttempt, setLoadAttempt] = useState(0)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -66,6 +67,7 @@ export function CoachPhraseProposalPanel({
   const errorRef = useRef<HTMLDivElement>(null)
   const noticeRef = useRef<HTMLDivElement>(null)
   const confirmRef = useRef<HTMLDivElement>(null)
+  const candidateRef = useRef(candidate)
 
   const matching = useMemo(
     () => proposals.filter((proposal) => proposal.content_item_version_id === versionId),
@@ -85,6 +87,7 @@ export function CoachPhraseProposalPanel({
   useEffect(() => { if (error) queueMicrotask(() => errorRef.current?.focus()) }, [error])
   useEffect(() => { if (notice) queueMicrotask(() => noticeRef.current?.focus()) }, [notice])
   useEffect(() => { if (confirmDecision) queueMicrotask(() => confirmRef.current?.querySelector<HTMLButtonElement>('button:last-child')?.focus()) }, [confirmDecision])
+  useEffect(() => { candidateRef.current = candidate }, [candidate])
 
   useEffect(() => {
     if (!versionId) return
@@ -100,14 +103,18 @@ export function CoachPhraseProposalPanel({
       setPermissions(result.permissions)
       setSelectedId(preferred?.id ?? null)
       setCreating(!preferred && result.permissions.propose)
-      setDraft(preferred?.phrase ?? initialPhrase(candidate))
+      setDraft(preferred?.phrase ?? initialPhrase(candidateRef.current))
+      setLoadFailed(false)
     }).catch((caught) => {
-      if (!cancelled) setError(messageFor(caught, 'Phrase review could not load.'))
+      if (!cancelled) {
+        setLoadFailed(true)
+        setError(messageFor(caught, 'Phrase review could not load.'))
+      }
     }).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [candidate, loadAttempt, sourceId, versionId])
+  }, [candidate.id, loadAttempt, sourceId, versionId])
 
   if (candidate.status !== 'accepted') return null
 
@@ -247,6 +254,7 @@ export function CoachPhraseProposalPanel({
 
   function retryInitialLoad() {
     setLoading(true)
+    setLoadFailed(false)
     setError(null)
     setLoadAttempt((current) => current + 1)
   }
@@ -280,7 +288,7 @@ export function CoachPhraseProposalPanel({
       </div>
       <p className="coach-phrase-boundary">This proposal carries only the approved phrase and its safety settings. Private source evidence stays out of assistant setup and participant chat.</p>
 
-      {error && <div className="coach-phrase-message is-error" role="alert" tabIndex={-1} ref={errorRef}><span>{error}</span>{selectedId ? <button type="button" onClick={() => void reloadProposal()}>Reload latest review</button> : <button type="button" onClick={retryInitialLoad}>Retry phrase review</button>}</div>}
+      {error && <div className="coach-phrase-message is-error" role="alert" tabIndex={-1} ref={errorRef}><span>{error}</span>{selectedId ? <button type="button" onClick={() => void reloadProposal()}>Reload latest review</button> : loadFailed ? <button type="button" onClick={retryInitialLoad}>Retry phrase review</button> : null}</div>}
       {notice && <div className="coach-phrase-message is-success" role="status" tabIndex={-1} ref={noticeRef}>{notice}</div>}
       {loading && <p role="status">Loading phrase review…</p>}
 
@@ -306,7 +314,7 @@ export function CoachPhraseProposalPanel({
       {confirmDecision && <div className="coach-phrase-confirm" role="alert" tabIndex={-1} ref={confirmRef}><p>{confirmDecision === 'approved' ? 'Approve this exact wording, meaning, frequency, and context policy?' : 'Reject this proposal and keep it unavailable to assistants?'}</p><Button size="compact" variant="ghost" disabled={blocked} onClick={() => setConfirmDecision(null)}>Cancel</Button><Button size="compact" variant={confirmDecision === 'rejected' ? 'danger' : 'primary'} disabled={blocked} onClick={() => void attest(confirmDecision)}>{confirmDecision === 'approved' ? 'Yes, approve' : 'Yes, reject'}</Button></div>}
 
       {selected?.permissions.promote && selected.attestation?.decision === 'approved' && <div className="coach-phrase-promote">
-        <div><strong>Add the reviewed phrase to an assistant</strong><p>{promotionTargetCopy(selectedPersona)}</p></div>
+        <div><strong>Add the reviewed phrase to an assistant</strong><p>{promotionTargetCopy(selectedPersona)}</p>{selected.attestation.self_review && <p>This was an explicit sole-owner self-review. Add a workspace reviewer when independent approval is required.</p>}</div>
         <Button disabled={blocked || !canPromoteToPersona(selectedPersona)} onClick={() => void promote()}>{selected.promotion_count > 0 ? 'Add to selected assistant' : 'Promote to selected assistant'}</Button>
       </div>}
 
@@ -358,6 +366,7 @@ function samePhrase(left: AdminApprovedPhrase, right: AdminApprovedPhrase) {
 }
 
 function stageLabel(proposal: AdminPhraseProposal) {
+  if (proposal.attestation?.decision === 'approved' && proposal.attestation.self_review) return 'Owner self-review approved'
   if (proposal.attestation?.decision === 'approved') return 'Reviewed and approved'
   if (proposal.attestation?.decision === 'rejected') return 'Reviewed and rejected'
   if (proposal.status === 'submitted') return 'Waiting for reviewer'

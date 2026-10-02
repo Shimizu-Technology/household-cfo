@@ -167,6 +167,21 @@ describe('CoachPhraseProposalPanel', () => {
     expect(screen.queryByText(/could not be added/i)).toBeNull()
   })
 
+  it('labels the sole-owner self-review exception before promotion', async () => {
+    const approved = proposal({
+      attestation: { decision: 'approved', self_review: true, reviewed_at: '2026-10-02T01:00:00Z', reviewed_by: { id: 2, full_name: 'Workspace Owner' } },
+      permissions: { edit: false, submit: false, review: false, promote: true },
+    })
+    apiMocks.fetchAdminContentSourcePhraseProposals.mockResolvedValue({
+      phrase_proposals: [approved],
+      permissions: { view: true, propose: false, review: true, promote: true },
+    })
+    renderPanel({ selectedPersona: { id: 5, name: 'Coach Lani', status: 'draft', permissions: { publish: true }, draft_revision: 9 } as AdminPersonaDetail })
+
+    expect(await screen.findByText('Owner self-review approved')).toBeTruthy()
+    expect(screen.getByText(/explicit sole-owner self-review/i)).toBeTruthy()
+  })
+
   it('retries an uncertain create without changing exact text', async () => {
     const exactText = 'Keep  both spaces\nand this line'
     const exactCandidate = { ...candidate, accepted_content_item_version_content: exactText }
@@ -178,11 +193,37 @@ describe('CoachPhraseProposalPanel', () => {
     await userEvent.type(await screen.findByLabelText('Meaning and intent'), 'Choose one practical action.')
     await userEvent.click(screen.getByRole('button', { name: 'Save private draft' }))
     expect((await screen.findByRole('alert')).textContent).toContain('Connection ended before the response.')
+    expect(screen.queryByRole('button', { name: 'Retry phrase review' })).toBeNull()
+    expect((screen.getByLabelText('Meaning and intent') as HTMLTextAreaElement).value).toBe('Choose one practical action.')
     await userEvent.click(screen.getByRole('button', { name: 'Save private draft' }))
 
     await waitFor(() => expect(apiMocks.createAdminPhraseProposal).toHaveBeenCalledTimes(2))
     expect(apiMocks.createAdminPhraseProposal.mock.calls[1][1].phrase.text).toBe(exactText)
     expect(await screen.findByText(/saved as a private draft/i)).toBeTruthy()
+  })
+
+  it('preserves unsaved phrase edits when the source candidate object refreshes', async () => {
+    apiMocks.fetchAdminContentSourcePhraseProposals.mockResolvedValue({
+      phrase_proposals: [],
+      permissions: { view: true, propose: true, review: false, promote: false },
+    })
+    const view = renderPanel()
+
+    const meaning = await screen.findByLabelText('Meaning and intent') as HTMLTextAreaElement
+    await userEvent.type(meaning, 'Keep this unsaved meaning.')
+    view.rerender(<CoachPhraseProposalPanel
+      sourceId={7}
+      candidate={{ ...candidate, updated_at: '2026-10-02T01:00:00Z' }}
+      selectedPersona={null}
+      mutationLifecycle={lifecycle}
+      disabled={false}
+      onDirtyChange={() => undefined}
+      onBusyChange={() => undefined}
+      onPersonaChange={() => undefined}
+    />)
+
+    expect((screen.getByLabelText('Meaning and intent') as HTMLTextAreaElement).value).toBe('Keep this unsaved meaning.')
+    expect(apiMocks.fetchAdminContentSourcePhraseProposals).toHaveBeenCalledTimes(1)
   })
 
   it('can retry the initial phrase review load', async () => {
