@@ -107,7 +107,8 @@ class CoachContentSourceCandidate < ApplicationRecord
             draft_content: content,
             draft_always_on: false,
             created_by_user: source.created_by_user,
-            coach_workspace: source.coach_workspace
+            coach_workspace: source.coach_workspace,
+            creation_authorized_by_user: actor
           )
           accepted_at = Time.current
           update!(

@@ -127,11 +127,7 @@ module Mia
     end
 
     def reviewable_item_ids
-      @reviewable_item_ids ||= if policy.separate_reviewer_permissions?
-        policy.reviewable_items.pluck(:id).to_set
-      else
-        editable_item_ids
-      end
+      @reviewable_item_ids ||= policy.reviewable_items.pluck(:id).to_set
     end
 
     def editable_pack_ids
@@ -139,11 +135,7 @@ module Mia
     end
 
     def publishable_pack_ids
-      @publishable_pack_ids ||= if policy.separate_publisher_permissions?
-        policy.publishable_packs.pluck(:id).to_set
-      else
-        editable_pack_ids
-      end
+      @publishable_pack_ids ||= policy.publishable_packs.pluck(:id).to_set
     end
 
     def associated_records(record, association_name)

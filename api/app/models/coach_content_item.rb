@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 class CoachContentItem < ApplicationRecord
+  attr_accessor :creation_authorized_by_user
   class ApprovalConflict < StandardError; end
 
   SCOPES = %w[coach platform].freeze
@@ -90,9 +91,15 @@ class CoachContentItem < ApplicationRecord
   end
 
   def creator_can_manage_scope
-    errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
-    errors.add(:scope, "platform content can be created only by an administrator") if scope == "platform" && !created_by_user&.admin?
-    if scope == "coach" && !coach_workspace&.allows?(created_by_user, :edit)
+    authorization_actor = creation_authorized_by_user || created_by_user
+    if creation_authorized_by_user.present?
+      errors.add(:base, "authorizing reviewer must be a coach or admin") unless authorization_actor&.staff?
+    else
+      errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
+    end
+    errors.add(:scope, "platform content can be created only by an administrator") if scope == "platform" && !authorization_actor&.admin?
+    permission = creation_authorized_by_user.present? ? :review : :edit
+    if scope == "coach" && !coach_workspace&.allows?(authorization_actor, permission)
       errors.add(:created_by_user, "cannot create content in this coach workspace")
     end
   end

@@ -1377,7 +1377,7 @@ export type CohortExperiencePreview = {
   modules: ExperienceCapability[]
 }
 
-export type AdminInviteEmailStatus = 'not_sent' | 'skipped' | 'sent' | 'failed'
+export type AdminInviteEmailStatus = 'hidden' | 'not_sent' | 'skipped' | 'sent' | 'failed'
 
 export type AdminUser = CurrentUser & {
   invited_by: null | {

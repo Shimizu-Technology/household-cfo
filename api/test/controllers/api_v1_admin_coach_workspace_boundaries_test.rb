@@ -251,6 +251,21 @@ class ApiV1AdminCoachWorkspaceBoundariesTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "malformed workspace headers fail closed without provisioning a default" do
+    admin = persona_user(role: "admin")
+    authorization = "Bearer test_token:#{admin.clerk_id}:#{admin.email}:#{admin.first_name}:#{admin.last_name}"
+
+    [ "abc", "0", "-1", "010", "0x10" ].each do |requested_id|
+      assert_no_difference -> { CoachWorkspace.count }, "header #{requested_id.inspect} provisioned a workspace" do
+        get "/api/v1/admin/personas", headers: {
+          "Authorization" => authorization,
+          "X-Coach-Workspace-Id" => requested_id
+        }
+      end
+      assert_response :not_found
+    end
+  end
+
   test "platform mode never silently chooses a workspace for workspace-owned creates" do
     admin = persona_user(role: "admin")
     headers = { "Authorization" => "Bearer test_token:#{admin.clerk_id}:#{admin.email}:#{admin.first_name}:#{admin.last_name}" }

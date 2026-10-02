@@ -47,6 +47,7 @@ module Api
           attributes = user_update_params
           role = attributes[:role].presence || user.role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
+          return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
           if workspace_scoped_mode? && user_shared_outside_active_workspace?(user) && global_user_change_requested?(user, attributes, role: role)
             return render_forbidden("Switch to All workspaces / Platform to change this shared user's identity or account access")
           end
@@ -54,8 +55,6 @@ module Api
           if attributes[:invitation_status].present? && !User::INVITATION_STATUSES.include?(attributes[:invitation_status])
             return render json: { errors: [ "Invitation status is not valid" ] }, status: :unprocessable_entity
           end
-          return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
-
           requested_invitation_status = normalized_invitation_status(user, attributes[:invitation_status])
           membership_params_present = cohort_membership_params_present?(attributes)
           cohort_ids = if membership_params_present
@@ -73,9 +72,14 @@ module Api
           return render_forbidden("Cohort assignment not permitted") if membership_params_present && !cohort_assignment_permitted?(cohort_ids)
 
           admin_guard_error = nil
+          workspace_guard_error = nil
           apply_update = lambda do |compatibility_cohort_ids, locked_admin_ids|
             role = attributes[:role].presence || user.role
             normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
+            if workspace_scoped_mode? && user_shared_outside_active_workspace?(user) && global_user_change_requested?(user, attributes, role: role)
+              workspace_guard_error = "Switch to All workspaces / Platform to change this shared user's identity or account access"
+              raise ActiveRecord::Rollback
+            end
             if active_admin_access_removal?(user, role:, invitation_status: normalized_status)
               locked_admin_ids ||= locked_active_admin_ids
               admin_guard_error = admin_change_error(user, locked_admin_ids: locked_admin_ids)
@@ -129,6 +133,7 @@ module Api
             render_admin_guard_error(admin_guard_error)
             return
           end
+          return render_forbidden(workspace_guard_error) if workspace_guard_error
 
           render json: { user: serialize_user(user.reload) }
         rescue ActiveRecord::RecordInvalid => e
@@ -139,14 +144,30 @@ module Api
 
         def resend_invitation
           user = manageable_users_scope.find(params[:id])
-          if workspace_scoped_mode? && user_shared_outside_active_workspace?(user)
-            return render_forbidden("Switch to All workspaces / Platform to resend an invitation for this shared user")
-          end
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, user.role)
-          return render json: { errors: [ "Accepted users do not need another invitation" ] }, status: :unprocessable_entity if user.invitation_accepted?
-          return render json: { errors: [ "Reactivate this user before resending an invitation" ] }, status: :unprocessable_entity if user.revoked?
 
-          result = send_invitation_email(user)
+          guard_error = nil
+          result = nil
+          User.transaction do
+            user.lock!
+            guard_error = if workspace_scoped_mode? && user_shared_outside_active_workspace?(user)
+              "Switch to All workspaces / Platform to resend an invitation for this shared user"
+            elsif user.invitation_accepted?
+              "Accepted users do not need another invitation"
+            elsif user.revoked?
+              "Reactivate this user before resending an invitation"
+            end
+            if guard_error
+              raise ActiveRecord::Rollback
+            else
+              result = send_invitation_email(user)
+            end
+          end
+          if guard_error
+            return render_forbidden(guard_error) if guard_error.start_with?("Switch")
+
+            return render json: { errors: [ guard_error ] }, status: :unprocessable_entity
+          end
           render json: invite_response_payload(user.reload, result)
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
@@ -207,11 +228,17 @@ module Api
 
           was_revoked = user.revoked?
           target_status = linked_to_clerk?(user) ? "accepted" : "pending"
+          workspace_guard_error = nil
           with_stable_invitation_membership_locks(
             user,
             requested_cohort_ids: cohort_ids,
             replace_memberships: was_revoked
           ) do |target_cohort_ids|
+            if workspace_scoped_mode? && user_shared_outside_active_workspace?(user) &&
+                (user.revoked? || global_user_change_requested?(user, attributes, role: role))
+              workspace_guard_error = "Switch to All workspaces / Platform to reactivate or change this shared user"
+              raise ActiveRecord::Rollback
+            end
             user.assign_attributes(
               role: role,
               invitation_status: target_status,
@@ -224,6 +251,7 @@ module Api
             user.save!
             sync_cohort_memberships(user, target_cohort_ids, role: cohort_role_for(role))
           end
+          return render_forbidden(workspace_guard_error) if workspace_guard_error
 
           invitation_result = send_invitation_email(user, requested: invitation_email_requested?(attributes))
           render json: invite_response_payload(user.reload, invitation_result, created: false, reactivated: was_revoked), status: :ok
@@ -701,7 +729,7 @@ module Api
         def serialize_invite_email(user)
           if workspace_scoped_mode?
             return {
-              status: "not_sent",
+              status: "hidden",
               provider_message_id: nil,
               error: nil,
               last_attempted_at: nil,

@@ -38,7 +38,10 @@ class CoachWorkspace < ApplicationRecord
   def membership_for(user)
     return nil unless user
 
-    coach_workspace_memberships.find_by(user_id: user.id)
+    association = association(:coach_workspace_memberships)
+    return association.target.find { |membership| membership.user_id == user.id } if association.loaded?
+
+    association.scope.find_by(user_id: user.id)
   end
 
   def allows?(user, permission)
@@ -48,8 +51,7 @@ class CoachWorkspace < ApplicationRecord
     PERMISSIONS.fetch(role, []).include?(permission.to_sym)
   end
 
-  def as_api_json(user:)
-    membership = membership_for(user)
+  def as_api_json(user:, membership: membership_for(user))
     {
       id: id,
       name: name,

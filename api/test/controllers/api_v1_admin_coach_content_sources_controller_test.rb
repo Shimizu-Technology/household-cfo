@@ -259,11 +259,14 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     delete "/api/v1/admin/content_sources/#{accepted_source.id}/source", headers: headers
     assert_response :not_found
 
+    owner.update_columns(role: "participant")
+
     post "/api/v1/admin/content_sources/#{accepted_source.id}/candidates/#{accepted_candidate.id}/accept", params: {
       candidate: { revision: accepted_candidate.revision, digest: accepted_candidate.content_digest }
     }, headers: headers, as: :json
     assert_response :success
     assert_equal "accepted", accepted_candidate.reload.status
+    assert_equal owner, accepted_candidate.accepted_content_item.created_by_user
 
     post "/api/v1/admin/content_sources/#{rejected_source.id}/candidates/#{rejected_candidate.id}/reject", params: {
       candidate: { revision: rejected_candidate.revision, digest: rejected_candidate.content_digest }

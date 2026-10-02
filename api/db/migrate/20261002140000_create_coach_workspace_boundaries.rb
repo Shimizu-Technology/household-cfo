@@ -5,6 +5,8 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
   SCOPED_CONTENT_TABLES = %i[coach_content_sources coach_content_items coach_content_packs].freeze
 
   def up
+    ensure_legacy_creators_are_staff!
+
     create_table :coach_workspaces do |t|
       t.string :name, null: false
       t.string :slug, null: false
@@ -70,13 +72,28 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
 
   private
 
-  def backfill_workspaces!
-    staff_rows = select_all(<<~SQL)
-      SELECT id, email, first_name, last_name
+  def ensure_legacy_creators_are_staff!
+    creator_ids = select_values(<<~SQL).map(&:to_i)
+      SELECT DISTINCT users.id
       FROM users
-      WHERE role IN ('admin', 'coach')
-      ORDER BY id
+      WHERE users.role NOT IN ('admin', 'coach')
+        AND users.id IN (
+          SELECT created_by_user_id FROM cohorts
+          UNION SELECT created_by_user_id FROM coach_personas
+          UNION SELECT created_by_user_id FROM coach_content_sources WHERE scope = 'coach'
+          UNION SELECT created_by_user_id FROM coach_content_items WHERE scope = 'coach'
+          UNION SELECT created_by_user_id FROM coach_content_packs WHERE scope = 'coach'
+        )
+      ORDER BY users.id
     SQL
+    return if creator_ids.empty?
+
+    raise ActiveRecord::MigrationError,
+      "Coach workspace migration requires staff owners. Reassign legacy coach records or restore coach/admin roles for user IDs: #{creator_ids.join(', ')}"
+  end
+
+  def backfill_workspaces!
+    staff_rows = legacy_workspace_owner_rows
 
     staff_rows.each do |user|
       user_id = user.fetch("id").to_i
@@ -169,6 +186,20 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
     SQL
   end
 
+  def legacy_workspace_owner_rows
+    select_all(<<~SQL)
+      SELECT id, email, first_name, last_name
+      FROM users
+      WHERE role IN ('admin', 'coach')
+        OR id IN (SELECT created_by_user_id FROM cohorts)
+        OR id IN (SELECT created_by_user_id FROM coach_personas)
+        OR id IN (SELECT created_by_user_id FROM coach_content_sources WHERE scope = 'coach')
+        OR id IN (SELECT created_by_user_id FROM coach_content_items WHERE scope = 'coach')
+        OR id IN (SELECT created_by_user_id FROM coach_content_packs WHERE scope = 'coach')
+      ORDER BY id
+    SQL
+  end
+
   def replace_owner_uniqueness_indexes!
     remove_index :cohorts, name: "index_cohorts_on_lower_name"
     add_index :cohorts, "coach_workspace_id, lower((name)::text)", unique: true,
@@ -225,15 +256,5 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
       FOREIGN KEY (coach_persona_version_id, coach_persona_id)
       REFERENCES coach_persona_versions (id, coach_persona_id)
     SQL
-  end
-
-  def remove_cross_workspace_constraints!
-    execute "ALTER TABLE cohort_persona_assignments DROP CONSTRAINT IF EXISTS fk_persona_assignment_version_persona"
-    execute "ALTER TABLE cohort_persona_assignments DROP CONSTRAINT IF EXISTS fk_persona_assignment_persona_workspace"
-    execute "ALTER TABLE cohort_persona_assignments DROP CONSTRAINT IF EXISTS fk_persona_assignment_cohort_workspace"
-    execute "ALTER TABLE cohort_experience_configurations DROP CONSTRAINT IF EXISTS fk_experience_configuration_workspace"
-    remove_index :coach_persona_versions, name: "idx_persona_versions_id_persona"
-    remove_index :coach_personas, name: "idx_personas_id_workspace"
-    remove_index :cohorts, name: "idx_cohorts_id_workspace"
   end
 end

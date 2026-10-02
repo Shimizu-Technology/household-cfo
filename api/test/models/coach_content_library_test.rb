@@ -6,6 +6,21 @@ require_relative "../support/persona_test_helper"
 class CoachContentLibraryTest < ActiveSupport::TestCase
   include PersonaTestHelper
 
+  test "editor serialization never advertises reviewer or publisher actions" do
+    owner = persona_user
+    editor = persona_user
+    item = approved_content_item(owner: owner, title: "Separated role item")
+    pack = published_content_pack(owner: owner, items: [ item ], name: "Separated role pack")
+    workspace = item.coach_workspace
+    workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    serializer = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(editor, workspace: workspace))
+
+    assert_equal true, serializer.item(item.reload).fetch(:editable)
+    assert_equal false, serializer.item(item.reload).fetch(:approvable)
+    assert_equal true, serializer.pack(pack.reload).fetch(:editable)
+    assert_equal false, serializer.pack(pack.reload).fetch(:publishable)
+  end
+
   test "approved items and published packs are immutable and do not silently upgrade" do
     coach = persona_user
     item = approved_content_item(owner: coach, content: "Use the original coach wording.")
@@ -264,8 +279,8 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     pack_serializer = Mia::ContentLibrarySerializer.new(policy: policy)
     pack_queries = count_content_queries.call { @serialized_packs = loaded_packs.map { |pack| pack_serializer.pack(pack) } }
 
-    assert_equal 1, item_queries
-    assert_equal 1, pack_queries
+    assert_equal 2, item_queries
+    assert_equal 2, pack_queries
     assert_equal items.map(&:id).sort, @serialized_items.pluck(:id).sort
     assert_equal packs.map(&:id).sort, @serialized_packs.pluck(:id).sort
     assert @serialized_packs.all? { |pack| pack.fetch(:draft_manifest_digest).present? }

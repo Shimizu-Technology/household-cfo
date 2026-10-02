@@ -69,20 +69,20 @@ function source(permissions: AdminContentSource['permissions']): AdminContentSou
   }
 }
 
-function renderSources() {
+function renderSources(user: CurrentUser = currentUser) {
   return render(
     <AuthContext.Provider value={{
       isClerkEnabled: false,
       isSignedIn: true,
       isLoading: false,
       isVerifyingApi: false,
-      currentUser,
+      currentUser: user,
       activeCoachWorkspaceId: 1,
       authError: null,
       refreshCurrentUser: async () => undefined,
       selectCoachWorkspace: () => undefined,
     }}>
-      <CoachContentSources currentUser={currentUser} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} />
+      <CoachContentSources currentUser={user} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} />
     </AuthContext.Provider>,
   )
 }
@@ -128,5 +128,17 @@ describe('CoachContentSources role controls', () => {
     expect(screen.getByRole('button', { name: 'Create content draft' })).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Reject' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Delete source' })).toBeNull()
+  })
+
+  it('realigns upload ownership to the first permitted scope after permissions load', async () => {
+    apiMocks.fetchAdminContentSources.mockResolvedValue({
+      sources: [],
+      permissions: { upload_coach: false, upload_platform: true, retry_cleanup: false },
+    })
+    renderSources({ id: 1, is_admin: true, is_coach: false } as CurrentUser)
+
+    const owner = await screen.findByLabelText('Owner') as HTMLSelectElement
+    await waitFor(() => expect(owner.value).toBe('platform'))
+    expect(owner.querySelector('option[value="coach"]')).toBeNull()
   })
 })

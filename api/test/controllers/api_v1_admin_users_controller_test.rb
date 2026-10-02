@@ -787,6 +787,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ first_cohort.id ], row.fetch("cohorts").map { |membership| membership.dig("cohort", "id") }
     assert_nil row.fetch("invited_by")
     assert_equal true, row.dig("invite_email", "workspace_scoped")
+    assert_equal "hidden", row.dig("invite_email", "status")
     assert_empty row.dig("invite_email", "delivery_log")
     assert_nil row.dig("invite_email", "provider_message_id")
     assert_nil row.dig("invite_email", "error")

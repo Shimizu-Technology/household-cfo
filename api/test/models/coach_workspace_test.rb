@@ -71,6 +71,41 @@ class CoachWorkspaceTest < ActiveSupport::TestCase
     assert_nil second_workspace.membership_for(staff)
   end
 
+  test "changing both cohort and user reconciles every old and new access pair" do
+    first_owner = create_staff("coach")
+    second_owner = create_staff("coach")
+    previous_staff = create_staff("coach")
+    next_staff = create_staff("coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Dual transfer old", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Dual transfer new", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    membership = CohortMembership.create!(cohort: first_cohort, user: previous_staff, role: "coach")
+
+    assert first_workspace.membership_for(previous_staff)
+    membership.update!(cohort: second_cohort, user: next_staff)
+
+    assert_nil first_workspace.reload.membership_for(previous_staff)
+    assert_nil first_workspace.membership_for(next_staff)
+    assert_nil second_workspace.reload.membership_for(previous_staff)
+    assert_equal "editor", second_workspace.membership_for(next_staff).role
+  end
+
+  test "membership lookup uses a loaded association without querying again" do
+    owner = create_staff("coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    workspace.coach_workspace_memberships.load
+    sql_queries = []
+
+    subscriber = ActiveSupport::Notifications.subscribe("sql.active_record") do |_name, _started, _finished, _id, payload|
+      sql_queries << payload[:sql] unless payload[:name] == "SCHEMA" || payload[:cached]
+    end
+    assert_equal owner.id, workspace.membership_for(owner).user_id
+    assert_empty sql_queries
+  ensure
+    ActiveSupport::Notifications.unsubscribe(subscriber) if subscriber
+  end
+
   test "explicit workspace access is not removed with the last cohort role" do
     owner = create_staff("coach")
     staff = create_staff("coach")

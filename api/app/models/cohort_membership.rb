@@ -21,16 +21,19 @@ class CohortMembership < ApplicationRecord
   end
 
   def affected_access_pairs
-    pairs = [ [ cohort.coach_workspace, user ] ]
+    affected_cohorts = [ cohort ]
+    affected_users = [ user ]
     if saved_change_to_cohort_id?
       previous_cohort = Cohort.find_by(id: cohort_id_before_last_save)
-      pairs << [ previous_cohort.coach_workspace, user ] if previous_cohort
+      affected_cohorts << previous_cohort if previous_cohort
     end
     if saved_change_to_user_id?
       previous_user = User.find_by(id: user_id_before_last_save)
-      pairs << [ cohort.coach_workspace, previous_user ] if previous_user
+      affected_users << previous_user if previous_user
     end
-    pairs.uniq { |workspace, member| [ workspace.id, member.id ] }
+    affected_cohorts.product(affected_users)
+      .map { |affected_cohort, affected_user| [ affected_cohort.coach_workspace, affected_user ] }
+      .uniq { |workspace, member| [ workspace.id, member.id ] }
   end
 
   class << self

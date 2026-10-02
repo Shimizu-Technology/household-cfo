@@ -90,6 +90,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
   activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
+  const loadPersonasRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
   const createNameRef = useRef<HTMLInputElement | null>(null)
   const libraryHeadingRef = useRef<HTMLHeadingElement | null>(null)
@@ -115,12 +116,13 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   const loadPersona = useCallback(async (personaId: number) => {
     const requestId = loadPersonaRequestRef.current + 1
+    const requestedWorkspaceId = activeWorkspaceIdRef.current
     loadPersonaRequestRef.current = requestId
     setDetailLoading(true)
     setError(null)
     try {
       const persona = await fetchAdminPersona(personaId)
-      if (requestId !== loadPersonaRequestRef.current) return
+      if (requestId !== loadPersonaRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       selectedIdRef.current = persona.id
       setSelectedPersona(persona)
       setDraft(persona.draft ?? null)
@@ -139,16 +141,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         })
       }
     } catch (caught) {
-      if (requestId !== loadPersonaRequestRef.current) return
+      if (requestId !== loadPersonaRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setError(errorMessage(caught, 'This assistant could not be loaded.'))
     } finally {
-      if (requestId === loadPersonaRequestRef.current) setDetailLoading(false)
+      if (requestId === loadPersonaRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setDetailLoading(false)
     }
   }, [])
 
   const loadPersonas = useCallback(async (preferredId?: number | null) => {
     // Workspace selection changes the request header and invalidates every result in this view.
     const requestedWorkspaceId = activeWorkspaceId
+    const requestId = ++loadPersonasRequestRef.current
     setLoading(true)
     setError(null)
     try {
@@ -156,7 +159,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         fetchAdminPersonas(),
         fetchAdminPersonaAssignableCohorts(),
       ])
-      if (requestedWorkspaceId !== activeWorkspaceIdRef.current) return
+      if (requestId !== loadPersonasRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setPersonas(nextPersonas)
       setCohorts(nextCohorts)
       const candidateId = preferredId
@@ -172,9 +175,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         setDraft(null)
       }
     } catch (caught) {
-      setError(errorMessage(caught, 'Coach Studio could not load.'))
+      if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
+        setError(errorMessage(caught, 'Coach Studio could not load.'))
+      }
     } finally {
-      setLoading(false)
+      if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setLoading(false)
     }
   }, [activeWorkspaceId, loadPersona])
 
@@ -239,6 +244,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     selectCoachWorkspace(nextId)
     // Ignore an assistant detail response that began in the workspace we are leaving.
     loadPersonaRequestRef.current += 1
+    loadPersonasRequestRef.current += 1
     selectedIdRef.current = null
     setPersonas([])
     setCohorts([])
@@ -570,7 +576,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               </select>
               <small>{activeWorkspaceId === null
                 ? 'Platform administrator · all workspaces'
-                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role?.replace('_', ' ')}`}</small>
+                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${formatWorkspaceRole(workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role)}`}</small>
             </label>
           )}
         </div>
@@ -795,6 +801,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>}
     </section>
   )
+}
+
+function formatWorkspaceRole(role: string | null | undefined) {
+  return (role ?? 'viewer').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function PersonaEditor({

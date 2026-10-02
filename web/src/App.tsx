@@ -5616,6 +5616,20 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
 
   const activeScopedUserCount = useMemo(() => scopedUsers.filter((user) => user.invitation_status !== 'revoked').length, [scopedUsers])
 
+  const adminDraftsDirty = useMemo(() => {
+    const emptyCreateDraft = { name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' } satisfies AdminCohortInput
+    if (JSON.stringify(cleanCohortDraft(createDraft)) !== JSON.stringify(emptyCreateDraft)) return true
+    if (selectedCohort && editDraft && JSON.stringify(cleanCohortDraft(editDraft)) !== JSON.stringify(cleanCohortDraft(cohortDraftFor(selectedCohort)!))) return true
+
+    const expectedInviteCohortId = selectedCohortId ? String(selectedCohortId) : ''
+    if (inviteDraft.email?.trim() || (inviteDraft.role ?? 'participant') !== 'participant' ||
+        String(inviteDraft.cohort_id ?? '') !== expectedInviteCohortId || inviteDraft.send_invitation_email === false) return true
+
+    return users.some((user) => !adminUserDraftsEqual(userDrafts[user.id], adminDraftForUser(user)))
+  }, [createDraft, editDraft, inviteDraft, selectedCohort, selectedCohortId, userDrafts, users])
+
+  const adminMutationPending = loading || cohortSaving || inviteSaving || savingUserIds.size > 0 || resendingUserIds.size > 0
+
   const adminStats = useMemo(() => ({
     cohorts: cohorts.length,
     users: users.length,
@@ -5687,6 +5701,21 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
     setEditDraft(cohortId ? cohortDraftFor(cohorts.find((cohort) => cohort.id === cohortId) ?? null) : null)
     setNotice(null)
     setInviteDraft((current) => ({ ...current, cohort_id: cohortId ? String(cohortId) : '' }))
+  }
+
+  function chooseAdminWorkspace(nextWorkspaceId: number | null) {
+    if (nextWorkspaceId === activeCoachWorkspaceId || adminMutationPending) return
+    if (adminDraftsDirty && !window.confirm('Discard unsaved cohort, invite, and user changes and switch workspaces?')) return
+
+    setCreateDraft({ name: '', status: 'enrolling', starts_on: '', ends_on: '', notes: '' })
+    setEditDraft(null)
+    setInviteDraft({ email: '', role: 'participant', cohort_id: '', send_invitation_email: true })
+    setUserDrafts({})
+    setSelectedCohortId(null)
+    selectedCohortIdRef.current = null
+    setError(null)
+    setNotice(null)
+    selectCoachWorkspace(nextWorkspaceId)
   }
 
   async function handleCreateCohort(event: FormEvent<HTMLFormElement>) {
@@ -5907,7 +5936,11 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
       {currentUser.is_admin && coachWorkspaces.length > 0 && (
         <label className="coach-workspace-picker">
           <span>Admin workspace</span>
-          <select value={activeCoachWorkspaceId ?? 'platform'} onChange={(event) => selectCoachWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
+          <select
+            value={activeCoachWorkspaceId ?? 'platform'}
+            disabled={adminMutationPending}
+            onChange={(event) => chooseAdminWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}
+          >
             <option value="platform">All workspaces / Platform</option>
             {coachWorkspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
           </select>
@@ -6341,6 +6374,12 @@ function adminDraftForUser(user: AdminUser): AdminUserDraft {
     invitation_status: user.invitation_status,
     cohort_ids: serverCohortIdsForUser(user),
   }
+}
+
+function adminUserDraftsEqual(left: AdminUserDraft | undefined, right: AdminUserDraft) {
+  if (!left) return true
+  return left.role === right.role && left.invitation_status === right.invitation_status &&
+    [...left.cohort_ids].sort().join(',') === [...right.cohort_ids].sort().join(',')
 }
 
 function serverCohortIdsForUser(user: AdminUser) {

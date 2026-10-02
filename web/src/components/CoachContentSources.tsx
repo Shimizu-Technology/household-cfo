@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import {
   ApiRequestError,
   acceptAdminContentSourceCandidate,
@@ -62,6 +62,7 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
   const [conflictCandidate, setConflictCandidate] = useState<AdminContentSourceCandidate | null>(null)
   const requestSequence = useRef(0)
   const listRequestSequence = useRef(0)
+  const activeWorkspaceIdRef = useRef(activeCoachWorkspaceId)
   const actionRef = useRef<string | null>(null)
   const noticeRef = useRef<HTMLDivElement>(null)
   const errorRef = useRef<HTMLDivElement>(null)
@@ -71,6 +72,12 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
   const rejectConfirmRef = useRef<HTMLSpanElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const candidateContentRef = useRef<HTMLTextAreaElement>(null)
+
+  useLayoutEffect(() => {
+    activeWorkspaceIdRef.current = activeCoachWorkspaceId
+    listRequestSequence.current += 1
+    requestSequence.current += 1
+  }, [activeCoachWorkspaceId])
 
   const selectedCandidate = selectedSource?.candidates.find((candidate) => candidate.id === selectedCandidateId) ?? null
   const candidateProposed = selectedSource?.status === 'needs_review' && selectedCandidate?.status === 'proposed'
@@ -94,28 +101,42 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
 
   const loadSources = useCallback(async (preserveSelection = true) => {
     const sequence = ++listRequestSequence.current
+    const requestedWorkspaceId = activeCoachWorkspaceId
     setLoading(true)
     setListLoadFailed(false)
     setError(null)
     try {
       const next = await fetchAdminContentSources()
-      if (sequence !== listRequestSequence.current) return
+      if (sequence !== listRequestSequence.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setSources(next.sources)
       setCollectionPermissions(next.permissions)
-      if (!preserveSelection) setSelectedSource(null)
+      setScope((current) => {
+        if (platformMode && next.permissions.upload_platform) return 'platform'
+        if (current === 'coach' && next.permissions.upload_coach) return current
+        if (current === 'platform' && next.permissions.upload_platform) return current
+        if (next.permissions.upload_coach) return 'coach'
+        if (next.permissions.upload_platform) return 'platform'
+        return current
+      })
+      if (!preserveSelection) {
+        setSelectedSource(null)
+        setSelectedCandidateId(null)
+        setDraft(null)
+        setFile(null)
+      }
     } catch (caught) {
-      if (sequence !== listRequestSequence.current) return
+      if (sequence !== listRequestSequence.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setListLoadFailed(true)
       setError(messageFor(caught, 'Private sources could not load.'))
     } finally {
-      if (sequence === listRequestSequence.current) {
+      if (sequence === listRequestSequence.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
         setLoading(false)
         setListReady(true)
       }
     }
-  }, [])
+  }, [activeCoachWorkspaceId, platformMode])
 
-  useEffect(() => { queueMicrotask(() => void loadSources()) }, [loadSources])
+  useEffect(() => { queueMicrotask(() => void loadSources(false)) }, [loadSources])
 
   const chooseCandidate = useCallback((candidate: AdminContentSourceCandidate | null) => {
     setSelectedCandidateId(candidate?.id ?? null)

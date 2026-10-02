@@ -101,9 +101,15 @@ class User < ApplicationRecord
       is_staff: staff?
     }
     if staff?
-      workspaces = CoachWorkspace.visible_to(self).includes(:coach_profile, :coach_workspace_memberships).order(:name, :id)
-      payload[:coach_workspaces] = workspaces.map { |workspace| workspace.as_api_json(user: self) }
-      payload[:active_coach_workspace] = active_coach_workspace&.as_api_json(user: self)
+      memberships_by_workspace_id = coach_workspace_memberships.to_a.index_by(&:coach_workspace_id)
+      workspaces = CoachWorkspace.visible_to(self).includes(:coach_profile).order(:name, :id)
+      payload[:coach_workspaces] = workspaces.map do |workspace|
+        workspace.as_api_json(user: self, membership: memberships_by_workspace_id[workspace.id])
+      end
+      payload[:active_coach_workspace] = active_coach_workspace&.as_api_json(
+        user: self,
+        membership: memberships_by_workspace_id[active_coach_workspace.id]
+      )
     end
     payload
   end

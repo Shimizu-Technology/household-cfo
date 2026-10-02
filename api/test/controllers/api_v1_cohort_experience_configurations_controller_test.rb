@@ -220,6 +220,27 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
     assert_equal "experience_version_not_found", response.parsed_body.fetch("code")
   end
 
+  test "viewer cannot discover a cohort version through rollback conflicts" do
+    owner = create_user("coach")
+    viewer = create_user("coach")
+    cohort = Cohort.create!(name: "Viewer rollback boundary #{SecureRandom.hex(3)}", status: "active", created_by_user: owner)
+    version = publish_configuration(cohort.cohort_experience_configuration, owner, cfo_filter: true, optionality: false)
+    cohort.coach_workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+
+    get version_endpoint(cohort, version), headers: workspace_headers(viewer, cohort.coach_workspace)
+    assert_response :success
+
+    post "#{version_endpoint(cohort, version)}/rollback", params: {
+      experience_configuration: {
+        draft_revision: cohort.cohort_experience_configuration.draft_revision,
+        expected_published_version_id: 999_999
+      }
+    }, headers: workspace_headers(viewer, cohort.coach_workspace), as: :json
+
+    assert_response :not_found
+    assert_equal "experience_version_not_found", response.parsed_body.fetch("code")
+  end
+
   test "workspace capabilities use only participant-role cohort membership" do
     admin = create_user("admin")
     staff = create_user("coach")

@@ -29,7 +29,6 @@
 .coach-workspace-picker small {
   color: var(--muted);
   font-weight: 600;
-  text-transform: capitalize;
 }
 
 .coach-studio-section-tabs {

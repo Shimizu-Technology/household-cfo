@@ -41,7 +41,8 @@ module Api
         end
 
         def cohort
-          @cohort ||= policy.manageable_cohorts.find(params[:cohort_id])
+          scope = action_name == "rollback" ? policy.publishable_cohorts : policy.manageable_cohorts
+          @cohort ||= scope.find(params[:cohort_id])
         end
 
         def configuration

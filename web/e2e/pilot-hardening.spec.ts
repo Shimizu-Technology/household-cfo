@@ -682,7 +682,7 @@ async function mockDemoApi(page: Page) {
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
       const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
       const item: MockContentItem = {
-        id: 901, ...input, title: input.title.trim().replace(/\s+/g, ' '), draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true,
+        id: 901, ...input, title: input.title.trim().replace(/\s+/g, ' '), draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true, approvable: true,
         current_approved_version: null, versions: [], has_unapproved_changes: true,
         updated_at: '2026-10-01T01:00:00Z',
       }
@@ -711,7 +711,7 @@ async function mockDemoApi(page: Page) {
       const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'scope' | 'pack_kind' | 'item_version_ids'>
       const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
       const pack: MockContentPack = {
-        id: 921, ...input, name: input.name.trim().replace(/\s+/g, ' '), draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, draft_items: selectedItems,
+        id: 921, ...input, name: input.name.trim().replace(/\s+/g, ' '), draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, publishable: true, draft_items: selectedItems,
         current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: true, updated_at: '2026-10-01T01:03:00Z',
       }
       contentPacks = [pack]
@@ -3937,7 +3937,7 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   const workspacePicker = page.getByLabel('Coach workspace')
   await expect(workspacePicker).toHaveValue('1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
-  await expect(page.getByText('Mrs. Mel · owner')).toBeVisible()
+  await expect(page.getByText('Mrs. Mel · Owner')).toBeVisible()
   expect(requestedWorkspaceIds).toContain('1')
 
   await page.getByLabel('Internal description').fill('Unsaved workspace-specific note')
@@ -3950,7 +3950,7 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   await workspacePicker.selectOption('2')
   await expect(workspacePicker).toHaveValue('2')
   await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
-  await expect(page.getByText('Coach Ana · reviewer')).toBeVisible()
+  await expect(page.getByText('Coach Ana · Reviewer')).toBeVisible()
   await expect.poll(() => requestedWorkspaceIds.includes('2')).toBe(true)
   expect(await page.evaluate(() => ({
     scrollX: window.scrollX,
@@ -3965,7 +3965,7 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   await workspacePicker.selectOption('1')
   await expect(workspacePicker).toHaveValue('1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
-  await expect(page.getByText('Mrs. Mel · owner')).toBeVisible()
+  await expect(page.getByText('Mrs. Mel · Owner')).toBeVisible()
   expect(await page.evaluate(() => ({
     scrollX: window.scrollX,
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
@@ -3983,6 +3983,10 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
 
 test('Coach Studio platform administrator deliberately switches between global and selected workspace scope', async ({ page }) => {
   const requestedWorkspaceIds: string[] = []
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({
+    status: 200,
+    json: { sources: [], permissions: { upload_coach: false, upload_platform: true, retry_cleanup: false } },
+  }))
   await page.route('http://api.test/api/v1/admin/personas', (route) => {
     requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
     return route.fulfill({ status: 200, json: { personas: [personaDetailFixture()] } })
@@ -4002,8 +4006,7 @@ test('Coach Studio platform administrator deliberately switches between global a
   await expect(workspacePicker).toHaveValue('platform')
   await expect(page.getByText('Platform administrator · all workspaces')).toBeVisible()
   expect(requestedWorkspaceIds).toContain('')
-  const createAssistant = page.getByRole('button', { name: 'Create', exact: true })
-  if (await createAssistant.count() === 0) await page.getByRole('button', { name: '← All assistants' }).click()
+  const createAssistant = page.getByRole('button', { name: 'Create', exact: true, includeHidden: true })
   await expect(createAssistant).toBeDisabled()
 
   await page.getByRole('tab', { name: /Coaching Library/ }).click()
@@ -4025,6 +4028,57 @@ test('Coach Studio platform administrator deliberately switches between global a
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeDisabled()
   await adminWorkspacePicker.selectOption('1')
   await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
+  await page.getByLabel('Name').first().fill('Unsaved cohort workspace switch')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard unsaved cohort, invite, and user changes')
+    await dialog.dismiss()
+  })
+  await adminWorkspacePicker.selectOption('platform')
+  await expect(adminWorkspacePicker).toHaveValue('1')
+  page.once('dialog', async (dialog) => dialog.accept())
+  await adminWorkspacePicker.selectOption('platform')
+  await expect(adminWorkspacePicker).toHaveValue('platform')
+  await expect(page.getByLabel('Name').first()).toHaveValue('')
+})
+
+test('Coach Studio content controls follow independent editor and reviewer permissions', async ({ page }) => {
+  await page.route('http://api.test/api/v1/admin/content_items', (route) => {
+    const reviewer = route.request().headers()['x-coach-workspace-id'] === '2'
+    return route.fulfill({
+      status: 200,
+      json: {
+        items: [{
+          id: reviewer ? 902 : 901,
+          title: reviewer ? 'Reviewer content draft' : 'Editor content draft',
+          scope: 'coach',
+          kind: 'guidance',
+          draft_content: 'Review one exact next step.',
+          always_on: false,
+          draft_revision: 1,
+          draft_digest: 'role-draft-digest',
+          archived: false,
+          editable: !reviewer,
+          approvable: reviewer,
+          current_approved_version: null,
+          versions: [],
+          has_unapproved_changes: true,
+          updated_at: '2026-10-01T01:00:00Z',
+        }],
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: /Editor content draft/ }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await expect(itemPanel.getByLabel('Draft wording')).toBeEnabled()
+  await expect(itemPanel.getByRole('button', { name: /Approve/ })).toHaveCount(0)
+
+  await page.getByLabel('Coach workspace').selectOption('2')
+  await page.getByRole('button', { name: /Reviewer content draft/ }).click()
+  await expect(itemPanel.getByLabel('Draft wording')).toBeDisabled()
+  await expect(itemPanel.getByRole('button', { name: 'Approve new version' })).toBeEnabled()
 })
 
 test('Coach Studio participant tools preview publish and restore the exact cohort navigation', async ({ page }) => {

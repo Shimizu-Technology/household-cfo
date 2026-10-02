@@ -4,7 +4,7 @@ module CoachWorkspaces
   class Resolver
     def initialize(user:, requested_id: nil)
       @user = user
-      @requested_id = Integer(requested_id, exception: false) if requested_id.present?
+      @requested_id = parse_requested_id(requested_id)
     end
 
     def call
@@ -20,6 +20,15 @@ module CoachWorkspaces
     private
 
     attr_reader :user, :requested_id
+
+    def parse_requested_id(value)
+      return nil if value.blank?
+
+      raw_value = value.to_s
+      raise ActiveRecord::RecordNotFound, "Coach workspace not found" unless raw_value.match?(/\A[1-9]\d*\z/)
+
+      Integer(raw_value, 10)
+    end
 
     def default_workspace
       if user.admin?
