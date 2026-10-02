@@ -1,0 +1,129 @@
+# frozen_string_literal: true
+
+require "test_helper"
+require_relative "../support/persona_test_helper"
+
+class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::IntegrationTest
+  include PersonaTestHelper
+  include ActiveJob::TestHelper
+
+  test "coach creates one encrypted workspace intake and an identical retry is idempotent" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    request_id = SecureRandom.uuid
+
+    with_storage_configured do
+      assert_enqueued_with(job: CoachContentSourceUrlIntakeJob) do
+        post endpoint, params: {
+          url: "https://example.com/Mrs-Mel-guide?private=canary",
+          request_id: request_id,
+          scope: "coach"
+        }, headers: workspace_auth_headers(coach, workspace), as: :json
+      end
+    end
+
+    assert_response :accepted
+    intake = CoachContentSourceUrlIntake.find(response.parsed_body.dig("intake", "id"))
+    assert_equal workspace, intake.coach_workspace
+    assert_equal "queued", intake.status
+    assert_nil intake.coach_content_source
+    refute_includes intake.attributes.values.compact.join(" "), "Mrs-Mel"
+    refute_includes response.body, "private=canary"
+    assert_equal "https://example.com/Mrs-Mel-guide?private=canary", ContentSources::UrlCipher.decrypt(intake.encrypted_url_payload)
+
+    assert_no_difference -> { CoachContentSourceUrlIntake.count } do
+      with_storage_configured do
+        post endpoint, params: {
+          url: "https://example.com/Mrs-Mel-guide?private=canary",
+          request_id: request_id,
+          scope: "coach"
+        }, headers: workspace_auth_headers(coach, workspace), as: :json
+      end
+    end
+    assert_response :success
+  end
+
+  test "request id cannot be replayed for a different private address" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    request_id = SecureRandom.uuid
+
+    with_storage_configured do
+      post endpoint, params: { url: "https://example.com/first", request_id: request_id },
+        headers: workspace_auth_headers(coach, workspace), as: :json
+      post endpoint, params: { url: "https://example.com/second", request_id: request_id },
+        headers: workspace_auth_headers(coach, workspace), as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "url_intake_conflict", response.parsed_body.fetch("code")
+    assert_equal 1, CoachContentSourceUrlIntake.count
+  end
+
+  test "viewer and participant cannot create or inspect workspace URL intakes" do
+    owner = persona_user
+    viewer = persona_user
+    participant = persona_user(role: "participant")
+    workspace = CoachWorkspaces::Resolver.new(user: owner).call
+    workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+
+    with_storage_configured do
+      post endpoint, params: { url: "https://example.com/guide", request_id: SecureRandom.uuid },
+        headers: workspace_auth_headers(viewer, workspace), as: :json
+    end
+    assert_response :forbidden
+
+    post endpoint, params: { url: "https://example.com/guide", request_id: SecureRandom.uuid },
+      headers: auth_headers(participant), as: :json
+    assert_response :forbidden
+  end
+
+  test "URL reservation shares source count quota with uploads" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    100.times do |index|
+      CoachContentSource.create!(
+        scope: "coach", coach_workspace: workspace, created_by_user: coach, status: "queued",
+        filename: "#{index}.txt", content_type: "text/plain", byte_size: 1,
+        checksum_sha256: Digest::SHA256.hexdigest(index.to_s), s3_key: "test/#{SecureRandom.uuid}",
+        upload_request_id: SecureRandom.uuid
+      )
+    end
+    CoachContentSource.update_all(created_at: 1.day.ago)
+
+    with_storage_configured do
+      post endpoint, params: { url: "https://example.com/guide", request_id: SecureRandom.uuid },
+        headers: workspace_auth_headers(coach, workspace), as: :json
+    end
+
+    assert_response :unprocessable_entity
+    assert_equal "source_quota_reached", response.parsed_body.fetch("code")
+    assert_empty CoachContentSourceUrlIntake.all
+  end
+
+  private
+
+  def endpoint
+    "/api/v1/admin/content_source_url_intakes"
+  end
+
+  def with_storage_configured(&block)
+    with_singleton_method(S3Service, :configured?, -> { true }, &block)
+  end
+
+  def with_singleton_method(target, name, implementation)
+    original = target.method(name)
+    target.define_singleton_method(name, implementation)
+    yield
+  ensure
+    target.define_singleton_method(name, original)
+  end
+
+  def auth_headers(user)
+    { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def workspace_auth_headers(user, workspace)
+    auth_headers(user).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+  end
+end
