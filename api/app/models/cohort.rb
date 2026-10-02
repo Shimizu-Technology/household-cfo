@@ -10,6 +10,7 @@ class Cohort < ApplicationRecord
   has_one :coach_persona, through: :cohort_persona_assignment
   has_one :coach_persona_version, through: :cohort_persona_assignment
   has_one :cohort_experience_configuration, dependent: :restrict_with_exception, inverse_of: :cohort
+  has_many :cohort_releases, dependent: :restrict_with_exception, inverse_of: :cohort
 
   validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }
   validates :status, inclusion: { in: STATUSES }

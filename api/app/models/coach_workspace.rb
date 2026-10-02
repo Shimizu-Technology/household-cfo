@@ -14,6 +14,7 @@ class CoachWorkspace < ApplicationRecord
   has_many :members, through: :coach_workspace_memberships, source: :user
   has_many :cohorts, dependent: :restrict_with_exception
   has_many :coach_personas, dependent: :restrict_with_exception
+  has_many :cohort_releases, dependent: :restrict_with_exception
   has_many :coach_content_sources, dependent: :restrict_with_exception
   has_many :coach_content_items, dependent: :restrict_with_exception
   has_many :coach_content_packs, dependent: :restrict_with_exception

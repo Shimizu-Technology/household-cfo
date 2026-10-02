@@ -15,6 +15,7 @@ class CohortExperienceConfiguration < ApplicationRecord
     class_name: "CohortExperiencePublicationEvent",
     dependent: :restrict_with_exception,
     inverse_of: :cohort_experience_configuration
+  has_many :cohort_releases, dependent: :restrict_with_exception
 
   validates :cohort_id, uniqueness: true
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
