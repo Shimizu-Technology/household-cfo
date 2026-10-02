@@ -10,6 +10,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
   const { getToken, isLoaded, isSignedIn, signOut } = useAuth()
   const { user: clerkUser } = useUser()
   const [currentUser, setCurrentUser] = useState<CurrentUser | null>(null)
+  const [activeCoachWorkspaceId, setActiveCoachWorkspaceState] = useState<number | null>(null)
   const [authError, setAuthError] = useState<string | null>(null)
   const [isVerifyingApi, setIsVerifyingApi] = useState(false)
 
@@ -31,6 +32,8 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 
     if (!isSignedIn) {
       setCurrentUser(null)
+      setActiveCoachWorkspaceState(null)
+      setActiveCoachWorkspaceId(null)
       setAuthError(null)
       setIsVerifyingApi(false)
       return
@@ -39,7 +42,9 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     setIsVerifyingApi(true)
     try {
       const user = await fetchCurrentUser()
-      if (user.active_coach_workspace?.id) setActiveCoachWorkspaceId(user.active_coach_workspace.id)
+      const workspaceId = user.active_coach_workspace?.id ?? null
+      setActiveCoachWorkspaceState(workspaceId)
+      setActiveCoachWorkspaceId(workspaceId)
       setCurrentUser(user)
       setAuthError(null)
     } catch (error) {
@@ -49,6 +54,11 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
       setIsVerifyingApi(false)
     }
   }, [isLoaded, isSignedIn])
+
+  const selectCoachWorkspace = useCallback((workspaceId: number | null) => {
+    setActiveCoachWorkspaceState(workspaceId)
+    setActiveCoachWorkspaceId(workspaceId)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -68,10 +78,12 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     isLoading: !isLoaded,
     isVerifyingApi,
     currentUser,
+    activeCoachWorkspaceId,
     authError,
     refreshCurrentUser,
+    selectCoachWorkspace,
     signOut: () => signOut(),
-  }), [authError, currentUser, isLoaded, isSignedIn, isVerifyingApi, refreshCurrentUser, signOut])
+  }), [activeCoachWorkspaceId, authError, currentUser, isLoaded, isSignedIn, isVerifyingApi, refreshCurrentUser, selectCoachWorkspace, signOut])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -90,10 +102,20 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
     ? `test_token:${currentUser.clerk_id}:${currentUser.email}:${currentUser.first_name ?? ''}:${currentUser.last_name ?? ''}`
     : null
   const [isTokenReady, setIsTokenReady] = useState(!pilotE2EToken)
+  const [activeCoachWorkspaceId, setActiveCoachWorkspaceState] = useState<number | null>(
+    currentUser?.active_coach_workspace?.id ?? null,
+  )
+
+  const selectCoachWorkspace = useCallback((workspaceId: number | null) => {
+    setActiveCoachWorkspaceState(workspaceId)
+    setActiveCoachWorkspaceId(workspaceId)
+  }, [])
 
   useLayoutEffect(() => {
-    if (includeCoachWorkspaces) setActiveCoachWorkspaceId(currentUser?.active_coach_workspace?.id ?? null)
-  }, [currentUser, includeCoachWorkspaces])
+    if (!includeCoachWorkspaces) return
+
+    setActiveCoachWorkspaceId(activeCoachWorkspaceId)
+  }, [activeCoachWorkspaceId, includeCoachWorkspaces])
 
   useEffect(() => {
     let cancelled = false
@@ -113,9 +135,11 @@ function NoAuthBridge({ children }: { children: ReactNode }) {
     isLoading: false,
     isVerifyingApi: Boolean(pilotE2EToken && !isTokenReady),
     currentUser,
+    activeCoachWorkspaceId,
     authError: null,
     refreshCurrentUser: async () => undefined,
-  }), [currentUser, isTokenReady, pilotE2EToken])
+    selectCoachWorkspace,
+  }), [activeCoachWorkspaceId, currentUser, isTokenReady, pilotE2EToken, selectCoachWorkspace])
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
@@ -134,8 +158,10 @@ function DelayedParticipantE2EAuthBridge({ children }: { children: ReactNode }) 
     isLoading: false,
     isVerifyingApi: !currentUser,
     currentUser,
+    activeCoachWorkspaceId: null,
     authError: null,
     refreshCurrentUser: async () => undefined,
+    selectCoachWorkspace: () => undefined,
     signOut: async () => undefined,
   }), [currentUser])
 
@@ -194,7 +220,7 @@ function e2eCurrentUser(role: 'admin' | 'coach' | 'participant', includeCoachWor
         coach_profile: { display_name: 'Coach Ana', title: 'Financial coach', bio: '' },
       },
     ]
-    user.active_coach_workspace = user.coach_workspaces[0]
+    user.active_coach_workspace = isAdmin ? null : user.coach_workspaces[0]
   }
   return user
 }

@@ -11,7 +11,6 @@ import {
   publishAdminPersona,
   restoreAdminPersona,
   rollbackAdminPersonaVersion,
-  setActiveCoachWorkspaceId,
   updateAdminCohortPersonaAssignment,
   updateAdminPersona,
 } from '../api'
@@ -23,6 +22,7 @@ import type {
   CurrentUser,
   PersonaConfiguration,
 } from '../api'
+import { useAuthContext } from '../contexts/authContextValue'
 import {
   PERSONA_ACCOUNTABILITY_STYLES,
   PERSONA_ENERGY_STYLES,
@@ -57,10 +57,9 @@ type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 're
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
+  const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
   const workspaceOptions = currentUser.coach_workspaces ?? []
-  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
-    currentUser.active_coach_workspace?.id ?? workspaceOptions[0]?.id ?? null,
-  )
+  const workspaceCreateDisabled = currentUser.is_admin && activeWorkspaceId === null
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
   const [selectedPersona, setSelectedPersona] = useState<AdminPersonaDetail | null>(null)
   const [draft, setDraft] = useState<PersonaConfiguration | null>(null)
@@ -233,11 +232,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     return true
   }
 
-  function chooseWorkspace(nextId: number) {
+  function chooseWorkspace(nextId: number | null) {
     if (nextId === activeWorkspaceId) return
     if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch workspaces?')) return
 
-    setActiveCoachWorkspaceId(nextId)
+    selectCoachWorkspace(nextId)
     // Ignore an assistant detail response that began in the workspace we are leaving.
     loadPersonaRequestRef.current += 1
     selectedIdRef.current = null
@@ -253,7 +252,6 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setExperienceDirty(false)
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
-    setActiveWorkspaceId(nextId)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -564,12 +562,15 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           {workspaceOptions.length > 0 && (
             <label className="coach-workspace-picker">
               <span>Coach workspace</span>
-              <select value={activeWorkspaceId ?? ''} onChange={(event) => chooseWorkspace(Number(event.target.value))}>
+              <select value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
+                {currentUser.is_admin && <option value="platform">All workspaces / Platform</option>}
                 {workspaceOptions.map((workspace) => (
                   <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
                 ))}
               </select>
-              <small>{workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · {workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role?.replace('_', ' ')}</small>
+              <small>{activeWorkspaceId === null
+                ? 'Platform administrator · all workspaces'
+                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role?.replace('_', ' ')}`}</small>
             </label>
           )}
         </div>
@@ -624,8 +625,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Assistant library</p>
               <h3 ref={libraryHeadingRef} tabIndex={-1}>{personas.length} coaching assistant{personas.length === 1 ? '' : 's'}</h3>
             </div>
-            <Button size="compact" onClick={() => setCreateOpen(true)}>Create</Button>
+            <Button size="compact" disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create</Button>
           </div>
+
+          {workspaceCreateDisabled && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
 
           {createOpen && (
             <form className="coach-create-form" onSubmit={handleCreate}>
@@ -689,7 +692,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Start here</p>
               <h3>Create a safe draft, then shape it with the guided questions.</h3>
               <p>You can preview and publish only after the exact saved revision has passed the fixed system guardrails.</p>
-              <Button onClick={() => setCreateOpen(true)}>Create coaching assistant</Button>
+              <Button disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create coaching assistant</Button>
             </article>
           ) : (
             <>

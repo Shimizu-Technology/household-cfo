@@ -24,9 +24,10 @@ module Api
         end
 
         def presign
+          metadata = upload_metadata
+          return require_selected_coach_workspace! if metadata.fetch(:scope) == "coach" && coach_workspace_for_policy.nil?
           return storage_unavailable unless S3Service.configured?
 
-          metadata = upload_metadata
           ContentSources::UploadValidator.validate_metadata!(**metadata.slice(:filename, :content_type, :byte_size, :checksum_sha256))
           unless metadata.fetch(:upload_request_id).match?(/\A[A-Za-z0-9_-]{8,100}\z/)
             return render json: { error: "Refresh the page and choose the file again.", code: "upload_request_invalid" }, status: :unprocessable_entity
@@ -44,12 +45,13 @@ module Api
             return storage_unavailable
           end
 
-          token = upload_verifier.generate(metadata.merge(
+          token_metadata = metadata.merge(
             s3_key: key,
             source_id: source.id,
-            user_id: current_user.id,
-            coach_workspace_id: current_coach_workspace.id
-          ), expires_in: 15.minutes)
+            user_id: current_user.id
+          )
+          token_metadata[:coach_workspace_id] = current_coach_workspace.id if metadata.fetch(:scope) == "coach"
+          token = upload_verifier.generate(token_metadata, expires_in: 15.minutes)
           render json: {
             upload_url: grant.fetch(:url),
             upload_headers: grant.fetch(:headers),
@@ -68,8 +70,9 @@ module Api
 
           metadata = upload_verifier.verify(params.require(:upload_token)).deep_symbolize_keys
           return forbidden_upload unless metadata[:user_id].to_i == current_user.id
-          if metadata[:coach_workspace_id].present? && metadata[:coach_workspace_id].to_i != current_coach_workspace.id
-            return forbidden_upload
+          if metadata[:coach_workspace_id].present?
+            selected_workspace = coach_workspace_for_policy
+            return forbidden_upload unless selected_workspace && metadata[:coach_workspace_id].to_i == selected_workspace.id
           end
           existing = completed_upload_source(metadata)
           if existing
@@ -191,7 +194,8 @@ module Api
         end
 
         def set_source
-          @source = policy.editable_sources.find(params[:id])
+          scope = action_name.in?(%w[show source_url]) ? policy.reviewable_sources : policy.editable_sources
+          @source = scope.find(params[:id])
         end
 
         def upload_metadata

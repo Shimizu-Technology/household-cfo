@@ -7,8 +7,10 @@ export type AuthContextValue = {
   isLoading: boolean
   isVerifyingApi: boolean
   currentUser: CurrentUser | null
+  activeCoachWorkspaceId: number | null
   authError: string | null
   refreshCurrentUser: () => Promise<void>
+  selectCoachWorkspace: (workspaceId: number | null) => void
   signOut?: () => Promise<void>
 }
 
@@ -18,8 +20,10 @@ export const AuthContext = createContext<AuthContextValue>({
   isLoading: false,
   isVerifyingApi: false,
   currentUser: null,
+  activeCoachWorkspaceId: null,
   authError: null,
   refreshCurrentUser: async () => undefined,
+  selectCoachWorkspace: () => undefined,
 })
 
 export function useAuthContext() {

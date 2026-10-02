@@ -9,6 +9,7 @@ module Api
 
         before_action :authenticate_user!
         before_action :require_staff!
+        before_action :require_selected_coach_workspace!, only: :create
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
 
         def index

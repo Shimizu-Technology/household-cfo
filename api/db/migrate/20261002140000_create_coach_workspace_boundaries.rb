@@ -18,6 +18,7 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
       t.references :coach_workspace, null: false, foreign_key: { on_delete: :cascade }
       t.references :user, null: false, foreign_key: { on_delete: :cascade }
       t.string :role, null: false, default: "viewer"
+      t.boolean :cohort_managed, null: false, default: false
       t.timestamps
     end
     add_index :coach_workspace_memberships, %i[coach_workspace_id user_id], unique: true,
@@ -63,37 +64,8 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
   end
 
   def down
-    remove_cross_workspace_constraints!
-
-    remove_index :cohorts, name: "index_cohorts_on_workspace_and_lower_name"
-    add_index :cohorts, "lower((name)::text)", unique: true, name: "index_cohorts_on_lower_name"
-
-    remove_index :coach_personas, name: "index_coach_personas_on_workspace_and_lower_name"
-    add_index :coach_personas, "created_by_user_id, lower((name)::text)", unique: true,
-      name: "index_coach_personas_on_creator_and_lower_name"
-
-    remove_index :coach_content_items, name: "idx_coach_content_items_workspace_title"
-    remove_index :coach_content_items, name: "idx_platform_content_items_owner_title"
-    add_index :coach_content_items, "created_by_user_id, scope, lower((title)::text)", unique: true,
-      name: "idx_coach_content_items_owner_scope_title"
-
-    remove_index :coach_content_packs, name: "idx_coach_content_packs_workspace_name"
-    remove_index :coach_content_packs, name: "idx_platform_content_packs_owner_name"
-    add_index :coach_content_packs, "created_by_user_id, scope, lower((name)::text)", unique: true,
-      name: "idx_coach_content_packs_owner_scope_name"
-
-    remove_index :coach_content_sources, name: "idx_coach_content_sources_workspace_request"
-    remove_index :coach_content_sources, name: "idx_platform_content_sources_owner_request"
-    add_index :coach_content_sources, %i[created_by_user_id upload_request_id], unique: true,
-      name: "idx_content_sources_owner_upload_request"
-
-    remove_reference :cohort_persona_assignments, :coach_workspace, foreign_key: true
-    remove_reference :cohort_experience_configurations, :coach_workspace, foreign_key: true
-    SCOPED_CONTENT_TABLES.each { |table| remove_reference table, :coach_workspace, foreign_key: true }
-    COACH_ROOT_TABLES.each { |table| remove_reference table, :coach_workspace, foreign_key: true }
-    drop_table :coach_profiles
-    drop_table :coach_workspace_memberships
-    drop_table :coach_workspaces
+    raise ActiveRecord::IrreversibleMigration,
+      "coach workspace tenant data and tenant-scoped names cannot be mapped safely back to creator-owned records"
   end
 
   private
@@ -121,8 +93,8 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
       SQL
       workspace_id = select_value("SELECT id FROM coach_workspaces WHERE slug = #{quoted_slug}").to_i
       execute <<~SQL
-        INSERT INTO coach_workspace_memberships (coach_workspace_id, user_id, role, created_at, updated_at)
-        VALUES (#{workspace_id}, #{user_id}, 'owner', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        INSERT INTO coach_workspace_memberships (coach_workspace_id, user_id, role, cohort_managed, created_at, updated_at)
+        VALUES (#{workspace_id}, #{user_id}, 'owner', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
       SQL
       execute <<~SQL
         INSERT INTO coach_profiles (coach_workspace_id, display_name, title, last_edited_by_user_id, created_at, updated_at)
@@ -178,8 +150,8 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
     SQL
 
     execute <<~SQL
-      INSERT INTO coach_workspace_memberships (coach_workspace_id, user_id, role, created_at, updated_at)
-      SELECT DISTINCT cohorts.coach_workspace_id, memberships.user_id, 'editor', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      INSERT INTO coach_workspace_memberships (coach_workspace_id, user_id, role, cohort_managed, created_at, updated_at)
+      SELECT DISTINCT cohorts.coach_workspace_id, memberships.user_id, 'editor', TRUE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       FROM cohort_memberships memberships
       INNER JOIN cohorts ON cohorts.id = memberships.cohort_id
       INNER JOIN users ON users.id = memberships.user_id
@@ -188,8 +160,8 @@ class CreateCoachWorkspaceBoundaries < ActiveRecord::Migration[8.1]
       ON CONFLICT (coach_workspace_id, user_id) DO NOTHING
     SQL
     execute <<~SQL
-      INSERT INTO coach_workspace_memberships (coach_workspace_id, user_id, role, created_at, updated_at)
-      SELECT DISTINCT cohorts.coach_workspace_id, cohorts.created_by_user_id, 'editor', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
+      INSERT INTO coach_workspace_memberships (coach_workspace_id, user_id, role, cohort_managed, created_at, updated_at)
+      SELECT DISTINCT cohorts.coach_workspace_id, cohorts.created_by_user_id, 'editor', FALSE, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP
       FROM cohorts
       INNER JOIN users ON users.id = cohorts.created_by_user_id
       WHERE users.role = 'coach'

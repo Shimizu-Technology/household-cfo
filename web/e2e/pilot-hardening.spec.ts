@@ -3883,7 +3883,7 @@ test('Coach Studio preserves coach-authored community context through preview, p
 })
 
 test('Coach Studio switches tenant context safely across responsive layouts', async ({ page }) => {
-  const firstPersona = personaDetailFixture()
+  let firstPersona = personaDetailFixture()
   const secondPersona = {
     ...personaDetailFixture(),
     id: 82,
@@ -3896,6 +3896,7 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     permissions: { read: true, edit: false, publish: true, assign: false, archive: false, restore: false },
   }
   const requestedWorkspaceIds: string[] = []
+  const mutationWorkspaceIds: string[] = []
 
   await page.addInitScript(() => {
     window.localStorage.setItem('household-cfo:coach-workspace-id', '1')
@@ -3911,6 +3912,17 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
   await page.route(/http:\/\/api\.test\/api\/v1\/admin\/personas\/(81|82)$/, (route) => {
     const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
     requestedWorkspaceIds.push(workspaceId)
+    if (route.request().method() === 'PATCH') {
+      mutationWorkspaceIds.push(workspaceId)
+      const body = route.request().postDataJSON() as { persona: { description: string; draft_config: typeof personaConfiguration } }
+      firstPersona = {
+        ...firstPersona,
+        description: body.persona.description,
+        draft: body.persona.draft_config,
+        draft_revision: (firstPersona.draft_revision ?? 0) + 1,
+      }
+      return route.fulfill({ status: 200, json: { persona: firstPersona } })
+    }
     return route.fulfill({ status: 200, json: { persona: workspaceId === '2' ? secondPersona : firstPersona } })
   })
   await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => {
@@ -3943,6 +3955,11 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
   }))).toEqual({ scrollX: 0, fitsViewport: true })
 
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await expect(workspacePicker).toHaveValue('2')
+  await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
+
   await workspacePicker.selectOption('1')
   await expect(workspacePicker).toHaveValue('1')
   await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
@@ -3951,6 +3968,61 @@ test('Coach Studio switches tenant context safely across responsive layouts', as
     scrollX: window.scrollX,
     fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
   }))).toEqual({ scrollX: 0, fitsViewport: true })
+
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await page.getByLabel('Internal description').fill('Saved after returning to the owner workspace')
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status')).toContainText('Draft saved')
+  expect(mutationWorkspaceIds).toEqual(['1'])
+})
+
+test('Coach Studio platform administrator deliberately switches between global and selected workspace scope', async ({ page }) => {
+  const requestedWorkspaceIds: string[] = []
+  await page.route('http://api.test/api/v1/admin/personas', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { personas: [personaDetailFixture()] } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { persona: personaDetailFixture() } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { cohorts: [] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+
+  const workspacePicker = page.getByLabel('Coach workspace')
+  await expect(workspacePicker).toHaveValue('platform')
+  await expect(page.getByText('Platform administrator · all workspaces')).toBeVisible()
+  expect(requestedWorkspaceIds).toContain('')
+  const createAssistant = page.getByRole('button', { name: 'Create', exact: true })
+  if (await createAssistant.count() === 0) await page.getByRole('button', { name: '← All assistants' }).click()
+  await expect(createAssistant).toBeDisabled()
+
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: 'New item' }).click()
+  await expect(page.getByLabel('Owner').first()).toHaveValue('platform')
+  await expect(page.getByLabel('Owner').first().locator('option[value="coach"]')).toHaveCount(0)
+
+  await workspacePicker.selectOption('1')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect.poll(() => requestedWorkspaceIds.includes('1')).toBe(true)
+
+  await workspacePicker.selectOption('platform')
+  await expect(workspacePicker).toHaveValue('platform')
+  await expect.poll(() => requestedWorkspaceIds.filter((id) => id === '').length).toBeGreaterThan(1)
+
+  await openSection(page, 'Admin')
+  const adminWorkspacePicker = page.getByLabel('Admin workspace')
+  await expect(adminWorkspacePicker).toHaveValue('platform')
+  await expect(page.getByRole('button', { name: 'Create cohort' })).toBeDisabled()
+  await adminWorkspacePicker.selectOption('1')
+  await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
 })
 
 test('Coach Studio participant tools preview publish and restore the exact cohort navigation', async ({ page }) => {

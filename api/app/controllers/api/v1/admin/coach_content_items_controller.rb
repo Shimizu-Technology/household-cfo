@@ -14,6 +14,8 @@ module Api
 
         def create
           attributes = item_params
+          return require_selected_coach_workspace! if attributes[:scope] != "platform" && coach_workspace_for_policy.nil?
+
           item = CoachContentItem.create!(attributes.merge(
             created_by_user: current_user,
             coach_workspace: attributes[:scope] == "platform" ? nil : current_coach_workspace

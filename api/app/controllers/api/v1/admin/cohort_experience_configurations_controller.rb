@@ -95,7 +95,7 @@ module Api
           @editable_configuration ||= cohort.cohort_experience_configuration || cohort.create_cohort_experience_configuration!(
             draft_config: CohortExperience::Schema::DEFAULT_CONFIG,
             last_edited_by_user: current_user,
-            coach_workspace: current_coach_workspace
+            coach_workspace: cohort.coach_workspace
           )
         rescue ActiveRecord::RecordNotUnique
           cohort.reload.cohort_experience_configuration

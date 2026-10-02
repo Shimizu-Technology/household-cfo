@@ -40,6 +40,52 @@ class CoachWorkspaceTest < ActiveSupport::TestCase
     refute workspace.allows?(viewer, :assign)
   end
 
+  test "cohort coach roles reconcile derived workspace access across promotion demotion transfer and last removal" do
+    first_owner = create_staff("coach")
+    second_owner = create_staff("coach")
+    staff = create_staff("coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Independent first cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    another_first_cohort = Cohort.create!(name: "Independent first backup", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Independent second cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+
+    cohort_access = staff.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    assert_nil first_workspace.membership_for(staff)
+    assert_nil second_workspace.membership_for(staff)
+
+    cohort_access.update!(role: "coach")
+    derived_access = first_workspace.membership_for(staff)
+    assert_equal "editor", derived_access.role
+    assert_predicate derived_access, :cohort_managed?
+
+    backup_access = staff.cohort_memberships.create!(cohort: another_first_cohort, role: "coach")
+    cohort_access.destroy!
+    assert_equal "editor", first_workspace.membership_for(staff).role
+
+    backup_access.update!(cohort: second_cohort)
+    assert_nil first_workspace.membership_for(staff)
+    assert_equal "editor", second_workspace.membership_for(staff).role
+
+    backup_access.update!(role: "participant")
+    assert_nil second_workspace.membership_for(staff)
+  end
+
+  test "explicit workspace access is not removed with the last cohort role" do
+    owner = create_staff("coach")
+    staff = create_staff("coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    workspace.coach_workspace_memberships.create!(user: staff, role: "reviewer")
+    cohort = Cohort.create!(name: "Explicit collaborator cohort", status: "active", created_by_user: owner, coach_workspace: workspace)
+
+    cohort_access = staff.cohort_memberships.create!(cohort: cohort, role: "coach")
+    assert_equal "reviewer", workspace.membership_for(staff).role
+
+    cohort_access.destroy!
+    assert_equal "reviewer", workspace.membership_for(staff).role
+    refute_predicate workspace.membership_for(staff), :cohort_managed?
+  end
+
   test "coach scoped records derive the creator workspace while platform records stay separate" do
     coach = create_staff("coach")
     admin = create_staff("admin")

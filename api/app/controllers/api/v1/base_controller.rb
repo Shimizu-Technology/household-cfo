@@ -46,6 +46,15 @@ module Api
         current_coach_workspace
       end
 
+      def require_selected_coach_workspace!
+        return if coach_workspace_for_policy
+
+        render json: {
+          error: "Choose a coach workspace before creating workspace-owned records.",
+          code: "coach_workspace_required"
+        }, status: :unprocessable_entity
+      end
+
       def require_experience_module!(module_id)
         item = current_experience_capabilities.fetch(:modules).find { |candidate| candidate.fetch(:id) == module_id.to_s }
         return if item&.fetch(:enabled, false)

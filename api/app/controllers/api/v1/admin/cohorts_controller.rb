@@ -4,6 +4,7 @@ module Api
       class CohortsController < BaseController
         before_action :authenticate_user!
         before_action :require_admin!
+        before_action :require_selected_coach_workspace!, only: :create
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
         rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_assignment_conflict
 

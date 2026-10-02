@@ -633,6 +633,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_140000) do
   end
   create_table "coach_workspace_memberships", force: :cascade do |t|
     t.bigint "coach_workspace_id", null: false
+    t.boolean "cohort_managed", default: false, null: false
     t.datetime "created_at", null: false
     t.string "role", default: "viewer", null: false
     t.datetime "updated_at", null: false

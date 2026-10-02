@@ -251,6 +251,59 @@ class ApiV1AdminCoachWorkspaceBoundariesTest < ActionDispatch::IntegrationTest
     assert_response :not_found
   end
 
+  test "platform mode never silently chooses a workspace for workspace-owned creates" do
+    admin = persona_user(role: "admin")
+    headers = { "Authorization" => "Bearer test_token:#{admin.clerk_id}:#{admin.email}:#{admin.first_name}:#{admin.last_name}" }
+
+    assert_no_difference -> { CoachPersona.count } do
+      post "/api/v1/admin/personas", params: { persona: { name: "Hidden tenant assistant" } }, headers: headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "coach_workspace_required", response.parsed_body.fetch("code")
+
+    assert_no_difference -> { Cohort.count } do
+      post "/api/v1/admin/cohorts", params: { cohort: { name: "Hidden tenant cohort", status: "draft" } }, headers: headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "coach_workspace_required", response.parsed_body.fetch("code")
+
+    assert_no_difference -> { CoachContentItem.count } do
+      post "/api/v1/admin/content_items", params: {
+        item: { title: "Hidden tenant content", scope: "coach", kind: "guidance", draft_content: "Choose one next step." }
+      }, headers: headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "coach_workspace_required", response.parsed_body.fetch("code")
+
+    assert_no_difference -> { CoachContentPack.count } do
+      post "/api/v1/admin/content_packs", params: {
+        pack: { name: "Hidden tenant pack", scope: "coach", pack_kind: "coaching_method", item_version_ids: [] }
+      }, headers: headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "coach_workspace_required", response.parsed_body.fetch("code")
+
+    assert_no_difference -> { CoachContentSource.count } do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "hidden-tenant.txt",
+        content_type: "text/plain",
+        byte_size: 5,
+        checksum_sha256: Digest::SHA256.hexdigest("guide"),
+        upload_request_id: SecureRandom.uuid,
+        scope: "coach"
+      }, headers: headers, as: :json
+    end
+    assert_response :unprocessable_entity
+    assert_equal "coach_workspace_required", response.parsed_body.fetch("code")
+
+    assert_difference -> { CoachContentItem.where(scope: "platform").count }, 1 do
+      post "/api/v1/admin/content_items", params: {
+        item: { title: "Explicit platform content", scope: "platform", kind: "guidance", draft_content: "Choose one next step." }
+      }, headers: headers, as: :json
+    end
+    assert_response :created
+  end
+
   test "omitting the workspace header resolves a coach to one authorized default workspace" do
     coach = persona_user
     collaborator = persona_user

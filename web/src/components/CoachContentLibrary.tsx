@@ -20,6 +20,7 @@ import type {
   AdminPersonaDetail,
   CurrentUser,
 } from '../api'
+import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
 import { CoachContentSources } from './CoachContentSources'
 import './CoachContentLibrary.css'
@@ -29,6 +30,8 @@ const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', '
 const normalizeSingleLine = (value: string) => value.trim().replace(/\s+/g, ' ')
 
 export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange?: (dirty: boolean) => void }) {
+  const { activeCoachWorkspaceId } = useAuthContext()
+  const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
   const [items, setItems] = useState<AdminContentItem[]>([])
   const [packs, setPacks] = useState<AdminContentPack[]>([])
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
@@ -128,6 +131,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
       <div className="coach-content-grid">
         <ContentItemsPanel
           currentUser={currentUser}
+          platformMode={platformMode}
           items={items}
           selected={selectedItem}
           reviewRequest={itemReviewRequest}
@@ -141,6 +145,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
         />
         <ContentPacksPanel
           currentUser={currentUser}
+          platformMode={platformMode}
           packs={packs}
           items={items}
           selected={selectedPack}
@@ -156,8 +161,9 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   )
 }
 
-function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
+function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
+  platformMode: boolean
   items: AdminContentItem[]
   selected: AdminContentItem | null
   reviewRequest: number
@@ -184,7 +190,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     kind !== selected.kind ||
     alwaysOn !== selected.always_on
   ))
-  const createDirty = Boolean(creating && (title.trim() || content.trim() || kind !== 'guidance' || scope !== 'coach' || alwaysOn))
+  const createDirty = Boolean(creating && (title.trim() || content.trim() || kind !== 'guidance' || scope !== (platformMode ? 'platform' : 'coach') || alwaysOn))
 
   useEffect(() => onDirtyChange(itemDirty || createDirty), [createDirty, itemDirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -227,7 +233,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     setTitle('')
     setContent('')
     setKind('guidance')
-    setScope('coach')
+    setScope(platformMode ? 'platform' : 'coach')
     setAlwaysOn(false)
   }
 
@@ -273,7 +279,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
           <label><span>Title</span><input ref={titleInputRef} required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Type</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={scope} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
           <label><span>Draft wording</span><textarea required disabled={busy || Boolean(selected && !selected.editable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, phrase, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
           <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
@@ -288,8 +294,9 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
   )
 }
 
-function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
+function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
   currentUser: CurrentUser
+  platformMode: boolean
   packs: AdminContentPack[]
   items: AdminContentItem[]
   selected: AdminContentPack | null
@@ -313,7 +320,7 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
     kind !== selected.pack_kind ||
     selectedVersions.join(',') !== selected.draft_items.map((item) => item.id).join(',')
   ))
-  const createDirty = Boolean(creating && (name.trim() || description.trim() || kind !== 'coaching_method' || scope !== 'coach' || selectedVersions.length > 0))
+  const createDirty = Boolean(creating && (name.trim() || description.trim() || kind !== 'coaching_method' || scope !== (platformMode ? 'platform' : 'coach') || selectedVersions.length > 0))
 
   useEffect(() => onDirtyChange(packDirty || createDirty), [createDirty, onDirtyChange, packDirty])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -324,7 +331,7 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
     setName('')
     setDescription('')
     setKind('coaching_method')
-    setScope('coach')
+    setScope(platformMode ? 'platform' : 'coach')
     setSelectedVersions([])
   }
 
@@ -387,7 +394,7 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
           <label><span>Description</span><textarea disabled={busy || Boolean(selected && !selected.editable)} rows={2} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Purpose</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentPackKind)}>{packKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={scope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
           <fieldset className="coach-content-checklist"><legend>Exact approved item versions</legend>
             {approvedItems.map((item) => {

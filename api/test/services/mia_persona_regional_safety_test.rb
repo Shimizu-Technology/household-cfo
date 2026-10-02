@@ -166,12 +166,22 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
 
   test "persona models bind phrase provenance to its immutable capture role" do
     coach = persona_user
-    other_coach = persona_user
     participant = persona_user(role: "participant")
 
     wrong_coach_config = persona_configuration(assistant_name: "Wrong provenance")
     wrong_coach_config["phrases"] = [
-      phrase("Håfa adai", "A documented greeting.", [ "greeting" ], source_user_id: other_coach.id)
+      Mia::PersonaSchema.build_phrase_artifact(
+        {
+          "text" => "Håfa adai",
+          "meaning" => "A documented greeting.",
+          "allowed_contexts" => [ "greeting" ],
+          "prohibited_contexts" => [ "crisis" ],
+          "frequency" => "rare",
+          "caution" => "Use only in the approved context."
+        },
+        source_user_id: participant.id,
+        source_role_at_capture: "participant"
+      )
     ]
     wrong_coach = CoachPersona.new(
       name: "Wrong provenance",
@@ -203,6 +213,40 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     refute wrong_coach.valid?
     assert_includes wrong_coach.errors[:draft_config], "$.phrases[0] has invalid provenance"
     assert participant_persona.valid?
+  end
+
+  test "coach phrase seals survive workspace role change removal save publish and rollback" do
+    owner = persona_user
+    editor = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    membership = workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    assert workspace.allows?(editor, :edit)
+
+    config = persona_configuration(assistant_name: "Durable coach phrase")
+    config["phrases"] = [
+      phrase("One clear next move", "A coach-authored planning prompt.", [ "general" ], source_user_id: editor.id)
+    ]
+    persona = CoachPersona.create!(
+      name: "Durable coach phrase",
+      draft_config: config,
+      created_by_user: owner,
+      coach_workspace: workspace
+    )
+    original_version = publish_persona(persona, actor: owner)
+
+    membership.update!(role: "viewer")
+    persona.update!(description: "The source editor became a viewer after capture.")
+    assert persona.valid?
+    assert publish_persona(persona, actor: owner).valid?
+
+    membership.destroy!
+    persona.update!(description: "The source editor left after capture.")
+    assert publish_persona(persona, actor: owner).valid?
+
+    persona.apply_rollback_version!(original_version)
+    assert persona.reload.valid?
+    assert_equal editor.id, persona.draft_config.dig("phrases", 0, "source_user_id")
+    assert_equal "coach", persona.draft_config.dig("phrases", 0, "source_role_at_capture")
   end
 
   test "participant phrase seals survive role change revocation deletion publish and rollback" do

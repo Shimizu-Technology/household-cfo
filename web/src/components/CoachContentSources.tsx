@@ -11,6 +11,7 @@ import {
   updateAdminContentSourceCandidate,
   uploadAdminContentSource,
 } from '../api'
+import { useAuthContext } from '../contexts/authContextValue'
 import type {
   AdminContentItem,
   AdminContentItemKind,
@@ -37,12 +38,14 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
   onItemAccepted: (item: AdminContentItem) => void
   onReviewItem: (itemId: number) => void
 }) {
+  const { activeCoachWorkspaceId } = useAuthContext()
+  const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
   const [sources, setSources] = useState<AdminContentSource[]>([])
   const [selectedSource, setSelectedSource] = useState<AdminContentSource | null>(null)
   const [selectedCandidateId, setSelectedCandidateId] = useState<number | null>(null)
   const [draft, setDraft] = useState<CandidateDraft | null>(null)
   const [file, setFile] = useState<File | null>(null)
-  const [scope, setScope] = useState<AdminContentScope>('coach')
+  const [scope, setScope] = useState<AdminContentScope>(platformMode ? 'platform' : 'coach')
   const [loading, setLoading] = useState(true)
   const [listReady, setListReady] = useState(false)
   const [listLoadFailed, setListLoadFailed] = useState(false)
@@ -356,7 +359,7 @@ export function CoachContentSources({ currentUser, onDirtyChange, onItemAccepted
 
       <form className="coach-source-upload" onSubmit={(event) => void upload(event)}>
         <label htmlFor="coach-source-file"><span>Private source file</span><input ref={fileInputRef} id="coach-source-file" type="file" accept=".pdf,.docx,.txt,.md,.vtt,.srt" onChange={selectFile} aria-describedby="coach-source-file-help" disabled={!listReady || loading || Boolean(action)} /></label>
-        {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || Boolean(action)} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="platform">Platform library</option><option value="coach">My coaching library</option></select></label>}
+        {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || Boolean(action) || platformMode} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="platform">Platform library</option>{!platformMode && <option value="coach">My coaching library</option>}</select></label>}
         <Button type="submit" disabled={!file || !listReady || loading || Boolean(action)}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
         <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file is stored privately. Extracted text is sent through the configured AI provider's no-data-collection routing setting to propose drafts. It never reaches participant chat until you approve an item, publish a pack, and publish the assistant.</p>
         <details className="coach-source-limits"><summary>Library and upload limits</summary><p>Each staff account may keep up to 100 active private sources totaling 512 MB, with 5 uploads in progress and 10 new uploads started per 15 minutes.</p></details>
