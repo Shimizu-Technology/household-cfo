@@ -180,11 +180,53 @@
 .coach-source-alert.is-success { color: var(--status-green); }
 .coach-source-guard { position: sticky; bottom: 0.5rem; z-index: 2; flex-wrap: wrap; border-color: var(--mauve); box-shadow: var(--shadow-soft); }
 
+.coach-phrase-review { display: grid; grid-column: 2; min-width: 0; gap: 0.9rem; padding: 1rem; border: 1px solid color-mix(in srgb, var(--mauve) 45%, var(--line)); border-radius: 0.9rem; background: color-mix(in srgb, var(--paper) 94%, var(--mauve)); }
+.coach-phrase-review h5,
+.coach-phrase-review p { margin: 0; }
+.coach-phrase-review-heading,
+.coach-phrase-promote,
+.coach-phrase-confirm,
+.coach-phrase-message { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 0.75rem; }
+.coach-phrase-stage { flex: 0 0 auto; padding: 0.35rem 0.55rem; border-radius: 999px; color: var(--muted); background: var(--paper-warm); font-size: 0.75rem; font-weight: 800; }
+.coach-phrase-stage.is-approved { color: var(--status-green); }
+.coach-phrase-stage.is-rejected,
+.coach-phrase-message.is-error { color: var(--status-red); }
+.coach-phrase-message.is-success { color: var(--status-green); }
+.coach-phrase-boundary,
+.coach-phrase-promote,
+.coach-phrase-confirm,
+.coach-phrase-message { padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.7rem; background: var(--paper); overflow-wrap: anywhere; }
+.coach-phrase-message button { min-height: 2.75rem; border: 0; color: var(--mauve); background: transparent; font: inherit; font-weight: 800; cursor: pointer; }
+.coach-phrase-history { display: flex; gap: 0.5rem; padding-bottom: 0.2rem; overflow-x: auto; }
+.coach-phrase-history button { display: grid; flex: 0 0 auto; min-height: 2.75rem; padding: 0.5rem 0.7rem; border: 1px solid var(--line); border-radius: 0.65rem; color: var(--ink); background: var(--paper); font: inherit; text-align: left; }
+.coach-phrase-history button[aria-current='true'] { border-color: var(--mauve); }
+.coach-phrase-history small { color: var(--muted); }
+.coach-phrase-form { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); min-width: 0; gap: 0.8rem; }
+.coach-phrase-form > label,
+.coach-phrase-context { display: grid; min-width: 0; gap: 0.35rem; margin: 0; }
+.coach-phrase-form > .is-wide,
+.coach-phrase-actions,
+.coach-phrase-validation { grid-column: 1 / -1; }
+.coach-phrase-form input,
+.coach-phrase-form textarea,
+.coach-phrase-form select { width: 100%; min-width: 0; min-height: 2.75rem; padding: 0.7rem 0.8rem; border: 1px solid var(--line); border-radius: 0.7rem; color: var(--ink); background: var(--paper); font: inherit; }
+.coach-phrase-form textarea { resize: vertical; }
+.coach-phrase-form small { color: var(--muted); }
+.coach-phrase-context { padding: 0.75rem; border: 1px solid var(--line); border-radius: 0.7rem; }
+.coach-phrase-context > div { display: grid; gap: 0.35rem; }
+.coach-phrase-context label { display: flex; min-height: 2.75rem; align-items: center; gap: 0.5rem; }
+.coach-phrase-context input { flex: 0 0 auto; width: 1.1rem; min-height: 1.1rem; padding: 0; }
+.coach-phrase-validation { margin: 0; color: var(--status-red); }
+.coach-phrase-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.coach-phrase-promote > div { min-width: 0; }
+.coach-phrase-promote p { margin-top: 0.25rem; color: var(--muted); }
+
 @media (max-width: 1080px) {
   .coach-source-header { align-items: flex-start; flex-direction: column; }
   .coach-source-trust { justify-content: flex-start; }
   .coach-candidate-workspace { grid-template-columns: minmax(0, 1fr); }
   .coach-candidate-editor { padding-left: 0; padding-top: 1rem; border-left: 0; border-top: 1px solid var(--line); }
+  .coach-phrase-review { grid-column: 1; }
 }
 
 @media (max-width: 760px) {
@@ -192,6 +234,14 @@
   .coach-source-workspace { grid-template-columns: minmax(0, 1fr); }
   .coach-source-upload .button { width: 100%; }
   .coach-source-detail > header { align-items: flex-start; flex-direction: column; }
+  .coach-phrase-form { grid-template-columns: minmax(0, 1fr); }
+  .coach-phrase-form > .is-wide,
+  .coach-phrase-actions,
+  .coach-phrase-validation { grid-column: 1; }
+  .coach-phrase-review-heading,
+  .coach-phrase-promote,
+  .coach-phrase-confirm,
+  .coach-phrase-message { align-items: stretch; flex-direction: column; }
 }
 
 @media (max-width: 400px) {
@@ -202,4 +252,9 @@
   .coach-source-detail-actions .button--compact { min-height: 2.75rem; }
   .coach-candidate-actions { align-items: stretch; flex-direction: column; }
   .coach-candidate-actions .button { width: 100%; }
+  .coach-phrase-review { padding: 0.8rem; }
+  .coach-phrase-actions { align-items: stretch; flex-direction: column; }
+  .coach-phrase-actions .button,
+  .coach-phrase-promote .button,
+  .coach-phrase-confirm .button { width: 100%; }
 }

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AdminApprovedPhrase, AdminPhraseProposal } from './api'
 import {
   ApiRequestError,
   archiveAdminPersona,
@@ -7,6 +8,7 @@ import {
   createAdminContentPack,
   createAdminPersona,
   createAdminPersonaSetupTurn,
+  createAdminPhraseProposal,
   createBudgetCategory,
   createIncomeScheduleEntry,
   createIncomeSource,
@@ -23,10 +25,13 @@ import {
   fetchAdminContentPacks,
   fetchAdminContentSource,
   fetchAdminContentSources,
+  fetchAdminContentSourcePhraseProposals,
+  fetchAdminPhraseProposal,
   previewAdminPersona,
   publishAdminPersona,
   publishAdminContentPack,
   restoreAdminPersona,
+  restoreAdminPhrasePromotion,
   resolveAdminPersonaSetupProposal,
   rejectAdminContentSourceCandidate,
   reprocessAdminContentSource,
@@ -40,6 +45,7 @@ import {
   updateAdminContentItem,
   updateAdminContentPack,
   updateAdminContentSourceCandidate,
+  updateAdminPhraseProposal,
   updateAdminPersonaContentPacks,
   uploadDocumentImport,
   uploadAdminContentSource,
@@ -47,6 +53,7 @@ import {
   updateIncomeScheduleEntry,
   updateIncomeSource,
   archiveIncomeSource,
+  attestAdminPhraseProposal,
   bulkConfirmTransactionDrafts,
   confirmTransactionDraft,
   restoreIncomeSource,
@@ -54,6 +61,8 @@ import {
   matchTransactionDraft,
   reopenTransactionDraft,
   saveWorkspaceSetup,
+  submitAdminPhraseProposal,
+  promoteAdminPhraseProposal,
   updateTransactionDraft,
 } from './api'
 
@@ -407,6 +416,7 @@ describe('governed content source API contract', () => {
       content: 'Choose one practical next step.', topics: ['planning'], evidence_locator: { type: 'text', segment: 1 },
       evidence_excerpt: 'Choose one practical next step.', revision: 2, digest: 'candidate-digest', safety_code: null,
       accepted_content_item_id: null, reviewed_at: null, updated_at: '2026-10-01T00:00:00Z',
+      accepted_content_item_version_id: null,
     }
     const source = { id: 7, status: 'needs_review', candidates: [candidate] }
     const permissions = { upload_coach: true, upload_platform: false, retry_cleanup: false }
@@ -460,6 +470,7 @@ describe('governed content source API contract', () => {
       id: 9, source_id: 7, position: 0, status: 'proposed' as const, title: 'Current server title', kind: 'guidance' as const,
       content: 'Current server wording.', topics: [], evidence_locator: { type: 'text', segment: 1 }, evidence_excerpt: 'Evidence',
       revision: 3, digest: 'server-digest', safety_code: null, accepted_content_item_id: null, reviewed_at: null,
+      accepted_content_item_version_id: null,
       updated_at: '2026-10-01T00:00:00Z',
     }
     vi.stubGlobal('fetch', vi.fn()
@@ -477,6 +488,52 @@ describe('governed content source API contract', () => {
     }).catch((reason: unknown) => reason)
     expect(unsafe).toBeInstanceOf(ApiRequestError)
     expect(unsafe).toMatchObject({ status: 422, code: 'personal_information', payload: { candidate: { safety_code: 'personal_information' } } })
+  })
+
+  it('keeps phrase review, attestation, promotion, and restore revision bound', async () => {
+    const phrase: AdminApprovedPhrase = {
+      text: 'One step at a time', meaning: 'Choose one practical action.', allowed_contexts: ['general'],
+      prohibited_contexts: ['crisis'], frequency: 'rare', caution: 'Avoid during urgent safety needs.',
+    }
+    const proposal: AdminPhraseProposal = {
+      id: 31, source_id: 7, source_label: 'coach-source.txt', content_item_version_id: 22, status: 'draft' as const,
+      phrase, revision: 4, digest: 'proposal-digest', submitted_at: null, superseded_at: null,
+      proposed_by: { id: 2, full_name: 'Coach Editor' }, attestation: null, promotion_count: 0,
+      permissions: { edit: true, submit: true, review: false, promote: false },
+    }
+    const persona = { id: 5, draft_revision: 9 }
+    const promotion = { id: 8, persona_id: 5, proposal_id: 31, artifact_id: 'approved-source-31', phrase, source_label: 'coach-source.txt', promoted_at: '2026-10-02T00:00:00Z', promoted_by: { id: 2, full_name: 'Coach Editor' } }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ phrase_proposals: [proposal], permissions: { view: true, propose: true, review: false, promote: false } }))
+      .mockResolvedValueOnce(jsonResponse({ phrase_proposal: proposal }))
+      .mockResolvedValueOnce(jsonResponse({ phrase_proposal: proposal }, 201))
+      .mockResolvedValueOnce(jsonResponse({ phrase_proposal: { ...proposal, revision: 5 } }))
+      .mockResolvedValueOnce(jsonResponse({ phrase_proposal: { ...proposal, status: 'submitted' } }))
+      .mockResolvedValueOnce(jsonResponse({ phrase_proposal: { ...proposal, attestation: { decision: 'approved' } } }))
+      .mockResolvedValueOnce(jsonResponse({ persona, phrase_promotion: promotion }, 201))
+      .mockResolvedValueOnce(jsonResponse({ persona, phrase_promotion: promotion }, 201))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchAdminContentSourcePhraseProposals(7)
+    await fetchAdminPhraseProposal(31)
+    await createAdminPhraseProposal(7, { candidate_id: 9, content_item_version_id: 22, phrase: { ...phrase, allowed_contexts: ['general'], prohibited_contexts: ['crisis'] } })
+    await updateAdminPhraseProposal(proposal, { ...phrase, allowed_contexts: ['general'], prohibited_contexts: ['crisis'] })
+    await submitAdminPhraseProposal(proposal)
+    await attestAdminPhraseProposal(proposal, 'approved')
+    await promoteAdminPhraseProposal(5, 31, 9)
+    await restoreAdminPhrasePromotion(5, 8, 9)
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/content_sources/7/phrase_proposals', '/api/v1/admin/phrase_proposals/31',
+      '/api/v1/admin/content_sources/7/phrase_proposals', '/api/v1/admin/phrase_proposals/31',
+      '/api/v1/admin/phrase_proposals/31/submit', '/api/v1/admin/phrase_proposals/31/attestation',
+      '/api/v1/admin/personas/5/phrase_promotions', '/api/v1/admin/personas/5/phrase_promotions/8/restore',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[3][1] as RequestInit).body))).toEqual({ phrase_proposal: { phrase, revision: 4, digest: 'proposal-digest' } })
+    expect(JSON.parse(String((fetchMock.mock.calls[4][1] as RequestInit).body))).toEqual({ phrase_proposal: { revision: 4, digest: 'proposal-digest' } })
+    expect(JSON.parse(String((fetchMock.mock.calls[5][1] as RequestInit).body))).toEqual({ attestation: { decision: 'approved', proposal_digest: 'proposal-digest' } })
+    expect(JSON.parse(String((fetchMock.mock.calls[6][1] as RequestInit).body))).toEqual({ phrase_promotion: { proposal_id: 31, draft_revision: 9 } })
+    expect(JSON.parse(String((fetchMock.mock.calls[7][1] as RequestInit).body))).toEqual({ phrase_promotion: { draft_revision: 9 } })
   })
 })
 

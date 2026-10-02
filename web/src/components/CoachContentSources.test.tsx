@@ -70,6 +70,7 @@ function source(permissions: AdminContentSource['permissions']): AdminContentSou
       digest: 'candidate-digest',
       safety_code: null,
       accepted_content_item_id: null,
+      accepted_content_item_version_id: null,
       reviewed_at: null,
       updated_at: '2026-10-01T00:00:00Z',
     }],
@@ -89,7 +90,7 @@ function renderSources(user: CurrentUser = currentUser) {
       refreshCurrentUser: async () => undefined,
       selectCoachWorkspace: () => undefined,
     }}>
-      <CoachContentSources currentUser={user} mutationLifecycle={mutationLifecycle} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} />
+      <CoachContentSources currentUser={user} selectedPersona={null} refreshRequest={0} mutationLifecycle={mutationLifecycle} onDirtyChange={() => undefined} onItemAccepted={() => undefined} onReviewItem={() => undefined} onPersonaChange={() => undefined} />
     </AuthContext.Provider>,
   )
 }

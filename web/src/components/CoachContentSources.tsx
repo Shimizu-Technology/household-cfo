@@ -20,9 +20,11 @@ import type {
   AdminContentSource,
   AdminContentSourceCandidate,
   AdminContentSourceCollectionPermissions,
+  AdminPersonaDetail,
   CurrentUser,
 } from '../api'
 import { Button } from './Button'
+import { CoachPhraseProposalPanel } from './CoachPhraseProposalPanel'
 import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachContentSources.css'
 
@@ -36,12 +38,15 @@ const noCollectionPermissions: AdminContentSourceCollectionPermissions = { uploa
 type CandidateDraft = { title: string; kind: AdminContentItemKind; content: string; topics: string }
 type GuardedOpen = { type: 'source'; id: number } | { type: 'candidate'; id: number } | { type: 'delete' } | null
 
-export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyChange, onItemAccepted, onReviewItem }: {
+export function CoachContentSources({ currentUser, selectedPersona, refreshRequest, mutationLifecycle, onDirtyChange, onItemAccepted, onReviewItem, onPersonaChange }: {
   currentUser: CurrentUser
+  selectedPersona: AdminPersonaDetail | null
+  refreshRequest: number
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
   onItemAccepted: (item: AdminContentItem) => void
   onReviewItem: (itemId: number) => void
+  onPersonaChange: (persona: AdminPersonaDetail) => void
 }) {
   const { activeCoachWorkspaceId } = useAuthContext()
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
@@ -61,9 +66,12 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
   const [pendingOpen, setPendingOpen] = useState<GuardedOpen>(null)
   const [confirmReject, setConfirmReject] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [phraseDirty, setPhraseDirty] = useState(false)
+  const [phraseBusy, setPhraseBusy] = useState(false)
   const [conflictCandidate, setConflictCandidate] = useState<AdminContentSourceCandidate | null>(null)
   const requestSequence = useRef(0)
   const listRequestSequence = useRef(0)
+  const handledRefreshRequest = useRef(0)
   const activeWorkspaceIdRef = useRef(activeCoachWorkspaceId)
   const actionRef = useRef<string | null>(null)
   const noticeRef = useRef<HTMLDivElement>(null)
@@ -74,6 +82,11 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
   const rejectConfirmRef = useRef<HTMLSpanElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const candidateContentRef = useRef<HTMLTextAreaElement>(null)
+
+  function focusCurrentEditor() {
+    const phraseControl = document.querySelector<HTMLElement>('.coach-phrase-form input:not(:disabled), .coach-phrase-form textarea:not(:disabled), .coach-phrase-form select:not(:disabled)')
+    ;(candidateContentRef.current?.disabled ? phraseControl : candidateContentRef.current)?.focus()
+  }
 
   useLayoutEffect(() => {
     activeWorkspaceIdRef.current = activeCoachWorkspaceId
@@ -91,7 +104,7 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
     draft.kind !== selectedCandidate.kind ||
     parseTopics(draft.topics).join('\n') !== selectedCandidate.topics.join('\n')
   ))
-  const dirty = Boolean(file || candidateDirty || action === 'upload')
+  const dirty = Boolean(file || candidateDirty || phraseDirty || action === 'upload')
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -146,9 +159,10 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
     setConfirmReject(false)
     setConflictCandidate(null)
     setPendingOpen(null)
+    setPhraseDirty(false)
   }, [])
 
-  const openSource = useCallback(async (id: number) => {
+  const openSource = useCallback(async (id: number, preferredCandidateId?: number | null) => {
     if (actionRef.current) return
     const sequence = ++requestSequence.current
     const actionName = `source:${id}`
@@ -161,7 +175,10 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
       if (sequence !== requestSequence.current) return
       setSelectedSource(source)
       setSources((current) => replaceSource(current, source))
-      const first = source.candidates.find((candidate) => candidate.status === 'proposed') ?? source.candidates[0] ?? null
+      const first = source.candidates.find((candidate) => candidate.id === preferredCandidateId)
+        ?? source.candidates.find((candidate) => candidate.status === 'proposed')
+        ?? source.candidates[0]
+        ?? null
       chooseCandidate(first)
     } catch (caught) {
       if (sequence === requestSequence.current) setError(messageFor(caught, 'This source could not load.'))
@@ -172,6 +189,12 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
       }
     }
   }, [chooseCandidate])
+
+  useEffect(() => {
+    if (refreshRequest <= handledRefreshRequest.current || !selectedSource || candidateDirty || phraseDirty || actionRef.current) return
+    handledRefreshRequest.current = refreshRequest
+    void openSource(selectedSource.id, selectedCandidateId)
+  }, [candidateDirty, openSource, phraseDirty, refreshRequest, selectedCandidateId, selectedSource])
 
   const pollingSourceId = selectedSource?.id ?? null
   const pollingSourceStatus = selectedSource?.status ?? null
@@ -204,13 +227,13 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
 
   function requestSource(id: number) {
     if (actionRef.current) return
-    if (candidateDirty) setPendingOpen({ type: 'source', id })
+    if (candidateDirty || phraseDirty) setPendingOpen({ type: 'source', id })
     else void openSource(id)
   }
 
   function requestCandidate(candidate: AdminContentSourceCandidate) {
     if (actionRef.current) return
-    if (candidateDirty) setPendingOpen({ type: 'candidate', id: candidate.id })
+    if (candidateDirty || phraseDirty) setPendingOpen({ type: 'candidate', id: candidate.id })
     else chooseCandidate(candidate)
   }
 
@@ -341,7 +364,7 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
   }
 
   async function runAction(name: string, callback: (ticket: CoachWorkspaceMutationTicket) => Promise<void>, fallback = 'That source change could not be saved.') {
-    if (actionRef.current) return false
+    if (actionRef.current || phraseBusy) return false
     const ticket = mutationLifecycle.begin()
     actionRef.current = name
     setAction(name)
@@ -393,6 +416,7 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
   const failedCleanupCount = useMemo(() => sources.filter((source) => source.status === 'upload_cleanup_failed').length, [sources])
   const canUpload = collectionPermissions.upload_coach || collectionPermissions.upload_platform
   const showUpload = !listReady || canUpload
+  const controlsBusy = Boolean(action) || phraseBusy
 
   async function retryFailedUploadCleanups() {
     await runAction('cleanup-sweep', async (ticket) => {
@@ -415,52 +439,64 @@ export function CoachContentSources({ currentUser, mutationLifecycle, onDirtyCha
       {notice && <div className="coach-source-alert is-success" role="status" tabIndex={-1} ref={noticeRef}><span>{notice}</span>{selectedCandidate?.accepted_content_item_id && <button type="button" onClick={() => onReviewItem(selectedCandidate.accepted_content_item_id!)}>Review content draft</button>}</div>}
 
       {showUpload ? <form className="coach-source-upload" onSubmit={(event) => void upload(event)}>
-        <label htmlFor="coach-source-file"><span>Private source file</span><input ref={fileInputRef} id="coach-source-file" type="file" accept=".pdf,.docx,.txt,.md,.vtt,.srt" onChange={selectFile} aria-describedby="coach-source-file-help" disabled={!listReady || loading || Boolean(action)} /></label>
-        {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || Boolean(action) || platformMode} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{collectionPermissions.upload_platform && <option value="platform">Platform library</option>}{collectionPermissions.upload_coach && <option value="coach">My coaching library</option>}</select></label>}
-        <Button type="submit" disabled={!file || !listReady || loading || Boolean(action)}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
+        <label htmlFor="coach-source-file"><span>Private source file</span><input ref={fileInputRef} id="coach-source-file" type="file" accept=".pdf,.docx,.txt,.md,.vtt,.srt" onChange={selectFile} aria-describedby="coach-source-file-help" disabled={!listReady || loading || controlsBusy} /></label>
+        {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || controlsBusy || platformMode} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{collectionPermissions.upload_platform && <option value="platform">Platform library</option>}{collectionPermissions.upload_coach && <option value="coach">My coaching library</option>}</select></label>}
+        <Button type="submit" disabled={!file || !listReady || loading || controlsBusy}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
         <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file is stored privately. Extracted text is sent through the configured AI provider's no-data-collection routing setting to propose drafts. It never reaches participant chat until you approve an item, publish a pack, and publish the assistant.</p>
         <details className="coach-source-limits"><summary>Library and upload limits</summary><p>Each staff account may keep up to 100 active private sources totaling 512 MB, with 5 uploads in progress and 10 new uploads started per 15 minutes.</p></details>
         {file && <p className="coach-source-file-name"><strong>Ready:</strong> {file.name} · {formatBytes(file.size)}</p>}
       </form> : <p className="coach-content-note">You can review private sources here. Editors manage uploads and candidate wording.</p>}
 
-      {collectionPermissions.retry_cleanup && failedCleanupCount > 0 && <div className="coach-source-alert is-error" role="alert"><span>{failedCleanupCount} abandoned private upload {failedCleanupCount === 1 ? 'needs' : 'need'} storage cleanup.</span><button type="button" disabled={Boolean(action)} onClick={() => void retryFailedUploadCleanups()}>Retry failed cleanup</button></div>}
+      {collectionPermissions.retry_cleanup && failedCleanupCount > 0 && <div className="coach-source-alert is-error" role="alert"><span>{failedCleanupCount} abandoned private upload {failedCleanupCount === 1 ? 'needs' : 'need'} storage cleanup.</span><button type="button" disabled={controlsBusy} onClick={() => void retryFailedUploadCleanups()}>Retry failed cleanup</button></div>}
 
       <div className="coach-source-workspace">
         <section className="coach-source-list" aria-label="Private content sources">
           <header><h4>Private sources</h4><small>Showing {sources.length} current</small></header>
           {loading && sources.length === 0 && <p role="status">Loading private sources…</p>}
           {!loading && sources.length === 0 && !error && <p>No private sources yet. Manual content creation below is always available.</p>}
-          {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={Boolean(action)}><span><strong>{source.filename}</strong><small>{formatBytes(source.byte_size)}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
+          {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={controlsBusy}><span><strong>{source.filename}</strong><small>{formatBytes(source.byte_size)}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
         </section>
 
         <section className="coach-source-detail" aria-label="Selected source details">
           {!selectedSource && <p>Select a source to review its status and candidates.</p>}
           {selectedSource && <>
-            <header><div><h4>{selectedSource.filename}</h4><p><span className={`coach-source-status is-${selectedSource.status}`}>{statusLabel(selectedSource.status)}</span> · {activeCount} candidate{activeCount === 1 ? '' : 's'} waiting</p></div><div className="coach-source-detail-actions">{selectedSource.source_available && selectedSource.permissions.download && <Button size="compact" variant="secondary" disabled={Boolean(action)} onClick={() => void downloadSource()}>Download source</Button>}{selectedSource.status === 'failed' && selectedSource.permissions.reprocess && <Button size="compact" variant="secondary" disabled={Boolean(action)} onClick={() => void retrySource()}>Retry reading</Button>}{selectedSource.status === 'deletion_failed' && selectedSource.permissions.delete && <Button size="compact" variant="secondary" disabled={Boolean(action)} onClick={() => void removeSource()}>Retry private-file deletion</Button>}{selectedSource.source_available && selectedSource.permissions.delete && !confirmDelete && <Button id="coach-source-delete-trigger" size="compact" variant="ghost" disabled={Boolean(action)} onClick={() => candidateDirty ? setPendingOpen({ type: 'delete' }) : setConfirmDelete(true)}>Delete source</Button>}</div></header>
-            {confirmDelete && <div className="coach-source-confirm" role="alert" tabIndex={-1} ref={deleteConfirmRef}><p>Delete the private file? Redacted evidence excerpts and review records remain with approved content provenance.</p><div><Button size="compact" variant="danger" onClick={() => void removeSource()} disabled={Boolean(action)}>Delete private file</Button><Button size="compact" variant="ghost" onClick={() => { setConfirmDelete(false); queueMicrotask(() => document.getElementById('coach-source-delete-trigger')?.focus()) }}>Keep source</Button></div></div>}
+            <header><div><h4>{selectedSource.filename}</h4><p><span className={`coach-source-status is-${selectedSource.status}`}>{statusLabel(selectedSource.status)}</span> · {activeCount} candidate{activeCount === 1 ? '' : 's'} waiting</p></div><div className="coach-source-detail-actions">{selectedSource.source_available && selectedSource.permissions.download && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => void downloadSource()}>Download source</Button>}{selectedSource.status === 'failed' && selectedSource.permissions.reprocess && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => void retrySource()}>Retry reading</Button>}{selectedSource.status === 'deletion_failed' && selectedSource.permissions.delete && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => void removeSource()}>Retry private-file deletion</Button>}{selectedSource.source_available && selectedSource.permissions.delete && !confirmDelete && <Button id="coach-source-delete-trigger" size="compact" variant="ghost" disabled={Boolean(action) || phraseBusy} onClick={() => candidateDirty || phraseDirty ? setPendingOpen({ type: 'delete' }) : setConfirmDelete(true)}>Delete source</Button>}</div></header>
+            {confirmDelete && <div className="coach-source-confirm" role="alert" tabIndex={-1} ref={deleteConfirmRef}><p>Delete the private file? Redacted evidence excerpts and review records remain with approved content provenance.</p><div><Button size="compact" variant="danger" onClick={() => void removeSource()} disabled={controlsBusy}>Delete private file</Button><Button size="compact" variant="ghost" disabled={controlsBusy} onClick={() => { setConfirmDelete(false); queueMicrotask(() => document.getElementById('coach-source-delete-trigger')?.focus()) }}>Keep source</Button></div></div>}
             {selectedSource.error && <p className="coach-source-alert is-error" role="alert">{selectedSource.error}</p>}
             {['queued', 'processing'].includes(selectedSource.status) && <p role="status">{selectedSource.status === 'queued' ? 'Queued to read. You may leave this page.' : 'Reading and proposing candidates. You may keep working.'}</p>}
             {selectedSource.status === 'needs_review' && selectedSource.candidates.length === 0 && <p>No safe, general coaching candidates were found. The private source remains unavailable to Mia.</p>}
             {selectedSource.candidates.length > 0 && <div className="coach-candidate-workspace">
-              <div className="coach-candidate-list" aria-label="Source candidates">{selectedSource.candidates.map((candidate) => <button type="button" key={candidate.id} aria-current={selectedCandidateId === candidate.id ? 'true' : undefined} className={selectedCandidateId === candidate.id ? 'is-selected' : ''} onClick={() => requestCandidate(candidate)} disabled={Boolean(action)}><span><strong>{candidate.title}</strong><small>{label(candidate.kind)}</small></span><small>{label(candidate.status)}</small></button>)}</div>
+              <div className="coach-candidate-list" aria-label="Source candidates">{selectedSource.candidates.map((candidate) => <button type="button" key={candidate.id} aria-current={selectedCandidateId === candidate.id ? 'true' : undefined} className={selectedCandidateId === candidate.id ? 'is-selected' : ''} onClick={() => requestCandidate(candidate)} disabled={controlsBusy}><span><strong>{candidate.title}</strong><small>{label(candidate.kind)}</small></span><small>{label(candidate.status)}</small></button>)}</div>
               {selectedCandidate && draft && <form className="coach-candidate-editor" onSubmit={(event) => { event.preventDefault(); void saveCandidate() }}>
-                <label><span>Candidate title</span><input maxLength={160} disabled={!candidateEditable || Boolean(action)} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
-                <label><span>Type</span><select disabled={!candidateEditable || Boolean(action)} value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as AdminContentItemKind })}>{kinds.map((kind) => <option key={kind} value={kind}>{label(kind)}</option>)}</select></label>
-                <label><span>Draft wording</span><textarea ref={candidateContentRef} rows={7} maxLength={10000} disabled={!candidateEditable || Boolean(action)} value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /><small>{draft.content.length.toLocaleString()} / 10,000 characters</small></label>
-                <label><span>Suggested topics</span><input disabled={!candidateEditable || Boolean(action)} value={draft.topics} onChange={(event) => setDraft({ ...draft, topics: event.target.value })} /><small>Comma separated review metadata; Mia does not use these labels directly.</small></label>
+                <label><span>Candidate title</span><input maxLength={160} disabled={!candidateEditable || controlsBusy} value={draft.title} onChange={(event) => setDraft({ ...draft, title: event.target.value })} /></label>
+                <label><span>Type</span><select disabled={!candidateEditable || controlsBusy} value={draft.kind} onChange={(event) => setDraft({ ...draft, kind: event.target.value as AdminContentItemKind })}>{kinds.map((kind) => <option key={kind} value={kind}>{label(kind)}</option>)}</select></label>
+                <label><span>Draft wording</span><textarea ref={candidateContentRef} rows={7} maxLength={10000} disabled={!candidateEditable || controlsBusy} value={draft.content} onChange={(event) => setDraft({ ...draft, content: event.target.value })} /><small>{draft.content.length.toLocaleString()} / 10,000 characters</small></label>
+                <label><span>Suggested topics</span><input disabled={!candidateEditable || controlsBusy} value={draft.topics} onChange={(event) => setDraft({ ...draft, topics: event.target.value })} /><small>Comma separated review metadata; Mia does not use these labels directly.</small></label>
                 <figure className="coach-candidate-evidence"><figcaption>Source evidence · {locatorLabel(selectedCandidate.evidence_locator)}</figcaption><blockquote>{selectedCandidate.evidence_excerpt}</blockquote></figure>
                 {selectedCandidate.safety_code && selectedCandidate.safety_code !== 'source_deleted' && <p className="coach-source-safety" role="note">Needs attention: {safetyLabel(selectedCandidate.safety_code)} Edit the candidate, then save to run the server check again.</p>}
                 {selectedCandidate.safety_code === 'source_deleted' && <p className="coach-content-note">The private source file was deleted. This review record remains for audit history.</p>}
-                {(candidateEditable || candidateReviewable) && <div className="coach-candidate-actions">{candidateEditable && <Button type="submit" variant="secondary" disabled={!candidateDirty || Boolean(action) || !draft.title.trim() || !draft.content.trim()}>Save edits</Button>}{candidateReviewable && <><Button type="button" disabled={Boolean(action) || !draft.title.trim() || !draft.content.trim() || Boolean(selectedCandidate.safety_code && !candidateDirty)} onClick={() => void acceptCandidate()}>{candidateDirty ? (selectedCandidate.safety_code ? 'Save, recheck, and create draft' : 'Save and create draft') : 'Create content draft'}</Button>{!confirmReject ? <Button id="coach-source-reject-trigger" type="button" variant="ghost" disabled={Boolean(action)} onClick={() => setConfirmReject(true)}>Reject</Button> : <span className="coach-inline-confirm" role="alert" tabIndex={-1} ref={rejectConfirmRef}>Reject this candidate?<button type="button" onClick={() => void rejectCandidate()}>Yes, reject</button><button type="button" onClick={() => { setConfirmReject(false); queueMicrotask(() => document.getElementById('coach-source-reject-trigger')?.focus()) }}>Cancel</button></span>}</>}</div>}
+                {(candidateEditable || candidateReviewable) && <div className="coach-candidate-actions">{candidateEditable && <Button type="submit" variant="secondary" disabled={!candidateDirty || controlsBusy || !draft.title.trim() || !draft.content.trim()}>Save edits</Button>}{candidateReviewable && <><Button type="button" disabled={controlsBusy || !draft.title.trim() || !draft.content.trim() || Boolean(selectedCandidate.safety_code && !candidateDirty)} onClick={() => void acceptCandidate()}>{candidateDirty ? (selectedCandidate.safety_code ? 'Save, recheck, and create draft' : 'Save and create draft') : 'Create content draft'}</Button>{!confirmReject ? <Button id="coach-source-reject-trigger" type="button" variant="ghost" disabled={controlsBusy} onClick={() => setConfirmReject(true)}>Reject</Button> : <span className="coach-inline-confirm" role="alert" tabIndex={-1} ref={rejectConfirmRef}>Reject this candidate?<button type="button" disabled={controlsBusy} onClick={() => void rejectCandidate()}>Yes, reject</button><button type="button" disabled={controlsBusy} onClick={() => { setConfirmReject(false); queueMicrotask(() => document.getElementById('coach-source-reject-trigger')?.focus()) }}>Cancel</button></span>}</>}</div>}
                 {selectedCandidate.status === 'proposed' && !candidateEditable && !candidateReviewable && <p className="coach-content-note">Candidate review is paused while the source changes state.</p>}
                 {selectedCandidate.status === 'accepted' && <p className="coach-source-alert is-success">Content draft created. It remains unavailable until item approval, pack publication, and assistant publication.</p>}
+                {selectedCandidate.status === 'accepted' && selectedCandidate.accepted_content_item_id && <Button type="button" size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => onReviewItem(selectedCandidate.accepted_content_item_id!)}>{selectedCandidate.accepted_content_item_version_id ? 'Review approved content version' : 'Approve content draft'}</Button>}
               </form>}
+              {selectedCandidate && <CoachPhraseProposalPanel
+                key={`${selectedSource.id}:${selectedCandidate.id}:${selectedCandidate.accepted_content_item_version_id ?? 'draft'}`}
+                sourceId={selectedSource.id}
+                candidate={selectedCandidate}
+                selectedPersona={selectedPersona}
+                mutationLifecycle={mutationLifecycle}
+                disabled={Boolean(action)}
+                onDirtyChange={setPhraseDirty}
+                onBusyChange={setPhraseBusy}
+                onPersonaChange={onPersonaChange}
+              />}
             </div>}
           </>}
         </section>
       </div>
 
-      {pendingOpen && <div className="coach-source-guard" role="alert" tabIndex={-1} ref={guardRef}><p>You have unsaved candidate edits.</p><Button size="compact" onClick={() => { setPendingOpen(null); queueMicrotask(() => candidateContentRef.current?.focus()) }}>Keep editing</Button><Button size="compact" variant="secondary" onClick={discardAndOpen}>Discard and open</Button></div>}
+      {pendingOpen && <div className="coach-source-guard" role="alert" tabIndex={-1} ref={guardRef}><p>You have unsaved source review edits.</p><Button size="compact" onClick={() => { setPendingOpen(null); queueMicrotask(focusCurrentEditor) }}>Keep editing</Button><Button size="compact" variant="secondary" onClick={discardAndOpen}>Discard and open</Button></div>}
     </article>
   )
 }

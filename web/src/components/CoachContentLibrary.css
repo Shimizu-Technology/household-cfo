@@ -203,6 +203,16 @@
   font-size: 0.9rem;
 }
 
+.coach-content-promotion-path,
+.coach-content-legacy-phrases { display: grid; gap: 0.6rem; padding: 0.8rem; border: 1px solid var(--line); border-radius: 0.7rem; background: var(--paper-warm); overflow-wrap: anywhere; }
+.coach-content-promotion-path p,
+.coach-content-legacy-phrases p { margin: 0; color: var(--muted); font-size: 0.85rem; }
+.coach-content-legacy-phrases > div:not(:first-child) { display: flex; min-width: 0; align-items: center; justify-content: space-between; gap: 0.75rem; padding-top: 0.6rem; border-top: 1px solid var(--line); }
+.coach-content-legacy-phrases span { display: grid; min-width: 0; }
+.coach-content-legacy-phrases span > * { overflow-wrap: anywhere; }
+.coach-content-legacy-phrases small { color: var(--muted); }
+.coach-content-legacy-phrases button { min-height: 2.75rem; padding: 0.55rem 0.75rem; border: 1px solid var(--mauve); border-radius: 0.6rem; color: var(--mauve); background: var(--paper); font: inherit; font-weight: 800; cursor: pointer; }
+
 .coach-content-alert {
   margin: 0;
   padding: 0.8rem 1rem;
@@ -249,4 +259,6 @@
   .coach-content-actions { align-items: stretch; flex-direction: column; }
   .coach-content-panel > header > .button--compact { min-height: 2.75rem; }
   .coach-content-actions .button { width: 100%; }
+  .coach-content-legacy-phrases > div:not(:first-child) { align-items: stretch; flex-direction: column; }
+  .coach-content-legacy-phrases button { width: 100%; }
 }

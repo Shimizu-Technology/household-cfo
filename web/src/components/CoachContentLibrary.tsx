@@ -30,10 +30,12 @@ const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phr
 const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', 'finance_reference']
 const normalizeSingleLine = (value: string) => value.trim().replace(/\s+/g, ' ')
 
-export function CoachContentLibrary({ currentUser, mutationLifecycle, onDirtyChange }: {
+export function CoachContentLibrary({ currentUser, selectedPersona, mutationLifecycle, onDirtyChange, onPersonaChange }: {
   currentUser: CurrentUser
+  selectedPersona: AdminPersonaDetail | null
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange?: (dirty: boolean) => void
+  onPersonaChange: (persona: AdminPersonaDetail) => void
 }) {
   const { activeCoachWorkspaceId } = useAuthContext()
   const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
@@ -49,6 +51,7 @@ export function CoachContentLibrary({ currentUser, mutationLifecycle, onDirtyCha
   const [sourceDirty, setSourceDirty] = useState(false)
   const [itemReviewRequest, setItemReviewRequest] = useState(0)
   const [itemFocusRequest, setItemFocusRequest] = useState(0)
+  const [sourceRefreshRequest, setSourceRefreshRequest] = useState(0)
   const [pendingReviewItemId, setPendingReviewItemId] = useState<number | null>(null)
   const loadSequenceRef = useRef(0)
   const activeWorkspaceIdRef = useRef(activeCoachWorkspaceId)
@@ -145,12 +148,15 @@ export function CoachContentLibrary({ currentUser, mutationLifecycle, onDirtyCha
 
       <CoachContentSources
         currentUser={currentUser}
+        selectedPersona={selectedPersona}
+        refreshRequest={sourceRefreshRequest}
         mutationLifecycle={mutationLifecycle}
         onDirtyChange={setSourceDirty}
         onItemAccepted={(item) => {
           setItems((current) => [item, ...current.filter((value) => value.id !== item.id)])
         }}
         onReviewItem={requestAcceptedItem}
+        onPersonaChange={onPersonaChange}
       />
 
       {pendingReviewItemId !== null && <div className="coach-content-alert is-error" role="alert"><span>You have unsaved content item edits.</span><button type="button" onClick={() => { setPendingReviewItemId(null); setItemFocusRequest((value) => value + 1) }}>Keep editing</button><button type="button" onClick={() => openAcceptedItem(pendingReviewItemId)}>Discard and review draft</button></div>}
@@ -168,7 +174,11 @@ export function CoachContentLibrary({ currentUser, mutationLifecycle, onDirtyCha
           onSelect={setSelectedItemId}
           onCreate={(values) => mutate(async (ticket) => { const item = await createAdminContentItem(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
           onSave={(item, values) => mutate(async () => { await updateAdminContentItem(item.id, { ...values, draft_revision: item.draft_revision ?? 0 }) }, 'Content draft saved. Approve the new version when it is ready.')}
-          onApprove={(item) => mutate(async () => { await approveAdminContentItem(item.id, item.draft_revision ?? 0, item.draft_digest ?? '') }, `${item.title} is approved as an immutable version.`)}
+          onApprove={async (item) => {
+            const approved = await mutate(async () => { await approveAdminContentItem(item.id, item.draft_revision ?? 0, item.draft_digest ?? '') }, `${item.title} is approved as an immutable version.`)
+            if (approved) setSourceRefreshRequest((value) => value + 1)
+            return approved
+          }}
         />
         <ContentPacksPanel
           currentUser={currentUser}
@@ -322,7 +332,7 @@ function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewR
   )
 }
 
-function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
+export function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
   currentUser: CurrentUser
   platformMode: boolean
   packs: AdminContentPack[]
@@ -343,9 +353,12 @@ function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, 
   const [selectedVersions, setSelectedVersions] = useState<number[]>([])
   const effectiveScope: AdminContentScope = platformMode && !selected ? 'platform' : scope
   const effectiveSelectedVersions = effectiveScope === 'platform'
-    ? selectedVersions.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))
+    ? selectedVersions.filter((id) => items.some((item) => item.scope === 'platform' && (
+      item.current_approved_version?.id === id || selected?.draft_items.some((version) => version.id === id && version.item_id === item.id)
+    )))
     : selectedVersions
-  const approvedItems = items.filter((item) => item.current_approved_version && !item.archived && (effectiveScope === 'coach' || item.scope === 'platform'))
+  const approvedItems = items.filter((item) => item.kind !== 'phrase' && item.current_approved_version && !item.archived && (effectiveScope === 'coach' || item.scope === 'platform'))
+  const legacyPhraseVersions = selected?.draft_items.filter((item) => item.kind === 'phrase' && effectiveSelectedVersions.includes(item.id)) ?? []
   const packDirty = Boolean(selected?.editable && (
     normalizeSingleLine(name) !== selected.name ||
     description.trim() !== selected.description ||
@@ -395,6 +408,10 @@ function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, 
     setSelectedVersions((current) => [...current.filter((id) => !oldIds.includes(id) && id !== version.id), version.id])
   }
 
+  function removeLegacyPhrase(versionId: number) {
+    setSelectedVersions((current) => current.filter((id) => id !== versionId))
+  }
+
   async function submit(event: FormEvent) {
     event.preventDefault()
     const normalizedName = normalizeSingleLine(name)
@@ -437,6 +454,14 @@ function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, 
               return <div className="coach-content-item-option" key={item.id}><label><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={included} onChange={() => toggleItem(item)} /><span><strong>{item.title}</strong><small>{updateAvailable ? `Pinned v${pinned?.version} · current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && selected?.editable && <button type="button" className="coach-content-upgrade" disabled={busy} onClick={() => upgradeItem(item)}>Use v{current.version}</button>}</div>
             })}
           </fieldset>
+          <div className="coach-content-promotion-path" role="note">
+            <strong>Reviewed phrases follow their source record.</strong>
+            <p>Open a private source, approve its exact content version, review the phrase and safety settings, then promote it directly to the selected assistant. Phrase artifacts are not added through content packs.</p>
+          </div>
+          {legacyPhraseVersions.length > 0 && <section className="coach-content-legacy-phrases" aria-labelledby="legacy-phrase-title">
+            <div><strong id="legacy-phrase-title">Legacy phrase selections</strong><p>These older pack entries stay selected until you remove them. New reviewed phrases use direct assistant promotion.</p></div>
+            {legacyPhraseVersions.map((version) => <div key={version.id}><span><strong>{version.title}</strong><small>Phrase · v{version.version}</small></span>{selected?.editable && <button type="button" disabled={busy} onClick={() => removeLegacyPhrase(version.id)}>Remove legacy phrase</button>}</div>)}
+          </section>}
           <div className="coach-content-actions">
             {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || effectiveSelectedVersions.length === 0 || Boolean(selected && !packDirty)}>{selected ? 'Save pack' : 'Create pack draft'}</Button>}
             {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
