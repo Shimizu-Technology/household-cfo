@@ -61,7 +61,7 @@ module CoachOperations
       end
     rescue CohortReleases::Authorization::NotAuthorized => error
       raise NotAuthorized, error.message
-    rescue KeyError, Base::InvalidInput, ArgumentError => error
+    rescue KeyError, Base::InvalidInput => error
       raise InvalidRequest, error.message
     end
 

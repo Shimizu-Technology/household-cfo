@@ -49,7 +49,12 @@ module CoachOperations
     end
 
     def required_id(value, name)
-      id = Integer(value, exception: false)
+      id = case value
+      when Integer
+        value
+      when /\A[1-9][0-9]*\z/
+        Integer(value, 10)
+      end
       raise InvalidInput, "#{name} must be a positive integer" unless id&.positive?
 
       id

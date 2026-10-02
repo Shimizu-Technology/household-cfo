@@ -14,10 +14,10 @@ module CoachOperations
       {
         "expected_latest_release_id" => required_id(input["expected_latest_release_id"], "expected_latest_release_id"),
         "source_bundle_digest" => required_digest(input["source_bundle_digest"], "source_bundle_digest"),
-        "source_experience_version_id" => required_id(
+        "source_experience_version_id" => optional_id(
           input["source_experience_version_id"], "source_experience_version_id"
         ),
-        "source_persona_version_id" => required_id(input["source_persona_version_id"], "source_persona_version_id"),
+        "source_persona_version_id" => optional_id(input["source_persona_version_id"], "source_persona_version_id"),
         "source_release_id" => required_id(input["source_release_id"], "source_release_id")
       }
     end

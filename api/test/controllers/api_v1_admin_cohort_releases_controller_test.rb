@@ -53,6 +53,21 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal true, response.parsed_body.fetch("replayed")
     assert_equal release_id, response.parsed_body.dig("release", "id")
+
+    publish_changed_experience(cohort, owner)
+    run_seal(cohort, owner, seal_payload(cohort), "api-seal-2")
+    post endpoint(cohort), params: { release: payload }, headers: request_headers, as: :json
+    assert_response :success
+    replay_payload = response.parsed_body
+    history_release = replay_payload.dig("cohort_release_studio", "releases").find do |release|
+      release.fetch("id") == release_id
+    end
+    assert_equal history_release, replay_payload.fetch("release")
+
+    cohort.coach_workspace.coach_workspace_memberships.find_by!(user: owner).update!(role: "viewer")
+    post endpoint(cohort), params: { release: payload }, headers: request_headers, as: :json
+    assert_response :forbidden
+    assert_equal "cohort_release_forbidden", response.parsed_body.fetch("code")
   end
 
   test "platform admin can operate without workspace header while cross workspace coaches see not found" do
@@ -89,19 +104,8 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "restore pins the source and latest records and creates new immutable evidence" do
-    owner, cohort, = governed_components
-    first_input = seal_payload(cohort)
-    first = run_seal(cohort, owner, first_input, "restore-source").release
-    publish_changed_experience(cohort, owner)
-    second_input = seal_payload(cohort)
-    second = run_seal(cohort, owner, second_input, "restore-current").release
-
-    payload = {
-      expected_latest_release_id: second.id,
-      source_bundle_digest: first.bundle_digest,
-      source_persona_version_id: first.coach_persona_version_id,
-      source_experience_version_id: first.cohort_experience_version_id
-    }
+    owner, cohort, first, = restore_setup
+    payload = restore_payload(cohort, first)
     post "#{endpoint(cohort)}/#{first.id}/restore", params: { release: payload },
       headers: workspace_headers(owner, cohort.coach_workspace).merge("Idempotency-Key" => "restore-first"), as: :json
     assert_response :created
@@ -115,6 +119,40 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
       headers: workspace_headers(owner, cohort.coach_workspace).merge("Idempotency-Key" => "restore-noop"), as: :json
     assert_response :conflict
     assert_equal "cohort_release_noop", response.parsed_body.fetch("code")
+  end
+
+  test "restore rejects stale latest release evidence" do
+    owner, cohort, first, = restore_setup
+    payload = restore_payload(cohort, first).merge(expected_latest_release_id: first.id)
+
+    post "#{endpoint(cohort)}/#{first.id}/restore", params: { release: payload },
+      headers: workspace_headers(owner, cohort.coach_workspace).merge("Idempotency-Key" => "restore-stale"), as: :json
+
+    assert_response :conflict
+    assert_equal "cohort_release_conflict", response.parsed_body.fetch("code")
+  end
+
+  test "restore rejects viewers" do
+    owner, cohort, first, = restore_setup
+    viewer = persona_user
+    cohort.coach_workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+
+    post "#{endpoint(cohort)}/#{first.id}/restore", params: { release: restore_payload(cohort, first) },
+      headers: workspace_headers(viewer, cohort.coach_workspace).merge("Idempotency-Key" => "restore-viewer"), as: :json
+
+    assert_response :forbidden
+    assert_equal "cohort_release_forbidden", response.parsed_body.fetch("code")
+  end
+
+  test "restore rejects read-only cohorts" do
+    owner, cohort, first, = restore_setup
+    cohort.update!(status: "completed")
+
+    post "#{endpoint(cohort)}/#{first.id}/restore", params: { release: restore_payload(cohort, first) },
+      headers: workspace_headers(owner, cohort.coach_workspace).merge("Idempotency-Key" => "restore-read-only"), as: :json
+
+    assert_response :unprocessable_entity
+    assert_equal "cohort_release_read_only", response.parsed_body.fetch("code")
   end
 
   private
@@ -158,6 +196,23 @@ class ApiV1AdminCohortReleasesControllerTest < ActionDispatch::IntegrationTest
       expected_draft_revision: configuration.reload.draft_revision,
       expected_current_version_id: configuration.current_published_version_id
     )
+  end
+
+  def restore_setup
+    owner, cohort, = governed_components
+    first = run_seal(cohort, owner, seal_payload(cohort), "restore-source-#{SecureRandom.hex(3)}").release
+    publish_changed_experience(cohort, owner)
+    second = run_seal(cohort, owner, seal_payload(cohort), "restore-current-#{SecureRandom.hex(3)}").release
+    [ owner, cohort, first, second ]
+  end
+
+  def restore_payload(cohort, source)
+    {
+      expected_latest_release_id: cohort.cohort_releases.order(release_number: :desc).pick(:id),
+      source_bundle_digest: source.bundle_digest,
+      source_persona_version_id: source.coach_persona_version_id,
+      source_experience_version_id: source.cohort_experience_version_id
+    }
   end
 
   def seal_payload(cohort)

@@ -13,7 +13,6 @@ module CohortReleases
     def call
       candidate = CandidateBuilder.new(cohort: cohort, strict: true).call
       registry_snapshot = candidate.tool_registry_snapshot
-      registry_digest = Contract.digest(registry_snapshot)
       releases = release_history
       history_total_count = cohort.cohort_releases.count
       persona_assessment_cache = {}
@@ -34,7 +33,6 @@ module CohortReleases
           latest: latest,
           ambiguous_participant_count: candidate.ambiguous_participant_count,
           registry_snapshot: registry_snapshot,
-          registry_digest: registry_digest,
           current_persona_snapshot: assessment.fetch(:runtime_snapshot),
           persona_evidence_valid: assessment.fetch(:evidence_valid),
           persona_governed: assessment.fetch(:governed)
@@ -67,7 +65,7 @@ module CohortReleases
           warnings: candidate.warnings,
           ambiguous_participant_count: candidate.ambiguous_participant_count,
           checks: readiness_checks(candidate),
-          candidate: candidate_payload(candidate),
+          candidate: candidate_payload(candidate, latest_release_id: latest&.id),
           latest_release_match: !seal_needed
         },
         history: {
@@ -80,13 +78,34 @@ module CohortReleases
       }
     end
 
+    def call_with_release(release)
+      studio = call
+      serialized_release = studio.fetch(:releases).find { |item| item.fetch(:id) == release.id }
+      return [ studio, serialized_release ] if serialized_release
+
+      candidate = CandidateBuilder.new(cohort: cohort, strict: false).call
+      authorized, = release_authority
+      assessment = persona_assessment(release, {})
+      serialized_release = release_payload(
+        release,
+        authorized: authorized,
+        mutable: cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES),
+        latest: cohort.cohort_releases.order(release_number: :desc).first,
+        ambiguous_participant_count: candidate.ambiguous_participant_count,
+        registry_snapshot: candidate.tool_registry_snapshot,
+        current_persona_snapshot: assessment.fetch(:runtime_snapshot),
+        persona_evidence_valid: assessment.fetch(:evidence_valid),
+        persona_governed: assessment.fetch(:governed)
+      )
+      [ studio, serialized_release ]
+    end
+
     def release_payload(release, authorized:, mutable:, latest:, ambiguous_participant_count: nil,
-      registry_snapshot: nil, registry_digest: nil, current_persona_snapshot: Integrity::UNSET,
+      registry_snapshot: nil, current_persona_snapshot: Integrity::UNSET,
       persona_evidence_valid: Integrity::UNSET, persona_governed: RestoreGovernance::UNSET)
       integrity = Integrity.new(
         release,
         current_tool_registry_snapshot: registry_snapshot,
-        current_tool_registry_digest: registry_digest,
         current_persona_snapshot: current_persona_snapshot,
         persona_evidence_valid: persona_evidence_valid
       ).call
@@ -174,13 +193,13 @@ module CohortReleases
       }
     rescue Mia::PersonaSchema::InvalidConfiguration, ArgumentError, KeyError
       cache[key] = {
-        evidence_valid: evidence_valid == true,
+        evidence_valid: Integrity::UNSET,
         governed: false,
         runtime_snapshot: nil
       }
     end
 
-    def candidate_payload(candidate)
+    def candidate_payload(candidate, latest_release_id:)
       {
         bundle_digest: candidate.bundle_digest,
         assignment_id: candidate.assignment&.id,
@@ -195,7 +214,7 @@ module CohortReleases
         tool_registry_digest: Contract.digest(candidate.tool_registry_snapshot),
         tool_registry_module_count: candidate.tool_registry_snapshot.fetch("modules").length,
         tool_registry_operation_count: candidate.tool_registry_snapshot.fetch("operations").length,
-        expected_latest_release_id: cohort.cohort_releases.order(release_number: :desc).pick(:id)
+        expected_latest_release_id: latest_release_id
       }
     end
 

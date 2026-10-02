@@ -166,6 +166,21 @@ describe('CohortReleaseStudio', () => {
     }, 'release-request-1'))
   })
 
+  it('blocks restore when the server omits the latest-release precondition', async () => {
+    apiMocks.fetchCohortReleaseStudio.mockResolvedValue({
+      ...studioFixture,
+      candidate: studioFixture.candidate && {
+        ...studioFixture.candidate,
+        expected_latest_release_id: null,
+      },
+    })
+    renderStudio()
+
+    expect(await screen.findByText(/Restore unavailable: latest release evidence is unavailable/)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Review restore record' })).toBeNull()
+    expect(apiMocks.restoreCohortRelease).not.toHaveBeenCalled()
+  })
+
   it('keeps read-only review useful without exposing mutation controls', async () => {
     apiMocks.fetchCohortReleaseStudio.mockResolvedValue({
       ...studioFixture,

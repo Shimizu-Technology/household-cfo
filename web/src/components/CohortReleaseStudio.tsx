@@ -112,6 +112,7 @@ export function CohortReleaseStudio({
   const historyLabel = studio?.history.truncated
     ? `${releases.length} of ${historyTotal} sealed records`
     : `${historyTotal} sealed record${historyTotal === 1 ? '' : 's'}`
+  const restoreExpectedLatestReleaseId = studio?.candidate?.expected_latest_release_id ?? null
 
   const closeConfirmation = useCallback(() => {
     setConfirmation(null)
@@ -144,6 +145,10 @@ export function CohortReleaseStudio({
   async function confirmAction() {
     if (!confirmation || !studio || pendingAction || mutationLifecycle.pending) return
     if (confirmation.kind === 'seal' && !studio.candidate) return
+    if (confirmation.kind === 'restore' && (!confirmation.release || restoreExpectedLatestReleaseId === null)) {
+      setActionError('The latest release evidence is unavailable. Cancel this review, reload the cohort, and try again.')
+      return
+    }
     const cohortId = studio.cohort.id
     const mutation = mutationLifecycle.begin()
     setPendingAction(confirmation.kind)
@@ -160,9 +165,9 @@ export function CohortReleaseStudio({
           expected_tool_registry_version: studio.candidate.registry_version,
           expected_latest_release_id: studio.candidate.expected_latest_release_id,
         }, confirmation.requestId)
-      } else if (confirmation.release) {
+      } else if (confirmation.release && restoreExpectedLatestReleaseId !== null) {
         await restoreCohortRelease(cohortId, confirmation.release.id, {
-          expected_latest_release_id: studio.candidate?.expected_latest_release_id ?? releases[0]?.id ?? null,
+          expected_latest_release_id: restoreExpectedLatestReleaseId,
           source_bundle_digest: confirmation.release.bundle_digest,
           source_persona_version_id: confirmation.release.persona_version_id,
           source_experience_version_id: confirmation.release.experience_version_id,
@@ -325,8 +330,10 @@ export function CohortReleaseStudio({
                       <div><dt>Fingerprint</dt><dd>{shortDigest(release.bundle_digest)}</dd></div>
                     </dl>
                     {release.source_release_id && <p>Restored from release record #{release.source_release_id}.</p>}
-                    {release.restore_allowed && studio.permissions.restore ? (
+                    {release.restore_allowed && studio.permissions.restore && restoreExpectedLatestReleaseId !== null ? (
                       <Button size="compact" variant="secondary" onClick={(event) => requestRestore(event, release)} disabled={pendingAction !== null || mutationLifecycle.pending}>Review restore record</Button>
+                    ) : release.restore_allowed && studio.permissions.restore ? (
+                      <small className="cohort-release-restore-reason">Restore unavailable: latest release evidence is unavailable. Reload the cohort and try again.</small>
                     ) : index !== 0 && release.restore_reason ? (
                       <small className="cohort-release-restore-reason">Restore unavailable: {release.restore_reason}</small>
                     ) : null}

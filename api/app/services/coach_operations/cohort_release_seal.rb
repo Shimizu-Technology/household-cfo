@@ -12,13 +12,13 @@ module CoachOperations
     def normalized_input(raw_input)
       input = canonical_input(raw_input, allowed_keys: INPUT_KEYS)
       {
-        "expected_assignment_id" => required_id(input["expected_assignment_id"], "expected_assignment_id"),
+        "expected_assignment_id" => optional_id(input["expected_assignment_id"], "expected_assignment_id"),
         "expected_bundle_digest" => required_digest(input["expected_bundle_digest"], "expected_bundle_digest"),
-        "expected_experience_version_id" => required_id(
+        "expected_experience_version_id" => optional_id(
           input["expected_experience_version_id"], "expected_experience_version_id"
         ),
         "expected_latest_release_id" => optional_id(input["expected_latest_release_id"], "expected_latest_release_id"),
-        "expected_persona_version_id" => required_id(
+        "expected_persona_version_id" => optional_id(
           input["expected_persona_version_id"], "expected_persona_version_id"
         ),
         "expected_tool_registry_digest" => required_digest(
@@ -68,6 +68,14 @@ module CoachOperations
       valid = input.fetch("expected_tool_registry_version") == CohortReleases::Contract::TOOL_REGISTRY_VERSION &&
         input.fetch("expected_tool_registry_digest") == actual_digest
       raise CohortReleases::Sealer::Stale, "The operation registry changed; reload before sealing" unless valid
+
+      candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
+      raise CohortReleases::Sealer::Incomplete, candidate.blockers if candidate.blockers.any?
+
+      components_match = input.fetch("expected_assignment_id") == candidate.assignment&.id &&
+        input.fetch("expected_persona_version_id") == candidate.persona_version&.id &&
+        input.fetch("expected_experience_version_id") == candidate.experience_version&.id
+      raise CohortReleases::Sealer::Stale, "The cohort release inputs changed; reload before sealing" unless components_match
     end
   end
 end

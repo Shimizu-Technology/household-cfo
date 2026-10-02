@@ -71,6 +71,83 @@ class CoachOperationsReleaseTest < ActiveSupport::TestCase
     assert_empty cohort.cohort_releases
   end
 
+  test "review token IDs reject numeric coercion and nullable component IDs remain explicit" do
+    owner, cohort, assignment, persona_version, experience_version = governed_components
+    input = seal_input(cohort, assignment, persona_version, experience_version)
+
+    [ 1.9, "0x#{assignment.id.to_s(16)}", "#{assignment.id}_0", "0#{assignment.id}" ].each_with_index do |value, index|
+      assert_raises(CoachOperations::Runner::InvalidRequest) do
+        run_seal(
+          cohort,
+          owner,
+          input.merge("expected_assignment_id" => value),
+          request_key: "invalid-id-#{index}"
+        )
+      end
+    end
+
+    operation = CoachOperations::CohortReleaseSeal.new(
+      cohort: cohort,
+      actor: owner,
+      actor_role_snapshot: "owner"
+    )
+    normalized = operation.normalized_input(input.merge(
+      "expected_assignment_id" => nil,
+      "expected_persona_version_id" => nil,
+      "expected_experience_version_id" => nil
+    ))
+    assert_nil normalized.fetch("expected_assignment_id")
+    assert_nil normalized.fetch("expected_persona_version_id")
+    assert_nil normalized.fetch("expected_experience_version_id")
+
+    assert_raises(CohortReleases::Sealer::Stale) do
+      run_seal(cohort, owner, normalized, request_key: "nullable-is-not-a-wildcard")
+    end
+    assert_empty cohort.cohort_releases
+
+    restore = CoachOperations::CohortReleaseRestore.new(
+      cohort: cohort,
+      actor: owner,
+      actor_role_snapshot: "owner"
+    ).normalized_input(
+      "expected_latest_release_id" => 1,
+      "source_bundle_digest" => "a" * 64,
+      "source_experience_version_id" => nil,
+      "source_persona_version_id" => nil,
+      "source_release_id" => 1
+    )
+    assert_nil restore.fetch("source_persona_version_id")
+    assert_nil restore.fetch("source_experience_version_id")
+  end
+
+  test "nullable component IDs reach incomplete release governance" do
+    owner = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    cohort = Cohort.create!(
+      name: "Incomplete operation #{SecureRandom.hex(4)}",
+      status: "active",
+      created_by_user: owner,
+      coach_workspace: workspace
+    )
+    candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: false).call
+    input = {
+      "expected_assignment_id" => nil,
+      "expected_bundle_digest" => candidate.bundle_digest,
+      "expected_experience_version_id" => nil,
+      "expected_latest_release_id" => nil,
+      "expected_persona_version_id" => nil,
+      "expected_tool_registry_digest" => CohortReleases::Contract.digest(candidate.tool_registry_snapshot),
+      "expected_tool_registry_version" => CohortReleases::Contract::TOOL_REGISTRY_VERSION
+    }
+
+    error = assert_raises(CohortReleases::Sealer::Incomplete) do
+      run_seal(cohort, owner, input, request_key: "incomplete-nullable-components")
+    end
+    assert error.blockers.any? { |blocker| blocker.include?("persona") }
+    assert error.blockers.any? { |blocker| blocker.include?("participant tools") }
+    assert_empty cohort.cohort_releases
+  end
+
   test "stale latest record and registry evidence fail closed" do
     owner, cohort, assignment, persona_version, experience_version = governed_components
     input = seal_input(cohort, assignment, persona_version, experience_version)

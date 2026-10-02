@@ -4,11 +4,10 @@ module CohortReleases
   class Integrity
     UNSET = Object.new.freeze
 
-    def initialize(release, current_tool_registry_snapshot: nil, current_tool_registry_digest: nil,
+    def initialize(release, current_tool_registry_snapshot: nil,
       current_persona_snapshot: UNSET, persona_evidence_valid: UNSET)
       @release = release
       @current_tool_registry_snapshot = current_tool_registry_snapshot
-      @current_tool_registry_digest = current_tool_registry_digest
       @current_persona_snapshot = current_persona_snapshot
       @persona_evidence_valid = persona_evidence_valid
     end
@@ -36,7 +35,7 @@ module CohortReleases
 
     private
 
-    attr_reader :release, :current_tool_registry_snapshot, :current_tool_registry_digest, :current_persona_snapshot,
+    attr_reader :release, :current_tool_registry_snapshot, :current_persona_snapshot,
       :persona_evidence_valid
 
     def compare_digest(errors, payload, expected, label)
@@ -106,7 +105,7 @@ module CohortReleases
     def current_runtime_compatible?
       return false unless release.tool_registry_version == Contract::TOOL_REGISTRY_VERSION
       registry_snapshot = current_tool_registry_snapshot || Contract.tool_registry_snapshot
-      registry_digest = current_tool_registry_digest || Contract.digest(registry_snapshot)
+      registry_digest = Contract.digest(registry_snapshot)
       return false unless release.tool_registry_digest == registry_digest
 
       persona_compatible = if release.persona_mode == "published_version"

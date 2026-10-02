@@ -85,26 +85,15 @@ module Api
         end
 
         def render_result(result)
+          studio, serialized_release = CohortReleases::StudioSerializer
+            .new(cohort: cohort, actor: current_user)
+            .call_with_release(result.release)
           render json: {
-            release: release_result_payload(result.release),
+            release: serialized_release,
             operation_execution: execution_payload(result.execution),
             replayed: result.replayed,
-            cohort_release_studio: studio_payload
+            cohort_release_studio: studio
           }, status: result.replayed ? :ok : :created
-        end
-
-        def release_result_payload(release)
-          CohortReleases::StudioSerializer.new(cohort: cohort, actor: current_user)
-            .release_payload(
-              release,
-              authorized: true,
-              mutable: cohort.status.in?(CohortRelease::USER_RELEASE_COHORT_STATUSES),
-              latest: cohort.cohort_releases.order(release_number: :desc).first,
-              ambiguous_participant_count: CohortReleases::CandidateBuilder.new(
-                cohort: cohort,
-                strict: false
-              ).call.ambiguous_participant_count
-            )
         end
 
         def execution_payload(execution)

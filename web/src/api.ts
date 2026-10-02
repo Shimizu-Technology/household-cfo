@@ -1840,7 +1840,7 @@ export type CohortReleaseMutationInput = {
 }
 
 export type CohortReleaseRestoreInput = {
-  expected_latest_release_id: number | null
+  expected_latest_release_id: number
   source_bundle_digest: string
   source_persona_version_id: number | null
   source_experience_version_id: number | null
