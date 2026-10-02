@@ -219,7 +219,7 @@ export function CoachUrlSourceIntake({
         }
         if (reconciled.kind === 'inaccessible') {
           setConfirmRedactionId(null)
-          setNotice('This request is no longer accessible. Address removal could not be confirmed.')
+          setError('This request is no longer accessible. Address removal could not be confirmed.')
           return
         }
         throw caught
@@ -271,7 +271,10 @@ export function CoachUrlSourceIntake({
       return { kind: 'found', intake: result.intake }
     } catch (caught) {
       if (caught instanceof ApiRequestError && caught.status === 404) {
-        if (mutationLifecycle.isCurrent(ticket)) setIntakes((current) => current.filter((intake) => intake.id !== id))
+        if (mutationLifecycle.isCurrent(ticket)) {
+          retrySecrets.current.delete(id)
+          setIntakes((current) => current.filter((intake) => intake.id !== id))
+        }
         return { kind: 'inaccessible' }
       }
       return { kind: 'unavailable' }

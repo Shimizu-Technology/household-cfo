@@ -148,19 +148,38 @@ describe('CoachUrlSourceIntake', () => {
 
   it('does not claim an address was removed when redaction reconciliation is inaccessible', async () => {
     const failed = intake()
-    apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [failed], url_intake: { enabled: true } })
+    apiMocks.fetchAdminContentSourceUrlIntakes.mockImplementation((scope: string) => Promise.resolve({
+      intakes: scope === 'platform' ? [failed] : [], url_intake: { enabled: true },
+    }))
+    apiMocks.createAdminContentSourceUrlIntake.mockResolvedValue({ intake: failed, url_intake: { enabled: true } })
     apiMocks.deleteAdminContentSourceUrlIntake.mockRejectedValue(new Error('Connection ended before a response arrived.'))
     apiMocks.fetchAdminContentSourceUrlIntake.mockRejectedValue(new ApiRequestError('Not found', {
       status: 404, code: 'url_intake_not_found',
     }))
-    renderIntake()
+    const rendered = renderIntake()
 
+    await userEvent.type(await screen.findByLabelText('HTTPS address'), 'https://example.com/private')
+    await userEvent.click(screen.getByRole('button', { name: 'Import private snapshot' }))
     await userEvent.click(await screen.findByRole('button', { name: 'Remove saved address' }))
     await userEvent.click(screen.getByRole('button', { name: 'Remove address' }))
 
-    expect(await screen.findByText(/removal could not be confirmed/i)).toBeTruthy()
+    expect((await screen.findByRole('alert')).textContent).toMatch(/removal could not be confirmed/i)
     expect(screen.queryByText(/Saved address removed/)).toBeNull()
     expect(screen.queryByText('Secure web snapshot')).toBeNull()
+
+    rendered.rerender(<CoachUrlSourceIntake
+      scope="platform"
+      canCreate
+      permissionEnabled
+      disabled={false}
+      mutationLifecycle={mutationLifecycle}
+      onDirtyChange={() => undefined}
+      onBusyChange={() => undefined}
+      onSourceReady={() => undefined}
+    />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Retry secure import' }))
+    expect(screen.getByText(/enter the HTTPS address again/i)).toBeTruthy()
+    expect(apiMocks.createAdminContentSourceUrlIntake).toHaveBeenCalledTimes(1)
   })
 
   it('stops polling and removes an intake that is no longer accessible', async () => {
