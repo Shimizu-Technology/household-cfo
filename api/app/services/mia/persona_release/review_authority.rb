@@ -9,14 +9,16 @@ module Mia
       module_function
 
       def snapshot(workspace:, actor:)
-        role = actor.admin? ? "platform_admin" : workspace.membership_for(actor)&.role
-        raise ArgumentError, "Reviewer no longer has workspace review access" unless workspace.allows?(actor, :review)
+        role = current_review_role(workspace: workspace, reviewer: actor)
+        raise ArgumentError, "Reviewer no longer has workspace review access" unless role
+
+        permissions = role == "platform_admin" ? CoachWorkspace::PERMISSIONS.fetch("owner") : CoachWorkspace::PERMISSIONS.fetch(role)
 
         value = {
           "workspace_id" => workspace.id,
           "reviewer_id" => actor.id,
           "role" => role,
-          "permissions" => CoachWorkspace::PERMISSIONS.fetch(role, %i[view edit review publish assign manage_members]).map(&:to_s).sort
+          "permissions" => permissions.map(&:to_s).sort
         }
         [ value, digest(value) ]
       end
@@ -27,7 +29,24 @@ module Mia
       end
 
       def currently_authorized?(workspace:, reviewer:)
-        workspace.allows?(reviewer, :review)
+        current_review_role(workspace: workspace, reviewer: reviewer).present?
+      end
+
+      def current_review_role(workspace:, reviewer:)
+        return nil unless reviewer&.id
+
+        role, invitation_status, clerk_id = User.where(id: reviewer.id).pick(:role, :invitation_status, :clerk_id)
+        return nil unless role.in?(%w[admin coach]) && invitation_status == "accepted"
+        return nil if clerk_id.blank? || clerk_id.start_with?("pending_")
+        return "platform_admin" if role == "admin"
+
+        membership_role = CoachWorkspaceMembership.where(
+          coach_workspace_id: workspace.id,
+          user_id: reviewer.id
+        ).pick(:role)
+        return membership_role if CoachWorkspace::PERMISSIONS.fetch(membership_role, []).include?(:review)
+
+        nil
       end
 
       def digest(value)

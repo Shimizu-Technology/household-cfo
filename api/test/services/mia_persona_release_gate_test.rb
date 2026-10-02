@@ -480,6 +480,14 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     assert_includes error.message, "reviewer no longer has workspace review access"
   end
 
+  test "a revoked reviewer account invalidates evaluation and phrase evidence before publication" do
+    assert_account_change_revokes_release_authority(invitation_status: "revoked")
+  end
+
+  test "a reviewer demoted from staff invalidates evaluation and phrase evidence before publication" do
+    assert_account_change_revokes_release_authority(role: "participant")
+  end
+
   test "behavioral preview evidence is immutable bounded and sealed into publication evidence" do
     owner = persona_user
     persona = create_persona(creator: owner)
@@ -596,5 +604,43 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       artifact_fingerprint: artifact.fetch("fingerprint"),
       decision: decision
     )
+  end
+
+
+  def assert_account_change_revokes_release_authority(attributes)
+    owner = persona_user
+    editor = persona_user
+    reviewer = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    config = persona_configuration(assistant_name: "Authority checked assistant")
+    config["phrases"] = [ persona_phrase_artifact({ "text" => "One step at a time" }, source_user_id: owner.id) ]
+    persona = create_persona(creator: owner, workspace: workspace, config: config)
+    preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
+      .preview!(expected_draft_revision: persona.draft_revision)
+    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: editor).call!
+    approval = approve(run, reviewer)
+    behavioral = behavioral_preview_for(run.release_candidate, owner)
+    artifact = run.release_candidate.phrase_artifacts_snapshot.sole
+    attest_phrase(persona, run.release_candidate, artifact, reviewer)
+
+    reviewer.update!(attributes)
+
+    readiness = Mia::PersonaRelease::Readiness.new(persona: persona, actor: owner).call
+    assert_equal false, readiness.fetch(:ready)
+    assert_equal false, readiness.dig(:approval, :authority_current)
+    assert_equal false, readiness.fetch(:phrase_audience_reviews).sole.fetch(:authority_current)
+    assert readiness.fetch(:blockers).any? { |blocker| blocker.include?("Reviewer authority evidence is stale") }
+
+    error = assert_raises(Mia::PersonaPublisher::PublicationError) do
+      Mia::PersonaPublisher.new(persona: persona, actor: owner).publish!(
+        expected_preview_digest: preview.fetch(:digest), expected_draft_revision: persona.draft_revision,
+        expected_current_version_id: nil, expected_release_candidate_digest: run.release_candidate.manifest_digest,
+        expected_evaluation_run_digest: run.run_digest, expected_evaluation_approval_digest: approval.approval_digest,
+        expected_behavioral_preview_digest: behavioral.evidence_digest
+      )
+    end
+    assert_includes error.message, "reviewer no longer has workspace review access"
   end
 end
