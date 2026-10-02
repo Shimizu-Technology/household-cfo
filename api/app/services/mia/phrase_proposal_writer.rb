@@ -20,24 +20,35 @@ module Mia
       proposal = nil
       ApplicationRecord.transaction do
         authorization = authorize!
-        chain = lock_chain!(authorization.workspace, source_id:, candidate_id:, content_item_version_id:)
-        evidence = verify!(authorization.workspace, chain, phrase_payload)
-        proposal = CoachPhraseProposal.new(
-          coach_workspace: authorization.workspace,
-          coach_content_source: chain.fetch(:source),
-          coach_content_source_attempt: chain.fetch(:attempt),
-          coach_content_source_candidate: chain.fetch(:candidate),
-          coach_content_item_version: chain.fetch(:version),
-          proposed_by_user: authorization.actor,
-          **evidence.to_h
+        replay = exact_create_replay(
+          authorization.workspace,
+          source_id:,
+          candidate_id:,
+          content_item_version_id:,
+          phrase_payload:
         )
-        proposal.proposal_digest = CoachPhraseProposal.digest_for(proposal)
-        existing = exact_existing_proposal(proposal)
-        if existing
-          existing
+        if replay
+          replay
         else
-          proposal.save!
-          proposal
+          chain = lock_chain!(authorization.workspace, source_id:, candidate_id:, content_item_version_id:)
+          evidence = verify!(authorization.workspace, chain, phrase_payload)
+          proposal = CoachPhraseProposal.new(
+            coach_workspace: authorization.workspace,
+            coach_content_source: chain.fetch(:source),
+            coach_content_source_attempt: chain.fetch(:attempt),
+            coach_content_source_candidate: chain.fetch(:candidate),
+            coach_content_item_version: chain.fetch(:version),
+            proposed_by_user: authorization.actor,
+            **evidence.to_h
+          )
+          proposal.proposal_digest = CoachPhraseProposal.digest_for(proposal)
+          existing = exact_existing_proposal(proposal)
+          if existing
+            existing
+          else
+            proposal.save!
+            proposal
+          end
         end
       end
     rescue ActiveRecord::RecordNotFound
@@ -169,6 +180,18 @@ module Mia
       return unless CoachPhraseProposal.snapshot(existing) == CoachPhraseProposal.snapshot(proposal)
 
       existing
+    end
+
+    def exact_create_replay(workspace, source_id:, candidate_id:, content_item_version_id:, phrase_payload:)
+      normalized_payload = PersonaSchema.normalize(phrase_payload).slice(*CoachPhraseProposal::PAYLOAD_KEYS)
+      CoachPhraseProposal.where(
+        coach_workspace_id: workspace.id,
+        proposed_by_user_id: actor_id,
+        coach_content_source_id: source_id,
+        coach_content_source_candidate_id: candidate_id,
+        coach_content_item_version_id: content_item_version_id,
+        phrase_payload: normalized_payload
+      ).order(:id).lock.detect(&:integrity_valid?)
     end
   end
 end

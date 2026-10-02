@@ -79,6 +79,50 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     ).count
   end
 
+  test "identical create replay survives current approved version advancement" do
+    proposal = with_source_download(@source_text) { create_proposal }
+    item = @version.coach_content_item
+    item.update!(draft_content: "Håfa adai. A newer reviewed version.")
+    item.approve!(
+      actor: @owner,
+      expected_draft_revision: item.draft_revision,
+      expected_draft_digest: item.draft_digest
+    )
+
+    assert_equal proposal.id, create_proposal.id
+    changed = assert_raises(Mia::PhraseProposalWriter::Error) do
+      create_proposal(@payload.merge("caution" => "This is a different request."))
+    end
+    assert_equal "phrase_source_chain_invalid", changed.code
+  end
+
+  test "identical create replay survives source unavailability" do
+    proposal = with_source_download(@source_text) { create_proposal }
+    @source.update!(status: "deletion_pending", deletion_requested_at: Time.current)
+
+    assert_equal proposal.id, create_proposal.id
+    changed = assert_raises(Mia::PhraseProposalWriter::Error) do
+      create_proposal(@payload.merge("caution" => "This is a different request."))
+    end
+    assert_equal "phrase_source_chain_invalid", changed.code
+  end
+
+  test "identical create replay does not require private storage to remain available" do
+    proposal = with_source_download(@source_text) { create_proposal }
+    original_download = S3Service.method(:download_to_io!)
+    S3Service.define_singleton_method(:download_to_io!) do |*_args|
+      raise S3Service::MissingConfigurationError
+    end
+
+    assert_equal proposal.id, create_proposal.id
+    changed = assert_raises(Mia::PhraseProposalWriter::Error) do
+      create_proposal(@payload.merge("caution" => "This is a different request."))
+    end
+    assert_equal "phrase_source_unavailable", changed.code
+  ensure
+    S3Service.define_singleton_method(:download_to_io!, original_download) if defined?(original_download) && original_download
+  end
+
   test "rechecks metadata bytes checksum parser locator and current approved chain" do
     mismatch = assert_raises(Mia::PhraseProposalWriter::Error) do
       with_source_download("Håfa adai changed.") { create_proposal }
