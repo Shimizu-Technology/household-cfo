@@ -30,6 +30,7 @@ module CohortReleases
       validate_reserved_request_key!(key, event_type)
       cohort.with_lock do
         authorize!
+        lock_release_personas!(source_release)
         require_user_preview!(expected_bundle_digest)
         existing = cohort.cohort_releases.find_by(request_key: key)
         replay_digest = expected_bundle_digest.presence || existing&.bundle_digest
@@ -124,6 +125,15 @@ module CohortReleases
     private
 
     attr_reader :cohort, :actor, :publication_source, :actor_role_snapshot
+
+    def lock_release_personas!(source_release)
+      assignment = cohort.cohort_persona_assignment
+      persona_ids = [ assignment&.coach_persona_id, source_release&.coach_persona_id ].compact.uniq.sort
+      persona_ids.each { |persona_id| CoachPersona.lock.find(persona_id) }
+
+      cohort.association(:cohort_persona_assignment).reset
+      source_release&.association(:coach_persona)&.reset
+    end
 
     def authorize!
       if publication_source == "user"

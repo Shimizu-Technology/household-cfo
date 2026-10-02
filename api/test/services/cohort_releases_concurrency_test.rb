@@ -111,6 +111,183 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     cleanup_governed_operation_records(owner, cohort)
   end
 
+  test "persona publication cannot advance an assignment while stale release evidence is sealing" do
+    owner, cohort, input = governed_operation_components
+    persona = cohort.cohort_persona_assignment.coach_persona
+    next_config = persona.draft_config.deep_dup
+    next_config["identity"]["assistant_name"] = "Concurrent Mia #{SecureRandom.hex(3)}"
+    Mia::PersonaDraftUpdater.new(persona: persona, actor: owner, workspace: persona.coach_workspace).call!(
+      expected_draft_revision: persona.draft_revision,
+      description: persona.description,
+      draft_config: next_config
+    )
+    persona.reload
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: owner)
+    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
+    evidence = persona_release_evidence(persona, actor: owner)
+    publish_input = {
+      expected_preview_digest: preview.fetch(:digest),
+      expected_draft_revision: persona.draft_revision,
+      expected_current_version_id: persona.current_published_version_id,
+      **evidence
+    }
+    persona_locked = Queue.new
+    allow_publish = Queue.new
+    published = Queue.new
+    publisher_thread = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        CoachPersona.transaction do
+          locked_persona = CoachPersona.lock.find(persona.id)
+          persona_locked << true
+          allow_publish.pop
+          version = Mia::PersonaPublisher.new(persona: locked_persona, actor: User.find(owner.id)).publish!(**publish_input)
+          published << version.id
+        end
+      rescue StandardError => error
+        published << error
+      end
+    end
+    Timeout.timeout(5) { persona_locked.pop }
+
+    assert_raises(ActiveRecord::LockWaitTimeout) do
+      Cohort.transaction do
+        Cohort.connection.execute("SET LOCAL lock_timeout = '250ms'")
+        CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
+          operation_key: "cohort.release.seal",
+          operation_version: 1,
+          input: input,
+          request_key: "persona-publish-lock-race"
+        )
+      end
+    end
+    assert_empty cohort.cohort_releases
+
+    allow_publish << true
+    publisher_thread.join(15)
+    published_result = Timeout.timeout(5) { published.pop }
+    assert_not publisher_thread.alive?
+    assert_kind_of Integer, published_result, published_result.respond_to?(:full_message) ? published_result.full_message : nil
+    assert_equal published_result, cohort.cohort_persona_assignment.reload.coach_persona_version_id
+
+    assert_raises(CohortReleases::Sealer::Stale) do
+      CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
+        operation_key: "cohort.release.seal",
+        operation_version: 1,
+        input: input,
+        request_key: "persona-publish-stale-evidence"
+      )
+    end
+    assert_empty cohort.cohort_releases
+  ensure
+    allow_publish << true if defined?(allow_publish) && allow_publish
+    publisher_thread&.join(15)
+    cleanup_governed_operation_records(owner, cohort)
+  end
+
+  test "historical persona archival cannot race a governed restore" do
+    owner, cohort, first_input = governed_operation_components
+    first_persona = cohort.cohort_persona_assignment.coach_persona
+    first_release = CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
+      operation_key: "cohort.release.seal",
+      operation_version: 1,
+      input: first_input,
+      request_key: "restore-archive-source"
+    ).release
+
+    second_persona_name = "Restore race persona #{SecureRandom.hex(4)}"
+    second_persona = create_persona(
+      creator: owner,
+      name: second_persona_name,
+      config: persona_configuration(assistant_name: second_persona_name),
+      workspace: cohort.coach_workspace
+    )
+    second_persona_version = publish_persona(second_persona, actor: owner)
+    CohortPersonaAssignment.transaction do
+      locked_cohort = Cohort.lock.find(cohort.id)
+      locked_persona = CoachPersona.lock.find(second_persona.id)
+      locked_cohort.cohort_persona_assignment.update!(
+        coach_persona: locked_persona,
+        coach_persona_version: second_persona_version,
+        assigned_by_user: owner
+      )
+    end
+    cohort.reload
+    current_candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
+    second_input = {
+      expected_assignment_id: cohort.cohort_persona_assignment.id,
+      expected_bundle_digest: current_candidate.bundle_digest,
+      expected_experience_version_id: current_candidate.experience_version.id,
+      expected_latest_release_id: first_release.id,
+      expected_persona_version_id: second_persona_version.id,
+      expected_tool_registry_digest: CohortReleases::Contract.digest(current_candidate.tool_registry_snapshot),
+      expected_tool_registry_version: CohortReleases::Contract::TOOL_REGISTRY_VERSION
+    }
+    second_release = CoachOperations::Runner.new(cohort: cohort, actor: owner).call!(
+      operation_key: "cohort.release.seal",
+      operation_version: 1,
+      input: second_input,
+      request_key: "restore-archive-current"
+    ).release
+    restore_input = {
+      expected_latest_release_id: second_release.id,
+      source_bundle_digest: first_release.bundle_digest,
+      source_experience_version_id: first_release.cohort_experience_version_id,
+      source_persona_version_id: first_release.coach_persona_version_id,
+      source_release_id: first_release.id
+    }
+    persona_locked = Queue.new
+    allow_archive = Queue.new
+    archived = Queue.new
+    archive_thread = Thread.new do
+      ActiveRecord::Base.connection_pool.with_connection do
+        CoachPersona.transaction do
+          locked_persona = CoachPersona.lock.find(first_persona.id)
+          persona_locked << true
+          allow_archive.pop
+          locked_persona.archive!
+          archived << true
+        end
+      rescue StandardError => error
+        archived << error
+      end
+    end
+    Timeout.timeout(5) { persona_locked.pop }
+
+    assert_raises(ActiveRecord::LockWaitTimeout) do
+      Cohort.transaction do
+        Cohort.connection.execute("SET LOCAL lock_timeout = '250ms'")
+        CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
+          operation_key: "cohort.release.restore",
+          operation_version: 1,
+          input: restore_input,
+          request_key: "restore-archive-lock-race"
+        )
+      end
+    end
+    assert_equal 2, cohort.cohort_releases.count
+
+    allow_archive << true
+    archive_thread.join(15)
+    archived_result = Timeout.timeout(5) { archived.pop }
+    assert_not archive_thread.alive?
+    assert_equal true, archived_result, archived_result.respond_to?(:full_message) ? archived_result.full_message : nil
+    assert first_persona.reload.archived?
+
+    assert_raises(CohortReleases::Sealer::Incomplete) do
+      CoachOperations::Runner.new(cohort: Cohort.find(cohort.id), actor: User.find(owner.id)).call!(
+        operation_key: "cohort.release.restore",
+        operation_version: 1,
+        input: restore_input,
+        request_key: "restore-archive-stale-evidence"
+      )
+    end
+    assert_equal 2, cohort.cohort_releases.count
+  ensure
+    allow_archive << true if defined?(allow_archive) && allow_archive
+    archive_thread&.join(15)
+    cleanup_governed_operation_records(owner, cohort, extra_personas: [ first_persona ])
+  end
+
   test "concurrent retries seal one release and conflicting requests receive monotonic numbers" do
     suffix = SecureRandom.hex(6)
     owner = User.create!(
@@ -308,7 +485,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     [ owner, cohort, input ]
   end
 
-  def cleanup_governed_operation_records(owner, cohort)
+  def cleanup_governed_operation_records(owner, cohort, extra_personas: [])
     return unless owner && cohort
 
     assignment = CohortPersonaAssignment.find_by(cohort_id: cohort.id)
@@ -335,7 +512,7 @@ class CohortReleasesConcurrencyTest < ActiveSupport::TestCase
     CohortMembership.where(cohort_id: cohort.id).delete_all
     cohort.delete
 
-    cleanup_persona_records(persona) if persona
+    ([ persona ] + extra_personas).compact.uniq(&:id).each { |item| cleanup_persona_records(item) }
     workspace = CoachWorkspace.find_by(id: cohort.coach_workspace_id)
     CoachProfile.where(coach_workspace_id: workspace&.id).delete_all
     CoachWorkspaceMembership.where(coach_workspace_id: workspace&.id).delete_all
