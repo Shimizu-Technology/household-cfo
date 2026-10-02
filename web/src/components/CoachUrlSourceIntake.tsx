@@ -22,6 +22,11 @@ const activeStatuses = new Set<AdminContentSourceUrlIntake['status']>([
 const maximumPollFailures = 4
 
 type RetrySecret = { url: string; requestId: string; scope: AdminContentScope }
+type ReconciliationResult =
+  | { kind: 'found'; intake: AdminContentSourceUrlIntake }
+  | { kind: 'deleted' }
+  | { kind: 'inaccessible' }
+  | { kind: 'unavailable' }
 
 export function CoachUrlSourceIntake({
   scope,
@@ -48,6 +53,7 @@ export function CoachUrlSourceIntake({
   const [capability, setCapability] = useState<AdminContentSourceUrlIntakeCapability | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadFailed, setLoadFailed] = useState(false)
+  const [pollFailed, setPollFailed] = useState(false)
   const [action, setAction] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
@@ -79,6 +85,7 @@ export function CoachUrlSourceIntake({
     const sequence = ++requestSequence.current
     setLoading(true)
     setLoadFailed(false)
+    setPollFailed(false)
     setError(null)
     try {
       const result = await fetchAdminContentSourceUrlIntakes(scope)
@@ -141,6 +148,7 @@ export function CoachUrlSourceIntake({
       }
       const stillActive = updates.some((intake) => activeStatuses.has(intake.status))
       if (retryFailures >= maximumPollFailures) {
+        setPollFailed(true)
         setError('A secure import stopped updating. Reload its current state before continuing.')
       } else if (inaccessibleIds.length === 0 && (retryFailures > 0 || stillActive)) {
         const delay = retryFailures > 0 ? Math.min(2500 * (2 ** (retryFailures - 1)), 20_000) : 2500
@@ -154,7 +162,7 @@ export function CoachUrlSourceIntake({
   function changeUrl(value: string) {
     setUrl(value)
     setRequestId(null)
-    setError(null)
+    if (!pollFailed) setError(null)
     setNotice(null)
   }
 
@@ -201,12 +209,17 @@ export function CoachUrlSourceIntake({
         result = await deleteAdminContentSourceUrlIntake(intake.id)
       } catch (caught) {
         const reconciled = await reconcileIntake(intake.id, ticket)
-        if (reconciled === null || reconciled?.status === 'deleted' || reconciled?.redaction_pending) {
+        if (reconciled.kind === 'deleted' || (reconciled.kind === 'found' && reconciled.intake.redaction_pending)) {
           retrySecrets.current.delete(intake.id)
           setConfirmRedactionId(null)
-          setNotice(reconciled?.redaction_pending
+          setNotice(reconciled.kind === 'found'
             ? 'The address was redacted. Private snapshot cleanup is in progress.'
             : 'Saved address removed. Minimal redacted audit metadata remains.')
+          return
+        }
+        if (reconciled.kind === 'inaccessible') {
+          setConfirmRedactionId(null)
+          setNotice('This request is no longer accessible. Address removal could not be confirmed.')
           return
         }
         throw caught
@@ -230,8 +243,12 @@ export function CoachUrlSourceIntake({
         updated = await retryAdminContentSourceUrlIntakeCleanup(intake.id)
       } catch (caught) {
         const reconciled = await reconcileIntake(intake.id, ticket)
-        if (reconciled !== undefined) {
+        if (reconciled.kind === 'found' || reconciled.kind === 'deleted') {
           setNotice('The latest private cleanup state was refreshed. Retry remains available if cleanup still needs attention.')
+          return
+        }
+        if (reconciled.kind === 'inaccessible') {
+          setNotice('This request is no longer accessible. Its cleanup state could not be confirmed.')
           return
         }
         throw caught
@@ -242,22 +259,22 @@ export function CoachUrlSourceIntake({
     }, 'Private snapshot cleanup could not be retried.')
   }
 
-  async function reconcileIntake(id: number, ticket: CoachWorkspaceMutationTicket) {
+  async function reconcileIntake(id: number, ticket: CoachWorkspaceMutationTicket): Promise<ReconciliationResult> {
     try {
       const result = await fetchAdminContentSourceUrlIntake(id)
-      if (!mutationLifecycle.isCurrent(ticket)) return undefined
+      if (!mutationLifecycle.isCurrent(ticket)) return { kind: 'unavailable' }
       if (result.intake.status === 'deleted') {
         setIntakes((current) => current.filter((intake) => intake.id !== id))
-        return null
+        return { kind: 'deleted' }
       }
       setIntakes((current) => mergeIntakes(current, [result.intake]))
-      return result.intake
+      return { kind: 'found', intake: result.intake }
     } catch (caught) {
       if (caught instanceof ApiRequestError && caught.status === 404) {
         if (mutationLifecycle.isCurrent(ticket)) setIntakes((current) => current.filter((intake) => intake.id !== id))
-        return null
+        return { kind: 'inaccessible' }
       }
-      return undefined
+      return { kind: 'unavailable' }
     }
   }
 
@@ -299,7 +316,7 @@ export function CoachUrlSourceIntake({
       <p id="coach-source-url-help">HTTPS only. Redirects and public network addresses are checked by the server. PDF, DOCX, plain text, and readable web pages use the same private review and approval path as file uploads.</p>
     </form> : canCreate ? <div className="coach-source-unavailable" role="status"><strong>Secure web import is unavailable.</strong><span>Upload the source as a file, or try again after secure intake is configured.</span></div> : <p className="coach-content-note">Editors can add secure web snapshots. Reviewers can inspect candidates after the snapshot is processed.</p>}
 
-    {error && <div ref={errorRef} className="coach-source-alert is-error" role="alert" tabIndex={-1}><span>{error}</span>{loadFailed && <button type="button" onClick={() => void loadIntakes()}>Try again</button>}</div>}
+    {error && <div ref={errorRef} className="coach-source-alert is-error" role="alert" tabIndex={-1}><span>{error}</span>{(loadFailed || pollFailed) && <button type="button" onClick={() => void loadIntakes()}>Refresh secure imports</button>}</div>}
     {notice && <div ref={noticeRef} className="coach-source-alert is-success" role="status" tabIndex={-1}>{notice}</div>}
 
     {(loading || intakes.length > 0) && <div className="coach-url-intake-requests" aria-label="Secure web source requests">

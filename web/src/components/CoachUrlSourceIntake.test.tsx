@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { cleanup, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
@@ -146,6 +146,23 @@ describe('CoachUrlSourceIntake', () => {
     expect(screen.getByText(/address is already redacted/i)).toBeTruthy()
   })
 
+  it('does not claim an address was removed when redaction reconciliation is inaccessible', async () => {
+    const failed = intake()
+    apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [failed], url_intake: { enabled: true } })
+    apiMocks.deleteAdminContentSourceUrlIntake.mockRejectedValue(new Error('Connection ended before a response arrived.'))
+    apiMocks.fetchAdminContentSourceUrlIntake.mockRejectedValue(new ApiRequestError('Not found', {
+      status: 404, code: 'url_intake_not_found',
+    }))
+    renderIntake()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove saved address' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove address' }))
+
+    expect(await screen.findByText(/removal could not be confirmed/i)).toBeTruthy()
+    expect(screen.queryByText(/Saved address removed/)).toBeNull()
+    expect(screen.queryByText('Secure web snapshot')).toBeNull()
+  })
+
   it('stops polling and removes an intake that is no longer accessible', async () => {
     const queued = intake({ status: 'queued', redaction_allowed: false })
     apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [queued], url_intake: { enabled: true } })
@@ -158,6 +175,35 @@ describe('CoachUrlSourceIntake', () => {
     await waitFor(() => expect(screen.queryByText('Queued securely')).toBeNull(), { timeout: 3500 })
     expect(screen.getByText(/no longer available/)).toBeTruthy()
     expect(apiMocks.fetchAdminContentSourceUrlIntake).toHaveBeenCalledTimes(1)
+  })
+
+  it('offers a working refresh after repeated polling failures', async () => {
+    vi.useFakeTimers()
+    try {
+      const queued = intake({ status: 'queued', redaction_allowed: false })
+      apiMocks.fetchAdminContentSourceUrlIntakes
+        .mockResolvedValueOnce({ intakes: [queued], url_intake: { enabled: true } })
+        .mockResolvedValueOnce({ intakes: [], url_intake: { enabled: true } })
+      apiMocks.fetchAdminContentSourceUrlIntake.mockRejectedValue(new Error('Temporary network failure'))
+      renderIntake()
+
+      await act(async () => { await vi.runAllTicks() })
+      expect(screen.getByText('Queued securely')).toBeTruthy()
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        await act(async () => { await vi.advanceTimersToNextTimerAsync() })
+      }
+
+      const refresh = screen.getByRole('button', { name: 'Refresh secure imports' })
+      fireEvent.change(screen.getByLabelText('HTTPS address'), { target: { value: 'https://example.com/another' } })
+      expect(screen.getByRole('button', { name: 'Refresh secure imports' })).toBeTruthy()
+      fireEvent.click(refresh)
+      await act(async () => { await vi.runAllTicks() })
+
+      expect(apiMocks.fetchAdminContentSourceUrlIntakes).toHaveBeenCalledTimes(2)
+      expect(screen.queryByRole('button', { name: 'Refresh secure imports' })).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('uses an in-memory address only to retry a just-submitted failed request', async () => {
