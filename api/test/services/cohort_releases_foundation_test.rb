@@ -273,7 +273,7 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
       payload.keys.sort
   end
 
-  test "restore seals the selected historical bundle after staging has changed" do
+  test "restore rejects the latest sealed bundle even when staging has changed" do
     owner, cohort, = governed_release_components
     first_candidate = CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call
     first = CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
@@ -294,19 +294,17 @@ class CohortReleasesFoundationTest < ActiveSupport::TestCase
       CohortReleases::CandidateBuilder.new(cohort: cohort, strict: true).call.bundle_digest
     assert first.integrity_valid?, first.integrity_report.fetch(:errors).join("\n")
 
-    restored = CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
-      request_key: "restore-first",
-      expected_bundle_digest: first.bundle_digest,
-      event_type: "restore",
-      source_release: first
-    )
+    error = assert_raises(CohortReleases::Sealer::AlreadyRecorded) do
+      CohortReleases::Sealer.new(cohort: cohort, actor: owner).call!(
+        request_key: "restore-first",
+        expected_bundle_digest: first.bundle_digest,
+        event_type: "restore",
+        source_release: first
+      )
+    end
 
-    assert_equal 2, restored.release_number
-    assert_equal "restore", restored.event_type
-    assert_equal first, restored.source_release
-    assert_equal first.bundle, restored.bundle
-    assert_equal first.bundle_digest, restored.bundle_digest
-    assert restored.integrity_valid?
+    assert_includes error.message, "already the latest sealed record"
+    assert_equal 1, cohort.cohort_releases.count
     assert_equal "drifted", CohortReleases::ShadowParity.new(cohort).call.fetch(:state)
   end
 

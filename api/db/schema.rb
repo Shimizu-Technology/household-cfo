@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_040000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_050000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -506,6 +506,46 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_040000) do
     t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_sources_scope_valid"
     t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying::text, 'verifying'::character varying::text, 'upload_cleanup'::character varying::text, 'queued'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'failed'::character varying::text, 'deletion_pending'::character varying::text, 'deletion_failed'::character varying::text, 'source_deleted'::character varying::text, 'upload_cleanup_failed'::character varying::text])", name: "coach_content_sources_status_valid"
     t.check_constraint "ingestion_method::text = ANY (ARRAY['upload'::character varying::text, 'url_snapshot'::character varying::text])", name: "coach_content_sources_ingestion_method_valid"
+  end
+
+  create_table "coach_operation_executions", force: :cascade do |t|
+    t.string "actor_role_snapshot", null: false
+    t.bigint "actor_user_id", null: false
+    t.jsonb "after_snapshot", default: {}, null: false
+    t.string "after_snapshot_digest", null: false
+    t.jsonb "before_snapshot", default: {}, null: false
+    t.string "before_snapshot_digest", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.bigint "cohort_id", null: false
+    t.bigint "cohort_release_id", null: false
+    t.datetime "completed_at", null: false
+    t.datetime "created_at", null: false
+    t.string "invocation_fingerprint", null: false
+    t.jsonb "normalized_input", default: {}, null: false
+    t.string "normalized_input_digest", null: false
+    t.string "operation_key", null: false
+    t.integer "operation_version", null: false
+    t.jsonb "predicted_after_snapshot", default: {}, null: false
+    t.string "predicted_after_snapshot_digest", null: false
+    t.string "request_fingerprint", null: false
+    t.string "request_key", null: false
+    t.string "source", default: "api", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_coach_operation_executions_on_actor_user_id"
+    t.index ["coach_workspace_id"], name: "index_coach_operation_executions_on_coach_workspace_id"
+    t.index ["cohort_id", "completed_at", "id"], name: "idx_coach_operations_history"
+    t.index ["cohort_id", "request_key"], name: "idx_coach_operations_cohort_request", unique: true
+    t.index ["cohort_id"], name: "index_coach_operation_executions_on_cohort_id"
+    t.index ["cohort_release_id"], name: "idx_coach_operations_release_unique", unique: true
+    t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_coach_operations_id_cohort_workspace", unique: true
+    t.check_constraint "actor_role_snapshot::text = ANY (ARRAY['platform_admin'::character varying, 'owner'::character varying, 'reviewer'::character varying]::text[])", name: "coach_operations_actor_role_valid"
+    t.check_constraint "char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100", name: "coach_operations_request_key_bounded"
+    t.check_constraint "invocation_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND normalized_input_digest::text ~ '^[0-9a-f]{64}$'::text AND before_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND predicted_after_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text AND after_snapshot_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_operations_digest_shape"
+    t.check_constraint "jsonb_typeof(normalized_input) = 'object'::text AND jsonb_typeof(before_snapshot) = 'object'::text AND jsonb_typeof(predicted_after_snapshot) = 'object'::text AND jsonb_typeof(after_snapshot) = 'object'::text", name: "coach_operations_json_shape"
+    t.check_constraint "octet_length(normalized_input::text) <= 16384 AND octet_length(before_snapshot::text) <= 16384 AND octet_length(predicted_after_snapshot::text) <= 16384 AND octet_length(after_snapshot::text) <= 16384", name: "coach_operations_json_bounded"
+    t.check_constraint "operation_key::text = ANY (ARRAY['cohort.release.seal'::character varying, 'cohort.release.restore'::character varying]::text[])", name: "coach_operations_key_valid"
+    t.check_constraint "operation_version = 1", name: "coach_operations_version_supported"
+    t.check_constraint "source::text = 'api'::text", name: "coach_operations_source_valid"
   end
 
   create_table "coach_persona_behavioral_preview_evidences", force: :cascade do |t|
@@ -1045,6 +1085,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_040000) do
     t.index ["cohort_id", "request_key"], name: "idx_cohort_releases_request_key", unique: true
     t.index ["cohort_id"], name: "index_cohort_releases_on_cohort_id"
     t.index ["id", "cohort_id", "coach_workspace_id"], name: "idx_cohort_releases_id_cohort_workspace", unique: true
+    t.index ["id", "released_by_user_id", "actor_role_snapshot"], name: "idx_cohort_releases_operation_actor", unique: true
     t.index ["released_by_user_id"], name: "index_cohort_releases_on_released_by_user_id"
     t.index ["source_release_id"], name: "index_cohort_releases_on_source_release_id"
     t.check_constraint "(experience_mode::text = ANY (ARRAY['published_version'::character varying, 'safe_default'::character varying]::text[])) AND (experience_mode::text = 'published_version'::text AND cohort_experience_version_id IS NOT NULL OR experience_mode::text = 'safe_default'::text AND cohort_experience_version_id IS NULL)", name: "cohort_releases_experience_shape"
@@ -2256,6 +2297,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_040000) do
   add_foreign_key "coach_phrase_proposals", "coach_content_sources"
   add_foreign_key "coach_phrase_proposals", "coach_workspaces"
   add_foreign_key "coach_phrase_proposals", "users", column: "proposed_by_user_id"
+  add_foreign_key "coach_operation_executions", "coach_workspaces", on_delete: :restrict
+  add_foreign_key "coach_operation_executions", "cohort_releases", column: ["cohort_release_id", "cohort_id", "coach_workspace_id"], primary_key: ["id", "cohort_id", "coach_workspace_id"], name: "fk_coach_operations_release", on_delete: :restrict
+  add_foreign_key "coach_operation_executions", "cohort_releases", column: ["cohort_release_id", "actor_user_id", "actor_role_snapshot"], primary_key: ["id", "released_by_user_id", "actor_role_snapshot"], name: "fk_coach_operations_release_actor", on_delete: :restrict
+  add_foreign_key "coach_operation_executions", "cohort_releases", on_delete: :restrict
+  add_foreign_key "coach_operation_executions", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_coach_operations_cohort_workspace", on_delete: :restrict
+  add_foreign_key "coach_operation_executions", "cohorts", on_delete: :restrict
+  add_foreign_key "coach_operation_executions", "users", column: "actor_user_id", on_delete: :restrict
   add_foreign_key "coach_persona_behavioral_preview_evidences", "coach_persona_release_candidates"
   add_foreign_key "coach_persona_behavioral_preview_evidences", "users", column: "generated_by_user_id"
   add_foreign_key "coach_persona_draft_restore_events", "coach_persona_versions", column: "source_version_id"
@@ -2296,5 +2344,23 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_040000) do
     BEFORE UPDATE OR DELETE ON cohort_releases
     FOR EACH ROW
     EXECUTE FUNCTION prevent_cohort_release_mutation()
+  SQL
+  execute <<~SQL
+    CREATE OR REPLACE FUNCTION prevent_coach_operation_execution_mutation()
+    RETURNS trigger
+    LANGUAGE plpgsql
+    AS $$
+    BEGIN
+      RAISE EXCEPTION 'coach operation executions are immutable'
+        USING ERRCODE = 'integrity_constraint_violation';
+    END;
+    $$
+  SQL
+  execute <<~SQL
+    DROP TRIGGER IF EXISTS coach_operation_executions_immutable ON coach_operation_executions;
+    CREATE TRIGGER coach_operation_executions_immutable
+    BEFORE UPDATE OR DELETE ON coach_operation_executions
+    FOR EACH ROW
+    EXECUTE FUNCTION prevent_coach_operation_execution_mutation()
   SQL
 end

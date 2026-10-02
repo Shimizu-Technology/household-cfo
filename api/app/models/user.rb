@@ -1,6 +1,8 @@
 class User < ApplicationRecord
   has_many :released_cohort_releases, class_name: "CohortRelease", foreign_key: :released_by_user_id,
     dependent: :restrict_with_exception, inverse_of: :released_by_user
+  has_many :coach_operation_executions, foreign_key: :actor_user_id,
+    dependent: :restrict_with_exception, inverse_of: :actor_user
   ROLES = %w[admin coach participant].freeze
   INVITATION_STATUSES = %w[pending accepted revoked].freeze
   INVITATION_EMAIL_STATUSES = %w[not_sent skipped sent failed].freeze

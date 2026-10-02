@@ -23,8 +23,8 @@ module Api
           persona = policy.assignable_personas.find(assignment_params[:persona_id])
           assignment = nil
           CohortPersonaAssignment.transaction do
-            persona.lock!
             cohort.lock!
+            persona.lock!
             raise PersonaUnavailable unless persona.published? && !persona.archived?
 
             participant_ids = Mia::PersonaAssignmentCompatibility.participant_ids_for(cohort: cohort)

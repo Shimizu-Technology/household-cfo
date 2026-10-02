@@ -31,6 +31,25 @@ bin/rails cohort_releases:reconcile_legacy
 
 The task seals shadow releases and reports counts. It does not activate them. `CohortReleases::ShadowParity` reports `unreconciled`, `in_sync`, `drifted`, `corrupt`, or `error` using IDs, modes, and counts only.
 
+## Coach release operations
+
+The coach control plane exposes two typed versioned operations:
+
+- `cohort.release.seal` version 1 records the exact reviewed persona assignment, persona version, participant-tools version, tool registry, candidate bundle, and latest release ID.
+- `cohort.release.restore` version 1 records the exact historical source release, source versions and bundle digest, and latest release ID.
+
+Both operations require an explicit `Idempotency-Key`. The first completed request returns `201`; an exact replay returns `200`. Reusing a key for different normalized input returns `409`. A new key cannot seal the bundle already present in the latest record or restore the latest bundle.
+
+`CoachOperationExecution` is an append-only audit ledger. It stores tenant and actor provenance, canonical input, before and predicted state, the actual after state, the linked release, and SHA-256 digests. Its snapshots contain identifiers, counts, versions, and digests only. PostgreSQL composite keys keep the execution, cohort, workspace, and release in one tenant, and a database trigger rejects updates and deletes.
+
+The release Studio API is available at:
+
+- `GET /api/v1/admin/cohorts/:cohort_id/releases`
+- `POST /api/v1/admin/cohorts/:cohort_id/releases`
+- `POST /api/v1/admin/cohorts/:cohort_id/releases/:id/restore`
+
+Readiness is evidence state and remains visible to read-only workspace members. Mutation permissions and closed-cohort restrictions are reported separately. All responses state that release records do not change participant runtime.
+
 ## Planned cutover
 
 The later activation change must load one release once per request and derive both persona and tools from that row. The same change will add release-scoped conversation continuity, explicit handling for participants in multiple cohorts, activation audit events, and a compare-and-swap cohort pointer. Mutable rollout waves and participant exposure records will reference immutable releases rather than changing release evidence.

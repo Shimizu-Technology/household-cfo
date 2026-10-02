@@ -163,6 +163,9 @@ Rails.application.routes.draw do
           resource :attestation, controller: "coach_phrase_attestations", only: :create
         end
         resources :cohorts, only: %i[index show create update] do
+          resources :releases, controller: "cohort_releases", only: %i[index create] do
+            post :restore, on: :member
+          end
           resource :persona_assignment, controller: "persona_assignments", only: %i[show update destroy]
           resource :experience_configuration, controller: "cohort_experience_configurations", only: %i[show update] do
             post :preview

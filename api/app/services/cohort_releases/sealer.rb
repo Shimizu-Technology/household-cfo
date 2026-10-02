@@ -15,6 +15,7 @@ module CohortReleases
     end
     class Stale < Error; end
     class RequestConflict < Error; end
+    class AlreadyRecorded < Error; end
 
     def initialize(cohort:, actor:, publication_source: "user")
       @cohort = cohort
@@ -48,6 +49,7 @@ module CohortReleases
         raise Incomplete, candidate.blockers if candidate.blockers.any?
         verify_expectations!(candidate, expected_bundle_digest, expected_assignment_id,
           expected_persona_version_id, expected_experience_version_id)
+        reject_noop!(candidate, event_type, source_release)
 
         fingerprint = request_fingerprint(
           key: key,
@@ -193,6 +195,25 @@ module CohortReleases
       elsif source_release
         raise Stale, "A source release is only valid for a restore"
       end
+    end
+
+    def reject_noop!(candidate, event_type, source_release)
+      return unless publication_source == "user"
+
+      latest = cohort.cohort_releases.order(release_number: :desc).first
+      return unless latest
+
+      if event_type == "restore" && source_release.id == latest.id
+        raise AlreadyRecorded, "The selected release is already the latest sealed record"
+      end
+      return unless secure_match?(candidate.bundle_digest, latest.bundle_digest)
+
+      message = if event_type == "restore"
+        "The selected release bundle is already the latest sealed record"
+      else
+        "This exact cohort release bundle is already sealed"
+      end
+      raise AlreadyRecorded, message
     end
 
     def reconcile!(existing, fingerprint)

@@ -2,9 +2,13 @@
 
 module CohortReleases
   class RestoreGovernance
-    def initialize(cohort:, source_release:)
+    UNSET = Object.new.freeze
+
+    def initialize(cohort:, source_release:, ambiguous_participant_count: nil, persona_governed: UNSET)
       @cohort = cohort
       @source_release = source_release
+      @ambiguous_participant_count = ambiguous_participant_count
+      @persona_governed = persona_governed
     end
 
     def call
@@ -13,14 +17,17 @@ module CohortReleases
 
     private
 
-    attr_reader :cohort, :source_release
+    attr_reader :cohort, :source_release, :ambiguous_participant_count, :persona_governed
 
     def persona_blockers
-      persona = source_release.coach_persona
-      version = source_release.coach_persona_version
-      governed = source_release.persona_mode == "published_version" && persona && version &&
-        persona.archived_at.nil? && version.sealed? && version.release_gate_version == "gate_v2" &&
-        version.release_evidence_valid?
+      governed = persona_governed
+      if governed.equal?(UNSET)
+        persona = source_release.coach_persona
+        version = source_release.coach_persona_version
+        governed = source_release.persona_mode == "published_version" && persona && version &&
+          persona.archived_at.nil? && version.sealed? && version.release_gate_version == "gate_v2" &&
+          version.release_evidence_valid?
+      end
       governed ? [] : [ "Restore a release with a governed, active coach persona." ]
     end
 
@@ -33,7 +40,8 @@ module CohortReleases
     end
 
     def ambiguity_blockers
-      count = CandidateBuilder.new(cohort: cohort, strict: false).call.ambiguous_participant_count
+      count = ambiguous_participant_count
+      count = CandidateBuilder.new(cohort: cohort, strict: false).call.ambiguous_participant_count if count.nil?
       count.positive? ? [ "#{count} participant(s) have conflicting active cohort configurations." ] : []
     end
   end

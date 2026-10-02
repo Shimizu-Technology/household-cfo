@@ -2,8 +2,15 @@
 
 module CohortReleases
   class Integrity
-    def initialize(release)
+    UNSET = Object.new.freeze
+
+    def initialize(release, current_tool_registry_snapshot: nil, current_tool_registry_digest: nil,
+      current_persona_snapshot: UNSET, persona_evidence_valid: UNSET)
       @release = release
+      @current_tool_registry_snapshot = current_tool_registry_snapshot
+      @current_tool_registry_digest = current_tool_registry_digest
+      @current_persona_snapshot = current_persona_snapshot
+      @persona_evidence_valid = persona_evidence_valid
     end
 
     def call
@@ -29,7 +36,8 @@ module CohortReleases
 
     private
 
-    attr_reader :release
+    attr_reader :release, :current_tool_registry_snapshot, :current_tool_registry_digest, :current_persona_snapshot,
+      :persona_evidence_valid
 
     def compare_digest(errors, payload, expected, label)
       errors << "#{label} digest does not match" unless secure_match?(Contract.digest(payload), expected)
@@ -63,6 +71,7 @@ module CohortReleases
       if release.persona_mode == "published_version"
         version = release.coach_persona_version
         snapshot = release.persona_snapshot
+        evidence_valid = persona_evidence_valid.equal?(UNSET) ? version&.release_evidence_valid? : persona_evidence_valid
         linked = version && snapshot["mode"] == "published_version" &&
           snapshot["persona_id"] == version.coach_persona_id && snapshot["version_id"] == version.id &&
           snapshot["version_number"] == version.version_number && snapshot["config_digest"] == version.config_digest &&
@@ -70,8 +79,7 @@ module CohortReleases
           snapshot["phrase_manifest_digest"] == version.phrase_manifest_digest &&
           snapshot["release_gate_version"] == version.release_gate_version &&
           snapshot["release_evidence_schema"] == version.release_evidence_schema &&
-          snapshot["release_evidence_digest"] == version.release_evidence_digest &&
-          version.release_evidence_valid?
+          snapshot["release_evidence_digest"] == version.release_evidence_digest && evidence_valid
         errors << "Published persona snapshot does not match its immutable version" unless linked
       elsif release.persona_snapshot.dig("mode") != "neutral_builtin" || release.persona_snapshot["builtin_id"].blank?
         errors << "Neutral persona snapshot is malformed"
@@ -97,10 +105,17 @@ module CohortReleases
 
     def current_runtime_compatible?
       return false unless release.tool_registry_version == Contract::TOOL_REGISTRY_VERSION
-      return false unless release.tool_registry_digest == Contract.digest(Contract.tool_registry_snapshot)
+      registry_snapshot = current_tool_registry_snapshot || Contract.tool_registry_snapshot
+      registry_digest = current_tool_registry_digest || Contract.digest(registry_snapshot)
+      return false unless release.tool_registry_digest == registry_digest
 
       persona_compatible = if release.persona_mode == "published_version"
-        Contract.persona_snapshot(version: release.coach_persona_version) == release.persona_snapshot
+        snapshot = if current_persona_snapshot.equal?(UNSET)
+          Contract.persona_snapshot(version: release.coach_persona_version)
+        else
+          current_persona_snapshot
+        end
+        snapshot == release.persona_snapshot
       else
         Contract.neutral_persona_snapshot == release.persona_snapshot
       end
