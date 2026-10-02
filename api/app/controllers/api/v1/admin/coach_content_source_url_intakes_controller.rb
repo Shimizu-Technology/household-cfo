@@ -1,0 +1,144 @@
+# frozen_string_literal: true
+
+module Api
+  module V1
+    module Admin
+      class CoachContentSourceUrlIntakesController < BaseController
+        before_action :authenticate_user!
+        before_action :require_staff!
+        before_action :set_intake, only: :show
+        rescue_from ActiveRecord::RecordNotFound, with: :not_found
+
+        def create
+          return storage_unavailable unless S3Service.configured?
+
+          normalized_url = ContentSources::UrlValidator.normalize!(params.require(:url))
+          request_id = params.require(:request_id).to_s
+          unless request_id.match?(/\A[A-Za-z0-9_-]{8,100}\z/)
+            return render json: { error: "Refresh the page and try the address again.", code: "url_intake_request_invalid" }, status: :unprocessable_entity
+          end
+
+          scope = requested_scope
+          return require_selected_coach_workspace! if scope == "coach" && coach_workspace_for_policy.nil?
+          return render_intake_forbidden unless policy.can_upload_source?(scope)
+
+          workspace = scope == "coach" ? coach_workspace_for_policy : nil
+          quota = ContentSources::Quota.new(scope: scope, user: current_user, workspace: workspace)
+          identity = ContentSources::UrlCipher.identity(normalized_url)
+          intake = nil
+          created = false
+          ContentSources::OwnerLock.call("upload-quota:#{quota.owner_key}") do
+            intake = intake_scope(scope, workspace).find_by(request_id: request_id)
+            if intake
+              same_identity = intake.url_identity_hmac == identity && intake.hmac_key_version == ContentSources::UrlCipher::CURRENT_VERSION
+              raise ContentSources::Error, "url_intake_conflict" unless same_identity
+              if intake.status == "failed"
+                quota.enforce!(requested_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES, exclude_intake: intake)
+                intake.update!(
+                  status: "queued", reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES,
+                  error_code: nil, completed_at: nil
+                )
+              end
+            else
+              quota.enforce!(requested_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES)
+              encrypted = ContentSources::UrlCipher.encrypt(normalized_url)
+              intake = CoachContentSourceUrlIntake.create!(
+                scope: scope,
+                coach_workspace: workspace,
+                created_by_user: current_user,
+                request_id: request_id,
+                encrypted_url_ciphertext: encrypted.fetch(:ciphertext),
+                encrypted_url_iv: encrypted.fetch(:iv),
+                encrypted_url_auth_tag: encrypted.fetch(:auth_tag),
+                encryption_key_version: encrypted.fetch(:key_version),
+                url_identity_hmac: identity,
+                hmac_key_version: ContentSources::UrlCipher::CURRENT_VERSION,
+                status: "queued",
+                reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES
+              )
+              created = true
+            end
+          end
+          job = CoachContentSourceUrlIntakeJob.perform_later(intake.id) if intake.status == "queued"
+          raise ActiveJob::EnqueueError, "Secure URL intake could not be queued" if intake.status == "queued" && !job
+
+          render json: { intake: serialize(intake.reload) }, status: created ? :accepted : :ok
+        rescue ActionController::ParameterMissing
+          render json: { error: "Enter a source address and try again.", code: "url_intake_request_invalid" }, status: :unprocessable_entity
+        rescue ContentSources::Error => error
+          render json: { error: error.message, code: error.code }, status: :unprocessable_entity
+        rescue ContentSources::UrlCipher::ConfigurationError
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
+        rescue ActiveJob::EnqueueError
+          intake&.destroy! if created && intake&.status == "queued"
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
+        rescue ActiveRecord::RecordNotUnique
+          existing = intake_scope(requested_scope, requested_scope == "coach" ? coach_workspace_for_policy : nil).find_by(request_id: params[:request_id])
+          return render json: { intake: serialize(existing) } if existing && existing.url_identity_hmac == ContentSources::UrlCipher.identity(normalized_url)
+
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_conflict"), code: "url_intake_conflict" }, status: :conflict
+        end
+
+        def show
+          render json: { intake: serialize(@intake) }
+        end
+
+        private
+
+        def policy
+          @policy ||= Mia::ContentLibraryPolicy.new(current_user, workspace: coach_workspace_for_policy)
+        end
+
+        def requested_scope
+          requested = params[:scope].to_s
+          current_user.admin? ? requested.presence_in(CoachContentSource::SCOPES) || "platform" : "coach"
+        end
+
+        def intake_scope(scope, workspace)
+          if scope == "coach"
+            CoachContentSourceUrlIntake.where(scope: "coach", coach_workspace: workspace)
+          else
+            CoachContentSourceUrlIntake.where(scope: "platform", created_by_user: current_user, coach_workspace: nil)
+          end
+        end
+
+        def set_intake
+          visible = if current_user.admin? && coach_workspace_for_policy.nil?
+            CoachContentSourceUrlIntake.all
+          elsif coach_workspace_for_policy && (current_user.admin? || coach_workspace_for_policy.allows?(current_user, :edit) || coach_workspace_for_policy.allows?(current_user, :review))
+            CoachContentSourceUrlIntake.where(scope: "coach", coach_workspace: coach_workspace_for_policy)
+          else
+            CoachContentSourceUrlIntake.where(created_by_user: current_user)
+          end
+          @intake = visible.find(params[:id])
+        end
+
+        def serialize(intake)
+          {
+            id: intake.id,
+            scope: intake.scope,
+            status: intake.status,
+            source_id: intake.coach_content_source_id,
+            error_code: intake.error_code,
+            error: intake.error_code && ContentSources::Error::SAFE_MESSAGES.fetch(intake.error_code, ContentSources::Error::SAFE_MESSAGES.fetch("processing_failed")),
+            redirect_count: intake.redirect_count,
+            created_at: intake.created_at,
+            completed_at: intake.completed_at
+          }
+        end
+
+        def render_intake_forbidden
+          render json: { error: "Private source intake is not permitted.", code: "content_source_forbidden" }, status: :forbidden
+        end
+
+        def storage_unavailable
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("storage_unavailable"), code: "storage_unavailable" }, status: :service_unavailable
+        end
+
+        def not_found
+          render json: { error: "Source intake not found.", code: "url_intake_not_found" }, status: :not_found
+        end
+      end
+    end
+  end
+end

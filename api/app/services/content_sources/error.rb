@@ -34,7 +34,23 @@ module ContentSources
       "proposal_invalid" => "Candidate generation returned an invalid result. Retry the source or create the guidance manually.",
       "proposal_limit" => "Candidate generation exceeded the safe result limit. Split the source into smaller files and try again.",
       "source_deleted" => "This private source has been deleted.",
-      "processing_failed" => "This source could not be processed safely. Check the file and try again."
+      "processing_failed" => "This source could not be processed safely. Check the file and try again.",
+      "url_invalid" => "Enter a complete HTTPS address without a fragment or embedded credentials.",
+      "url_https_required" => "Only HTTPS source addresses are supported.",
+      "url_port_invalid" => "Source addresses must use the standard HTTPS port.",
+      "url_host_invalid" => "This source address does not use a supported public hostname.",
+      "url_host_unresolved" => "The source hostname could not be resolved. Check the address and try again.",
+      "url_host_private" => "This source address does not resolve exclusively to public internet addresses.",
+      "url_redirect_invalid" => "The source redirected to an address that cannot be fetched safely.",
+      "url_too_many_redirects" => "The source redirected too many times. Use its final HTTPS address instead.",
+      "url_fetch_failed" => "The source could not be fetched safely. Check that it is public and try again.",
+      "url_response_invalid" => "The source returned an unsupported response.",
+      "url_content_encoding_unsupported" => "The source uses an unsupported transfer encoding.",
+      "html_unsafe" => "This web page contains document features that cannot be imported safely.",
+      "html_invalid" => "This web page could not be read safely.",
+      "html_no_readable_text" => "No readable article text was found on this web page.",
+      "url_intake_conflict" => "This source request changed unexpectedly. Start a new import.",
+      "url_intake_unavailable" => "Secure URL intake is temporarily unavailable. Try again shortly."
     }.freeze
 
     def initialize(code)

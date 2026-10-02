@@ -17,6 +17,7 @@ module ContentSources
         content_type: source.content_type,
         byte_size: source.byte_size,
         checksum_sha256: source.checksum_sha256,
+        ingestion_method: source.ingestion_method,
         status: source.status,
         generation: source.generation,
         source_available: source.source_available?,
@@ -29,6 +30,11 @@ module ContentSources
         created_at: source.created_at,
         updated_at: source.updated_at,
         current_attempt: current_attempt && attempt(current_attempt),
+        url_snapshot: source.url_intake && {
+          intake_id: source.url_intake.id,
+          redirect_count: source.url_intake.redirect_count,
+          fetched_at: source.url_intake.fetched_at
+        },
         candidates: candidates.map { |candidate| candidate(candidate) }
       }
       payload[:permissions] = permissions if permissions

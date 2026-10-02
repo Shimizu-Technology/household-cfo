@@ -76,6 +76,16 @@ class CoachContentSourceDeletionJob < ApplicationJob
         error_message: nil
       )
       source.update_column(:filename, CoachContentItemDraftProvenance.provenance_filename_for(source.filename))
+      source.url_intake&.update_columns(
+        status: "deleted",
+        encrypted_url_ciphertext: nil,
+        encrypted_url_iv: nil,
+        encrypted_url_auth_tag: nil,
+        staging_s3_key: nil,
+        final_s3_key: nil,
+        completed_at: now,
+        updated_at: now
+      )
     end
   end
 

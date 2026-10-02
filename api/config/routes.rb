@@ -149,6 +149,7 @@ Rails.application.routes.draw do
             end
           end
         end
+        resources :content_source_url_intakes, controller: "coach_content_source_url_intakes", only: %i[create show]
         resources :phrase_proposals, controller: "coach_phrase_proposals", only: %i[show update] do
           post :submit, on: :member
           resource :attestation, controller: "coach_phrase_attestations", only: :create
