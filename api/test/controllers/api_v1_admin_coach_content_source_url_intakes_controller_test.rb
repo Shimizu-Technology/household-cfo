@@ -212,6 +212,35 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_equal true, response.parsed_body.dig("intake", "cleanup_retryable")
   end
 
+  test "administrator can manage a platform intake while a coach workspace is selected" do
+    admin = persona_user(role: "admin")
+    workspace = CoachWorkspaces::Resolver.new(user: admin).call
+
+    with_storage_configured do
+      post endpoint, params: {
+        url: "https://example.com/platform-guide", request_id: SecureRandom.uuid, scope: "platform"
+      }, headers: workspace_auth_headers(admin, workspace), as: :json
+    end
+
+    assert_response :accepted
+    intake_id = response.parsed_body.dig("intake", "id")
+    intake = CoachContentSourceUrlIntake.find(intake_id)
+    assert_equal "platform", intake.scope
+    assert_nil intake.coach_workspace
+
+    get endpoint, params: { scope: "platform" }, headers: workspace_auth_headers(admin, workspace)
+    assert_response :success
+    assert_equal [ intake_id ], response.parsed_body.fetch("intakes").map { |entry| entry.fetch("id") }
+
+    get "#{endpoint}/#{intake_id}", headers: workspace_auth_headers(admin, workspace)
+    assert_response :success
+    assert_equal intake_id, response.parsed_body.dig("intake", "id")
+
+    get endpoint, params: { scope: "coach" }, headers: workspace_auth_headers(admin, workspace)
+    assert_response :success
+    assert_empty response.parsed_body.fetch("intakes")
+  end
+
   test "an editor can redact a terminal unregistered intake without exposing its address" do
     coach = persona_user
     workspace = CoachWorkspaces::Resolver.new(user: coach).call
@@ -252,6 +281,26 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     get endpoint, headers: workspace_auth_headers(coach, workspace)
     assert_equal [ intake.id ], response.parsed_body.fetch("intakes").map { |entry| entry.fetch("id") }
     assert_equal true, response.parsed_body.dig("intakes", 0, "redaction_pending")
+  end
+
+  test "cleanup-backed redaction can be retried after an uncertain enqueue failure" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    intake = terminal_intake(coach:, workspace:, status: "cleanup_failed", staging_s3_key: "staging/#{SecureRandom.uuid}")
+
+    with_singleton_method(CoachContentSourceUrlCleanupJob, :perform_later, ->(_id) { nil }) do
+      delete "#{endpoint}/#{intake.id}", headers: workspace_auth_headers(coach, workspace), as: :json
+    end
+
+    assert_response :service_unavailable
+    assert_equal "cleanup_pending", intake.reload.status
+    assert intake.redaction_pending?
+
+    assert_enqueued_with(job: CoachContentSourceUrlCleanupJob, args: [ intake.id ]) do
+      delete "#{endpoint}/#{intake.id}", headers: workspace_auth_headers(coach, workspace), as: :json
+    end
+    assert_response :accepted
+    assert_equal true, response.parsed_body.dig("intake", "redaction_pending")
   end
 
   private

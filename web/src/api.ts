@@ -2086,8 +2086,8 @@ export function createAdminContentSourceUrlRequestId() {
   return clientRequestId()
 }
 
-export async function fetchAdminContentSourceUrlIntakes(): Promise<AdminContentSourceUrlIntakeCollection> {
-  return fetchJson<AdminContentSourceUrlIntakeCollection>('/api/v1/admin/content_source_url_intakes')
+export async function fetchAdminContentSourceUrlIntakes(scope: AdminContentScope = 'coach'): Promise<AdminContentSourceUrlIntakeCollection> {
+  return fetchJson<AdminContentSourceUrlIntakeCollection>(`/api/v1/admin/content_source_url_intakes?scope=${encodeURIComponent(scope)}`)
 }
 
 export async function fetchAdminContentSourceUrlIntake(id: number): Promise<{
@@ -2116,11 +2116,17 @@ export async function deleteAdminContentSourceUrlIntake(id: number): Promise<{
   intake: AdminContentSourceUrlIntake
   url_intake?: AdminContentSourceUrlIntakeCapability
 }> {
-  return fetchJson(`/api/v1/admin/content_source_url_intakes/${id}`, { method: 'DELETE' })
+  return fetchJson(`/api/v1/admin/content_source_url_intakes/${id}`, { method: 'DELETE' }, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'Removing the saved address took too long. Checking its current state is recommended.',
+  })
 }
 
 export async function retryAdminContentSourceUrlIntakeCleanup(id: number): Promise<AdminContentSourceUrlIntake> {
-  const payload = await postJson<{ intake: AdminContentSourceUrlIntake }>(`/api/v1/admin/content_source_url_intakes/${id}/retry_cleanup`, {})
+  const payload = await postJson<{ intake: AdminContentSourceUrlIntake }>(`/api/v1/admin/content_source_url_intakes/${id}/retry_cleanup`, {}, {
+    timeoutMs: 30_000,
+    timeoutMessage: 'Retrying private snapshot cleanup took too long. Checking its current state is recommended.',
+  })
   return payload.intake
 }
 

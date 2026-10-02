@@ -4,7 +4,7 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ComponentProps } from 'react'
-import type { AdminContentSourceUrlIntake } from '../api'
+import { ApiRequestError, type AdminContentSourceUrlIntake } from '../api'
 import { CoachUrlSourceIntake } from './CoachUrlSourceIntake'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
@@ -127,6 +127,37 @@ describe('CoachUrlSourceIntake', () => {
     await waitFor(() => expect(apiMocks.deleteAdminContentSourceUrlIntake).toHaveBeenCalledWith(8))
     expect(screen.queryByText('Secure web snapshot')).toBeNull()
     expect(screen.getByText(/Minimal redacted audit metadata remains/)).toBeTruthy()
+  })
+
+  it('reconciles an uncertain redaction response with the committed server state', async () => {
+    const failed = intake()
+    const pending = intake({ status: 'cleanup_pending', redaction_allowed: false, redaction_pending: true })
+    apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [failed], url_intake: { enabled: true } })
+    apiMocks.deleteAdminContentSourceUrlIntake.mockRejectedValue(new Error('Connection ended before a response arrived.'))
+    apiMocks.fetchAdminContentSourceUrlIntake.mockResolvedValue({ intake: pending })
+    renderIntake()
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Remove saved address' }))
+    await userEvent.click(screen.getByRole('button', { name: 'Remove address' }))
+
+    await waitFor(() => expect(apiMocks.fetchAdminContentSourceUrlIntake).toHaveBeenCalledWith(8))
+    expect(screen.getByText(/Private snapshot cleanup is in progress/)).toBeTruthy()
+    expect(screen.queryByText(/could not be removed/)).toBeNull()
+    expect(screen.getByText(/address is already redacted/i)).toBeTruthy()
+  })
+
+  it('stops polling and removes an intake that is no longer accessible', async () => {
+    const queued = intake({ status: 'queued', redaction_allowed: false })
+    apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [queued], url_intake: { enabled: true } })
+    apiMocks.fetchAdminContentSourceUrlIntake.mockRejectedValue(new ApiRequestError('Not found', {
+      status: 404, code: 'url_intake_not_found',
+    }))
+    renderIntake()
+
+    expect(await screen.findByText('Queued securely')).toBeTruthy()
+    await waitFor(() => expect(screen.queryByText('Queued securely')).toBeNull(), { timeout: 3500 })
+    expect(screen.getByText(/no longer available/)).toBeTruthy()
+    expect(apiMocks.fetchAdminContentSourceUrlIntake).toHaveBeenCalledTimes(1)
   })
 
   it('uses an in-memory address only to retry a just-submitted failed request', async () => {

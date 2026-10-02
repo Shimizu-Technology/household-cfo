@@ -19,6 +19,7 @@ import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } fr
 const activeStatuses = new Set<AdminContentSourceUrlIntake['status']>([
   'queued', 'fetching', 'staged', 'registering', 'cleanup_pending',
 ])
+const maximumPollFailures = 4
 
 type RetrySecret = { url: string; requestId: string; scope: AdminContentScope }
 
@@ -55,6 +56,7 @@ export function CoachUrlSourceIntake({
   const requestSequence = useRef(0)
   const actionRef = useRef<string | null>(null)
   const retrySecrets = useRef(new Map<number, RetrySecret>())
+  const pollFailures = useRef(new Map<number, number>())
   const errorRef = useRef<HTMLDivElement>(null)
   const noticeRef = useRef<HTMLDivElement>(null)
 
@@ -79,7 +81,7 @@ export function CoachUrlSourceIntake({
     setLoadFailed(false)
     setError(null)
     try {
-      const result = await fetchAdminContentSourceUrlIntakes()
+      const result = await fetchAdminContentSourceUrlIntakes(scope)
       if (!mounted.current || sequence !== requestSequence.current) return
       setIntakes(result.intakes)
       setCapability(result.url_intake ?? null)
@@ -90,7 +92,7 @@ export function CoachUrlSourceIntake({
     } finally {
       if (mounted.current && sequence === requestSequence.current) setLoading(false)
     }
-  }, [])
+  }, [scope])
 
   useEffect(() => { queueMicrotask(() => void loadIntakes()) }, [loadIntakes])
 
@@ -104,6 +106,28 @@ export function CoachUrlSourceIntake({
       const results = await Promise.allSettled(activeIds.map((id) => fetchAdminContentSourceUrlIntake(id)))
       if (cancelled) return
       const updates = results.flatMap((result) => result.status === 'fulfilled' ? [result.value.intake] : [])
+      const inaccessibleIds: number[] = []
+      let retryFailures = 0
+      results.forEach((result, index) => {
+        const id = activeIds[index]
+        if (result.status === 'fulfilled') {
+          pollFailures.current.delete(id)
+          return
+        }
+        if (result.reason instanceof ApiRequestError && [403, 404].includes(result.reason.status)) {
+          inaccessibleIds.push(id)
+          pollFailures.current.delete(id)
+          retrySecrets.current.delete(id)
+          return
+        }
+        const failures = (pollFailures.current.get(id) ?? 0) + 1
+        pollFailures.current.set(id, failures)
+        retryFailures = Math.max(retryFailures, failures)
+      })
+      if (inaccessibleIds.length > 0) {
+        setIntakes((current) => current.filter((intake) => !inaccessibleIds.includes(intake.id)))
+        setNotice('A secure import is no longer available. The list was refreshed for your current access.')
+      }
       if (updates.length > 0) {
         setIntakes((current) => mergeIntakes(current, updates))
         for (const intake of updates) {
@@ -115,8 +139,12 @@ export function CoachUrlSourceIntake({
           if (intake.status === 'deleted') retrySecrets.current.delete(intake.id)
         }
       }
-      if (results.some((result) => result.status === 'rejected') || updates.some((intake) => activeStatuses.has(intake.status))) {
-        timer = window.setTimeout(() => void poll(), 2500)
+      const stillActive = updates.some((intake) => activeStatuses.has(intake.status))
+      if (retryFailures >= maximumPollFailures) {
+        setError('A secure import stopped updating. Reload its current state before continuing.')
+      } else if (inaccessibleIds.length === 0 && (retryFailures > 0 || stillActive)) {
+        const delay = retryFailures > 0 ? Math.min(2500 * (2 ** (retryFailures - 1)), 20_000) : 2500
+        timer = window.setTimeout(() => void poll(), delay)
       }
     }
     timer = window.setTimeout(() => void poll(), 1800)
@@ -168,7 +196,21 @@ export function CoachUrlSourceIntake({
 
   async function redact(intake: AdminContentSourceUrlIntake) {
     await runAction(`redact:${intake.id}`, async (ticket) => {
-      const result = await deleteAdminContentSourceUrlIntake(intake.id)
+      let result: Awaited<ReturnType<typeof deleteAdminContentSourceUrlIntake>>
+      try {
+        result = await deleteAdminContentSourceUrlIntake(intake.id)
+      } catch (caught) {
+        const reconciled = await reconcileIntake(intake.id, ticket)
+        if (reconciled === null || reconciled?.status === 'deleted' || reconciled?.redaction_pending) {
+          retrySecrets.current.delete(intake.id)
+          setConfirmRedactionId(null)
+          setNotice(reconciled?.redaction_pending
+            ? 'The address was redacted. Private snapshot cleanup is in progress.'
+            : 'Saved address removed. Minimal redacted audit metadata remains.')
+          return
+        }
+        throw caught
+      }
       if (!mutationLifecycle.isCurrent(ticket)) return
       retrySecrets.current.delete(intake.id)
       setIntakes((current) => result.intake.status === 'deleted'
@@ -183,11 +225,40 @@ export function CoachUrlSourceIntake({
 
   async function retryCleanup(intake: AdminContentSourceUrlIntake) {
     await runAction(`cleanup:${intake.id}`, async (ticket) => {
-      const updated = await retryAdminContentSourceUrlIntakeCleanup(intake.id)
+      let updated: Awaited<ReturnType<typeof retryAdminContentSourceUrlIntakeCleanup>>
+      try {
+        updated = await retryAdminContentSourceUrlIntakeCleanup(intake.id)
+      } catch (caught) {
+        const reconciled = await reconcileIntake(intake.id, ticket)
+        if (reconciled !== undefined) {
+          setNotice('The latest private cleanup state was refreshed. Retry remains available if cleanup still needs attention.')
+          return
+        }
+        throw caught
+      }
       if (!mutationLifecycle.isCurrent(ticket)) return
       setIntakes((current) => mergeIntakes(current, [updated]))
       setNotice('Private snapshot cleanup was queued again.')
     }, 'Private snapshot cleanup could not be retried.')
+  }
+
+  async function reconcileIntake(id: number, ticket: CoachWorkspaceMutationTicket) {
+    try {
+      const result = await fetchAdminContentSourceUrlIntake(id)
+      if (!mutationLifecycle.isCurrent(ticket)) return undefined
+      if (result.intake.status === 'deleted') {
+        setIntakes((current) => current.filter((intake) => intake.id !== id))
+        return null
+      }
+      setIntakes((current) => mergeIntakes(current, [result.intake]))
+      return result.intake
+    } catch (caught) {
+      if (caught instanceof ApiRequestError && caught.status === 404) {
+        if (mutationLifecycle.isCurrent(ticket)) setIntakes((current) => current.filter((intake) => intake.id !== id))
+        return null
+      }
+      return undefined
+    }
   }
 
   async function runAction(

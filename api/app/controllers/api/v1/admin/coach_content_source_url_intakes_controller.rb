@@ -11,7 +11,8 @@ module Api
 
         def index
           render json: feature_payload.merge(
-            intakes: visible_intakes.where.not(status: "deleted").order(created_at: :desc, id: :desc).limit(100).map { |intake| serialize(intake) }
+            intakes: visible_intakes.where(scope: requested_scope).where.not(status: "deleted")
+              .order(created_at: :desc, id: :desc).limit(100).map { |intake| serialize(intake) }
           )
         end
 
@@ -92,15 +93,17 @@ module Api
 
         def destroy
           return render_intake_forbidden unless policy.can_upload_source?(@intake.scope)
+          return render json: feature_payload.merge(intake: serialize(@intake)), status: :ok if @intake.status == "deleted"
+          if @intake.redaction_pending?
+            enqueue_redaction_cleanup!
+            return render json: feature_payload.merge(intake: serialize(@intake.reload)), status: :accepted
+          end
           unless @intake.redaction_allowed?
             return render json: { error: "Only a failed, unregistered URL intake can be removed.", code: "url_intake_conflict" }, status: :unprocessable_entity
           end
 
           result = @intake.request_redaction!
-          if result == :cleanup_required
-            job = CoachContentSourceUrlCleanupJob.perform_later(@intake.id)
-            raise ActiveJob::EnqueueError, "Secure URL cleanup could not be queued" unless job
-          end
+          enqueue_redaction_cleanup! if result == :cleanup_required
           render json: feature_payload.merge(intake: serialize(@intake.reload)), status: result == :cleanup_required ? :accepted : :ok
         rescue ActiveJob::EnqueueError
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
@@ -151,10 +154,16 @@ module Api
           if current_user.admin? && coach_workspace_for_policy.nil?
             CoachContentSourceUrlIntake.all
           elsif coach_workspace_for_policy && (current_user.admin? || coach_workspace_for_policy.allows?(current_user, :edit) || coach_workspace_for_policy.allows?(current_user, :review))
-            CoachContentSourceUrlIntake.where(scope: "coach", coach_workspace: coach_workspace_for_policy)
+            coach = CoachContentSourceUrlIntake.where(scope: "coach", coach_workspace: coach_workspace_for_policy)
+            current_user.admin? ? coach.or(CoachContentSourceUrlIntake.where(scope: "platform", coach_workspace: nil)) : coach
           else
             CoachContentSourceUrlIntake.none
           end
+        end
+
+        def enqueue_redaction_cleanup!
+          job = CoachContentSourceUrlCleanupJob.perform_later(@intake.id)
+          raise ActiveJob::EnqueueError, "Secure URL cleanup could not be queued" unless job
         end
 
         def serialize(intake)

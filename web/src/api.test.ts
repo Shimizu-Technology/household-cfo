@@ -439,7 +439,7 @@ describe('governed content source API contract', () => {
     await deleteAdminContentSourceUrlIntake(41)
 
     expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
-      '/api/v1/admin/content_source_url_intakes',
+      '/api/v1/admin/content_source_url_intakes?scope=coach',
       '/api/v1/admin/content_source_url_intakes/41',
       '/api/v1/admin/content_source_url_intakes',
       '/api/v1/admin/content_source_url_intakes/41/retry_cleanup',
@@ -449,6 +449,8 @@ describe('governed content source API contract', () => {
       url: 'https://example.com/private?token=secret', request_id: 'stable-request-id', scope: 'coach',
     })
     expect((fetchMock.mock.calls[4][1] as RequestInit).method).toBe('DELETE')
+    expect((fetchMock.mock.calls[3][1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
+    expect((fetchMock.mock.calls[4][1] as RequestInit).signal).toBeInstanceOf(AbortSignal)
     expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('example.com'))).toBe(false)
     expect(createAdminContentSourceUrlRequestId().length).toBeGreaterThanOrEqual(8)
   })
