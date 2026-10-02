@@ -6,6 +6,8 @@ import { dirname, resolve } from 'node:path'
 const __dirname = dirname(fileURLToPath(import.meta.url))
 const analytics = readFileSync(resolve(__dirname, '../src/lib/analytics.ts'), 'utf8')
 const app = readFileSync(resolve(__dirname, '../src/App.tsx'), 'utf8')
+const urlIntake = readFileSync(resolve(__dirname, '../src/components/CoachUrlSourceIntake.tsx'), 'utf8')
+const api = readFileSync(resolve(__dirname, '../src/api.ts'), 'utf8')
 
 assert.ok(
   analytics.includes('$current_url: `${window.location.origin}${window.location.pathname}`'),
@@ -27,6 +29,11 @@ for (const forbiddenProperty of [
 }
 assert.ok(!app.includes('amount_bucket:'), 'financial amount buckets must not enter analytics events')
 assert.ok(!app.includes('profile_complete:'), 'financial profile completeness must not enter pageview analytics')
+assert.ok(urlIntake.includes('address hidden'), 'secure source requests must render a redacted address label')
+assert.ok(urlIntake.includes('retrySecrets = useRef(new Map'), 'same-session URL retries must remain in memory only')
+assert.ok(!urlIntake.includes('localStorage') && !urlIntake.includes('sessionStorage'), 'private source addresses must not persist in browser storage')
+assert.ok(api.includes("'/api/v1/admin/content_source_url_intakes'"), 'URL intake must call the server-side snapshot endpoint')
+assert.ok(!api.includes('fetch(values.url'), 'the browser API client must never fetch a submitted source address')
 
 for (const requiredEvent of [
   'workspace_setup_saved',

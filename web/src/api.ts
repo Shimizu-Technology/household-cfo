@@ -948,6 +948,7 @@ export type AdminContentItemKind = 'guidance' | 'script' | 'example' | 'phrase' 
 export type AdminContentPackKind = 'voice_culture' | 'coaching_method' | 'finance_reference'
 export type AdminContentScope = 'coach' | 'platform'
 export type AdminContentSourceStatus = 'upload_cleanup_failed' | 'queued' | 'processing' | 'needs_review' | 'failed' | 'deletion_pending' | 'deletion_failed' | 'source_deleted'
+export type AdminContentSourceUrlIntakeStatus = 'queued' | 'fetching' | 'staged' | 'registering' | 'registered' | 'failed' | 'cleanup_pending' | 'cleanup_failed' | 'deleted'
 
 export type AdminContentSourceCandidate = {
   id: number
@@ -978,6 +979,7 @@ export type AdminContentSource = {
   content_type: string
   byte_size: number
   checksum_sha256: string
+  ingestion_method?: 'upload' | 'url_snapshot'
   status: AdminContentSourceStatus
   generation: number
   source_available: boolean
@@ -989,6 +991,12 @@ export type AdminContentSource = {
   source_deleted_at: string | null
   created_at: string
   updated_at: string
+  url_snapshot?: null | {
+    intake_id: number
+    redirect_count: number
+    fetched_at: string | null
+    cleanup_required: boolean
+  }
   permissions: {
     edit_candidates: boolean
     review_candidates: boolean
@@ -1010,6 +1018,32 @@ export type AdminContentSourceCollectionPermissions = {
   upload_coach: boolean
   upload_platform: boolean
   retry_cleanup: boolean
+  url_intake_enabled?: boolean
+}
+
+export type AdminContentSourceUrlIntake = {
+  id: number
+  scope: AdminContentScope
+  status: AdminContentSourceUrlIntakeStatus
+  source_id: number | null
+  error_code: string | null
+  error: string | null
+  cleanup_retryable: boolean
+  redaction_allowed?: boolean
+  redaction_pending?: boolean
+  redirect_count: number
+  created_at: string
+  completed_at: string | null
+}
+
+export type AdminContentSourceUrlIntakeCapability = {
+  enabled: boolean
+  available?: boolean
+}
+
+export type AdminContentSourceUrlIntakeCollection = {
+  intakes: AdminContentSourceUrlIntake[]
+  url_intake?: AdminContentSourceUrlIntakeCapability
 }
 
 export type AdminApprovedPhrase = {
@@ -2046,6 +2080,48 @@ export async function fetchAdminContentSource(id: number): Promise<AdminContentS
 
 export async function fetchAdminContentSourceUrl(id: number): Promise<{ url: string; filename: string }> {
   return fetchJson<{ url: string; filename: string }>(`/api/v1/admin/content_sources/${id}/source_url`)
+}
+
+export function createAdminContentSourceUrlRequestId() {
+  return clientRequestId()
+}
+
+export async function fetchAdminContentSourceUrlIntakes(): Promise<AdminContentSourceUrlIntakeCollection> {
+  return fetchJson<AdminContentSourceUrlIntakeCollection>('/api/v1/admin/content_source_url_intakes')
+}
+
+export async function fetchAdminContentSourceUrlIntake(id: number): Promise<{
+  intake: AdminContentSourceUrlIntake
+  url_intake?: AdminContentSourceUrlIntakeCapability
+}> {
+  return fetchJson(`/api/v1/admin/content_source_url_intakes/${id}`)
+}
+
+export async function createAdminContentSourceUrlIntake(values: {
+  url: string
+  requestId: string
+  scope?: AdminContentScope
+}): Promise<{
+  intake: AdminContentSourceUrlIntake
+  url_intake?: AdminContentSourceUrlIntakeCapability
+}> {
+  return postJson('/api/v1/admin/content_source_url_intakes', {
+    url: values.url,
+    request_id: values.requestId,
+    scope: values.scope ?? 'coach',
+  }, { timeoutMs: 30_000, timeoutMessage: 'Submitting the secure web source took too long.' })
+}
+
+export async function deleteAdminContentSourceUrlIntake(id: number): Promise<{
+  intake: AdminContentSourceUrlIntake
+  url_intake?: AdminContentSourceUrlIntakeCapability
+}> {
+  return fetchJson(`/api/v1/admin/content_source_url_intakes/${id}`, { method: 'DELETE' })
+}
+
+export async function retryAdminContentSourceUrlIntakeCleanup(id: number): Promise<AdminContentSourceUrlIntake> {
+  const payload = await postJson<{ intake: AdminContentSourceUrlIntake }>(`/api/v1/admin/content_source_url_intakes/${id}/retry_cleanup`, {})
+  return payload.intake
 }
 
 export async function uploadAdminContentSource(file: File, scope: AdminContentScope = 'coach'): Promise<AdminContentSource> {

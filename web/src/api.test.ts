@@ -13,7 +13,10 @@ import {
   createIncomeScheduleEntry,
   createIncomeSource,
   acceptAdminContentSourceCandidate,
+  createAdminContentSourceUrlIntake,
+  createAdminContentSourceUrlRequestId,
   deleteAdminContentSource,
+  deleteAdminContentSourceUrlIntake,
   deleteAdminCohortPersonaAssignment,
   fetchAppData,
   fetchAdminCohortPersonaAssignment,
@@ -24,6 +27,8 @@ import {
   fetchAdminContentItems,
   fetchAdminContentPacks,
   fetchAdminContentSource,
+  fetchAdminContentSourceUrlIntake,
+  fetchAdminContentSourceUrlIntakes,
   fetchAdminContentSources,
   fetchAdminContentSourcePhraseProposals,
   fetchAdminPhraseProposal,
@@ -36,6 +41,7 @@ import {
   rejectAdminContentSourceCandidate,
   reprocessAdminContentSource,
   retryAdminContentSourceCleanups,
+  retryAdminContentSourceUrlIntakeCleanup,
   rollbackAdminPersonaVersion,
   sendMiaMessage,
   setActiveCoachWorkspaceId,
@@ -410,6 +416,43 @@ describe('Persona Studio API contract', () => {
 })
 
 describe('governed content source API contract', () => {
+  it('uses server-side HTTPS snapshot endpoints without fetching the target address in the browser', async () => {
+    const intake = {
+      id: 41, scope: 'coach' as const, status: 'queued' as const, source_id: null, error_code: null, error: null,
+      cleanup_retryable: false, redaction_allowed: false, redaction_pending: false, redirect_count: 0,
+      created_at: '2026-10-02T00:00:00Z', completed_at: null,
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse({ intakes: [intake], url_intake: { enabled: true, available: true } }))
+      .mockResolvedValueOnce(jsonResponse({ intake }))
+      .mockResolvedValueOnce(jsonResponse({ intake }, 202))
+      .mockResolvedValueOnce(jsonResponse({ intake: { ...intake, status: 'cleanup_pending' } }, 202))
+      .mockResolvedValueOnce(jsonResponse({ intake: { ...intake, status: 'deleted' } }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await fetchAdminContentSourceUrlIntakes()
+    await fetchAdminContentSourceUrlIntake(41)
+    await createAdminContentSourceUrlIntake({
+      url: 'https://example.com/private?token=secret', requestId: 'stable-request-id', scope: 'coach',
+    })
+    await retryAdminContentSourceUrlIntakeCleanup(41)
+    await deleteAdminContentSourceUrlIntake(41)
+
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/content_source_url_intakes',
+      '/api/v1/admin/content_source_url_intakes/41',
+      '/api/v1/admin/content_source_url_intakes',
+      '/api/v1/admin/content_source_url_intakes/41/retry_cleanup',
+      '/api/v1/admin/content_source_url_intakes/41',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({
+      url: 'https://example.com/private?token=secret', request_id: 'stable-request-id', scope: 'coach',
+    })
+    expect((fetchMock.mock.calls[4][1] as RequestInit).method).toBe('DELETE')
+    expect(fetchMock.mock.calls.some((call) => String(call[0]).includes('example.com'))).toBe(false)
+    expect(createAdminContentSourceUrlRequestId().length).toBeGreaterThanOrEqual(8)
+  })
+
   it('uses private direct upload and revision-bound candidate review endpoints', async () => {
     const candidate = {
       id: 9, source_id: 7, position: 0, status: 'proposed' as const, title: 'One step', kind: 'guidance' as const,
