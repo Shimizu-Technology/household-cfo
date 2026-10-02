@@ -587,6 +587,14 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "It’s been saved.",
       "Name set to Lina.",
       "The update is complete.",
+      "Nothing has been saved, but I applied the changes.",
+      "No changes have been applied; Lina is now configured.",
+      "I changed my mind; I updated it for you.",
+      "This explanation is complete, and the persona is now live.",
+      "The assistant’s name is now Lina.",
+      "The name now reads Lina.",
+      "Lina is good to go.",
+      "Håfa adai is in the persona now.",
       "Removed the phrase.",
       "Your setup is complete.",
       "All set."
@@ -625,6 +633,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "This explanation is complete.",
       "This explanation was made clearer for the review.",
       "This explanation is ready to use as a review guide.",
+      "This explanation is good to go.",
+      "The assistant name will be Lina only after you apply the proposal.",
+      "The assistant name is not Lina until you apply the proposal.",
+      "The assistant name is under review.",
+      "The assistant name is proposed as Lina for review.",
+      "Håfa adai would be added to the persona after approval.",
       "I prepared an updated name for review. Nothing has been saved.",
       "I'm proposing that change for review. Nothing has been saved."
     ].each do |message|
