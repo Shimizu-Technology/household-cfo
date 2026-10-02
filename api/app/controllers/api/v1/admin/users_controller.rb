@@ -10,7 +10,7 @@ module Api
 
         def index
           users = users_scope.to_a
-          preload_recent_invitation_email_attempts(users)
+          preload_recent_invitation_email_attempts(users) unless workspace_scoped_mode?
           progress_by_user_id = HouseholdFinance::PilotProgressBatchBuilder.new(users).call
           render json: {
             users: users.map do |user|
@@ -47,7 +47,7 @@ module Api
           attributes = user_update_params
           role = attributes[:role].presence || user.role
           return render json: { errors: [ "Role is not valid" ] }, status: :unprocessable_entity unless User::ROLES.include?(role)
-          if selected_workspace_mode? && user_shared_outside_selected_workspace?(user) && global_user_change_requested?(user, attributes, role: role)
+          if workspace_scoped_mode? && user_shared_outside_active_workspace?(user) && global_user_change_requested?(user, attributes, role: role)
             return render_forbidden("Switch to All workspaces / Platform to change this shared user's identity or account access")
           end
           return render_forbidden("Status update not permitted") if attributes.key?(:invitation_status) && !current_user.admin?
@@ -60,23 +60,20 @@ module Api
           membership_params_present = cohort_membership_params_present?(attributes)
           cohort_ids = if membership_params_present
             cohort_ids_from_attributes(attributes)
-          elsif selected_workspace_mode?
-            user.cohort_memberships.where(cohort_id: current_workspace_cohort_ids).pluck(:cohort_id)
+          elsif workspace_scoped_mode?
+            user.cohort_memberships.where(cohort_id: manageable_cohort_ids_for_request).pluck(:cohort_id)
           else
             user.cohort_memberships.pluck(:cohort_id)
           end
           requirement_cohort_ids = cohort_ids
-          if selected_workspace_mode?
-            requirement_cohort_ids |= user.cohort_memberships.where.not(cohort_id: current_workspace_cohort_ids).pluck(:cohort_id)
+          if workspace_scoped_mode?
+            requirement_cohort_ids |= user.cohort_memberships.where.not(cohort_id: manageable_cohort_ids_for_request).pluck(:cohort_id)
           end
           return render_cohort_required(role) if cohort_required?(role, requested_invitation_status) && requirement_cohort_ids.empty?
           return render_forbidden("Cohort assignment not permitted") if membership_params_present && !cohort_assignment_permitted?(cohort_ids)
 
           admin_guard_error = nil
-          User.transaction do
-            lock_cohorts!(cohort_ids)
-            locked_admin_ids = requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil
-            user.lock!
+          apply_update = lambda do |compatibility_cohort_ids, locked_admin_ids|
             role = attributes[:role].presence || user.role
             normalized_status = normalized_invitation_status(user, attributes[:invitation_status])
             if active_admin_access_removal?(user, role:, invitation_status: normalized_status)
@@ -96,14 +93,35 @@ module Api
             user.save!
 
             if membership_params_present
-              sync_cohort_memberships_for_request(user, cohort_ids, role: cohort_role_for(user.role))
+              sync_cohort_memberships_for_request(
+                user,
+                cohort_ids,
+                role: cohort_role_for(user.role),
+                compatibility_cohort_ids: compatibility_cohort_ids
+              )
             else
               if cohort_role_for(user.role) == "participant"
-                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
               end
               membership_scope = user.cohort_memberships
-              membership_scope = membership_scope.where(cohort_id: current_workspace_cohort_ids) if selected_workspace_mode?
+              membership_scope = membership_scope.where(cohort_id: manageable_cohort_ids_for_request) if workspace_scoped_mode?
               membership_scope.find_each { |membership| membership.update!(role: cohort_role_for(user.role)) }
+            end
+          end
+          if workspace_scoped_mode? && membership_params_present && cohort_role_for(role) == "participant"
+            before_user_lock = -> { requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil }
+            with_stable_scoped_membership_locks(
+              user,
+              requested_cohort_ids: cohort_ids,
+              before_user_lock: before_user_lock,
+              &apply_update
+            )
+          else
+            User.transaction do
+              lock_cohorts!(cohort_ids)
+              locked_admin_ids = requested_admin_access_removal?(attributes) ? locked_active_admin_ids : nil
+              user.lock!
+              apply_update.call(cohort_ids, locked_admin_ids)
             end
           end
 
@@ -121,7 +139,7 @@ module Api
 
         def resend_invitation
           user = manageable_users_scope.find(params[:id])
-          if selected_workspace_mode? && user_shared_outside_selected_workspace?(user)
+          if workspace_scoped_mode? && user_shared_outside_active_workspace?(user)
             return render_forbidden("Switch to All workspaces / Platform to resend an invitation for this shared user")
           end
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, user.role)
@@ -161,14 +179,19 @@ module Api
 
         def create_or_reactivate_existing_user(user, attributes:, role:, cohort_ids:)
           return render_forbidden("User update not permitted") unless user_update_permitted_by_current_user?(user, role)
-          if selected_workspace_mode? && user_shared_outside_selected_workspace?(user)
+          if workspace_scoped_mode? && user_shared_outside_active_workspace?(user)
             if user.revoked? || global_user_change_requested?(user, attributes, role: role)
               return render_forbidden("Switch to All workspaces / Platform to reactivate or change this shared user")
             end
 
-            User.transaction do
-              lock_cohorts!(cohort_ids)
-              user.lock!
+            with_stable_invitation_membership_locks(
+              user,
+              requested_cohort_ids: cohort_ids,
+              replace_memberships: false
+            ) do |compatibility_cohort_ids|
+              if cohort_role_for(role) == "participant"
+                Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
+              end
               add_cohort_memberships(user, cohort_ids, role: cohort_role_for(role))
             end
             return render json: invite_response_payload(
@@ -237,12 +260,12 @@ module Api
           end
         end
 
-        def selected_workspace_mode?
-          current_user.admin? && coach_workspace_for_policy.present?
+        def workspace_scoped_mode?
+          coach_workspace_for_policy.present?
         end
 
-        def user_shared_outside_selected_workspace?(user)
-          return false unless selected_workspace_mode?
+        def user_shared_outside_active_workspace?(user)
+          return false unless workspace_scoped_mode?
 
           (user_workspace_ids(user) - [ coach_workspace_for_policy.id ]).any?
         end
@@ -299,7 +322,7 @@ module Api
         def cohort_assignment_permitted?(cohort_ids)
           return (cohort_ids - current_workspace_cohort_ids).empty? if current_user.admin?
 
-          cohort_ids.present? && (cohort_ids - coach_cohort_ids).empty?
+          (cohort_ids - coach_cohort_ids).empty?
         end
 
         def coach_cohort_ids
@@ -308,6 +331,10 @@ module Api
 
         def current_workspace_cohort_ids
           @current_workspace_cohort_ids ||= coach_workspace_for_policy ? Cohort.where(coach_workspace: coach_workspace_for_policy).pluck(:id) : Cohort.pluck(:id)
+        end
+
+        def manageable_cohort_ids_for_request
+          @manageable_cohort_ids_for_request ||= current_user.admin? ? current_workspace_cohort_ids : coach_cohort_ids
         end
 
         def requested_admin_access_removal?(attributes)
@@ -388,14 +415,14 @@ module Api
           end
         end
 
-        def sync_cohort_memberships_for_request(user, cohort_ids, role:)
-          return sync_cohort_memberships(user, cohort_ids, role: role) unless selected_workspace_mode?
+        def sync_cohort_memberships_for_request(user, cohort_ids, role:, compatibility_cohort_ids: cohort_ids)
+          return sync_cohort_memberships(user, cohort_ids, role: role) unless workspace_scoped_mode?
 
           if role == "participant"
             Mia::PersonaAssignmentCompatibility.lock_participants!(user_ids: [ user.id ])
-            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: cohort_ids)
+            Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
           end
-          user.cohort_memberships.where(cohort_id: current_workspace_cohort_ids).where.not(cohort_id: cohort_ids).destroy_all
+          user.cohort_memberships.where(cohort_id: manageable_cohort_ids_for_request).where.not(cohort_id: cohort_ids).destroy_all
           add_cohort_memberships(user, cohort_ids, role: role)
         end
 
@@ -406,31 +433,45 @@ module Api
           end
         end
 
-        def with_stable_invitation_membership_locks(user, requested_cohort_ids:, replace_memberships:)
-          locked_cohort_ids = invitation_target_cohort_ids(
-            user,
-            requested_cohort_ids: requested_cohort_ids,
-            replace_memberships: replace_memberships
-          )
+        def with_stable_invitation_membership_locks(user, requested_cohort_ids:, replace_memberships:, &block)
+          target_cohort_ids = lambda do
+            invitation_target_cohort_ids(
+              user,
+              requested_cohort_ids: requested_cohort_ids,
+              replace_memberships: replace_memberships
+            )
+          end
+          with_stable_membership_locks(user, target_cohort_ids:, &block)
+        end
+
+        def with_stable_scoped_membership_locks(user, requested_cohort_ids:, before_user_lock: nil, &block)
+          target_cohort_ids = lambda do
+            retained_ids = CohortMembership.where(user_id: user.id)
+              .where.not(cohort_id: manageable_cohort_ids_for_request)
+              .pluck(:cohort_id)
+            retained_ids | Array(requested_cohort_ids).map(&:to_i).uniq
+          end
+          with_stable_membership_locks(user, target_cohort_ids:, before_user_lock:, &block)
+        end
+
+        def with_stable_membership_locks(user, target_cohort_ids:, before_user_lock: nil)
+          locked_cohort_ids = target_cohort_ids.call
 
           loop do
             retry_cohort_ids = nil
             begin
               User.transaction do
                 lock_cohorts!(locked_cohort_ids)
+                lock_context = before_user_lock&.call
                 user.lock!
-                target_cohort_ids = invitation_target_cohort_ids(
-                  user,
-                  requested_cohort_ids: requested_cohort_ids,
-                  replace_memberships: replace_memberships
-                )
+                current_target_cohort_ids = target_cohort_ids.call
 
-                if target_cohort_ids.sort != locked_cohort_ids.sort
-                  retry_cohort_ids = target_cohort_ids
+                if current_target_cohort_ids.sort != locked_cohort_ids.sort
+                  retry_cohort_ids = current_target_cohort_ids
                   raise InvitationMembershipLockSetChanged
                 end
 
-                yield target_cohort_ids
+                yield current_target_cohort_ids, lock_context
               end
               return
             rescue InvitationMembershipLockSetChanged
@@ -583,11 +624,17 @@ module Api
           end
 
           user.as_api_json.merge(
-            invited_by: serialize_inviter(user.invited_by_user),
+            invited_by: workspace_scoped_mode? ? nil : serialize_inviter(user.invited_by_user),
             invite_email: serialize_invite_email(user),
-            cohorts: user.cohort_memberships.sort_by { |membership| membership.cohort.name.downcase }.map { |membership| serialize_membership(membership) },
+            cohorts: serialized_memberships(user),
             workspace: progress
           )
+        end
+
+        def serialized_memberships(user)
+          memberships = user.cohort_memberships
+          memberships = memberships.select { |membership| membership.cohort_id.in?(current_workspace_cohort_ids) } if workspace_scoped_mode?
+          memberships.sort_by { |membership| membership.cohort.name.downcase }.map { |membership| serialize_membership(membership) }
         end
 
         def serialize_inviter(inviter)
@@ -601,6 +648,19 @@ module Api
         end
 
         def serialize_invite_email(user)
+          if workspace_scoped_mode?
+            return {
+              status: "not_sent",
+              provider_message_id: nil,
+              error: nil,
+              last_attempted_at: nil,
+              last_sent_at: nil,
+              last_sent_by: nil,
+              delivery_log: [],
+              workspace_scoped: true
+            }
+          end
+
           {
             status: user.invitation_email_status.presence || "not_sent",
             provider_message_id: user.invitation_email_provider_id,

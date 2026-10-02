@@ -712,6 +712,90 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "accepted", participant.reload.invitation_status
   end
 
+  test "coach updates only assigned workspace memberships and cannot change a shared identity" do
+    first_owner = create_user(email: "coach-shared-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "coach-shared-second-owner@example.com", role: "coach")
+    coach = create_user(email: "coach-shared-editor@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Coach managed cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Other tenant cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    first_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
+    coach.cohort_memberships.create!(cohort: first_cohort, role: "coach")
+    participant = create_user(email: "coach-shared-participant@example.com", role: "participant")
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { cohort_ids: [] } }, headers: workspace_auth_headers(coach, first_workspace), as: :json
+
+    assert_response :success
+    assert_equal [ second_cohort.id ], participant.reload.cohort_memberships.pluck(:cohort_id)
+
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { first_name: "Cross tenant change" } }, headers: workspace_auth_headers(coach, first_workspace), as: :json
+
+    assert_response :forbidden
+    assert_nil participant.reload.first_name
+  end
+
+  test "coach cannot resend or rewrite an existing shared participant invitation" do
+    first_owner = create_user(email: "coach-invite-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "coach-invite-second-owner@example.com", role: "coach")
+    coach = create_user(email: "coach-invite-editor@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Invite managed cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Invite other tenant", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    first_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
+    coach.cohort_memberships.create!(cohort: first_cohort, role: "coach")
+    participant = User.create!(clerk_id: "pending_#{SecureRandom.hex(6)}", email: "coach-existing-shared@example.com", role: "participant", invitation_status: "pending")
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    assert_no_difference -> { participant.invitation_email_attempts.count } do
+      post "/api/v1/admin/users/#{participant.id}/resend_invitation", headers: workspace_auth_headers(coach, first_workspace)
+    end
+    assert_response :forbidden
+
+    post "/api/v1/admin/users", params: {
+      user: { email: participant.email, first_name: "Rewritten", role: "participant", cohort_ids: [ first_cohort.id ] }
+    }, headers: workspace_auth_headers(coach, first_workspace), as: :json
+
+    assert_response :forbidden
+    assert_nil participant.reload.first_name
+    assert_equal [ first_cohort.id, second_cohort.id ].sort, participant.cohort_memberships.pluck(:cohort_id).sort
+  end
+
+  test "workspace-scoped user serialization hides other tenant membership and global invitation delivery details" do
+    first_owner = create_user(email: "privacy-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "privacy-second-owner@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Visible tenant cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "SECRET OUTSIDE COHORT", status: "archived", created_by_user: second_owner, coach_workspace: second_workspace)
+    sender = create_user(email: "secret-sender@example.com", role: "admin")
+    participant = create_user(email: "privacy-shared@example.com", role: "participant")
+    participant.update!(invited_by_user: sender, invitation_email_status: "failed", invitation_email_provider_id: "secret-provider-id", invitation_email_error: "SECRET DELIVERY ERROR")
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+    participant.invitation_email_attempts.create!(status: "failed", provider: "SECRET PROVIDER", error: "SECRET ATTEMPT ERROR", attempted_at: Time.current, sent_by_user: sender)
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(sender, first_workspace)
+
+    assert_response :success
+    row = response.parsed_body.fetch("users").find { |user| user.fetch("id") == participant.id }
+    assert_equal [ first_cohort.id ], row.fetch("cohorts").map { |membership| membership.dig("cohort", "id") }
+    assert_nil row.fetch("invited_by")
+    assert_equal true, row.dig("invite_email", "workspace_scoped")
+    assert_empty row.dig("invite_email", "delivery_log")
+    assert_nil row.dig("invite_email", "provider_message_id")
+    assert_nil row.dig("invite_email", "error")
+    refute_includes response.body, "SECRET OUTSIDE COHORT"
+    refute_includes response.body, "secret-sender@example.com"
+    refute_includes response.body, "SECRET PROVIDER"
+    refute_includes response.body, "SECRET DELIVERY ERROR"
+  end
+
   test "admin users index returns only five recent invite attempts" do
     admin = create_user(email: "recent-attempt-admin@example.com", role: "admin")
     user = create_user(email: "recent-attempt-user@example.com", role: "participant")

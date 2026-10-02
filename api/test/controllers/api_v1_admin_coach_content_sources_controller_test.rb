@@ -236,7 +236,13 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
 
     get "/api/v1/admin/content_sources", headers: headers
     assert_response :success
-    assert_includes response.parsed_body.fetch("sources").map { |source| source.fetch("id") }, accepted_source.id
+    listed_source = response.parsed_body.fetch("sources").find { |source| source.fetch("id") == accepted_source.id }
+    assert listed_source
+    assert_equal({
+      "edit_candidates" => false, "review_candidates" => true, "download" => true,
+      "reprocess" => false, "delete" => false
+    }, listed_source.fetch("permissions"))
+    assert_equal false, response.parsed_body.dig("permissions", "upload_coach")
 
     get "/api/v1/admin/content_sources/#{accepted_source.id}", headers: headers
     assert_response :success
@@ -264,6 +270,70 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     }, headers: headers, as: :json
     assert_response :success
     assert_equal "rejected", rejected_candidate.reload.status
+
+    post "/api/v1/admin/content_sources/presign", params: {
+      filename: "reviewer.txt", content_type: "text/plain", byte_size: 5,
+      checksum_sha256: Digest::SHA256.hexdigest("guide"), upload_request_id: SecureRandom.uuid, scope: "coach"
+    }, headers: headers, as: :json
+    assert_response :forbidden
+  end
+
+  test "workspace editor can open and edit source candidates without review actions" do
+    owner = persona_user
+    editor = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: owner).call
+    workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    source, candidate = reviewable_candidate(owner: owner)
+    headers = workspace_auth_headers(editor, workspace)
+
+    get "/api/v1/admin/content_sources", headers: headers
+    assert_response :success
+    listed_source = response.parsed_body.fetch("sources").find { |entry| entry.fetch("id") == source.id }
+    assert_equal true, response.parsed_body.dig("permissions", "upload_coach")
+    assert_equal({
+      "edit_candidates" => true, "review_candidates" => false, "download" => true,
+      "reprocess" => true, "delete" => true
+    }, listed_source.fetch("permissions"))
+
+    get "/api/v1/admin/content_sources/#{source.id}", headers: headers
+    assert_response :success
+
+    patch "/api/v1/admin/content_sources/#{source.id}/candidates/#{candidate.id}", params: {
+      candidate: {
+        title: "Editor revised title", kind: candidate.kind, content: candidate.content,
+        topics: candidate.topics, revision: candidate.revision, digest: candidate.content_digest
+      }
+    }, headers: headers, as: :json
+    assert_response :success
+    assert_equal "Editor revised title", candidate.reload.title
+
+    post "/api/v1/admin/content_sources/#{source.id}/candidates/#{candidate.id}/accept", params: {
+      candidate: { revision: candidate.revision, digest: candidate.content_digest }
+    }, headers: headers, as: :json
+    assert_response :not_found
+  end
+
+  test "workspace viewer cannot list, inspect, or upload private sources" do
+    owner = persona_user
+    viewer = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: owner).call
+    workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+    source = content_source(owner: owner)
+    headers = workspace_auth_headers(viewer, workspace)
+
+    get "/api/v1/admin/content_sources", headers: headers
+    assert_response :success
+    assert_empty response.parsed_body.fetch("sources")
+    assert_equal false, response.parsed_body.dig("permissions", "upload_coach")
+
+    get "/api/v1/admin/content_sources/#{source.id}", headers: headers
+    assert_response :not_found
+
+    post "/api/v1/admin/content_sources/presign", params: {
+      filename: "viewer.txt", content_type: "text/plain", byte_size: 5,
+      checksum_sha256: Digest::SHA256.hexdigest("guide"), upload_request_id: SecureRandom.uuid, scope: "coach"
+    }, headers: headers, as: :json
+    assert_response :forbidden
   end
 
   test "platform upload token survives a workspace switch while a coach upload token does not" do

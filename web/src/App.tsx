@@ -6170,7 +6170,9 @@ function AdminConsole({ currentUser }: { currentUser: CurrentUser }) {
                     <div className="admin-badge-row">
                       <AdminBadge value={titleize(user.role)} tone={user.role === 'admin' ? 'green' : user.role === 'coach' ? 'gold' : 'neutral'} />
                       <AdminBadge value={titleize(user.invitation_status)} tone={user.invitation_status === 'accepted' ? 'green' : user.invitation_status === 'revoked' ? 'red' : 'gold'} />
-                      <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />
+                      {user.invite_email.workspace_scoped
+                        ? <AdminBadge value="Email details in Platform mode" tone="neutral" />
+                        : <AdminBadge value={`Email ${titleize(user.invite_email.status)}`} tone={inviteEmailTone(user.invite_email.status)} />}
                       <AdminBadge value={pilotSetupLabel(user.workspace.setup_status)} tone={user.workspace.setup_complete ? 'green' : user.workspace.setup_status === 'started' ? 'gold' : 'neutral'} />
                       <AdminBadge value={user.workspace.signed_in ? 'Signed in' : 'Not signed in'} tone={user.workspace.signed_in ? 'green' : 'neutral'} />
                       {user.workspace.has_pending_review_work && <AdminBadge value="Review waiting" tone="gold" />}

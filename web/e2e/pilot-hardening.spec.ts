@@ -4,6 +4,8 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
+const sourceCollectionPermissions = { upload_coach: true, upload_platform: false, retry_cleanup: false }
+const sourceOwnerPermissions = { edit_candidates: true, review_candidates: true, download: true, reprocess: true, delete: true }
 
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('link', { name, exact: true })
@@ -675,7 +677,7 @@ async function mockDemoApi(page: Page) {
       return route.fulfill({ status: 200, json: { items: contentItems } })
     }
     if (path === '/api/v1/admin/content_sources' && route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, json: { sources: [] } })
+      return route.fulfill({ status: 200, json: { sources: [], permissions: sourceCollectionPermissions } })
     }
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
       const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
@@ -4324,13 +4326,13 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
     checksum_sha256: 'c'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
     source_delete_error_code: null, processing_metadata: { format: 'text', candidate_count: 2 }, processed_at: '2026-10-01T01:00:00Z',
     source_deleted_at: null, created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
-    current_attempt: { id: 702, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates,
+    current_attempt: { id: 702, generation: 1, status: 'succeeded', error: null, error_code: null }, permissions: sourceOwnerPermissions, candidates,
   })
   const uploadedSource = {
     id: 720, scope: 'coach', filename: 'new-guide.txt', content_type: 'text/plain', byte_size: 32,
     checksum_sha256: 'e'.repeat(64), status: 'queued', generation: 0, source_available: true, error: null, error_code: null,
     source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
-    created_at: '2026-10-01T01:02:00Z', updated_at: '2026-10-01T01:02:00Z', current_attempt: null, candidates: [],
+    created_at: '2026-10-01T01:02:00Z', updated_at: '2026-10-01T01:02:00Z', current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
   }
   let acceptedItem: MockContentItem | null = null
 
@@ -4338,7 +4340,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   const sourceListGate = new Promise<void>((resolve) => { releaseSourceList = resolve })
   await page.route('http://api.test/api/v1/admin/content_sources', async (route) => {
     await sourceListGate
-    return route.fulfill({ status: 200, json: { sources: [source()] } })
+    return route.fulfill({ status: 200, json: { sources: [source()], permissions: sourceCollectionPermissions } })
   })
   await page.route('http://api.test/api/v1/admin/content_sources/701', async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: { source: source() } })
@@ -4461,12 +4463,12 @@ test('Coach Studio preserves candidate edits through conflicts and server safety
     checksum_sha256: 'f'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
     source_delete_error_code: null, processing_metadata: {}, processed_at: '2026-10-01T01:00:00Z', source_deleted_at: null,
     created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
-    current_attempt: { id: 729, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates: [candidate],
+    current_attempt: { id: 729, generation: 1, status: 'succeeded', error: null, error_code: null }, permissions: sourceOwnerPermissions, candidates: [candidate],
   })
   let conflictOnce = true
   let lastReviewInput: Record<string, unknown> = {}
 
-  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()], permissions: sourceCollectionPermissions } }))
   await page.route('http://api.test/api/v1/admin/content_sources/730', (route) => route.fulfill({ status: 200, json: { source: source() } }))
   await page.route('http://api.test/api/v1/admin/content_sources/730/candidates/731', (route) => {
     const input = route.request().postDataJSON().candidate
@@ -4521,9 +4523,12 @@ test('administrators can see and retry terminal private upload cleanup', async (
     checksum_sha256: 'd'.repeat(64), status: 'upload_cleanup_failed', generation: 0, source_available: false,
     error: 'Private storage cleanup needs an administrator to retry it.', error_code: 'upload_cleanup_failed',
     source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
-    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:01:00Z', current_attempt: null, candidates: [],
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:01:00Z', current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
   }
-  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: failed ? [source] : [] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({
+    status: 200,
+    json: { sources: failed ? [source] : [], permissions: { ...sourceCollectionPermissions, upload_platform: true, retry_cleanup: true } },
+  }))
   await page.route('http://api.test/api/v1/admin/content_sources/retry_upload_cleanups', (route) => {
     failed = false
     return route.fulfill({ status: 200, json: { retried_count: 1 } })

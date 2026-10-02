@@ -83,11 +83,44 @@ module Mia
       visible_sources
     end
 
+    def accessible_sources
+      return visible_sources if global_admin?
+      return CoachContentSource.none unless workspace
+      return visible_sources if user.admin? || workspace.allows?(user, :edit) || workspace.allows?(user, :review)
+
+      CoachContentSource.none
+    end
+
     def reviewable_sources
       return visible_sources if global_admin?
       return CoachContentSource.none unless workspace&.allows?(user, :review) || user.admin?
 
       visible_sources
+    end
+
+    def source_permissions(source)
+      editable = source_allowed_for?(source, :edit)
+      reviewable = source_allowed_for?(source, :review)
+      {
+        edit_candidates: editable,
+        review_candidates: reviewable,
+        download: editable || reviewable,
+        reprocess: editable,
+        delete: editable
+      }
+    end
+
+    def source_collection_permissions
+      {
+        upload_coach: workspace.present? && (user.admin? || workspace.allows?(user, :edit)),
+        upload_platform: user.admin?,
+        retry_cleanup: user.admin?
+      }
+    end
+
+    def can_upload_source?(scope)
+      key = scope.to_s == "platform" ? :upload_platform : :upload_coach
+      source_collection_permissions.fetch(key)
     end
 
     def separate_reviewer_permissions?
@@ -104,6 +137,14 @@ module Mia
 
     def global_admin?
       user.admin? && workspace.nil?
+    end
+
+    def source_allowed_for?(source, permission)
+      return true if global_admin?
+      return false unless workspace
+      return true if source.scope == "platform" && user.admin?
+
+      source.scope == "coach" && source.coach_workspace_id == workspace.id && workspace.allows?(user, permission)
     end
   end
 end

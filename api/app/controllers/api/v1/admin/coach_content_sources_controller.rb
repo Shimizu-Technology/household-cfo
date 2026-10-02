@@ -14,18 +14,22 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          sources = policy.visible_sources.where.not(status: "source_deleted").includes(:current_attempt)
+          sources = policy.accessible_sources.where.not(status: "source_deleted").includes(:current_attempt)
             .order(Arel.sql("CASE WHEN status = 'upload_cleanup_failed' THEN 0 ELSE 1 END ASC"), created_at: :desc).limit(100)
-          render json: { sources: sources.map { |source| serializer.source(source, include_candidates: false) } }
+          render json: {
+            sources: sources.map { |source| serialize_source(source, include_candidates: false) },
+            permissions: policy.source_collection_permissions
+          }
         end
 
         def show
-          render json: { source: serializer.source(@source) }
+          render json: { source: serialize_source(@source) }
         end
 
         def presign
           metadata = upload_metadata
           return require_selected_coach_workspace! if metadata.fetch(:scope) == "coach" && coach_workspace_for_policy.nil?
+          return render_forbidden("Private source upload not permitted") unless policy.can_upload_source?(metadata.fetch(:scope))
           return storage_unavailable unless S3Service.configured?
 
           ContentSources::UploadValidator.validate_metadata!(**metadata.slice(:filename, :content_type, :byte_size, :checksum_sha256))
@@ -78,7 +82,7 @@ module Api
           if existing
             claim_upload_cleanup!(upload_intent_source(metadata)) if existing.s3_key != metadata.fetch(:s3_key)
             CoachContentSourceProcessingJob.perform_later(existing.id) if existing.status == "queued"
-            return render json: { source: serializer.source(existing) }
+            return render json: { source: serialize_source(existing) }
           end
 
           intent = claim_upload_verification!(metadata)
@@ -88,7 +92,7 @@ module Api
           source, created = register_source!(metadata)
           claim_upload_cleanup!(intent) if source.s3_key != metadata.fetch(:s3_key)
           CoachContentSourceProcessingJob.perform_later(source.id) if source.status == "queued"
-          render json: { source: serializer.source(source.reload) }, status: created ? :created : :ok
+          render json: { source: serialize_source(source.reload) }, status: created ? :created : :ok
         rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
           render json: { error: "The private upload expired. Choose the file and try again.", code: "upload_expired" }, status: :unprocessable_entity
         rescue ContentSources::Error => error
@@ -101,7 +105,7 @@ module Api
           if source
             claim_upload_cleanup!(upload_intent_source(metadata)) if source.s3_key != metadata.fetch(:s3_key)
             CoachContentSourceProcessingJob.perform_later(source.id) if source.status == "queued"
-            render json: { source: serializer.source(source) }
+            render json: { source: serialize_source(source) }
           else
             render json: { error: "The private upload could not be registered safely.", code: "upload_conflict" }, status: :conflict
           end
@@ -142,7 +146,7 @@ module Api
             source = @source
           end
           CoachContentSourceProcessingJob.perform_later(source.id)
-          render json: { source: serializer.source(source.reload) }
+          render json: { source: serialize_source(source.reload) }
         end
 
         def source_url
@@ -160,7 +164,7 @@ module Api
         def destroy_source
           @source.with_lock do
             if @source.status == "source_deleted"
-              return render json: { source: serializer.source(@source) }
+              return render json: { source: serialize_source(@source) }
             end
             unless @source.s3_key.present?
               return render json: { error: "This private source is no longer available.", code: "content_source_unavailable" }, status: :gone
@@ -180,7 +184,7 @@ module Api
             )
           end
           CoachContentSourceDeletionJob.perform_later(@source.id)
-          render json: { source: serializer.source(@source.reload) }, status: :accepted
+          render json: { source: serialize_source(@source.reload) }, status: :accepted
         end
 
         private
@@ -193,8 +197,12 @@ module Api
           @serializer ||= ContentSources::Serializer.new
         end
 
+        def serialize_source(source, include_candidates: true)
+          serializer.source(source, include_candidates:, permissions: policy.source_permissions(source))
+        end
+
         def set_source
-          scope = action_name.in?(%w[show source_url]) ? policy.reviewable_sources : policy.editable_sources
+          scope = action_name.in?(%w[show source_url]) ? policy.accessible_sources : policy.editable_sources
           @source = scope.find(params[:id])
         end
 

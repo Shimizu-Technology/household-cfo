@@ -369,9 +369,10 @@ describe('governed content source API contract', () => {
       accepted_content_item_id: null, reviewed_at: null, updated_at: '2026-10-01T00:00:00Z',
     }
     const source = { id: 7, status: 'needs_review', candidates: [candidate] }
+    const permissions = { upload_coach: true, upload_platform: false, retry_cleanup: false }
     const item = { id: 12, title: 'One step' }
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(jsonResponse({ sources: [source] }))
+      .mockResolvedValueOnce(jsonResponse({ sources: [source], permissions }))
       .mockResolvedValueOnce(jsonResponse({ source }))
       .mockResolvedValueOnce(jsonResponse({ upload_url: 'https://private.example/source', upload_headers: { 'x-amz-server-side-encryption': 'AES256' }, upload_token: 'bound-token' }))
       .mockResolvedValueOnce(new Response(null, { status: 200 }))
@@ -384,7 +385,7 @@ describe('governed content source API contract', () => {
       .mockResolvedValueOnce(jsonResponse({ retried_count: 2 }))
     vi.stubGlobal('fetch', fetchMock)
 
-    expect(await fetchAdminContentSources()).toEqual([source])
+    expect(await fetchAdminContentSources()).toEqual({ sources: [source], permissions })
     expect(await fetchAdminContentSource(7)).toEqual(source)
     expect(await uploadAdminContentSource(new File(['lesson'], 'lesson.txt', { type: 'text/plain' }), 'coach')).toEqual(source)
     await updateAdminContentSourceCandidate(7, candidate, { title: 'One next step', kind: 'guidance', content: candidate.content, topics: candidate.topics })

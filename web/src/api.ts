@@ -969,6 +969,13 @@ export type AdminContentSource = {
   source_deleted_at: string | null
   created_at: string
   updated_at: string
+  permissions: {
+    edit_candidates: boolean
+    review_candidates: boolean
+    download: boolean
+    reprocess: boolean
+    delete: boolean
+  }
   current_attempt: null | {
     id: number
     generation: number
@@ -977,6 +984,12 @@ export type AdminContentSource = {
     error_code: string | null
   }
   candidates: AdminContentSourceCandidate[]
+}
+
+export type AdminContentSourceCollectionPermissions = {
+  upload_coach: boolean
+  upload_platform: boolean
+  retry_cleanup: boolean
 }
 
 export type AdminContentItemVersion = {
@@ -1373,6 +1386,7 @@ export type AdminUser = CurrentUser & {
     full_name: string
   }
   invite_email: {
+    workspace_scoped?: boolean
     status: AdminInviteEmailStatus
     provider_message_id: string | null
     error: string | null
@@ -1889,14 +1903,17 @@ export async function fetchAdminContentItems(): Promise<AdminContentItem[]> {
   return payload.items
 }
 
-export async function fetchAdminContentSources(): Promise<AdminContentSource[]> {
-  const payload = await fetchJson<{ sources: AdminContentSource[] }>('/api/v1/admin/content_sources')
-  return payload.sources
+export async function fetchAdminContentSources(): Promise<{ sources: AdminContentSource[]; permissions: AdminContentSourceCollectionPermissions }> {
+  return fetchJson<{ sources: AdminContentSource[]; permissions: AdminContentSourceCollectionPermissions }>('/api/v1/admin/content_sources')
 }
 
 export async function fetchAdminContentSource(id: number): Promise<AdminContentSource> {
   const payload = await fetchJson<{ source: AdminContentSource }>(`/api/v1/admin/content_sources/${id}`)
   return payload.source
+}
+
+export async function fetchAdminContentSourceUrl(id: number): Promise<{ url: string; filename: string }> {
+  return fetchJson<{ url: string; filename: string }>(`/api/v1/admin/content_sources/${id}/source_url`)
 }
 
 export async function uploadAdminContentSource(file: File, scope: AdminContentScope = 'coach'): Promise<AdminContentSource> {
