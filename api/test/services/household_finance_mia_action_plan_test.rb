@@ -32,6 +32,14 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
     assert_equal 2, presented.fetch(:remaining_item_count)
   end
 
+  test "routes income source reviews to My Profile and schedule reviews to Budget" do
+    presenter = HouseholdFinance::MiaActionDraftPresenter.new(MiaActionDraft.new)
+    item = Struct.new(:operation_key, :action_type)
+
+    assert_equal "My Profile", presenter.send(:manual_section, item.new("income.source.update", "update_income_source"))
+    assert_equal "Budget", presenter.send(:manual_section, item.new("income.schedule.create", "create_income_schedule_entry"))
+  end
+
   test "apply all is atomic when a later item is stale" do
     draft = persist(build_plan.proposal)
     @goal.update!(current_amount_cents: 600_00)

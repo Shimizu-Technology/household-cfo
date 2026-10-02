@@ -147,7 +147,8 @@ module HouseholdFinance
 
     def manual_section(item)
       key = item.operation_key.to_s
-      return "Budget" if key.start_with?("budget.", "income.")
+      return "Budget" if key.start_with?("budget.", "income.schedule.")
+      return "My Profile" if key.start_with?("income.source.")
       return "My Profile" if key.start_with?("profile.", "debt.", "account.", "goal.")
 
       item.action_type.in?(%w[update_setup_value]) ? "My Profile" : "Budget"

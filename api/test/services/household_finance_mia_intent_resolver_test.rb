@@ -139,6 +139,191 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_empty result.write_plan
   end
 
+  test "rejects debt balance and minimum values swapped inside one source span" do
+    context = intent_context.deep_merge(
+      active_debts: [ { id: 71, label: "Visa", debt_type: "credit_card", balance: 5_000, minimum_payment: 200 } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    message = "Set Visa balance to $5,000 and minimum payment to $200; set Everyday Checking to $250"
+    result = resolve_compound(
+      message: message,
+      context: context,
+      actions: [
+        { source_text: "Set Visa balance to $5,000 and minimum payment to $200", depends_on: [], action: default_action.merge(type: "update_debt", debt_id: 71, debt_name: "Visa", amount: "200", minimum_payment: "5000") },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+
+    refute result.action_plan?
+    assert result.clarification?
+  end
+
+  test "rejects goal target and progress values swapped inside one source span" do
+    context = intent_context.deep_merge(
+      active_goals: [ { id: 99, label: "Family trip", goal_type: "travel", target_amount: 5_000, current_amount: 500 } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    message = "Set Family trip target to $5,000 and progress to $900; set Everyday Checking to $250"
+    result = resolve_compound(
+      message: message,
+      context: context,
+      actions: [
+        { source_text: "Set Family trip target to $5,000 and progress to $900", depends_on: [], action: default_action.merge(type: "update_goal", goal_id: 99, goal_name: "Family trip", target_amount: "900", current_amount: "5000") },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+
+    refute result.action_plan?
+    assert result.clarification?
+  end
+
+  test "rejects household setup values swapped inside one source span" do
+    context = intent_context.deep_merge(
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    message = "Set primary income to $6,000 and fixed expenses to $3,000; set Everyday Checking to $250"
+    result = resolve_compound(
+      message: message,
+      context: context,
+      actions: [
+        { source_text: "Set primary income to $6,000 and fixed expenses to $3,000", depends_on: [], action: default_action.merge(type: "update_household_setup", setup_updates: default_setup_updates.merge(primary_income: "3000", fixed_expenses: "6000")) },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+
+    refute result.action_plan?
+    assert result.clarification?
+  end
+
+  test "rejects expanded budget scope for an exact one-month request" do
+    context = intent_context.deep_merge(
+      budget_categories: [ { id: 44, name: "Dining out", stack_key: "discretionary" } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    message = "Set Dining out to $500 in January; set Everyday Checking to $250"
+
+    [ [ 1, 2 ], (1..12).to_a ].each do |months|
+      result = resolve_compound(
+        message: message,
+        context: context,
+        actions: [
+          { source_text: "Set Dining out to $500 in January", depends_on: [], action: default_action.merge(type: "set_allocation", category_id: 44, category_name: "Dining out", amount: "500", months: months, year: 2026) },
+          { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+        ]
+      )
+      refute result.action_plan?, "accepted expanded month scope #{months.inspect}"
+    end
+  end
+
+  test "accepts an explicit all-year recurring budget scope" do
+    context = intent_context.deep_merge(
+      budget_categories: [ { id: 44, name: "Dining out", stack_key: "discretionary" } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    message = "Set Dining out to $500 every month; set Everyday Checking to $250"
+    result = resolve_compound(
+      message: message,
+      context: context,
+      actions: [
+        { source_text: "Set Dining out to $500 every month", depends_on: [], action: default_action.merge(type: "set_allocation", category_id: 44, category_name: "Dining out", amount: "500", months: (1..12).to_a, year: 2026) },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+
+    assert result.action_plan?, result.to_h.inspect
+  end
+
+  test "rejects an account balance date with the right month and wrong day" do
+    context = intent_context.deep_merge(
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],
+      active_goals: [ { id: 99, label: "Family trip", goal_type: "travel", current_amount: 500 } ]
+    )
+    message = "Set Everyday Checking to $250 as of October 31, 2026; set Family trip progress to $900"
+    result = resolve_compound(
+      message: message,
+      context: context,
+      actions: [
+        { source_text: "Set Everyday Checking to $250 as of October 31, 2026", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250", balance_as_of_on: "2026-10-01") },
+        { source_text: "set Family trip progress to $900", depends_on: [], action: default_action.merge(type: "update_goal", goal_id: 99, goal_name: "Family trip", current_amount: "900") }
+      ]
+    )
+
+    refute result.action_plan?
+    assert result.clarification?
+  end
+
+  test "grounds update and delete schedule entry ids to the named month when one source has multiple entries" do
+    context = intent_context.deep_merge(
+      income_sources: [ {
+        id: 91, label: "Primary income", source_type: "job", current_monthly_amount: 5_000,
+        schedule_entries: [
+          { id: 501, entry_type: "recurring_change", amount: 6_000, cadence: "monthly", effective_on: "2026-10-01" },
+          { id: 502, entry_type: "recurring_change", amount: 6_500, cadence: "monthly", effective_on: "2026-11-01" },
+          { id: 503, entry_type: "recurring_change", amount: 7_000, cadence: "monthly", effective_on: "2027-10-01" }
+        ]
+      } ],
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ]
+    )
+    update_message = "Update the October 2026 Primary income schedule to $6,200; set Everyday Checking to $250"
+    wrong_update = resolve_compound(
+      message: update_message,
+      context: context,
+      actions: [
+        { source_text: "Update the October 2026 Primary income schedule to $6,200", depends_on: [], action: default_action.merge(type: "update_income_schedule_entry", income_schedule_entry_id: 502, amount: "6200", cadence: "monthly", entry_type: "recurring_change", effective_on: "2026-10-01") },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+    correct_update = resolve_compound(
+      message: update_message,
+      context: context,
+      actions: [
+        { source_text: "Update the October 2026 Primary income schedule to $6,200", depends_on: [], action: default_action.merge(type: "update_income_schedule_entry", income_schedule_entry_id: 501, amount: "6200", cadence: "monthly", entry_type: "recurring_change", effective_on: "2026-10-01") },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+    wrong_year = resolve_compound(
+      message: update_message,
+      context: context,
+      actions: [
+        { source_text: "Update the October 2026 Primary income schedule to $6,200", depends_on: [], action: default_action.merge(type: "update_income_schedule_entry", income_schedule_entry_id: 501, amount: "6200", cadence: "monthly", entry_type: "recurring_change", effective_on: "2027-10-01") },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+    ambiguous_month_message = "Delete the October Primary income schedule; set Everyday Checking to $250"
+    ambiguous_month = resolve_compound(
+      message: ambiguous_month_message,
+      context: context,
+      actions: [
+        { source_text: "Delete the October Primary income schedule", depends_on: [], action: default_action.merge(type: "delete_income_schedule_entry", income_schedule_entry_id: 501) },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+    delete_message = "Delete the October 2026 Primary income schedule; set Everyday Checking to $250"
+    wrong_delete = resolve_compound(
+      message: delete_message,
+      context: context,
+      actions: [
+        { source_text: "Delete the October 2026 Primary income schedule", depends_on: [], action: default_action.merge(type: "delete_income_schedule_entry", income_schedule_entry_id: 502) },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+    correct_delete = resolve_compound(
+      message: delete_message,
+      context: context,
+      actions: [
+        { source_text: "Delete the October 2026 Primary income schedule", depends_on: [], action: default_action.merge(type: "delete_income_schedule_entry", income_schedule_entry_id: 501) },
+        { source_text: "set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") }
+      ]
+    )
+
+    refute wrong_update.action_plan?
+    assert correct_update.action_plan?, correct_update.to_h.inspect
+    refute wrong_year.action_plan?
+    refute ambiguous_month.action_plan?
+    refute wrong_delete.action_plan?
+    assert correct_delete.action_plan?, correct_delete.to_h.inspect
+  end
+
   test "preserves exact raw spans when a long compound request contains repeated whitespace and newlines" do
     context = intent_context.deep_merge(
       active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],
@@ -3192,6 +3377,22 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
         )
       end
     )
+  end
+
+  def resolve_compound(message:, context:, actions:)
+    HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "action_plan", continuation: false, resolved_message: message,
+          topic: { type: "action_plan", title: "Household changes", subject: "Household" },
+          action: default_action,
+          write_plan: { title: "Household changes", actions: actions }
+        )
+      end
+    ).call
   end
 
   def read_only_item(kind: "coaching", source_text:, resolved_question:, basis: "approved", scenario_type: "none", scenario_label: "", amount: "", effective_on: "")

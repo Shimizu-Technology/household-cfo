@@ -240,6 +240,16 @@ const miaCompoundActionPlan = {
   ],
 }
 
+function singleItemActionPlan(item: Record<string, unknown>, title = 'Review one household change') {
+  return {
+    ...miaCompoundActionPlan,
+    title,
+    summary: 'Mia prepared one exact change for review.',
+    items: [{ ...miaCompoundActionPlan.items[0], dependencies: [], ...item }],
+    remaining_item_count: 1,
+  }
+}
+
 const miaAssetDraft = {
   id: 74, status: 'pending', draft_type: 'asset_plan', year: currentYear,
   title: 'Update the emergency reserve', summary: 'Mia prepared an account change for review.',
@@ -5506,6 +5516,116 @@ test('mobile Ask Mia 390px action-plan budget link opens and focuses the exact c
   await expect(page).toHaveURL(/#Budget$/)
   const januaryAmount = page.getByLabel('Dining out planned for Jan')
   await expect(januaryAmount).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('desktop action-plan profile link focuses the exact manual control', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 795, action_type: 'update_household_profile', operation_key: 'profile.household.update',
+    target_record_type: 'Household', target_record_id: 77, label: 'Update primary goal',
+    payload: { primary_goal: 'Build a twelve-month reserve.' }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Primary goal')).toBeFocused()
+})
+
+test('desktop action-plan debt link focuses the exact debt editor', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.debts = [{
+    id: 41, label: 'Visa Gold', debt_type: 'credit_card', balance: 3100,
+    minimum_payment: 125, interest_rate_percent: 18.9, active: true, archived_at: null,
+    source_type: 'manual_ui', source_metadata: {},
+  }]
+  workspace.workspace.debt_portfolio = {
+    mode: 'individual', total_balance: 3100, monthly_minimum: 125, balance_known: true,
+    minimum_payment_known: true, active_count: 1, archived_count: 0,
+  }
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 796, action_type: 'update_debt', operation_key: 'debt.record.update',
+    target_record_type: 'Debt', target_record_id: 41, label: 'Update Visa Gold',
+    payload: { debt_id: 41, amount_cents: 280_000 }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.locator('.debt-form').getByLabel('Debt name')).toHaveValue('Visa Gold')
+  await expect(page.locator('.debt-form').getByLabel('Debt name')).toBeFocused()
+})
+
+test('320px action-plan income-source link focuses the exact profile control', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 797, action_type: 'update_income_source', operation_key: 'income.source.update',
+    target_record_type: 'IncomeSource', target_record_id: 1, label: 'Update Primary income',
+    payload: { income_source_id: 1, amount_cents: 1_500_000 }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  const sourceName = page.locator('.income-source-form').getByLabel('Name', { exact: true })
+  await expect(sourceName).toHaveValue('Primary income')
+  await expect(sourceName).toBeFocused()
+})
+
+test('320px action-plan runway-policy link focuses the exact profile control', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 798, action_type: 'update_runway_policy', operation_key: 'goal.runway_policy.update',
+    target_record_type: 'Household', target_record_id: 77, label: 'Set runway target',
+    payload: { target_months: 9 }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Target runway months')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 390px action-plan schedule-create link preloads and focuses exact controls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.income_sources.push({
+    id: 2, label: 'Consulting', source_type: 'business', base_amount: 1200, base_cadence: 'monthly',
+    starts_on: `${currentYear}-01-01`, ends_on: null, active: true, schedule_entries: [],
+  })
+  workspace.workspace.income_sources = structuredClone(workspace.budget.annual_plan.income_sources)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 799, action_type: 'create_income_schedule_entry', operation_key: 'income.schedule.create',
+    target_record_type: 'IncomeSource', target_record_id: 2, label: 'Schedule Consulting increase',
+    payload: { income_source_id: 2, entry_type: 'recurring_change', amount_cents: 175_000, cadence: 'monthly', effective_on: `${currentYear}-11-01` },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  const scheduleForm = page.locator('.income-schedule-form')
+  await expect(scheduleForm.getByLabel('Income source')).toHaveValue('2')
+  await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)
+  await expect(scheduleForm.getByLabel('Amount')).toHaveValue('1750')
+  await expect(scheduleForm.getByLabel('Amount')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 390px action-plan transition-policy link focuses the exact profile control', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 800, action_type: 'update_transition_policy', operation_key: 'goal.transition_policy.update',
+    target_record_type: 'Household', target_record_id: 77, label: 'Update transition priority',
+    payload: { primary_goal: 'Prepare for a careful transition.' }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Primary goal')).toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

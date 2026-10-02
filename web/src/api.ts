@@ -552,6 +552,7 @@ export type MiaActionItem = {
     | 'archive_goal'
     | 'restore_goal'
     | 'update_runway_policy'
+    | 'update_transition_policy'
     | 'update_household_profile'
     | 'confirm_household_setup'
   target_record_type: string | null

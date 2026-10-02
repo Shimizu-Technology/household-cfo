@@ -1313,6 +1313,14 @@ function App() {
       }
       return
     }
+    if (targetItem && operationKey === 'goal.runway_policy.update') {
+      focusProfileSetupField('target_runway_months')
+      return
+    }
+    if (targetItem && operationKey === 'goal.transition_policy.update') {
+      focusProfileSetupField('primary_goal')
+      return
+    }
     if (targetItem && (operationKey.startsWith('goal.record.') || actionType?.endsWith('_goal'))) {
       const goalItem = targetItem
       const goalId = goalItem?.target_record_id ?? (Number(goalItem?.payload.goal_id ?? 0) || null)
@@ -1358,6 +1366,7 @@ function App() {
         categoryId: targetItem.target_record_id ?? (Number(targetItem.payload.category_id ?? 0) || null),
         months: Array.isArray(targetItem.payload.months) ? targetItem.payload.months.map(Number) : [],
         incomeScheduleEntryId: Number(targetItem.payload.entry_id ?? 0) || null,
+        payload: targetItem.payload,
       })
       return
     }
@@ -8346,6 +8355,7 @@ type BudgetFocusRequest = {
   categoryId: number | null
   months: number[]
   incomeScheduleEntryId: number | null
+  payload: MiaActionItem['payload']
 }
 
 function blankIncomeSourceDraft(): IncomeSourceDraft {
@@ -8729,6 +8739,7 @@ function AnnualIncomePlanner({
   onSave,
   onDelete,
   focusRequest,
+  onFocusRequestHandled,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -8736,6 +8747,7 @@ function AnnualIncomePlanner({
   onSave: (values: IncomeScheduleEntryInput, entryId?: number) => Promise<void>
   onDelete: (entry: IncomeScheduleEntry) => void
   focusRequest?: BudgetFocusRequest | null
+  onFocusRequestHandled?: () => void
 }) {
   const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -8750,7 +8762,27 @@ function AnnualIncomePlanner({
     const located = plan.income_sources.flatMap((source) => source.schedule_entries.map((entry) => ({ source, entry })))
       .find(({ entry }) => entry.id === focusRequest.incomeScheduleEntryId)
     if (focusRequest.operationKey === 'income.schedule.create') {
-      requestAnimationFrame(() => amountInputRef.current?.focus())
+      const payload = focusRequest.payload
+      const sourceId = Number(payload.income_source_id ?? payload.source_id ?? 0)
+      const entryType = payload.entry_type === 'one_time' ? 'one_time' : 'recurring_change'
+      const amountCents = Number(payload.amount_cents ?? 0)
+      const fallback = blankIncomeScheduleDraft(plan)
+      requestAnimationFrame(() => {
+        setRemovingId(null)
+        setEditingId(null)
+        setFormError(null)
+        setDraft({
+          income_source_id: sourceId > 0 ? String(sourceId) : fallback.income_source_id,
+          entry_type: entryType,
+          label: String(payload.label ?? ''),
+          amount: Number.isFinite(amountCents) && amountCents >= 0 ? String(amountCents / 100) : '',
+          cadence: entryType === 'one_time' ? 'one_time' : String(payload.cadence ?? 'monthly'),
+          effective_on: String(payload.effective_on ?? fallback.effective_on),
+          retained_after_transition: payload.retained_after_transition === true,
+        })
+        requestAnimationFrame(() => amountInputRef.current?.focus())
+        onFocusRequestHandled?.()
+      })
     } else if (focusRequest.operationKey === 'income.schedule.update' && located) {
       requestAnimationFrame(() => {
         setRemovingId(null)
@@ -8766,15 +8798,17 @@ function AnnualIncomePlanner({
           retained_after_transition: located.entry.retained_after_transition === true,
         })
         requestAnimationFrame(() => amountInputRef.current?.focus())
+        onFocusRequestHandled?.()
       })
     } else if (focusRequest.operationKey === 'income.schedule.delete' && located) {
       requestAnimationFrame(() => {
         const target = document.querySelector<HTMLButtonElement>(`[data-income-entry-id="${located.entry.id}"] [data-income-entry-action="remove"]`)
         target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
         target?.focus({ preventScroll: true })
+        onFocusRequestHandled?.()
       })
     }
-  }, [focusRequest, plan.income_sources])
+  }, [focusRequest, onFocusRequestHandled, plan])
 
   function editEntry(sourceId: number, entry: IncomeScheduleEntry) {
     setRemovingId(null)
@@ -9205,7 +9239,7 @@ function AnnualBudgetPlanner({
       } else if (tool !== 'income') {
         manualManagerRef.current?.focus({ preventScroll: true })
       }
-      onFocusRequestHandled?.()
+      if (tool !== 'income') onFocusRequestHandled?.()
     }))
   }, [focusRequest, onFocusRequestHandled, planSignature])
 
@@ -9394,6 +9428,7 @@ function AnnualBudgetPlanner({
                 onSave={onSaveIncomeScheduleEntry}
                 onDelete={onDeleteIncomeScheduleEntry}
                 focusRequest={focusRequest?.operationKey.startsWith('income.schedule.') ? focusRequest : null}
+                onFocusRequestHandled={onFocusRequestHandled}
               />
             </div>
           )}
