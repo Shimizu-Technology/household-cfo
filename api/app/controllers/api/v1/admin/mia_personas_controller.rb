@@ -9,6 +9,7 @@ module Api
 
         before_action :authenticate_user!
         before_action :require_staff!
+        before_action :require_selected_coach_workspace!, only: :create
         rescue_from ActiveRecord::RecordNotFound, with: :render_not_found
 
         def index
@@ -32,7 +33,8 @@ module Api
             name: attributes[:name].presence || draft.to_h.dig("identity", "assistant_name"),
             description: attributes[:description],
             draft_config: draft,
-            created_by_user: current_user
+            created_by_user: current_user,
+            coach_workspace: current_coach_workspace
           )
           render json: { persona: serializer(persona).detail }, status: :created
         rescue ActiveRecord::RecordInvalid => error
@@ -64,10 +66,10 @@ module Api
             if attributes[:draft_config]
               attributes[:draft_config] = Mia::PersonaSchema.prepare_draft_artifacts(
                 attributes[:draft_config],
-                source_user_id: persona.created_by_user_id,
+                source_user_id: current_user.id,
                 source_role_at_capture: current_user.role,
                 existing_configuration: persona.draft_config,
-                allow_coach_artifact_edits: current_user.id == persona.created_by_user_id
+                allow_coach_artifact_edits: policy.can_manage_phrase_artifacts?(persona)
               )
             end
             persona.update!(attributes)
@@ -122,7 +124,7 @@ module Api
         end
 
         def preview
-          persona = editable_persona
+          persona = publishable_persona
           publisher = Mia::PersonaPublisher.new(persona: persona, actor: current_user)
           result = publisher.compile_preview!(
             expected_draft_revision: preview_params[:draft_revision]
@@ -152,7 +154,7 @@ module Api
         end
 
         def publish
-          persona = editable_persona
+          persona = publishable_persona
           version = Mia::PersonaPublisher.new(persona: persona, actor: current_user).publish!(
             expected_preview_digest: publish_params[:preview_digest],
             expected_draft_revision: publish_params[:draft_revision],
@@ -176,7 +178,7 @@ module Api
         private
 
         def policy
-          @policy ||= Mia::PersonaStudioPolicy.new(current_user)
+          @policy ||= Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer(persona)
@@ -189,6 +191,10 @@ module Api
 
         def editable_persona
           @editable_persona ||= policy.editable_personas.find(params[:id])
+        end
+
+        def publishable_persona
+          @publishable_persona ||= policy.publishable_personas.find(params[:id])
         end
 
         def create_persona_params
@@ -221,7 +227,7 @@ module Api
         end
 
         def public_coach_name
-          [ current_user.first_name, current_user.last_name ].compact_blank.join(" ").presence || "your coach"
+          current_coach_workspace.coach_profile&.display_name.presence || current_user.full_name
         end
 
         def serialize_assignable_cohort(cohort)

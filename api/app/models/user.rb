@@ -35,6 +35,10 @@ class User < ApplicationRecord
   has_many :cohort_experience_publication_events, foreign_key: :actor_user_id, dependent: :restrict_with_exception, inverse_of: :actor_user
   has_many :cohort_memberships, dependent: :destroy
   has_many :cohorts, through: :cohort_memberships
+  has_many :coach_workspace_memberships, dependent: :restrict_with_exception, inverse_of: :user
+  has_many :coach_workspaces, through: :coach_workspace_memberships
+  has_many :created_coach_workspaces, class_name: "CoachWorkspace", foreign_key: :created_by_user_id,
+    dependent: :restrict_with_exception, inverse_of: :created_by_user
   has_many :chat_sessions, dependent: :destroy
   has_many :uploaded_financial_document_imports, class_name: "FinancialDocumentImport", foreign_key: :uploaded_by_user_id, dependent: :restrict_with_exception, inverse_of: :uploaded_by_user
   has_many :applied_financial_document_imports, class_name: "FinancialDocumentImport", foreign_key: :applied_by_user_id, dependent: :nullify, inverse_of: :applied_by_user
@@ -77,8 +81,8 @@ class User < ApplicationRecord
     [ first_name, last_name ].compact_blank.join(" ").presence || email.to_s.split("@").first
   end
 
-  def as_api_json
-    {
+  def as_api_json(active_coach_workspace: nil)
+    payload = {
       id: id,
       clerk_id: clerk_id,
       email: email,
@@ -96,6 +100,18 @@ class User < ApplicationRecord
       is_participant: participant?,
       is_staff: staff?
     }
+    if staff?
+      memberships_by_workspace_id = coach_workspace_memberships.to_a.index_by(&:coach_workspace_id)
+      workspaces = CoachWorkspace.visible_to(self).includes(:coach_profile).order(:name, :id)
+      payload[:coach_workspaces] = workspaces.map do |workspace|
+        workspace.as_api_json(user: self, membership: memberships_by_workspace_id[workspace.id])
+      end
+      payload[:active_coach_workspace] = active_coach_workspace&.as_api_json(
+        user: self,
+        membership: memberships_by_workspace_id[active_coach_workspace.id]
+      )
+    end
+    payload
   end
 
   private

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import {
   ApiRequestError,
   approveAdminContentItem,
@@ -20,15 +20,23 @@ import type {
   AdminPersonaDetail,
   CurrentUser,
 } from '../api'
+import { useAuthContext } from '../contexts/authContextValue'
 import { Button } from './Button'
 import { CoachContentSources } from './CoachContentSources'
+import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachContentLibrary.css'
 
 const itemKinds: AdminContentItemKind[] = ['guidance', 'script', 'example', 'phrase', 'culture', 'finance_reference']
 const packKinds: AdminContentPackKind[] = ['voice_culture', 'coaching_method', 'finance_reference']
 const normalizeSingleLine = (value: string) => value.trim().replace(/\s+/g, ' ')
 
-export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange?: (dirty: boolean) => void }) {
+export function CoachContentLibrary({ currentUser, mutationLifecycle, onDirtyChange }: {
+  currentUser: CurrentUser
+  mutationLifecycle: CoachWorkspaceMutationLifecycle
+  onDirtyChange?: (dirty: boolean) => void
+}) {
+  const { activeCoachWorkspaceId } = useAuthContext()
+  const platformMode = currentUser.is_admin && activeCoachWorkspaceId === null
   const [items, setItems] = useState<AdminContentItem[]>([])
   const [packs, setPacks] = useState<AdminContentPack[]>([])
   const [selectedItemId, setSelectedItemId] = useState<number | null>(null)
@@ -42,40 +50,61 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   const [itemReviewRequest, setItemReviewRequest] = useState(0)
   const [itemFocusRequest, setItemFocusRequest] = useState(0)
   const [pendingReviewItemId, setPendingReviewItemId] = useState<number | null>(null)
+  const loadSequenceRef = useRef(0)
+  const activeWorkspaceIdRef = useRef(activeCoachWorkspaceId)
+
+  useLayoutEffect(() => {
+    activeWorkspaceIdRef.current = activeCoachWorkspaceId
+    loadSequenceRef.current += 1
+  }, [activeCoachWorkspaceId])
 
   useEffect(() => onDirtyChange?.(itemDirty || packDirty || sourceDirty), [itemDirty, onDirtyChange, packDirty, sourceDirty])
   useEffect(() => () => onDirtyChange?.(false), [onDirtyChange])
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (resetSelection = false) => {
+    const sequence = ++loadSequenceRef.current
+    const requestedWorkspaceId = activeCoachWorkspaceId
     setBusy(true)
     setError(null)
     try {
       const [nextItems, nextPacks] = await Promise.all([fetchAdminContentItems(), fetchAdminContentPacks()])
+      if (sequence !== loadSequenceRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setItems(nextItems)
       setPacks(nextPacks)
+      if (resetSelection) {
+        setSelectedItemId(null)
+        setSelectedPackId(null)
+        setPendingReviewItemId(null)
+      }
     } catch (caught) {
-      setError(errorMessage(caught, 'The coaching library could not load.'))
+      if (sequence === loadSequenceRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
+        setError(errorMessage(caught, 'The coaching library could not load.'))
+      }
     } finally {
-      setBusy(false)
+      if (sequence === loadSequenceRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setBusy(false)
     }
-  }, [])
+  }, [activeCoachWorkspaceId])
 
-  useEffect(() => { queueMicrotask(() => void load()) }, [load])
+  useEffect(() => { queueMicrotask(() => void load(true)) }, [load])
 
-  async function mutate(action: () => Promise<void>, success: string): Promise<boolean> {
+  async function mutate(action: (ticket: CoachWorkspaceMutationTicket) => Promise<void>, success: string): Promise<boolean> {
+    const ticket = mutationLifecycle.begin()
     setBusy(true)
     setError(null)
     setNotice(null)
     try {
-      await action()
+      await action(ticket)
+      if (!mutationLifecycle.isCurrent(ticket)) return false
       await load()
+      if (!mutationLifecycle.isCurrent(ticket)) return false
       setNotice(success)
       return true
     } catch (caught) {
-      setError(errorMessage(caught, 'That change could not be saved.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'That change could not be saved.'))
       return false
     } finally {
-      setBusy(false)
+      if (mutationLifecycle.isCurrent(ticket)) setBusy(false)
+      mutationLifecycle.finish(ticket)
     }
   }
 
@@ -116,6 +145,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
 
       <CoachContentSources
         currentUser={currentUser}
+        mutationLifecycle={mutationLifecycle}
         onDirtyChange={setSourceDirty}
         onItemAccepted={(item) => {
           setItems((current) => [item, ...current.filter((value) => value.id !== item.id)])
@@ -128,6 +158,7 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
       <div className="coach-content-grid">
         <ContentItemsPanel
           currentUser={currentUser}
+          platformMode={platformMode}
           items={items}
           selected={selectedItem}
           reviewRequest={itemReviewRequest}
@@ -135,19 +166,20 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
           busy={busy}
           onDirtyChange={setItemDirty}
           onSelect={setSelectedItemId}
-          onCreate={(values) => mutate(async () => { const item = await createAdminContentItem(values); setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
+          onCreate={(values) => mutate(async (ticket) => { const item = await createAdminContentItem(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedItemId(item.id) }, 'Content draft created. Approve it when the wording is ready.')}
           onSave={(item, values) => mutate(async () => { await updateAdminContentItem(item.id, { ...values, draft_revision: item.draft_revision ?? 0 }) }, 'Content draft saved. Approve the new version when it is ready.')}
           onApprove={(item) => mutate(async () => { await approveAdminContentItem(item.id, item.draft_revision ?? 0, item.draft_digest ?? '') }, `${item.title} is approved as an immutable version.`)}
         />
         <ContentPacksPanel
           currentUser={currentUser}
+          platformMode={platformMode}
           packs={packs}
           items={items}
           selected={selectedPack}
           busy={busy}
           onDirtyChange={setPackDirty}
           onSelect={setSelectedPackId}
-          onCreate={(values) => mutate(async () => { const pack = await createAdminContentPack(values); setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
+          onCreate={(values) => mutate(async (ticket) => { const pack = await createAdminContentPack(values); if (mutationLifecycle.isCurrent(ticket)) setSelectedPackId(pack.id) }, 'Content pack draft created. Publish it when its item versions are correct.')}
           onSave={(pack, values) => mutate(async () => { await updateAdminContentPack(pack.id, { ...values, draft_revision: pack.draft_revision ?? 0 }) }, 'Pack draft saved. Its published version has not changed.')}
           onPublish={(pack) => mutate(async () => { await publishAdminContentPack(pack.id, { draft_revision: pack.draft_revision ?? 0, draft_manifest_digest: pack.draft_manifest_digest ?? '', expected_published_version_id: pack.current_published_version?.id ?? null }) }, `${pack.name} is published as an immutable version.`)}
         />
@@ -156,8 +188,9 @@ export function CoachContentLibrary({ currentUser, onDirtyChange }: { currentUse
   )
 }
 
-function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
+function ContentItemsPanel({ currentUser, platformMode, items, selected, reviewRequest, focusRequest, busy, onDirtyChange, onSelect, onCreate, onSave, onApprove }: {
   currentUser: CurrentUser
+  platformMode: boolean
   items: AdminContentItem[]
   selected: AdminContentItem | null
   reviewRequest: number
@@ -174,6 +207,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
   const [content, setContent] = useState('')
   const [kind, setKind] = useState<AdminContentItemKind>('guidance')
   const [scope, setScope] = useState<AdminContentScope>('coach')
+  const effectiveScope: AdminContentScope = platformMode && !selected ? 'platform' : scope
   const [alwaysOn, setAlwaysOn] = useState(false)
   const lastSelectedId = useRef<number | null>(null)
   const lastHandledReviewRequest = useRef(0)
@@ -184,7 +218,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     kind !== selected.kind ||
     alwaysOn !== selected.always_on
   ))
-  const createDirty = Boolean(creating && (title.trim() || content.trim() || kind !== 'guidance' || scope !== 'coach' || alwaysOn))
+  const createDirty = Boolean(creating && (title.trim() || content.trim() || kind !== 'guidance' || effectiveScope !== (platformMode ? 'platform' : 'coach') || alwaysOn))
 
   useEffect(() => onDirtyChange(itemDirty || createDirty), [createDirty, itemDirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -193,7 +227,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     lastSelectedId.current = selected.id
     setCreating(false)
     setTitle(selected.title)
-    setContent(selected.editable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
+    setContent(selected.editable || selected.approvable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
     setKind(selected.kind)
     setScope(selected.scope)
     setAlwaysOn(selected.always_on)
@@ -205,7 +239,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     queueMicrotask(() => {
       setCreating(false)
       setTitle(selected.title)
-      setContent(selected.editable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
+      setContent(selected.editable || selected.approvable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
       setKind(selected.kind)
       setScope(selected.scope)
       setAlwaysOn(selected.always_on)
@@ -227,7 +261,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     setTitle('')
     setContent('')
     setKind('guidance')
-    setScope('coach')
+    setScope(platformMode ? 'platform' : 'coach')
     setAlwaysOn(false)
   }
 
@@ -235,7 +269,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     lastSelectedId.current = item.id
     setCreating(false)
     setTitle(item.title)
-    setContent(item.editable ? item.draft_content ?? '' : item.current_approved_version?.content ?? '')
+    setContent(item.editable || item.approvable ? item.draft_content ?? '' : item.current_approved_version?.content ?? '')
     setKind(item.kind)
     setScope(item.scope)
     setAlwaysOn(item.always_on)
@@ -248,7 +282,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     const normalizedContent = content.trim()
     const succeeded = selected
       ? await onSave(selected, { title: normalizedTitle, kind, draft_content: normalizedContent, always_on: alwaysOn })
-      : await onCreate({ title: normalizedTitle, scope, kind, draft_content: normalizedContent, always_on: alwaysOn })
+      : await onCreate({ title: normalizedTitle, scope: effectiveScope, kind, draft_content: normalizedContent, always_on: alwaysOn })
     if (succeeded) {
       setTitle(normalizedTitle)
       setContent(normalizedContent)
@@ -273,23 +307,24 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
           <label><span>Title</span><input ref={titleInputRef} required disabled={busy || Boolean(selected && !selected.editable)} maxLength={160} value={title} onChange={(event) => setTitle(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Type</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentItemKind)}>{itemKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => setScope(event.target.value as AdminContentScope)}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
           <label><span>Draft wording</span><textarea required disabled={busy || Boolean(selected && !selected.editable)} rows={8} maxLength={10000} value={content} onChange={(event) => setContent(event.target.value)} placeholder="Write the exact teaching, phrase, example, or cultural context Mia may use." /><small>{content.length.toLocaleString()} / 10,000 characters</small></label>
           <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
           <div className="coach-content-actions">
             {(!selected || selected.editable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
-            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
+            {selected?.approvable && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
           </div>
-          {selected && !selected.editable && <p className="coach-content-note">Platform content is visible for use and can be changed only by an administrator.</p>}
+          {selected && !selected.editable && <p className="coach-content-note">{selected.approvable ? 'This draft is read-only while you review and approve it.' : 'This content is visible for use and read-only for your workspace role.'}</p>}
         </form>
       )}
     </article>
   )
 }
 
-function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
+function ContentPacksPanel({ currentUser, platformMode, packs, items, selected, busy, onDirtyChange, onSelect, onCreate, onSave, onPublish }: {
   currentUser: CurrentUser
+  platformMode: boolean
   packs: AdminContentPack[]
   items: AdminContentItem[]
   selected: AdminContentPack | null
@@ -306,14 +341,18 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
   const [kind, setKind] = useState<AdminContentPackKind>('coaching_method')
   const [scope, setScope] = useState<AdminContentScope>('coach')
   const [selectedVersions, setSelectedVersions] = useState<number[]>([])
-  const approvedItems = items.filter((item) => item.current_approved_version && !item.archived && (scope === 'coach' || item.scope === 'platform'))
+  const effectiveScope: AdminContentScope = platformMode && !selected ? 'platform' : scope
+  const effectiveSelectedVersions = effectiveScope === 'platform'
+    ? selectedVersions.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))
+    : selectedVersions
+  const approvedItems = items.filter((item) => item.current_approved_version && !item.archived && (effectiveScope === 'coach' || item.scope === 'platform'))
   const packDirty = Boolean(selected?.editable && (
     normalizeSingleLine(name) !== selected.name ||
     description.trim() !== selected.description ||
     kind !== selected.pack_kind ||
-    selectedVersions.join(',') !== selected.draft_items.map((item) => item.id).join(',')
+    effectiveSelectedVersions.join(',') !== selected.draft_items.map((item) => item.id).join(',')
   ))
-  const createDirty = Boolean(creating && (name.trim() || description.trim() || kind !== 'coaching_method' || scope !== 'coach' || selectedVersions.length > 0))
+  const createDirty = Boolean(creating && (name.trim() || description.trim() || kind !== 'coaching_method' || effectiveScope !== (platformMode ? 'platform' : 'coach') || effectiveSelectedVersions.length > 0))
 
   useEffect(() => onDirtyChange(packDirty || createDirty), [createDirty, onDirtyChange, packDirty])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -324,7 +363,7 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
     setName('')
     setDescription('')
     setKind('coaching_method')
-    setScope('coach')
+    setScope(platformMode ? 'platform' : 'coach')
     setSelectedVersions([])
   }
 
@@ -360,8 +399,8 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
     event.preventDefault()
     const normalizedName = normalizeSingleLine(name)
     const normalizedDescription = description.trim()
-    const values = { name: normalizedName, description: normalizedDescription, pack_kind: kind, item_version_ids: selectedVersions }
-    const succeeded = selected ? await onSave(selected, values) : await onCreate({ ...values, scope })
+    const values = { name: normalizedName, description: normalizedDescription, pack_kind: kind, item_version_ids: effectiveSelectedVersions }
+    const succeeded = selected ? await onSave(selected, values) : await onCreate({ ...values, scope: effectiveScope })
     if (succeeded) {
       setName(normalizedName)
       setDescription(normalizedDescription)
@@ -387,20 +426,20 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
           <label><span>Description</span><textarea disabled={busy || Boolean(selected && !selected.editable)} rows={2} maxLength={2000} value={description} onChange={(event) => setDescription(event.target.value)} /></label>
           <div className="coach-content-form-row">
             <label><span>Purpose</span><select disabled={busy || Boolean(selected && !selected.editable)} value={kind} onChange={(event) => setKind(event.target.value as AdminContentPackKind)}>{packKinds.map((value) => <option value={value} key={value}>{label(value)}</option>)}</select></label>
-            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin} value={scope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}><option value="coach">My coaching library</option>{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
+            <label><span>Owner</span><select disabled={busy || Boolean(selected) || !currentUser.is_admin || platformMode} value={effectiveScope} onChange={(event) => { const nextScope = event.target.value as AdminContentScope; setScope(nextScope); if (nextScope === 'platform') setSelectedVersions((current) => current.filter((id) => items.some((item) => item.scope === 'platform' && item.current_approved_version?.id === id))) }}>{(!platformMode || Boolean(selected)) && <option value="coach">My coaching library</option>}{currentUser.is_admin && <option value="platform">Platform library</option>}</select></label>
           </div>
           <fieldset className="coach-content-checklist"><legend>Exact approved item versions</legend>
             {approvedItems.map((item) => {
               const current = item.current_approved_version!
               const pinned = selected?.draft_items.find((candidate) => candidate.item_id === item.id)
-              const included = selectedVersions.includes(current.id) || Boolean(pinned && selectedVersions.includes(pinned.id))
-              const updateAvailable = Boolean(pinned && pinned.id !== current.id && !selectedVersions.includes(current.id))
+              const included = effectiveSelectedVersions.includes(current.id) || Boolean(pinned && effectiveSelectedVersions.includes(pinned.id))
+              const updateAvailable = Boolean(pinned && pinned.id !== current.id && !effectiveSelectedVersions.includes(current.id))
               return <div className="coach-content-item-option" key={item.id}><label><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={included} onChange={() => toggleItem(item)} /><span><strong>{item.title}</strong><small>{updateAvailable ? `Pinned v${pinned?.version} · current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && selected?.editable && <button type="button" className="coach-content-upgrade" disabled={busy} onClick={() => upgradeItem(item)}>Use v{current.version}</button>}</div>
             })}
           </fieldset>
           <div className="coach-content-actions">
-            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || selectedVersions.length === 0 || Boolean(selected && !packDirty)}>{selected ? 'Save pack' : 'Create pack draft'}</Button>}
-            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
+            {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || effectiveSelectedVersions.length === 0 || Boolean(selected && !packDirty)}>{selected ? 'Save pack' : 'Create pack draft'}</Button>}
+            {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
           </div>
           <p className="coach-content-note">Publishing creates a fixed snapshot. Later item edits never change a published pack or an assigned assistant automatically.</p>
         </form>
@@ -409,9 +448,10 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
   )
 }
 
-export function PersonaContentPacksPanel({ persona, dirty, onDirtyChange, onPersonaChange }: {
+export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, onDirtyChange, onPersonaChange }: {
   persona: AdminPersonaDetail
   dirty: boolean
+  mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
   onPersonaChange: (persona: AdminPersonaDetail) => void
 }) {
@@ -453,15 +493,17 @@ export function PersonaContentPacksPanel({ persona, dirty, onDirtyChange, onPers
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function save() {
+    const ticket = mutationLifecycle.begin()
     setBusy(true)
     setError(null)
     try {
       const next = await updateAdminPersonaContentPacks(persona.id, persona.draft_revision ?? 0, selectedIds)
-      onPersonaChange(next)
+      if (mutationLifecycle.isCurrent(ticket)) onPersonaChange(next)
     } catch (caught) {
-      setError(errorMessage(caught, 'The content selection could not be saved.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The content selection could not be saved.'))
     } finally {
-      setBusy(false)
+      if (mutationLifecycle.isCurrent(ticket)) setBusy(false)
+      mutationLifecycle.finish(ticket)
     }
   }
 

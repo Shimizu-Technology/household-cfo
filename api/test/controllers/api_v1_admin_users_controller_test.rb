@@ -43,6 +43,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     admin = create_user(email: "coach-admin@example.com", role: "admin")
     coach = create_user(email: "coach@example.com", role: "coach")
     cohort = Cohort.create!(name: "Participant Pilot", status: "enrolling", created_by_user: admin)
+    cohort.coach_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
     coach.cohort_memberships.create!(cohort: cohort, role: "coach")
 
     post "/api/v1/admin/users",
@@ -85,6 +86,7 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     other_cohort = Cohort.create!(name: "Other Pilot", status: "active", created_by_user: admin)
     assigned_participant = create_user(email: "assigned-participant@example.com", role: "participant")
     other_participant = create_user(email: "other-participant@example.com", role: "participant")
+    assigned_cohort.coach_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
     coach.cohort_memberships.create!(cohort: assigned_cohort, role: "coach")
     assigned_participant.cohort_memberships.create!(cohort: assigned_cohort, role: "participant")
     other_participant.cohort_memberships.create!(cohort: other_cohort, role: "participant")
@@ -94,6 +96,252 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     emails = JSON.parse(response.body).fetch("users").map { |user| user.fetch("email") }
     assert_equal [ "assigned-participant@example.com" ], emails
+  end
+
+  test "selected-workspace admin index includes only cohort users and workspace members" do
+    admin = create_user(email: "selected-admin@example.com", role: "admin")
+    first_owner = create_user(email: "first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "second-owner@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "First selected cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Second selected cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    first_participant = create_user(email: "first-selected-participant@example.com", role: "participant")
+    second_participant = create_user(email: "second-selected-participant@example.com", role: "participant")
+    first_reviewer = create_user(email: "first-reviewer@example.com", role: "coach")
+    first_participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    second_participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+    first_workspace.coach_workspace_memberships.create!(user: first_reviewer, role: "reviewer")
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(admin, first_workspace)
+
+    assert_response :success
+    emails = response.parsed_body.fetch("users").map { |user| user.fetch("email") }
+    assert_includes emails, first_owner.email
+    assert_includes emails, first_reviewer.email
+    assert_includes emails, first_participant.email
+    refute_includes emails, second_owner.email
+    refute_includes emails, second_participant.email
+  end
+
+  test "selected-workspace admin cannot update a user from another workspace" do
+    admin = create_user(email: "selected-update-admin@example.com", role: "admin")
+    first_owner = create_user(email: "selected-update-first@example.com", role: "coach")
+    second_owner = create_user(email: "selected-update-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    second_cohort = Cohort.create!(name: "Update other cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    outside_participant = create_user(email: "outside-update@example.com", role: "participant")
+    outside_participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{outside_participant.id}",
+      params: { user: { first_name: "Leaked" } },
+      headers: workspace_auth_headers(admin, first_workspace),
+      as: :json
+
+    assert_response :unprocessable_entity
+    assert_nil outside_participant.reload.first_name
+  end
+
+  test "selected-workspace admin cannot resend an invitation from another workspace" do
+    admin = create_user(email: "selected-resend-admin@example.com", role: "admin")
+    first_owner = create_user(email: "selected-resend-first@example.com", role: "coach")
+    second_owner = create_user(email: "selected-resend-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    second_cohort = Cohort.create!(name: "Resend other cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    outside_participant = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "outside-resend@example.com",
+      role: "participant",
+      invitation_status: "pending"
+    )
+    outside_participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    assert_no_difference -> { outside_participant.invitation_email_attempts.count } do
+      post "/api/v1/admin/users/#{outside_participant.id}/resend_invitation",
+        headers: workspace_auth_headers(admin, first_workspace)
+    end
+
+    assert_response :unprocessable_entity
+  end
+
+  test "selected-workspace admin preserves other tenant memberships and cannot change a shared global identity" do
+    admin = create_user(email: "shared-update-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-update-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-update-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Shared first cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    replacement_cohort = Cohort.create!(name: "Shared first replacement", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Shared second cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    shared = create_user(email: "shared-participant@example.com", role: "participant")
+    shared.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    shared.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+    headers = workspace_auth_headers(admin, first_workspace)
+
+    patch "/api/v1/admin/users/#{shared.id}",
+      params: { user: { first_name: "Global change", role: "participant", cohort_ids: [ replacement_cohort.id ] } },
+      headers: headers,
+      as: :json
+    assert_response :forbidden
+    assert_nil shared.reload.first_name
+    assert_equal [ first_cohort.id, second_cohort.id ].sort, shared.cohort_memberships.pluck(:cohort_id).sort
+
+    patch "/api/v1/admin/users/#{shared.id}",
+      params: { user: { role: "participant", cohort_ids: [ replacement_cohort.id ] } },
+      headers: headers,
+      as: :json
+    assert_response :success
+    assert_equal [ replacement_cohort.id, second_cohort.id ].sort, shared.reload.cohort_memberships.pluck(:cohort_id).sort
+
+    patch "/api/v1/admin/users/#{shared.id}",
+      params: { user: { role: "participant", cohort_ids: [] } },
+      headers: headers,
+      as: :json
+    assert_response :success
+    assert_equal [ second_cohort.id ], shared.reload.cohort_memberships.pluck(:cohort_id)
+  end
+
+  test "selected-workspace admin cannot resend a shared user invitation" do
+    admin = create_user(email: "shared-resend-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-resend-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-resend-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Shared resend first", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Shared resend second", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    shared = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "shared-resend@example.com",
+      role: "participant",
+      invitation_status: "pending"
+    )
+    shared.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    shared.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    assert_no_difference -> { shared.invitation_email_attempts.count } do
+      post "/api/v1/admin/users/#{shared.id}/resend_invitation", headers: workspace_auth_headers(admin, first_workspace)
+    end
+    assert_response :forbidden
+  end
+
+  test "selected-workspace admin can attach an existing user but cannot reactivate the shared global account" do
+    admin = create_user(email: "shared-create-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-create-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-create-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Shared create first", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Shared create second", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = create_user(email: "shared-existing@example.com", role: "participant")
+    existing.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+    headers = workspace_auth_headers(admin, first_workspace)
+
+    post "/api/v1/admin/users", params: {
+      user: { email: existing.email, role: "participant", cohort_id: first_cohort.id }
+    }, headers: headers, as: :json
+    assert_response :success
+    assert_equal [ first_cohort.id, second_cohort.id ].sort, existing.reload.cohort_memberships.pluck(:cohort_id).sort
+    assert_equal "accepted", existing.invitation_status
+
+    existing.update!(invitation_status: "revoked")
+    post "/api/v1/admin/users", params: {
+      user: { email: existing.email, role: "participant", cohort_id: first_cohort.id }
+    }, headers: headers, as: :json
+    assert_response :forbidden
+    assert_equal "revoked", existing.reload.invitation_status
+  end
+
+  test "workspace invitation fails closed when another workspace attaches the user before the locked update" do
+    admin = create_user(email: "shared-race-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-race-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-race-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Shared race first", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Shared race second", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = User.create!(
+      clerk_id: "pending_#{SecureRandom.hex(6)}",
+      email: "shared-race-participant@example.com",
+      role: "participant",
+      invitation_status: "pending"
+    )
+    existing.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    invitation_snapshot = existing.attributes.slice(
+      "invited_at", "invited_by_user_id", "invitation_email_status", "invitation_email_provider_id",
+      "invitation_email_error", "last_invite_email_attempted_at", "last_invite_email_sent_at", "last_invite_email_sent_by_user_id"
+    )
+
+    assert_no_difference -> { existing.invitation_email_attempts.count } do
+      with_user_share_after_first_check(second_cohort) do
+        with_user_invite_email_stub(sent: true, status: "sent", provider_message_id: "must_not_send", error: nil) do
+          post "/api/v1/admin/users", params: {
+            user: { email: existing.email, role: "participant", cohort_id: first_cohort.id }
+          }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+        end
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "Switch to All workspaces / Platform because this user is now shared across workspaces", response.parsed_body.fetch("error")
+    existing.reload
+    assert_equal invitation_snapshot, existing.attributes.slice(*invitation_snapshot.keys)
+    assert_equal [ first_cohort.id, second_cohort.id ].sort, existing.cohort_memberships.pluck(:cohort_id).sort
+  end
+
+  test "shared-user attachment rechecks revocation after acquiring the stable user lock" do
+    admin = create_user(email: "shared-revocation-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-revocation-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-revocation-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    existing_cohort = Cohort.create!(name: "Shared revocation existing", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    requested_cohort = Cohort.create!(name: "Shared revocation requested", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    outside_cohort = Cohort.create!(name: "Shared revocation outside", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = create_user(email: "shared-revocation-participant@example.com", role: "participant")
+    existing.cohort_memberships.create!(cohort: existing_cohort, role: "participant")
+    existing.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+    invitation_snapshot = existing.attributes.slice("invited_at", "invited_by_user_id", "invitation_email_status")
+
+    assert_no_difference -> { existing.invitation_email_attempts.count } do
+      with_shared_user_change_after_first_check(existing, invitation_status: "revoked") do
+        post "/api/v1/admin/users", params: {
+          user: { email: existing.email, role: "participant", cohort_id: requested_cohort.id }
+        }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "revoked", existing.reload.invitation_status
+    assert_equal invitation_snapshot, existing.attributes.slice(*invitation_snapshot.keys)
+    refute existing.cohort_memberships.exists?(cohort: requested_cohort)
+  end
+
+  test "shared-user attachment rechecks global role drift after acquiring the stable user lock" do
+    admin = create_user(email: "shared-role-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-role-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-role-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    existing_cohort = Cohort.create!(name: "Shared role existing", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    requested_cohort = Cohort.create!(name: "Shared role requested", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    outside_cohort = Cohort.create!(name: "Shared role outside", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = create_user(email: "shared-role-participant@example.com", role: "participant")
+    existing.cohort_memberships.create!(cohort: existing_cohort, role: "participant")
+    existing.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+
+    assert_no_difference -> { existing.invitation_email_attempts.count } do
+      with_shared_user_change_after_first_check(existing, role: "coach") do
+        post "/api/v1/admin/users", params: {
+          user: { email: existing.email, role: "participant", cohort_id: requested_cohort.id }
+        }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "coach", existing.reload.role
+    refute existing.cohort_memberships.exists?(cohort: requested_cohort)
   end
 
   test "coach cannot assign users to unassigned cohorts" do
@@ -555,6 +803,123 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal "accepted", participant.reload.invitation_status
   end
 
+  test "coach updates only assigned workspace memberships and cannot change a shared identity" do
+    first_owner = create_user(email: "coach-shared-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "coach-shared-second-owner@example.com", role: "coach")
+    coach = create_user(email: "coach-shared-editor@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Coach managed cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Other tenant cohort", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    first_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
+    coach.cohort_memberships.create!(cohort: first_cohort, role: "coach")
+    participant = create_user(email: "coach-shared-participant@example.com", role: "participant")
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { cohort_ids: [] } }, headers: workspace_auth_headers(coach, first_workspace), as: :json
+
+    assert_response :success
+    assert_equal [ second_cohort.id ], participant.reload.cohort_memberships.pluck(:cohort_id)
+
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    patch "/api/v1/admin/users/#{participant.id}", params: { user: { first_name: "Cross tenant change" } }, headers: workspace_auth_headers(coach, first_workspace), as: :json
+
+    assert_response :forbidden
+    assert_nil participant.reload.first_name
+  end
+
+  test "coach cannot resend or rewrite an existing shared participant invitation" do
+    first_owner = create_user(email: "coach-invite-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "coach-invite-second-owner@example.com", role: "coach")
+    coach = create_user(email: "coach-invite-editor@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Invite managed cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "Invite other tenant", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    first_workspace.coach_workspace_memberships.create!(user: coach, role: "editor")
+    coach.cohort_memberships.create!(cohort: first_cohort, role: "coach")
+    participant = User.create!(clerk_id: "pending_#{SecureRandom.hex(6)}", email: "coach-existing-shared@example.com", role: "participant", invitation_status: "pending")
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+
+    assert_no_difference -> { participant.invitation_email_attempts.count } do
+      post "/api/v1/admin/users/#{participant.id}/resend_invitation", headers: workspace_auth_headers(coach, first_workspace)
+    end
+    assert_response :forbidden
+
+    post "/api/v1/admin/users", params: {
+      user: { email: participant.email, first_name: "Rewritten", role: "participant", cohort_ids: [ first_cohort.id ] }
+    }, headers: workspace_auth_headers(coach, first_workspace), as: :json
+
+    assert_response :forbidden
+    assert_nil participant.reload.first_name
+    assert_equal [ first_cohort.id, second_cohort.id ].sort, participant.cohort_memberships.pluck(:cohort_id).sort
+  end
+
+  test "workspace-scoped user serialization hides other tenant membership and global invitation delivery details" do
+    first_owner = create_user(email: "privacy-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "privacy-second-owner@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_cohort = Cohort.create!(name: "Visible tenant cohort", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    second_cohort = Cohort.create!(name: "SECRET OUTSIDE COHORT", status: "archived", created_by_user: second_owner, coach_workspace: second_workspace)
+    sender = create_user(email: "secret-sender@example.com", role: "admin")
+    participant = create_user(email: "privacy-shared@example.com", role: "participant")
+    participant.update!(invited_by_user: sender, invitation_email_status: "failed", invitation_email_provider_id: "secret-provider-id", invitation_email_error: "SECRET DELIVERY ERROR")
+    participant.cohort_memberships.create!(cohort: first_cohort, role: "participant")
+    participant.cohort_memberships.create!(cohort: second_cohort, role: "participant")
+    participant.invitation_email_attempts.create!(status: "failed", provider: "SECRET PROVIDER", error: "SECRET ATTEMPT ERROR", attempted_at: Time.current, sent_by_user: sender)
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(sender, first_workspace)
+
+    assert_response :success
+    row = response.parsed_body.fetch("users").find { |user| user.fetch("id") == participant.id }
+    assert_equal [ first_cohort.id ], row.fetch("cohorts").map { |membership| membership.dig("cohort", "id") }
+    assert_nil row.fetch("invited_by")
+    assert_equal true, row.dig("invite_email", "workspace_scoped")
+    assert_equal "hidden", row.dig("invite_email", "status")
+    assert_empty row.dig("invite_email", "delivery_log")
+    assert_nil row.dig("invite_email", "provider_message_id")
+    assert_nil row.dig("invite_email", "error")
+    refute_includes response.body, "SECRET OUTSIDE COHORT"
+    refute_includes response.body, "secret-sender@example.com"
+    refute_includes response.body, "SECRET PROVIDER"
+    refute_includes response.body, "SECRET DELIVERY ERROR"
+  end
+
+  test "workspace-scoped user serialization hides a shared staff member's other workspace identity" do
+    admin = create_user(email: "staff-privacy-admin@example.com", role: "admin")
+    first_owner = create_user(email: "staff-privacy-first-owner@example.com", role: "coach")
+    second_owner = create_user(email: "staff-privacy-second-owner@example.com", role: "coach")
+    shared_staff = create_user(email: "staff-privacy-shared@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    first_workspace.update!(name: "Visible Staff Workspace")
+    first_workspace.coach_profile.update!(display_name: "Visible Coach", title: "Visible title", bio: "Visible bio")
+    second_workspace.update!(name: "SECRET OUTSIDE STAFF WORKSPACE")
+    second_workspace.coach_profile.update!(
+      display_name: "SECRET OUTSIDE COACH",
+      title: "SECRET OUTSIDE TITLE",
+      bio: "SECRET OUTSIDE BIO"
+    )
+    first_workspace.coach_workspace_memberships.create!(user: shared_staff, role: "editor")
+    second_workspace.coach_workspace_memberships.create!(user: shared_staff, role: "reviewer")
+
+    get "/api/v1/admin/users", headers: workspace_auth_headers(admin, first_workspace)
+
+    assert_response :success
+    row = response.parsed_body.fetch("users").find { |user| user.fetch("id") == shared_staff.id }
+    assert_equal [ first_workspace.id ], row.fetch("coach_workspaces").pluck("id")
+    assert_equal first_workspace.id, row.dig("active_coach_workspace", "id")
+    assert_equal "editor", row.dig("active_coach_workspace", "membership_role")
+    assert_equal "Visible Coach", row.dig("active_coach_workspace", "coach_profile", "display_name")
+    refute_includes response.body, "SECRET OUTSIDE STAFF WORKSPACE"
+    refute_includes response.body, "SECRET OUTSIDE COACH"
+    refute_includes response.body, "SECRET OUTSIDE TITLE"
+    refute_includes response.body, "SECRET OUTSIDE BIO"
+  end
+
   test "admin users index returns only five recent invite attempts" do
     admin = create_user(email: "recent-attempt-admin@example.com", role: "admin")
     user = create_user(email: "recent-attempt-user@example.com", role: "participant")
@@ -685,11 +1050,53 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     { "Authorization" => "Bearer test_token_#{user.id}" }
   end
 
+  def workspace_auth_headers(user, workspace)
+    auth_headers(user).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+  end
+
   def with_user_invite_email_stub(result)
     original_method = UserInviteEmailService.method(:send_invite)
     UserInviteEmailService.define_singleton_method(:send_invite) { |user:, invited_by:| result }
     yield
   ensure
     UserInviteEmailService.define_singleton_method(:send_invite, original_method)
+  end
+
+  def with_user_share_after_first_check(outside_cohort)
+    controller = Api::V1::Admin::UsersController
+    original_method = controller.instance_method(:user_shared_outside_active_workspace?)
+    first_check = true
+    controller.define_method(:user_shared_outside_active_workspace?) do |user|
+      shared = original_method.bind_call(self, user)
+      if first_check
+        first_check = false
+        user.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+      end
+      shared
+    end
+    controller.send(:private, :user_shared_outside_active_workspace?)
+    yield
+  ensure
+    controller.define_method(:user_shared_outside_active_workspace?, original_method)
+    controller.send(:private, :user_shared_outside_active_workspace?)
+  end
+
+  def with_shared_user_change_after_first_check(user, attributes)
+    controller = Api::V1::Admin::UsersController
+    original_method = controller.instance_method(:user_shared_outside_active_workspace?)
+    first_check = true
+    controller.define_method(:user_shared_outside_active_workspace?) do |candidate|
+      shared = original_method.bind_call(self, candidate)
+      if first_check && candidate.id == user.id
+        first_check = false
+        User.where(id: user.id).update_all(attributes.merge(updated_at: Time.current))
+      end
+      shared
+    end
+    controller.send(:private, :user_shared_outside_active_workspace?)
+    yield
+  ensure
+    controller.define_method(:user_shared_outside_active_workspace?, original_method)
+    controller.send(:private, :user_shared_outside_active_workspace?)
   end
 end

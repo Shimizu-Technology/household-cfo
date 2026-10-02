@@ -37,11 +37,12 @@ module Api
         private
 
         def policy
-          @policy ||= CohortExperience::Policy.new(current_user)
+          @policy ||= CohortExperience::Policy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def cohort
-          @cohort ||= policy.manageable_cohorts.find(params[:cohort_id])
+          scope = action_name == "rollback" ? policy.publishable_cohorts : policy.manageable_cohorts
+          @cohort ||= scope.find(params[:cohort_id])
         end
 
         def configuration

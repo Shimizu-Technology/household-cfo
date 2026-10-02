@@ -22,6 +22,7 @@ import type {
   CurrentUser,
   PersonaConfiguration,
 } from '../api'
+import { useAuthContext } from '../contexts/authContextValue'
 import {
   PERSONA_ACCOUNTABILITY_STYLES,
   PERSONA_ENERGY_STYLES,
@@ -39,6 +40,7 @@ import {
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
+import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 
 const guidedSteps = [
@@ -56,6 +58,9 @@ type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 're
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
+  const { activeCoachWorkspaceId: activeWorkspaceId, selectCoachWorkspace } = useAuthContext()
+  const workspaceOptions = currentUser.coach_workspaces ?? []
+  const workspaceCreateDisabled = currentUser.is_admin && activeWorkspaceId === null
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
   const [selectedPersona, setSelectedPersona] = useState<AdminPersonaDetail | null>(null)
   const [draft, setDraft] = useState<PersonaConfiguration | null>(null)
@@ -82,8 +87,12 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
+  const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
+  const activeWorkspaceIdRef = useRef(activeWorkspaceId)
+  activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
+  const loadPersonasRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
   const createNameRef = useRef<HTMLInputElement | null>(null)
   const libraryHeadingRef = useRef<HTMLHeadingElement | null>(null)
@@ -109,12 +118,13 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   const loadPersona = useCallback(async (personaId: number) => {
     const requestId = loadPersonaRequestRef.current + 1
+    const requestedWorkspaceId = activeWorkspaceIdRef.current
     loadPersonaRequestRef.current = requestId
     setDetailLoading(true)
     setError(null)
     try {
       const persona = await fetchAdminPersona(personaId)
-      if (requestId !== loadPersonaRequestRef.current) return
+      if (requestId !== loadPersonaRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       selectedIdRef.current = persona.id
       setSelectedPersona(persona)
       setDraft(persona.draft ?? null)
@@ -133,14 +143,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         })
       }
     } catch (caught) {
-      if (requestId !== loadPersonaRequestRef.current) return
+      if (requestId !== loadPersonaRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setError(errorMessage(caught, 'This assistant could not be loaded.'))
     } finally {
-      if (requestId === loadPersonaRequestRef.current) setDetailLoading(false)
+      if (requestId === loadPersonaRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setDetailLoading(false)
     }
   }, [])
 
   const loadPersonas = useCallback(async (preferredId?: number | null) => {
+    // Workspace selection changes the request header and invalidates every result in this view.
+    const requestedWorkspaceId = activeWorkspaceId
+    const requestId = ++loadPersonasRequestRef.current
     setLoading(true)
     setError(null)
     try {
@@ -148,6 +161,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         fetchAdminPersonas(),
         fetchAdminPersonaAssignableCohorts(),
       ])
+      if (requestId !== loadPersonasRequestRef.current || requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setPersonas(nextPersonas)
       setCohorts(nextCohorts)
       const candidateId = preferredId
@@ -163,15 +177,23 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         setDraft(null)
       }
     } catch (caught) {
-      setError(errorMessage(caught, 'Coach Studio could not load.'))
+      if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) {
+        setError(errorMessage(caught, 'Coach Studio could not load.'))
+      }
     } finally {
-      setLoading(false)
+      if (requestId === loadPersonasRequestRef.current && requestedWorkspaceId === activeWorkspaceIdRef.current) setLoading(false)
     }
-  }, [loadPersona])
+  }, [activeWorkspaceId, loadPersona])
 
   useEffect(() => {
     queueMicrotask(() => void loadPersonas())
   }, [loadPersonas])
+
+  useEffect(() => {
+    // Mobile browsers can preserve a temporary horizontal focus offset after
+    // the native workspace picker closes and the narrower result view renders.
+    window.scrollTo(0, window.scrollY)
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     if (createOpen) window.requestAnimationFrame(() => createNameRef.current?.focus())
@@ -215,6 +237,29 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonaSourcesDirty(false)
     setStudioSection(next)
     return true
+  }
+
+  function chooseWorkspace(nextId: number | null) {
+    if (nextId === activeWorkspaceId || pendingAction || workspaceMutations.pending) return
+    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch workspaces?')) return
+
+    selectCoachWorkspace(nextId)
+    // Ignore an assistant detail response that began in the workspace we are leaving.
+    loadPersonaRequestRef.current += 1
+    loadPersonasRequestRef.current += 1
+    selectedIdRef.current = null
+    setPersonas([])
+    setCohorts([])
+    setSelectedPersona(null)
+    setDraft(null)
+    setPreview(null)
+    setDescription('')
+    setError(null)
+    setConflict(null)
+    setNotice(null)
+    setExperienceDirty(false)
+    setLibraryDirty(false)
+    setPersonaSourcesDirty(false)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -276,28 +321,42 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     window.requestAnimationFrame(() => libraryHeadingRef.current?.focus())
   }
 
+  function beginMutation(action: Exclude<PendingAction, null>): CoachWorkspaceMutationTicket {
+    const context = workspaceMutations.begin()
+    setPendingAction(action)
+    return context
+  }
+
+  const mutationIsCurrent = workspaceMutations.isCurrent
+
+  function finishMutation(context: CoachWorkspaceMutationTicket) {
+    if (mutationIsCurrent(context)) setPendingAction(null)
+    workspaceMutations.finish(context)
+  }
+
   async function handleCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!createName.trim() || pendingAction) return
-    setPendingAction('create')
+    const mutation = beginMutation('create')
     setError(null)
     try {
       const persona = await createAdminPersona({ name: createName.trim(), description: createDescription.trim() })
+      if (!mutationIsCurrent(mutation)) return
       setCreateOpen(false)
       setCreateName('')
       setCreateDescription('')
       setNotice(`${persona.name} is ready to shape.`)
       await loadPersonas(persona.id)
     } catch (caught) {
-      setError(errorMessage(caught, 'The assistant draft could not be created.'))
+      if (mutationIsCurrent(mutation)) setError(errorMessage(caught, 'The assistant draft could not be created.'))
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
   async function saveDraft() {
     if (!selectedPersona || !draft || !selectedPersona.permissions.edit || pendingAction) return null
-    setPendingAction('save')
+    const mutation = beginMutation('save')
     setError(null)
     setConflict(null)
     try {
@@ -306,6 +365,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         description,
         draft_config: draft,
       })
+      if (!mutationIsCurrent(mutation)) return null
       setSelectedPersona(persona)
       setDraft(persona.draft ?? draft)
       setDescription(persona.description)
@@ -314,29 +374,30 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setNotice('Draft saved. Run an exact preview before publishing.')
       return persona
     } catch (caught) {
-      handleMutationError(caught, 'The draft could not be saved.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The draft could not be saved.')
       return null
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
   async function handlePreview() {
     if (!selectedPersona || !draft || dirty || pendingAction) return
-    setPendingAction('preview')
+    const mutation = beginMutation('preview')
     setError(null)
     setConflict(null)
     try {
       const response = await previewAdminPersona(selectedPersona.id, selectedPersona.draft_revision ?? 0, samplePrompt.trim() || undefined)
+      if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
       setPreview(response.preview)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(response.preview.status === 'ready' ? 'Exact draft preview is ready for review.' : 'The exact draft was checked, but a behavioral sample is unavailable right now.')
     } catch (caught) {
-      handleMutationError(caught, 'The exact draft preview could not run.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The exact draft preview could not run.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -353,7 +414,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (selectedPersona.assignments.length > 0 && !window.confirm(
       `Publish this version now? Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`,
     )) return
-    setPendingAction('publish')
+    const mutation = beginMutation('publish')
     setError(null)
     setConflict(null)
     try {
@@ -362,16 +423,19 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         preview_digest: preview.digest,
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
       })
+      if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(`${response.persona.name} version ${response.published_version.number} is published.`)
-      await refreshCohorts()
+      await refreshCohorts(mutation)
     } catch (caught) {
-      setPreview(null)
-      handleMutationError(caught, 'The assistant could not be published.')
+      if (mutationIsCurrent(mutation)) {
+        setPreview(null)
+        handleMutationError(caught, 'The assistant could not be published.')
+      }
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -382,31 +446,33 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       return
     }
     if (!window.confirm(`Archive ${selectedPersona.name}? Its published history will remain available.`)) return
-    setPendingAction('archive')
+    const mutation = beginMutation('archive')
     setError(null)
     try {
       const persona = await archiveAdminPersona(selectedPersona.id)
+      if (!mutationIsCurrent(mutation)) return
       acceptPersona(persona)
       setNotice(`${persona.name} is archived.`)
     } catch (caught) {
-      handleMutationError(caught, 'The assistant could not be archived.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The assistant could not be archived.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
   async function handleRestore() {
     if (!selectedPersona || pendingAction) return
-    setPendingAction('restore')
+    const mutation = beginMutation('restore')
     setError(null)
     try {
       const persona = await restoreAdminPersona(selectedPersona.id)
+      if (!mutationIsCurrent(mutation)) return
       acceptPersona(persona)
       setNotice(`${persona.name} is restored as an editable draft.`)
     } catch (caught) {
-      handleMutationError(caught, 'The assistant could not be restored.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The assistant could not be restored.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -420,21 +486,22 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       ? ` Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`
       : ''
     if (!window.confirm(`Publish a new version using the content from version ${versionNumber}? Current history will stay intact.${assignmentImpact}`)) return
-    setPendingAction('rollback')
+    const mutation = beginMutation('rollback')
     setError(null)
     try {
       const response = await rollbackAdminPersonaVersion(selectedPersona.id, versionId, {
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
         draft_revision: selectedPersona.draft_revision ?? 0,
       })
+      if (!mutationIsCurrent(mutation)) return
       acceptPersona(response.persona)
       setPreview(null)
       setNotice(`Version ${response.published_version.number} is now published from version ${versionNumber}.`)
-      await refreshCohorts()
+      await refreshCohorts(mutation)
     } catch (caught) {
-      handleMutationError(caught, 'The version could not be restored.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The version could not be restored.')
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -444,7 +511,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setConflict('Save or discard your unsaved changes before changing cohort assignments.')
       return
     }
-    setPendingAction('assignment')
+    const mutation = beginMutation('assignment')
     setError(null)
     try {
       await updateAdminCohortPersonaAssignment(
@@ -452,13 +519,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         selectedPersona.id,
         cohort.persona_assignment?.persona.id ?? null,
       )
-      await Promise.all([refreshCohorts(), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
+      await Promise.all([refreshCohorts(mutation), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
       setNotice(`${selectedPersona.name} is assigned to ${cohort.name}.`)
     } catch (caught) {
-      handleMutationError(caught, 'The cohort assignment could not be changed.')
-      await refreshCohorts()
+      if (mutationIsCurrent(mutation)) {
+        handleMutationError(caught, 'The cohort assignment could not be changed.')
+        await refreshCohorts(mutation)
+      }
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
@@ -470,25 +541,31 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       return
     }
     if (!window.confirm(`Remove the coaching assistant from ${cohort.name}? Participants will receive the neutral product voice until another persona is assigned.`)) return
-    setPendingAction('assignment')
+    const mutation = beginMutation('assignment')
     setError(null)
     try {
       await deleteAdminCohortPersonaAssignment(cohort.id, assignedPersonaId)
-      await Promise.all([refreshCohorts(), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
+      await Promise.all([refreshCohorts(mutation), loadPersona(selectedPersona.id)])
+      if (!mutationIsCurrent(mutation)) return
       setNotice(`The coaching assistant was removed from ${cohort.name}.`)
     } catch (caught) {
-      handleMutationError(caught, 'The cohort assignment could not be removed.')
-      await refreshCohorts()
+      if (mutationIsCurrent(mutation)) {
+        handleMutationError(caught, 'The cohort assignment could not be removed.')
+        await refreshCohorts(mutation)
+      }
     } finally {
-      setPendingAction(null)
+      finishMutation(mutation)
     }
   }
 
-  async function refreshCohorts() {
+  async function refreshCohorts(mutation?: CoachWorkspaceMutationTicket) {
     try {
-      setCohorts(await fetchAdminPersonaAssignableCohorts())
+      const nextCohorts = await fetchAdminPersonaAssignableCohorts()
+      if (mutation && !mutationIsCurrent(mutation)) return
+      setCohorts(nextCohorts)
     } catch (caught) {
-      setError(errorMessage(caught, 'Cohort assignments could not be refreshed.'))
+      if (!mutation || mutationIsCurrent(mutation)) setError(errorMessage(caught, 'Cohort assignments could not be refreshed.'))
     }
   }
 
@@ -514,13 +591,29 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const assignmentCohorts = selectedPersona ? cohorts : []
 
   return (
-    <section className="screen-grid coach-studio-screen" aria-busy={loading || detailLoading || pendingAction !== null}>
+    <section className="screen-grid coach-studio-screen" aria-busy={loading || detailLoading || pendingAction !== null || workspaceMutations.pending}>
       <header className="screen-heading coach-studio-heading">
         <div>
           <p className="eyebrow">Coach Studio</p>
           <h2 data-page-heading tabIndex={-1}>Shape a coaching assistant people can trust.</h2>
         </div>
-        <p>Build the voice from the coach's own teaching, preview the exact draft, then publish and assign it to a cohort. Location provides context only; the system never invents an accent, slang, or cultural assumptions.</p>
+        <div className="coach-workspace-heading-tools">
+          <p>Build the voice from the coach's own teaching, preview the exact draft, then publish and assign it to a cohort. Location provides context only; the system never invents an accent, slang, or cultural assumptions.</p>
+          {workspaceOptions.length > 0 && (
+            <label className="coach-workspace-picker">
+              <span>Coach workspace</span>
+              <select disabled={pendingAction !== null || workspaceMutations.pending} value={activeWorkspaceId ?? 'platform'} onChange={(event) => chooseWorkspace(event.target.value === 'platform' ? null : Number(event.target.value))}>
+                {currentUser.is_admin && <option value="platform">All workspaces / Platform</option>}
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+                ))}
+              </select>
+              <small>{activeWorkspaceId === null
+                ? 'Platform administrator · all workspaces'
+                : `${workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · ${formatWorkspaceRole(workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role)}`}</small>
+            </label>
+          )}
+        </div>
       </header>
 
       <div className="coach-studio-trust-strip" role="note">
@@ -543,11 +636,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
       {studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
-          <CoachContentLibrary currentUser={currentUser} onDirtyChange={setLibraryDirty} />
+          <CoachContentLibrary key={activeWorkspaceId ?? 'legacy'} currentUser={currentUser} mutationLifecycle={workspaceMutations} onDirtyChange={setLibraryDirty} />
         </div>
       ) : studioSection === 'participant_tools' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
-          <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
+          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} mutationLifecycle={workspaceMutations} onDirtyChange={setExperienceDirty} />
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 
@@ -572,8 +665,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Assistant library</p>
               <h3 ref={libraryHeadingRef} tabIndex={-1}>{personas.length} coaching assistant{personas.length === 1 ? '' : 's'}</h3>
             </div>
-            <Button size="compact" onClick={() => setCreateOpen(true)}>Create</Button>
+            <Button size="compact" disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create</Button>
           </div>
+
+          {workspaceCreateDisabled && <p className="coach-content-note">Choose a coach workspace before creating an assistant. Platform mode can review all workspaces without assigning a hidden owner.</p>}
 
           {createOpen && (
             <form className="coach-create-form" onSubmit={handleCreate}>
@@ -637,7 +732,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               <p className="eyebrow">Start here</p>
               <h3>Create a safe draft, then shape it with the guided questions.</h3>
               <p>You can preview and publish only after the exact saved revision has passed the fixed system guardrails.</p>
-              <Button onClick={() => setCreateOpen(true)}>Create coaching assistant</Button>
+              <Button disabled={workspaceCreateDisabled} onClick={() => setCreateOpen(true)}>Create coaching assistant</Button>
             </article>
           ) : (
             <>
@@ -701,6 +796,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                   key={selectedPersona.id}
                   persona={selectedPersona}
                   dirty={dirty}
+                  mutationLifecycle={workspaceMutations}
                   onDirtyChange={setPersonaSourcesDirty}
                   onPersonaChange={(persona) => {
                     setPersonaSourcesDirty(false)
@@ -740,6 +836,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       </div>}
     </section>
   )
+}
+
+function formatWorkspaceRole(role: string | null | undefined) {
+  return (role ?? 'viewer').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
 function PersonaEditor({

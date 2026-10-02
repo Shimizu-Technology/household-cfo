@@ -14,6 +14,7 @@ import type {
   CohortExperiencePreview,
 } from '../api'
 import { Button } from './Button'
+import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
 
 const coreModules = [
   ['Home', 'See the household status and next action.'],
@@ -34,10 +35,12 @@ type PendingAction = 'load' | 'save' | 'preview' | 'publish' | 'rollback' | null
 export function CohortExperienceStudio({
   cohorts,
   cohortsLoading,
+  mutationLifecycle,
   onDirtyChange,
 }: {
   cohorts: AdminPersonaAssignableCohort[]
   cohortsLoading: boolean
+  mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
 }) {
   const [selectedCohortId, setSelectedCohortId] = useState<number | null>(cohorts[0]?.id ?? null)
@@ -129,35 +132,41 @@ export function CohortExperienceStudio({
 
   async function saveDraft() {
     if (!configuration || !draft || pendingAction) return
+    const ticket = mutationLifecycle.begin()
     setPendingAction('save')
     setError(null)
     try {
       const next = await updateCohortExperienceConfiguration(configuration.cohort.id, configuration.draft_revision, draft)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setConfiguration(next)
       setDraft(next.draft)
       setPreview(null)
       setNotice('Participant-tools draft saved. Preview this exact draft before publishing.')
     } catch (caught) {
-      setError(errorMessage(caught, 'The participant-tools draft could not be saved.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The participant-tools draft could not be saved.'))
     } finally {
-      setPendingAction(null)
+      if (mutationLifecycle.isCurrent(ticket)) setPendingAction(null)
+      mutationLifecycle.finish(ticket)
     }
   }
 
   async function runPreview() {
     if (!configuration || dirty || pendingAction) return
+    const ticket = mutationLifecycle.begin()
     setPendingAction('preview')
     setError(null)
     try {
       const response = await previewCohortExperienceConfiguration(configuration.cohort.id, configuration.draft_revision)
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setConfiguration(response.experience_configuration)
       setDraft(response.experience_configuration.draft)
       setPreview(response.preview)
       setNotice('Exact participant navigation preview is ready.')
     } catch (caught) {
-      setError(errorMessage(caught, 'The participant-tools preview could not run.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'The participant-tools preview could not run.'))
     } finally {
-      setPendingAction(null)
+      if (mutationLifecycle.isCurrent(ticket)) setPendingAction(null)
+      mutationLifecycle.finish(ticket)
     }
   }
 
@@ -167,6 +176,7 @@ export function CohortExperienceStudio({
     if (configuration.cohort.status === 'active' && !window.confirm(
       `Publish these participant tools now? ${impact} participant${impact === 1 ? '' : 's'} in ${configuration.cohort.name} will see the new navigation after refresh.`,
     )) return
+    const ticket = mutationLifecycle.begin()
     setPendingAction('publish')
     setError(null)
     try {
@@ -175,21 +185,26 @@ export function CohortExperienceStudio({
         preview_digest: preview.digest,
         expected_published_version_id: configuration.published_version?.id ?? null,
       })
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setConfiguration(response.experience_configuration)
       setDraft(response.experience_configuration.draft)
       setPreview(null)
       setNotice(`Participant tools version ${response.published_version.number} is published.`)
     } catch (caught) {
-      setPreview(null)
-      setError(errorMessage(caught, 'The participant-tools draft could not be published.'))
+      if (mutationLifecycle.isCurrent(ticket)) {
+        setPreview(null)
+        setError(errorMessage(caught, 'The participant-tools draft could not be published.'))
+      }
     } finally {
-      setPendingAction(null)
+      if (mutationLifecycle.isCurrent(ticket)) setPendingAction(null)
+      mutationLifecycle.finish(ticket)
     }
   }
 
   async function rollback(versionId: number, versionNumber: number) {
     if (!configuration || dirty || pendingAction) return
     if (!window.confirm(`Restore version ${versionNumber} as a new published version?`)) return
+    const ticket = mutationLifecycle.begin()
     setPendingAction('rollback')
     setError(null)
     try {
@@ -197,14 +212,16 @@ export function CohortExperienceStudio({
         draft_revision: configuration.draft_revision,
         expected_published_version_id: configuration.published_version?.id ?? null,
       })
+      if (!mutationLifecycle.isCurrent(ticket)) return
       setConfiguration(response.experience_configuration)
       setDraft(response.experience_configuration.draft)
       setPreview(null)
       setNotice(`Version ${versionNumber} was restored as version ${response.published_version.number}.`)
     } catch (caught) {
-      setError(errorMessage(caught, 'That participant-tools version could not be restored.'))
+      if (mutationLifecycle.isCurrent(ticket)) setError(errorMessage(caught, 'That participant-tools version could not be restored.'))
     } finally {
-      setPendingAction(null)
+      if (mutationLifecycle.isCurrent(ticket)) setPendingAction(null)
+      mutationLifecycle.finish(ticket)
     }
   }
 

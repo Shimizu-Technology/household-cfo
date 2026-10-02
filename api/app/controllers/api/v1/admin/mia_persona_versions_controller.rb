@@ -22,7 +22,7 @@ module Api
         end
 
         def rollback
-          persona = policy.editable_personas.find(params[:persona_id])
+          persona = policy.publishable_personas.find(params[:persona_id])
           version = persona.versions.find(params[:id])
           restored = Mia::PersonaRollback.new(persona: persona, target_version: version, actor: current_user).call(
             expected_current_version_id: rollback_params[:expected_published_version_id],
@@ -39,7 +39,7 @@ module Api
         private
 
         def policy
-          @policy ||= Mia::PersonaStudioPolicy.new(current_user)
+          @policy ||= Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer(persona)

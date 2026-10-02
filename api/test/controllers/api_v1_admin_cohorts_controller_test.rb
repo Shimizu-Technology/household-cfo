@@ -23,7 +23,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
              notes: "First local test group"
            }
          },
-         headers: auth_headers(admin),
+         headers: workspace_auth_headers(admin),
          as: :json
 
     assert_response :created
@@ -254,7 +254,7 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
 
     post "/api/v1/admin/cohorts",
          params: { cohort: { name: "duplicate pilot", status: "draft" } },
-         headers: auth_headers(admin),
+         headers: workspace_auth_headers(admin),
          as: :json
 
     assert_response :unprocessable_entity
@@ -352,5 +352,9 @@ class ApiV1AdminCohortsControllerTest < ActionDispatch::IntegrationTest
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def workspace_auth_headers(user)
+    auth_headers(user).merge("X-Coach-Workspace-Id" => CoachWorkspaces::Resolver.new(user: user).call.id.to_s)
   end
 end

@@ -13,7 +13,13 @@ module Api
         end
 
         def create
-          item = CoachContentItem.create!(item_params.merge(created_by_user: current_user))
+          attributes = item_params
+          return require_selected_coach_workspace! if attributes[:scope] != "platform" && coach_workspace_for_policy.nil?
+
+          item = CoachContentItem.create!(attributes.merge(
+            created_by_user: current_user,
+            coach_workspace: attributes[:scope] == "platform" ? nil : current_coach_workspace
+          ))
           render json: { item: serializer.item(item) }, status: :created
         rescue ActiveRecord::RecordInvalid => error
           invalid(error.record)
@@ -31,7 +37,7 @@ module Api
         end
 
         def approve
-          item = policy.editable_items.find(params[:id])
+          item = policy.reviewable_items.find(params[:id])
           version = item.approve!(
             actor: current_user,
             expected_draft_revision: params.dig(:item, :draft_revision),
@@ -57,7 +63,7 @@ module Api
         private
 
         def policy
-          @policy ||= Mia::ContentLibraryPolicy.new(current_user)
+          @policy ||= Mia::ContentLibraryPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer

@@ -57,7 +57,7 @@ class CoachContentSourceCandidate < ApplicationRecord
       with_lock do
         verify_cas!(expected_revision, expected_digest)
         raise ArgumentError, "Only proposed candidates can be edited" unless status == "proposed"
-        raise ArgumentError, "Not authorized for this candidate" unless manageable_by?(actor)
+        raise ArgumentError, "Not authorized for this candidate" unless editable_by?(actor)
         raise ArgumentError, "This source generation is no longer current" unless current_generation_locked?(source)
 
         assign_attributes(attributes.slice(:title, :kind, :content, :topics))
@@ -86,7 +86,7 @@ class CoachContentSourceCandidate < ApplicationRecord
     source.with_lock do
       with_lock do
         verify_cas!(expected_revision, expected_digest)
-        raise ArgumentError, "Not authorized for this candidate" unless manageable_by?(actor)
+        raise ArgumentError, "Not authorized for this candidate" unless reviewable_by?(actor)
         return accepted_content_item if status == "accepted" && accepted_content_item.present?
         raise ArgumentError, "Only proposed candidates can be accepted" unless status == "proposed"
         raise ArgumentError, "This source generation is no longer current" unless current_generation_locked?(source)
@@ -106,7 +106,9 @@ class CoachContentSourceCandidate < ApplicationRecord
             kind: kind,
             draft_content: content,
             draft_always_on: false,
-            created_by_user: source.created_by_user
+            created_by_user: source.created_by_user,
+            coach_workspace: source.coach_workspace,
+            creation_authorized_by_user: actor
           )
           accepted_at = Time.current
           update!(
@@ -130,7 +132,7 @@ class CoachContentSourceCandidate < ApplicationRecord
     source.with_lock do
       with_lock do
         verify_cas!(expected_revision, expected_digest)
-        raise ArgumentError, "Not authorized for this candidate" unless manageable_by?(actor)
+        raise ArgumentError, "Not authorized for this candidate" unless reviewable_by?(actor)
         return self if status == "rejected"
         raise ArgumentError, "Only proposed candidates can be rejected" unless status == "proposed"
         raise ArgumentError, "This source generation is no longer current" unless current_generation_locked?(source)
@@ -143,8 +145,12 @@ class CoachContentSourceCandidate < ApplicationRecord
 
   private
 
-  def manageable_by?(actor)
-    actor&.admin? || (coach_content_source.scope == "coach" && coach_content_source.created_by_user_id == actor&.id)
+  def editable_by?(actor)
+    actor&.admin? || (coach_content_source.scope == "coach" && coach_content_source.coach_workspace&.allows?(actor, :edit))
+  end
+
+  def reviewable_by?(actor)
+    actor&.admin? || (coach_content_source.scope == "coach" && coach_content_source.coach_workspace&.allows?(actor, :review))
   end
 
   def verify_cas!(expected_revision, expected_digest)

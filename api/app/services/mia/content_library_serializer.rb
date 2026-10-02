@@ -11,21 +11,24 @@ module Mia
     def item(item)
       preload_item(item)
       editable = editable_item_ids.include?(item.id)
+      approvable = reviewable_item_ids.include?(item.id)
+      draft_visible = editable || approvable
       display_version = item.current_approved_version
       {
         id: item.id,
-        title: editable ? item.title : display_version&.title,
+        title: draft_visible ? item.title : display_version&.title,
         scope: item.scope,
-        kind: editable ? item.kind : display_version&.kind,
-        always_on: editable ? item.draft_always_on : display_version&.always_on,
-        draft_content: editable ? item.draft_content : nil,
-        draft_revision: editable ? item.draft_revision : nil,
-        draft_digest: editable ? item.draft_digest : nil,
+        kind: draft_visible ? item.kind : display_version&.kind,
+        always_on: draft_visible ? item.draft_always_on : display_version&.always_on,
+        draft_content: draft_visible ? item.draft_content : nil,
+        draft_revision: draft_visible ? item.draft_revision : nil,
+        draft_digest: draft_visible ? item.draft_digest : nil,
         archived: item.archived?,
         editable: editable && !item.archived?,
+        approvable: approvable && !item.archived?,
         current_approved_version: display_version && item_version(display_version),
         versions: associated_records(item, :versions).sort_by { |version| -version.version_number }.map { |version| item_version(version) },
-        has_unapproved_changes: editable && (display_version.nil? || display_version.content_digest != item.draft_digest),
+        has_unapproved_changes: draft_visible && (display_version.nil? || display_version.content_digest != item.draft_digest),
         updated_at: item.updated_at
       }
     end
@@ -47,21 +50,24 @@ module Mia
     def pack(pack)
       preload_pack(pack)
       editable = editable_pack_ids.include?(pack.id)
+      publishable = publishable_pack_ids.include?(pack.id)
+      draft_visible = editable || publishable
       display_version = pack.current_published_version
-      draft_entries = editable ? sorted_entries(pack, :draft_entries) : []
-      draft_digest = editable ? CoachContentPackVersion.draft_manifest_digest_for(pack, draft_entries) : nil
-      unpublished_changes = editable && unpublished_changes?(display_version, draft_digest)
-      item_updates = editable && item_updates_available?(draft_entries)
+      draft_entries = draft_visible ? sorted_entries(pack, :draft_entries) : []
+      draft_digest = draft_visible ? CoachContentPackVersion.draft_manifest_digest_for(pack, draft_entries) : nil
+      unpublished_changes = draft_visible && unpublished_changes?(display_version, draft_digest)
+      item_updates = draft_visible && item_updates_available?(draft_entries)
       {
         id: pack.id,
-        name: editable ? pack.name : display_version&.name,
-        description: editable ? pack.description.to_s : display_version&.description.to_s,
+        name: draft_visible ? pack.name : display_version&.name,
+        description: draft_visible ? pack.description.to_s : display_version&.description.to_s,
         scope: pack.scope,
-        pack_kind: editable ? pack.pack_kind : display_version&.pack_kind,
-        draft_revision: editable ? pack.draft_revision : nil,
+        pack_kind: draft_visible ? pack.pack_kind : display_version&.pack_kind,
+        draft_revision: draft_visible ? pack.draft_revision : nil,
         draft_manifest_digest: draft_digest,
         archived: pack.archived?,
         editable: editable && !pack.archived?,
+        publishable: publishable && !pack.archived?,
         draft_items: draft_entries.map { |entry| item_version(entry.coach_content_item_version) },
         current_published_version: display_version && pack_version(display_version),
         versions: associated_records(pack, :versions).sort_by { |version| -version.version_number }.map { |version| pack_version(version) },
@@ -120,8 +126,16 @@ module Mia
       @editable_item_ids ||= policy.editable_items.pluck(:id).to_set
     end
 
+    def reviewable_item_ids
+      @reviewable_item_ids ||= policy.reviewable_items.pluck(:id).to_set
+    end
+
     def editable_pack_ids
       @editable_pack_ids ||= policy.editable_packs.pluck(:id).to_set
+    end
+
+    def publishable_pack_ids
+      @publishable_pack_ids ||= policy.publishable_packs.pluck(:id).to_set
     end
 
     def associated_records(record, association_name)

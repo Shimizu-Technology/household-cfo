@@ -225,6 +225,274 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     assert_equal "accepted", response.parsed_body.dig("candidate", "status")
   end
 
+  test "workspace reviewer can inspect and download sources then accept or reject candidates without editor actions" do
+    owner = persona_user
+    reviewer = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: owner).call
+    workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    accepted_source, accepted_candidate = reviewable_candidate(owner: owner)
+    rejected_source, rejected_candidate = reviewable_candidate(owner: owner)
+    headers = workspace_auth_headers(reviewer, workspace)
+
+    get "/api/v1/admin/content_sources", headers: headers
+    assert_response :success
+    listed_source = response.parsed_body.fetch("sources").find { |source| source.fetch("id") == accepted_source.id }
+    assert listed_source
+    assert_equal({
+      "edit_candidates" => false, "review_candidates" => true, "download" => true,
+      "reprocess" => false, "delete" => false
+    }, listed_source.fetch("permissions"))
+    assert_equal false, response.parsed_body.dig("permissions", "upload_coach")
+
+    get "/api/v1/admin/content_sources/#{accepted_source.id}", headers: headers
+    assert_response :success
+    assert_equal accepted_candidate.id, response.parsed_body.dig("source", "candidates", 0, "id")
+
+    with_singleton_method(S3Service, :presigned_url, ->(*) { "https://private.example/reviewer-download" }) do
+      get "/api/v1/admin/content_sources/#{accepted_source.id}/source_url", headers: headers
+    end
+    assert_response :success
+    assert_equal "https://private.example/reviewer-download", response.parsed_body.fetch("url")
+
+    post "/api/v1/admin/content_sources/#{accepted_source.id}/reprocess", headers: headers, as: :json
+    assert_response :not_found
+    delete "/api/v1/admin/content_sources/#{accepted_source.id}/source", headers: headers
+    assert_response :not_found
+
+    owner.update_columns(role: "participant")
+
+    post "/api/v1/admin/content_sources/#{accepted_source.id}/candidates/#{accepted_candidate.id}/accept", params: {
+      candidate: { revision: accepted_candidate.revision, digest: accepted_candidate.content_digest }
+    }, headers: headers, as: :json
+    assert_response :success
+    assert_equal "accepted", accepted_candidate.reload.status
+    assert_equal owner, accepted_candidate.accepted_content_item.created_by_user
+
+    post "/api/v1/admin/content_sources/#{rejected_source.id}/candidates/#{rejected_candidate.id}/reject", params: {
+      candidate: { revision: rejected_candidate.revision, digest: rejected_candidate.content_digest }
+    }, headers: headers, as: :json
+    assert_response :success
+    assert_equal "rejected", rejected_candidate.reload.status
+
+    post "/api/v1/admin/content_sources/presign", params: {
+      filename: "reviewer.txt", content_type: "text/plain", byte_size: 5,
+      checksum_sha256: Digest::SHA256.hexdigest("guide"), upload_request_id: SecureRandom.uuid, scope: "coach"
+    }, headers: headers, as: :json
+    assert_response :forbidden
+  end
+
+  test "workspace editor can open and edit source candidates without review actions" do
+    owner = persona_user
+    editor = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: owner).call
+    workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    source, candidate = reviewable_candidate(owner: owner)
+    headers = workspace_auth_headers(editor, workspace)
+
+    get "/api/v1/admin/content_sources", headers: headers
+    assert_response :success
+    listed_source = response.parsed_body.fetch("sources").find { |entry| entry.fetch("id") == source.id }
+    assert_equal true, response.parsed_body.dig("permissions", "upload_coach")
+    assert_equal({
+      "edit_candidates" => true, "review_candidates" => false, "download" => true,
+      "reprocess" => true, "delete" => true
+    }, listed_source.fetch("permissions"))
+
+    get "/api/v1/admin/content_sources/#{source.id}", headers: headers
+    assert_response :success
+
+    patch "/api/v1/admin/content_sources/#{source.id}/candidates/#{candidate.id}", params: {
+      candidate: {
+        title: "Editor revised title", kind: candidate.kind, content: candidate.content,
+        topics: candidate.topics, revision: candidate.revision, digest: candidate.content_digest
+      }
+    }, headers: headers, as: :json
+    assert_response :success
+    assert_equal "Editor revised title", candidate.reload.title
+
+    post "/api/v1/admin/content_sources/#{source.id}/candidates/#{candidate.id}/accept", params: {
+      candidate: { revision: candidate.revision, digest: candidate.content_digest }
+    }, headers: headers, as: :json
+    assert_response :not_found
+  end
+
+  test "workspace viewer cannot list, inspect, or upload private sources" do
+    owner = persona_user
+    viewer = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: owner).call
+    workspace.coach_workspace_memberships.create!(user: viewer, role: "viewer")
+    source = content_source(owner: owner)
+    headers = workspace_auth_headers(viewer, workspace)
+
+    get "/api/v1/admin/content_sources", headers: headers
+    assert_response :success
+    assert_empty response.parsed_body.fetch("sources")
+    assert_equal false, response.parsed_body.dig("permissions", "upload_coach")
+
+    get "/api/v1/admin/content_sources/#{source.id}", headers: headers
+    assert_response :not_found
+
+    post "/api/v1/admin/content_sources/presign", params: {
+      filename: "viewer.txt", content_type: "text/plain", byte_size: 5,
+      checksum_sha256: Digest::SHA256.hexdigest("guide"), upload_request_id: SecureRandom.uuid, scope: "coach"
+    }, headers: headers, as: :json
+    assert_response :forbidden
+  end
+
+  test "platform upload token survives a workspace switch while a coach upload token does not" do
+    admin = persona_user(role: "admin")
+    first_owner = persona_user
+    second_owner = persona_user
+    first_workspace = CoachWorkspaces::Resolver.new(user: first_owner).call
+    second_workspace = CoachWorkspaces::Resolver.new(user: second_owner).call
+    content = "guide"
+    checksum = Digest::SHA256.hexdigest(content)
+
+    platform_token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "platform-guide.txt", content_type: "text/plain", byte_size: content.bytesize,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "platform"
+      }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+      platform_token = response.parsed_body.fetch("upload_token")
+    end
+    assert_response :success
+    platform_metadata = Rails.application.message_verifier(:coach_content_source_direct_upload).verify(platform_token).deep_symbolize_keys
+    assert_nil platform_metadata[:coach_workspace_id]
+
+    object_metadata = {
+      byte_size: content.bytesize, content_type: "text/plain",
+      checksum_sha256: Base64.strict_encode64([ checksum ].pack("H*")), etag: "etag", server_side_encryption: "AES256"
+    }
+    with_upload_stubs(object_metadata, content) do
+      post "/api/v1/admin/content_sources/complete", params: { upload_token: platform_token },
+        headers: workspace_auth_headers(admin, second_workspace), as: :json
+    end
+    assert_response :created
+    assert_equal "platform", response.parsed_body.dig("source", "scope")
+
+    coach_token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "coach-guide.txt", content_type: "text/plain", byte_size: content.bytesize,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "coach"
+      }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+      coach_token = response.parsed_body.fetch("upload_token")
+    end
+    assert_response :success
+    coach_metadata = Rails.application.message_verifier(:coach_content_source_direct_upload).verify(coach_token).deep_symbolize_keys
+    assert_equal first_workspace.id, coach_metadata.fetch(:coach_workspace_id)
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      post "/api/v1/admin/content_sources/complete", params: { upload_token: coach_token },
+        headers: auth_headers(admin), as: :json
+    end
+    assert_response :forbidden
+    assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      post "/api/v1/admin/content_sources/complete", params: { upload_token: coach_token },
+        headers: workspace_auth_headers(admin, second_workspace), as: :json
+    end
+    assert_response :forbidden
+    assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
+  end
+
+  test "coach upload completion fails closed and cleans the intent after upload permission is removed" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    membership = workspace.coach_workspace_memberships.find_by!(user: coach)
+    headers = workspace_auth_headers(coach, workspace)
+    checksum = Digest::SHA256.hexdigest("guide")
+
+    token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "coach-guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "coach"
+      }, headers: headers, as: :json
+      token = response.parsed_body.fetch("upload_token")
+    end
+    assert_response :success
+    intent = CoachContentSource.find(
+      Rails.application.message_verifier(:coach_content_source_direct_upload).verify(token).deep_symbolize_keys.fetch(:source_id)
+    )
+    membership.update!(role: "viewer")
+    clear_enqueued_jobs
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ intent.id ]) do
+        post "/api/v1/admin/content_sources/complete", params: { upload_token: token }, headers: headers, as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
+    assert_equal "upload_cleanup", intent.reload.status
+    assert_no_enqueued_jobs only: CoachContentSourceProcessingJob
+  end
+
+  test "coach upload completion cleans its bound intent after workspace membership is removed" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    headers = workspace_auth_headers(coach, workspace)
+    checksum = Digest::SHA256.hexdigest("guide")
+
+    token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "coach-guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "coach"
+      }, headers: headers, as: :json
+      token = response.parsed_body.fetch("upload_token")
+    end
+    intent = CoachContentSource.find(
+      Rails.application.message_verifier(:coach_content_source_direct_upload).verify(token).deep_symbolize_keys.fetch(:source_id)
+    )
+    workspace.coach_workspace_memberships.find_by!(user: coach).destroy!
+    clear_enqueued_jobs
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ intent.id ]) do
+        post "/api/v1/admin/content_sources/complete", params: { upload_token: token }, headers: headers, as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "upload_cleanup", intent.reload.status
+  end
+
+  test "platform upload completion fails closed and cleans the intent after an admin is demoted" do
+    admin = persona_user(role: "admin")
+    checksum = Digest::SHA256.hexdigest("guide")
+
+    token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "platform-guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "platform"
+      }, headers: auth_headers(admin), as: :json
+      token = response.parsed_body.fetch("upload_token")
+    end
+    assert_response :success
+    intent = CoachContentSource.find(
+      Rails.application.message_verifier(:coach_content_source_direct_upload).verify(token).deep_symbolize_keys.fetch(:source_id)
+    )
+    admin.update!(role: "coach")
+    clear_enqueued_jobs
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ intent.id ]) do
+        post "/api/v1/admin/content_sources/complete", params: { upload_token: token }, headers: auth_headers(admin), as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
+    assert_equal "upload_cleanup", intent.reload.status
+    assert_no_enqueued_jobs only: CoachContentSourceProcessingJob
+  end
+
   test "candidate edit safety failures return the persisted candidate for correction" do
     coach = persona_user
     source, candidate = reviewable_candidate(owner: coach)
@@ -524,5 +792,9 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def workspace_auth_headers(user, workspace)
+    auth_headers(user).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
   end
 end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -250,6 +250,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
 
   create_table "coach_content_items", force: :cascade do |t|
     t.datetime "archived_at"
+    t.bigint "coach_workspace_id"
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
     t.bigint "current_approved_version_id"
@@ -261,13 +262,16 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.string "scope", default: "coach", null: false
     t.string "title", null: false
     t.datetime "updated_at", null: false
-    t.index "created_by_user_id, scope, lower((title)::text)", name: "idx_coach_content_items_owner_scope_title", unique: true
+    t.index "coach_workspace_id, lower((title)::text)", name: "idx_coach_content_items_workspace_title", unique: true, where: "((scope)::text = 'coach'::text)"
+    t.index "created_by_user_id, lower((title)::text)", name: "idx_platform_content_items_owner_title", unique: true, where: "((scope)::text = 'platform'::text)"
+    t.index ["coach_workspace_id"], name: "index_coach_content_items_on_coach_workspace_id"
     t.index ["created_by_user_id"], name: "index_coach_content_items_on_created_by_user_id"
     t.index ["current_approved_version_id"], name: "idx_content_items_current_version"
     t.check_constraint "draft_revision > 0", name: "coach_content_items_revision_positive"
-    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying, 'script'::character varying, 'example'::character varying, 'phrase'::character varying, 'culture'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_items_kind_valid"
+    t.check_constraint "kind::text = ANY (ARRAY['guidance'::character varying::text, 'script'::character varying::text, 'example'::character varying::text, 'phrase'::character varying::text, 'culture'::character varying::text, 'finance_reference'::character varying::text])", name: "coach_content_items_kind_valid"
     t.check_constraint "octet_length(draft_content) <= 12000", name: "coach_content_items_content_bytes"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_items_scope_valid"
+    t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_items_workspace_matches_scope"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_items_scope_valid"
   end
 
   create_table "coach_content_pack_draft_entries", force: :cascade do |t|
@@ -317,6 +321,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
 
   create_table "coach_content_packs", force: :cascade do |t|
     t.datetime "archived_at"
+    t.bigint "coach_workspace_id"
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
     t.bigint "current_published_version_id"
@@ -327,12 +332,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.string "pack_kind", null: false
     t.string "scope", default: "coach", null: false
     t.datetime "updated_at", null: false
-    t.index "created_by_user_id, scope, lower((name)::text)", name: "idx_coach_content_packs_owner_scope_name", unique: true
+    t.index "coach_workspace_id, lower((name)::text)", name: "idx_coach_content_packs_workspace_name", unique: true, where: "((scope)::text = 'coach'::text)"
+    t.index "created_by_user_id, lower((name)::text)", name: "idx_platform_content_packs_owner_name", unique: true, where: "((scope)::text = 'platform'::text)"
+    t.index ["coach_workspace_id"], name: "index_coach_content_packs_on_coach_workspace_id"
     t.index ["created_by_user_id"], name: "index_coach_content_packs_on_created_by_user_id"
     t.index ["current_published_version_id"], name: "idx_content_packs_current_version"
     t.check_constraint "draft_revision > 0", name: "coach_content_packs_revision_positive"
-    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying, 'coaching_method'::character varying, 'finance_reference'::character varying]::text[])", name: "coach_content_packs_kind_valid"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_packs_scope_valid"
+    t.check_constraint "pack_kind::text = ANY (ARRAY['voice_culture'::character varying::text, 'coaching_method'::character varying::text, 'finance_reference'::character varying::text])", name: "coach_content_packs_kind_valid"
+    t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_packs_workspace_matches_scope"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_packs_scope_valid"
   end
 
   create_table "coach_content_source_attempts", force: :cascade do |t|
@@ -396,6 +404,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
   create_table "coach_content_sources", force: :cascade do |t|
     t.bigint "byte_size", null: false
     t.string "checksum_sha256", null: false
+    t.bigint "coach_workspace_id"
     t.string "content_type", null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
@@ -416,7 +425,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.string "status", default: "uploading", null: false
     t.datetime "updated_at", null: false
     t.string "upload_request_id", null: false
-    t.index ["created_by_user_id", "upload_request_id"], name: "idx_content_sources_owner_upload_request", unique: true
+    t.index ["coach_workspace_id", "upload_request_id"], name: "idx_coach_content_sources_workspace_request", unique: true, where: "((scope)::text = 'coach'::text)"
+    t.index ["coach_workspace_id"], name: "index_coach_content_sources_on_coach_workspace_id"
+    t.index ["created_by_user_id", "upload_request_id"], name: "idx_platform_content_sources_owner_request", unique: true, where: "((scope)::text = 'platform'::text)"
     t.index ["created_by_user_id"], name: "index_coach_content_sources_on_created_by_user_id"
     t.index ["current_attempt_id"], name: "index_coach_content_sources_on_current_attempt_id"
     t.index ["s3_key"], name: "index_coach_content_sources_on_s3_key", unique: true, where: "(s3_key IS NOT NULL)"
@@ -424,8 +435,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.check_constraint "byte_size > 0", name: "coach_content_sources_byte_size_positive"
     t.check_constraint "checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_sources_checksum_sha256"
     t.check_constraint "generation >= 0", name: "coach_content_sources_generation_nonnegative"
-    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying, 'platform'::character varying]::text[])", name: "coach_content_sources_scope_valid"
-    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying, 'verifying'::character varying, 'upload_cleanup'::character varying, 'queued'::character varying, 'processing'::character varying, 'needs_review'::character varying, 'failed'::character varying, 'deletion_pending'::character varying, 'deletion_failed'::character varying, 'source_deleted'::character varying, 'upload_cleanup_failed'::character varying]::text[])", name: "coach_content_sources_status_valid"
+    t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_sources_workspace_matches_scope"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_sources_scope_valid"
+    t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying::text, 'verifying'::character varying::text, 'upload_cleanup'::character varying::text, 'queued'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'failed'::character varying::text, 'deletion_pending'::character varying::text, 'deletion_failed'::character varying::text, 'source_deleted'::character varying::text, 'upload_cleanup_failed'::character varying::text])", name: "coach_content_sources_status_valid"
   end
 
   create_table "coach_persona_draft_content_packs", force: :cascade do |t|
@@ -480,6 +492,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.integer "version_number", null: false
     t.index ["coach_persona_id", "version_number"], name: "index_coach_persona_versions_on_persona_and_number", unique: true
     t.index ["coach_persona_id"], name: "index_coach_persona_versions_on_coach_persona_id"
+    t.index ["id", "coach_persona_id"], name: "idx_persona_versions_id_persona", unique: true
     t.index ["published_by_user_id"], name: "index_coach_persona_versions_on_published_by_user_id"
     t.index ["source_version_id"], name: "index_coach_persona_versions_on_source_version_id"
     t.check_constraint "NOT (config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_persona_versions_response_invariants_true"
@@ -492,6 +505,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
 
   create_table "coach_personas", force: :cascade do |t|
     t.datetime "archived_at"
+    t.bigint "coach_workspace_id", null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
     t.bigint "current_published_version_id"
@@ -504,10 +518,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.datetime "previewed_at"
     t.integer "previewed_draft_revision"
     t.datetime "updated_at", null: false
-    t.index "created_by_user_id, lower((name)::text)", name: "index_coach_personas_on_creator_and_lower_name", unique: true
+    t.index "coach_workspace_id, lower((name)::text)", name: "index_coach_personas_on_workspace_and_lower_name", unique: true
     t.index ["archived_at"], name: "index_coach_personas_on_archived_at"
+    t.index ["coach_workspace_id"], name: "index_coach_personas_on_coach_workspace_id"
     t.index ["created_by_user_id"], name: "index_coach_personas_on_created_by_user_id"
     t.index ["current_published_version_id"], name: "index_coach_personas_on_current_published_version_id"
+    t.index ["id", "coach_workspace_id"], name: "idx_personas_id_workspace", unique: true
     t.check_constraint "NOT (draft_config #> '{response_shape,validate_before_coaching}'::text[]) IS DISTINCT FROM 'true'::jsonb AND NOT (draft_config #> '{response_shape,next_move_required}'::text[]) IS DISTINCT FROM 'true'::jsonb", name: "coach_personas_response_invariants_true"
     t.check_constraint "draft_revision > 0", name: "coach_personas_positive_draft_revision"
     t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "coach_personas_draft_config_object"
@@ -517,6 +533,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
   end
 
   create_table "cohort_experience_configurations", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
     t.bigint "cohort_id", null: false
     t.datetime "created_at", null: false
     t.bigint "current_published_version_id"
@@ -528,6 +545,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.datetime "previewed_at"
     t.integer "previewed_draft_revision"
     t.datetime "updated_at", null: false
+    t.index ["coach_workspace_id"], name: "index_cohort_experience_configurations_on_coach_workspace_id"
     t.index ["cohort_id"], name: "index_cohort_experience_configurations_on_cohort_id", unique: true
     t.index ["current_published_version_id"], name: "idx_on_current_published_version_id_c3dd196ade"
     t.index ["last_edited_by_user_id"], name: "idx_on_last_edited_by_user_id_f58c8a3820"
@@ -588,16 +606,56 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.bigint "assigned_by_user_id", null: false
     t.bigint "coach_persona_id", null: false
     t.bigint "coach_persona_version_id", null: false
+    t.bigint "coach_workspace_id", null: false
     t.bigint "cohort_id", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["assigned_by_user_id"], name: "index_cohort_persona_assignments_on_assigned_by_user_id"
     t.index ["coach_persona_id"], name: "index_cohort_persona_assignments_on_coach_persona_id"
     t.index ["coach_persona_version_id"], name: "index_cohort_persona_assignments_on_coach_persona_version_id"
+    t.index ["coach_workspace_id"], name: "index_cohort_persona_assignments_on_coach_workspace_id"
     t.index ["cohort_id"], name: "index_cohort_persona_assignments_on_cohort_id", unique: true
   end
 
+  create_table "coach_profiles", force: :cascade do |t|
+    t.text "bio"
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.string "display_name", null: false
+    t.bigint "last_edited_by_user_id"
+    t.string "title", default: "Financial coach", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_workspace_id"], name: "index_coach_profiles_on_coach_workspace_id", unique: true
+    t.index ["last_edited_by_user_id"], name: "index_coach_profiles_on_last_edited_by_user_id"
+    t.check_constraint "bio IS NULL OR char_length(bio) <= 2000", name: "coach_profiles_bio_length"
+    t.check_constraint "char_length(display_name::text) >= 1 AND char_length(display_name::text) <= 120", name: "coach_profiles_display_name_length"
+    t.check_constraint "char_length(title::text) >= 1 AND char_length(title::text) <= 160", name: "coach_profiles_title_length"
+  end
+  create_table "coach_workspace_memberships", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
+    t.boolean "cohort_managed", default: false, null: false
+    t.datetime "created_at", null: false
+    t.string "role", default: "viewer", null: false
+    t.datetime "updated_at", null: false
+    t.bigint "user_id", null: false
+    t.index ["coach_workspace_id", "user_id"], name: "index_coach_workspace_memberships_unique_user", unique: true
+    t.index ["coach_workspace_id"], name: "index_coach_workspace_memberships_on_coach_workspace_id"
+    t.index ["user_id"], name: "index_coach_workspace_memberships_on_user_id"
+    t.check_constraint "role::text = ANY (ARRAY['owner'::character varying::text, 'editor'::character varying::text, 'reviewer'::character varying::text, 'viewer'::character varying::text])", name: "coach_workspace_memberships_role_valid"
+  end
+  create_table "coach_workspaces", force: :cascade do |t|
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "name", null: false
+    t.string "slug", null: false
+    t.datetime "updated_at", null: false
+    t.index "lower((slug)::text)", name: "index_coach_workspaces_on_lower_slug", unique: true
+    t.index ["created_by_user_id"], name: "index_coach_workspaces_on_created_by_user_id"
+  end
+
   create_table "cohorts", force: :cascade do |t|
+    t.bigint "coach_workspace_id", null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
     t.date "ends_on"
@@ -606,10 +664,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
     t.date "starts_on"
     t.string "status", default: "draft", null: false
     t.datetime "updated_at", null: false
-    t.index "lower((name)::text)", name: "index_cohorts_on_lower_name", unique: true
+    t.index "coach_workspace_id, lower((name)::text)", name: "index_cohorts_on_workspace_and_lower_name", unique: true
+    t.index ["coach_workspace_id"], name: "index_cohorts_on_coach_workspace_id"
     t.index ["created_by_user_id"], name: "index_cohorts_on_created_by_user_id"
+    t.index ["id", "coach_workspace_id"], name: "idx_cohorts_id_workspace", unique: true
     t.index ["status"], name: "index_cohorts_on_status"
-    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying, 'enrolling'::character varying, 'active'::character varying, 'completed'::character varying, 'archived'::character varying]::text[])", name: "cohorts_status_valid"
+    t.check_constraint "status::text = ANY (ARRAY['draft'::character varying::text, 'enrolling'::character varying::text, 'active'::character varying::text, 'completed'::character varying::text, 'archived'::character varying::text])", name: "cohorts_status_valid"
   end
 
   create_table "debts", force: :cascade do |t|
@@ -1568,4 +1628,20 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_130200) do
   add_foreign_key "transaction_splits", "household_transactions"
   add_foreign_key "users", "users", column: "invited_by_user_id"
   add_foreign_key "users", "users", column: "last_invite_email_sent_by_user_id"
+  add_foreign_key "coach_content_items", "coach_workspaces"
+  add_foreign_key "coach_content_packs", "coach_workspaces"
+  add_foreign_key "coach_content_sources", "coach_workspaces"
+  add_foreign_key "coach_personas", "coach_workspaces"
+  add_foreign_key "coach_profiles", "coach_workspaces", on_delete: :cascade
+  add_foreign_key "coach_profiles", "users", column: "last_edited_by_user_id", on_delete: :nullify
+  add_foreign_key "coach_workspace_memberships", "coach_workspaces", on_delete: :cascade
+  add_foreign_key "coach_workspace_memberships", "users", on_delete: :cascade
+  add_foreign_key "coach_workspaces", "users", column: "created_by_user_id", on_delete: :cascade
+  add_foreign_key "cohort_experience_configurations", "coach_workspaces"
+  add_foreign_key "cohort_experience_configurations", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_experience_configuration_workspace"
+  add_foreign_key "cohort_persona_assignments", "coach_persona_versions", column: ["coach_persona_version_id", "coach_persona_id"], primary_key: ["id", "coach_persona_id"], name: "fk_persona_assignment_version_persona"
+  add_foreign_key "cohort_persona_assignments", "coach_personas", column: ["coach_persona_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_persona_assignment_persona_workspace"
+  add_foreign_key "cohort_persona_assignments", "coach_workspaces"
+  add_foreign_key "cohort_persona_assignments", "cohorts", column: ["cohort_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_persona_assignment_cohort_workspace"
+  add_foreign_key "cohorts", "coach_workspaces"
 end

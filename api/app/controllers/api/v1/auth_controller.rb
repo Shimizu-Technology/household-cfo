@@ -4,7 +4,10 @@ module Api
       before_action :authenticate_user!
 
       def me
-        render json: { user: current_user.as_api_json }
+        workspace = current_user.staff? ? coach_workspace_for_policy : nil
+        render json: { user: current_user.as_api_json(active_coach_workspace: workspace) }
+      rescue ActiveRecord::RecordNotFound
+        render json: { error: "Coach workspace not found." }, status: :not_found
       end
     end
   end

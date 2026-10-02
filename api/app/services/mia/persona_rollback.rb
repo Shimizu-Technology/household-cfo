@@ -60,7 +60,9 @@ module Mia
     attr_reader :persona, :target_version, :actor
 
     def ensure_staff!
-      raise RollbackError, "Only a coach or admin can roll back a persona" unless actor&.staff?
+      unless persona.coach_workspace&.allows?(actor, :publish)
+        raise RollbackError, "Only a workspace owner or reviewer can roll back a persona"
+      end
     end
 
     def ensure_target_is_safe!

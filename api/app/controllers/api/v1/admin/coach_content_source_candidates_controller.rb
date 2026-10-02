@@ -57,7 +57,7 @@ module Api
         private
 
         def policy
-          @policy ||= Mia::ContentLibraryPolicy.new(current_user)
+          @policy ||= Mia::ContentLibraryPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer
@@ -65,7 +65,8 @@ module Api
         end
 
         def set_source_and_candidate
-          @source = policy.editable_sources.find(params[:content_source_id])
+          source_scope = action_name == "update" ? policy.editable_sources : policy.reviewable_sources
+          @source = source_scope.find(params[:content_source_id])
           @candidate = @source.candidates.find(params[:id])
         end
 

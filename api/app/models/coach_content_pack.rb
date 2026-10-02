@@ -8,13 +8,16 @@ class CoachContentPack < ApplicationRecord
   KINDS = %w[voice_culture coaching_method finance_reference].freeze
 
   belongs_to :created_by_user, class_name: "User", inverse_of: :created_coach_content_packs
+  belongs_to :coach_workspace, optional: true
   belongs_to :current_published_version, class_name: "CoachContentPackVersion", optional: true
   has_many :draft_entries, -> { order(:position) }, class_name: "CoachContentPackDraftEntry", dependent: :destroy, inverse_of: :coach_content_pack
   has_many :draft_item_versions, through: :draft_entries, source: :coach_content_item_version
   has_many :versions, -> { order(:version_number) }, class_name: "CoachContentPackVersion", dependent: :restrict_with_exception, inverse_of: :coach_content_pack
 
   normalizes :name, with: ->(value) { value.to_s.squish }
-  validates :name, presence: true, length: { maximum: 160 }, uniqueness: { case_sensitive: false, scope: [ :created_by_user_id, :scope ] }
+  validates :name, presence: true, length: { maximum: 160 }
+  validates :name, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }, if: :coach_scoped?
+  validates :name, uniqueness: { case_sensitive: false, scope: [ :created_by_user_id, :scope ] }, if: :platform_scoped?
   validates :description, length: { maximum: 2_000 }, allow_blank: true
   validates :scope, inclusion: { in: SCOPES }
   validates :pack_kind, inclusion: { in: KINDS }
@@ -22,6 +25,8 @@ class CoachContentPack < ApplicationRecord
   validate :creator_can_manage_scope, on: :create
   validate :current_version_belongs_to_pack
   validate :archived_pack_is_read_only, on: :update
+  validate :workspace_matches_scope
+  before_validation :assign_default_coach_workspace, on: :create
   before_update :advance_draft_revision
 
   def archived?
@@ -29,7 +34,7 @@ class CoachContentPack < ApplicationRecord
   end
 
   def replace_draft_item_versions!(versions, actor:)
-    raise ArgumentError, "Not authorized for this pack" unless manageable_by?(actor)
+    raise ArgumentError, "Not authorized for this pack" unless editable_by?(actor)
     raise ArgumentError, "Archived packs are read-only" if archived?
 
     normalized = Array(versions).uniq(&:id)
@@ -44,7 +49,7 @@ class CoachContentPack < ApplicationRecord
   end
 
   def publish!(actor:, expected_draft_revision:, expected_draft_manifest_digest:, expected_current_version_id:)
-    raise ArgumentError, "Not authorized for this pack" unless manageable_by?(actor)
+    raise ArgumentError, "Not authorized for this pack" unless publishable_by?(actor)
 
     with_lock do
       raise ArgumentError, "Archived packs cannot be published" if archived?
@@ -94,11 +99,23 @@ class CoachContentPack < ApplicationRecord
     CoachContentPackVersion.draft_manifest_digest_for(self, draft_entries.includes(:coach_content_item_version).order(:position))
   end
 
-  def manageable_by?(actor)
-    actor&.admin? || (scope == "coach" && created_by_user_id == actor&.id)
+  def editable_by?(actor)
+    actor&.admin? || (scope == "coach" && coach_workspace&.allows?(actor, :edit))
+  end
+
+  def publishable_by?(actor)
+    actor&.admin? || (scope == "coach" && coach_workspace&.allows?(actor, :publish))
   end
 
   private
+
+  def coach_scoped?
+    scope == "coach"
+  end
+
+  def platform_scoped?
+    scope == "platform"
+  end
 
   def normalize_version_id(value)
     return nil if value.blank?
@@ -116,7 +133,7 @@ class CoachContentPack < ApplicationRecord
       if scope == "platform" && item.scope != "platform"
         raise ArgumentError, "Platform packs can contain only platform content"
       end
-      next if item.scope == "platform" || item.created_by_user_id == created_by_user_id
+      next if item.scope == "platform" || item.coach_workspace_id == coach_workspace_id
 
       raise ArgumentError, "Content from another coach cannot be added"
     end
@@ -125,6 +142,19 @@ class CoachContentPack < ApplicationRecord
   def creator_can_manage_scope
     errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
     errors.add(:scope, "platform packs can be created only by an administrator") if scope == "platform" && !created_by_user&.admin?
+    if scope == "coach" && !coach_workspace&.allows?(created_by_user, :edit)
+      errors.add(:created_by_user, "cannot create packs in this coach workspace")
+    end
+  end
+
+  def assign_default_coach_workspace
+    self.coach_workspace ||= CoachWorkspaces::Provisioner.ensure_for!(created_by_user) if scope == "coach" && created_by_user&.staff?
+    self.coach_workspace = nil if scope == "platform"
+  end
+
+  def workspace_matches_scope
+    valid = (scope == "coach" && coach_workspace.present?) || (scope == "platform" && coach_workspace.nil?)
+    errors.add(:coach_workspace, "must match the content scope") unless valid
   end
 
   def current_version_belongs_to_pack

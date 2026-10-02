@@ -8,12 +8,12 @@ module Api
         before_action :require_staff!
 
         def update
-          persona_policy = Mia::PersonaStudioPolicy.new(current_user)
+          persona_policy = Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
           persona = persona_policy.editable_personas.find(params[:persona_id])
           expected = Integer(params.dig(:content_packs, :draft_revision), exception: false)
 
           ids = Array(params.dig(:content_packs, :pack_version_ids)).map(&:to_i).select(&:positive?).uniq
-          content_policy = Mia::ContentLibraryPolicy.new(current_user)
+          content_policy = Mia::ContentLibraryPolicy.new(current_user, workspace: coach_workspace_for_policy)
           retained_ids = persona.draft_content_pack_version_ids & ids
           newly_selected_ids = ids - retained_ids
           visible_versions = CoachContentPackVersion.where(

@@ -11,6 +11,7 @@ class CoachContentSource < ApplicationRecord
   STATUSES = %w[uploading verifying upload_cleanup upload_cleanup_failed queued processing needs_review failed deletion_pending deletion_failed source_deleted].freeze
 
   belongs_to :created_by_user, class_name: "User"
+  belongs_to :coach_workspace, optional: true
   belongs_to :source_deleted_by_user, class_name: "User", optional: true
   belongs_to :current_attempt, class_name: "CoachContentSourceAttempt", optional: true
   has_many :attempts, class_name: "CoachContentSourceAttempt", dependent: :restrict_with_exception
@@ -24,11 +25,14 @@ class CoachContentSource < ApplicationRecord
   validates :content_type, presence: true, length: { maximum: 255 }
   validates :byte_size, numericality: { only_integer: true, greater_than: 0 }
   validates :checksum_sha256, format: { with: /\A[0-9a-f]{64}\z/ }
-  validates :upload_request_id, presence: true, length: { maximum: 100 }, uniqueness: { scope: :created_by_user_id }
+  validates :upload_request_id, presence: true, length: { maximum: 100 }
   validates :generation, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validate :creator_can_manage_scope, on: :create
+  validate :workspace_matches_scope
   validate :current_attempt_belongs_to_source
   validate :upload_identity_is_immutable, on: :update
+
+  before_validation :assign_default_coach_workspace, on: :create
 
   scope :recent_first, -> { order(created_at: :desc, id: :desc) }
 
@@ -50,6 +54,19 @@ class CoachContentSource < ApplicationRecord
   def creator_can_manage_scope
     errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
     errors.add(:scope, "platform sources can be created only by an administrator") if scope == "platform" && !created_by_user&.admin?
+    if scope == "coach" && !coach_workspace&.allows?(created_by_user, :edit)
+      errors.add(:created_by_user, "cannot create sources in this coach workspace")
+    end
+  end
+
+  def assign_default_coach_workspace
+    self.coach_workspace ||= CoachWorkspaces::Provisioner.ensure_for!(created_by_user) if scope == "coach" && created_by_user&.staff?
+    self.coach_workspace = nil if scope == "platform"
+  end
+
+  def workspace_matches_scope
+    valid = (scope == "coach" && coach_workspace.present?) || (scope == "platform" && coach_workspace.nil?)
+    errors.add(:coach_workspace, "must match the content scope") unless valid
   end
 
   def current_attempt_belongs_to_source
@@ -59,7 +76,7 @@ class CoachContentSource < ApplicationRecord
   end
 
   def upload_identity_is_immutable
-    protected_fields = %w[scope created_by_user_id filename content_type byte_size checksum_sha256 upload_request_id]
+    protected_fields = %w[scope coach_workspace_id created_by_user_id filename content_type byte_size checksum_sha256 upload_request_id]
     errors.add(:base, "source upload identity is immutable") if changes_to_save.keys.intersect?(protected_fields)
     if will_save_change_to_s3_key? && !(s3_key.nil? && status == "source_deleted")
       errors.add(:s3_key, "can only be cleared after confirmed source deletion")

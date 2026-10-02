@@ -136,6 +136,25 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
     assert_includes JSON.parse(response.body).fetch("error"), "revoked"
   end
 
+  test "platform administrators can deliberately use global mode or select one workspace" do
+    admin = User.create!(
+      clerk_id: "clerk_platform_admin",
+      email: "platform-admin@example.com",
+      role: "admin",
+      invitation_status: "accepted"
+    )
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(admin)
+    headers = auth_headers(admin.clerk_id, admin.email, "Platform", "Admin")
+
+    get "/api/v1/auth/me", headers: headers
+    assert_response :success
+    assert_nil response.parsed_body.dig("user", "active_coach_workspace")
+
+    get "/api/v1/auth/me", headers: headers.merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+    assert_response :success
+    assert_equal workspace.id, response.parsed_body.dig("user", "active_coach_workspace", "id")
+  end
+
   private
 
   def auth_headers(clerk_id, email, first_name = "Test", last_name = "User")

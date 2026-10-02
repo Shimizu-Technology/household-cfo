@@ -6,12 +6,28 @@ require_relative "../support/persona_test_helper"
 class CoachContentLibraryTest < ActiveSupport::TestCase
   include PersonaTestHelper
 
+  test "editor serialization never advertises reviewer or publisher actions" do
+    owner = persona_user
+    editor = persona_user
+    item = approved_content_item(owner: owner, title: "Separated role item")
+    pack = published_content_pack(owner: owner, items: [ item ], name: "Separated role pack")
+    workspace = item.coach_workspace
+    workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    serializer = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(editor, workspace: workspace))
+
+    assert_equal true, serializer.item(item.reload).fetch(:editable)
+    assert_equal false, serializer.item(item.reload).fetch(:approvable)
+    assert_equal true, serializer.pack(pack.reload).fetch(:editable)
+    assert_equal false, serializer.pack(pack.reload).fetch(:publishable)
+  end
+
   test "approved items and published packs are immutable and do not silently upgrade" do
     coach = persona_user
     item = approved_content_item(owner: coach, content: "Use the original coach wording.")
     original_item_version = item.current_approved_version
     pack = published_content_pack(owner: coach, items: [ item ])
     original_pack_version = pack.current_published_version
+    workspace = pack.coach_workspace
 
     item.update!(draft_content: "Use the revised coach wording.")
     revised_item_version = item.approve!(actor: coach, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest)
@@ -21,13 +37,13 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     assert_raises(ActiveRecord::RecordInvalid) { original_item_version.update!(content: "mutated") }
     assert_raises(ActiveRecord::RecordInvalid) { original_pack_version.update!(name: "mutated") }
 
-    serialized = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach)).pack(pack.reload)
+    serialized = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach, workspace: workspace)).pack(pack.reload)
     assert serialized.fetch(:update_available)
     assert serialized.fetch(:item_updates_available)
     refute serialized.fetch(:has_unpublished_changes)
 
     pack.replace_draft_item_versions!([ revised_item_version ], actor: coach)
-    assert Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach)).pack(pack.reload).fetch(:has_unpublished_changes)
+    assert Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach, workspace: workspace)).pack(pack.reload).fetch(:has_unpublished_changes)
     revised_pack_version = pack.publish!(actor: coach, expected_draft_revision: pack.draft_revision, expected_draft_manifest_digest: pack.draft_manifest_digest, expected_current_version_id: pack.current_published_version_id)
     assert_equal revised_item_version, revised_pack_version.item_versions.first
     assert_equal original_item_version, original_pack_version.reload.item_versions.first
@@ -62,7 +78,8 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     second_item = approved_content_item(owner: coach, title: "Later")
     second_pack = published_content_pack(owner: coach, items: [ second_item ], name: "Later pack")
     persona.replace_draft_content_pack_versions!([ second_pack.current_published_version ], actor: coach)
-    assert Mia::PersonaStudioSerializer.new(persona.reload, policy: Mia::PersonaStudioPolicy.new(coach)).summary.fetch(:has_unpublished_changes)
+    policy = Mia::PersonaStudioPolicy.new(coach, workspace: persona.coach_workspace)
+    assert Mia::PersonaStudioSerializer.new(persona.reload, policy: policy).summary.fetch(:has_unpublished_changes)
     second_persona_version = publish_persona(persona, actor: coach)
 
     assert_equal [ first_pack.current_published_version_id ], first_persona_version.content_pack_version_ids
@@ -114,7 +131,8 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     assert_raises(Mia::PersonaPublisher::PublicationError) do
       Mia::PersonaPublisher.new(persona: persona.reload, actor: coach).compile_preview!(expected_draft_revision: persona.draft_revision)
     end
-    assert Mia::PersonaStudioSerializer.new(persona, policy: Mia::PersonaStudioPolicy.new(coach)).summary.fetch(:has_unpublished_changes)
+    policy = Mia::PersonaStudioPolicy.new(coach, workspace: persona.coach_workspace)
+    assert Mia::PersonaStudioSerializer.new(persona, policy: policy).summary.fetch(:has_unpublished_changes)
   end
 
   test "manifests include immutable record identities even when approved text is identical" do
@@ -232,10 +250,12 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     packs = items.map.with_index do |item, index|
       published_content_pack(owner: coach, items: [ item ], name: "Serializer pack #{index}")
     end
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    policy = Mia::ContentLibraryPolicy.new(coach, workspace: workspace)
 
-    loaded_items = Mia::ContentLibraryPolicy.new(coach).visible_items.where(id: items.map(&:id))
+    loaded_items = policy.visible_items.where(id: items.map(&:id))
       .includes(:current_approved_version, :versions).to_a
-    loaded_packs = Mia::ContentLibraryPolicy.new(coach).visible_packs.where(id: packs.map(&:id)).includes(
+    loaded_packs = policy.visible_packs.where(id: packs.map(&:id)).includes(
       current_published_version: { entries: { coach_content_item_version: :source_provenance } },
       versions: { entries: { coach_content_item_version: :source_provenance } },
       draft_entries: { coach_content_item_version: [ :source_provenance, { coach_content_item: :current_approved_version } ] }
@@ -254,13 +274,13 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
       count
     end
 
-    item_serializer = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach))
+    item_serializer = Mia::ContentLibrarySerializer.new(policy: policy)
     item_queries = count_content_queries.call { @serialized_items = loaded_items.map { |item| item_serializer.item(item) } }
-    pack_serializer = Mia::ContentLibrarySerializer.new(policy: Mia::ContentLibraryPolicy.new(coach))
+    pack_serializer = Mia::ContentLibrarySerializer.new(policy: policy)
     pack_queries = count_content_queries.call { @serialized_packs = loaded_packs.map { |pack| pack_serializer.pack(pack) } }
 
-    assert_equal 1, item_queries
-    assert_equal 1, pack_queries
+    assert_equal 2, item_queries
+    assert_equal 2, pack_queries
     assert_equal items.map(&:id).sort, @serialized_items.pluck(:id).sort
     assert_equal packs.map(&:id).sort, @serialized_packs.pluck(:id).sort
     assert @serialized_packs.all? { |pack| pack.fetch(:draft_manifest_digest).present? }

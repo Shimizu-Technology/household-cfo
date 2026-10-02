@@ -23,6 +23,11 @@ module Mia
         role: display_config.dig("identity", "assistant_relationship"),
         status: status,
         owner: serialize_user(persona.created_by_user),
+        workspace: {
+          id: persona.coach_workspace_id,
+          name: persona.coach_workspace.name,
+          coach_name: persona.coach_workspace.coach_profile&.display_name
+        },
         published_version: serialize_version(persona.current_published_version),
         visible_assignment_count: visible_assignments.count,
         updated_at: persona.updated_at,
@@ -180,7 +185,7 @@ module Mia
 
     def phrase_locked_reason(participant_supplied:, can_manage:)
       return "Participant-supplied wording is sealed and cannot be edited." if participant_supplied
-      "Only the owning coach can change this sealed phrase." unless can_manage
+      "Select a coach workspace where you have edit access to change this sealed phrase." unless can_manage
     end
 
     def permissions
@@ -188,7 +193,7 @@ module Mia
       {
         read: true,
         edit: editable && !persona.archived?,
-        publish: editable && !persona.archived?,
+        publish: policy.can_publish?(persona) && !persona.archived?,
         assign: policy.can_assign?(persona),
         archive: editable && !persona.archived? && !persona.live_cohort_assignments?,
         restore: editable && persona.archived?

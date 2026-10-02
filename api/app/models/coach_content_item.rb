@@ -1,12 +1,14 @@
 # frozen_string_literal: true
 
 class CoachContentItem < ApplicationRecord
+  attr_accessor :creation_authorized_by_user
   class ApprovalConflict < StandardError; end
 
   SCOPES = %w[coach platform].freeze
   KINDS = %w[guidance script example phrase culture finance_reference].freeze
 
   belongs_to :created_by_user, class_name: "User", inverse_of: :created_coach_content_items
+  belongs_to :coach_workspace, optional: true
   belongs_to :current_approved_version, class_name: "CoachContentItemVersion", optional: true
   has_many :versions, -> { order(:version_number) }, class_name: "CoachContentItemVersion", dependent: :restrict_with_exception, inverse_of: :coach_content_item
   has_many :draft_pack_entries, class_name: "CoachContentPackDraftEntry", dependent: :restrict_with_exception
@@ -15,7 +17,9 @@ class CoachContentItem < ApplicationRecord
   normalizes :title, with: ->(value) { value.to_s.squish }
   normalizes :draft_content, with: ->(value) { value.to_s.strip }
 
-  validates :title, presence: true, length: { maximum: 160 }, uniqueness: { case_sensitive: false, scope: [ :created_by_user_id, :scope ] }
+  validates :title, presence: true, length: { maximum: 160 }
+  validates :title, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }, if: :coach_scoped?
+  validates :title, uniqueness: { case_sensitive: false, scope: [ :created_by_user_id, :scope ] }, if: :platform_scoped?
   validates :scope, inclusion: { in: SCOPES }
   validates :kind, inclusion: { in: KINDS }
   validates :draft_content, presence: true, length: { maximum: 10_000 }
@@ -25,7 +29,9 @@ class CoachContentItem < ApplicationRecord
   validate :current_version_belongs_to_item
   validate :archived_item_is_read_only, on: :update
   validate :draft_content_has_bounded_bytes
+  validate :workspace_matches_scope
 
+  before_validation :assign_default_coach_workspace, on: :create
   before_update :advance_draft_revision
 
   def archived?
@@ -35,7 +41,9 @@ class CoachContentItem < ApplicationRecord
   def approve!(actor:, expected_draft_revision:, expected_draft_digest:)
     raise ArgumentError, "Only staff can approve content" unless actor&.staff?
     raise ArgumentError, "Only administrators can approve platform content" if scope == "platform" && !actor.admin?
-    raise ArgumentError, "Not authorized for this content item" unless actor.admin? || created_by_user_id == actor.id
+    unless actor.admin? || (scope == "coach" && coach_workspace&.allows?(actor, :review))
+      raise ArgumentError, "Not authorized for this content item"
+    end
     with_lock do
       raise ArgumentError, "Archived content cannot be approved" if archived?
 
@@ -74,9 +82,36 @@ class CoachContentItem < ApplicationRecord
 
   private
 
+  def coach_scoped?
+    scope == "coach"
+  end
+
+  def platform_scoped?
+    scope == "platform"
+  end
+
   def creator_can_manage_scope
-    errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
-    errors.add(:scope, "platform content can be created only by an administrator") if scope == "platform" && !created_by_user&.admin?
+    authorization_actor = creation_authorized_by_user || created_by_user
+    if creation_authorized_by_user.present?
+      errors.add(:base, "authorizing reviewer must be a coach or admin") unless authorization_actor&.staff?
+    else
+      errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
+    end
+    errors.add(:scope, "platform content can be created only by an administrator") if scope == "platform" && !authorization_actor&.admin?
+    permission = creation_authorized_by_user.present? ? :review : :edit
+    if scope == "coach" && !coach_workspace&.allows?(authorization_actor, permission)
+      errors.add(:created_by_user, "cannot create content in this coach workspace")
+    end
+  end
+
+  def assign_default_coach_workspace
+    self.coach_workspace ||= CoachWorkspaces::Provisioner.ensure_for!(created_by_user) if scope == "coach" && created_by_user&.staff?
+    self.coach_workspace = nil if scope == "platform"
+  end
+
+  def workspace_matches_scope
+    valid = (scope == "coach" && coach_workspace.present?) || (scope == "platform" && coach_workspace.nil?)
+    errors.add(:coach_workspace, "must match the content scope") unless valid
   end
 
   def current_version_belongs_to_item

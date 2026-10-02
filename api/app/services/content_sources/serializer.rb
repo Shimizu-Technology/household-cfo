@@ -2,14 +2,14 @@
 
 module ContentSources
   class Serializer
-    def source(source, include_candidates: true)
+    def source(source, include_candidates: true, permissions: nil)
       current_attempt = source.current_attempt
       candidates = if include_candidates && current_attempt
         source.candidates.where(coach_content_source_attempt_id: current_attempt.id).order(:position)
       else
         []
       end
-      {
+      payload = {
         id: source.id,
         scope: source.scope,
         filename: source.filename,
@@ -30,6 +30,8 @@ module ContentSources
         current_attempt: current_attempt && attempt(current_attempt),
         candidates: candidates.map { |candidate| candidate(candidate) }
       }
+      payload[:permissions] = permissions if permissions
+      payload
     end
 
     def candidate(candidate)

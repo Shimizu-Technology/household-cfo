@@ -18,8 +18,14 @@ module Api
         end
 
         def create
+          attributes = pack_params
+          return require_selected_coach_workspace! if attributes[:scope] != "platform" && coach_workspace_for_policy.nil?
+
           pack = CoachContentPack.transaction do
-            created_pack = CoachContentPack.create!(pack_params.merge(created_by_user: current_user))
+            created_pack = CoachContentPack.create!(attributes.merge(
+              created_by_user: current_user,
+              coach_workspace: attributes[:scope] == "platform" ? nil : current_coach_workspace
+            ))
             replace_items(created_pack)
             created_pack
           end
@@ -47,7 +53,7 @@ module Api
         end
 
         def publish
-          pack = policy.editable_packs.find(params[:id])
+          pack = policy.publishable_packs.find(params[:id])
           version = pack.publish!(
             actor: current_user,
             expected_draft_revision: params.dig(:pack, :draft_revision),
@@ -72,7 +78,7 @@ module Api
         private
 
         def policy
-          @policy ||= Mia::ContentLibraryPolicy.new(current_user)
+          @policy ||= Mia::ContentLibraryPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer

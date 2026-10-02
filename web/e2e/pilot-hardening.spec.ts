@@ -4,6 +4,8 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
+const sourceCollectionPermissions = { upload_coach: true, upload_platform: false, retry_cleanup: false }
+const sourceOwnerPermissions = { edit_candidates: true, review_candidates: true, download: true, reprocess: true, delete: true }
 
 async function openSection(page: Page, name: string) {
   const section = page.getByRole('link', { name, exact: true })
@@ -675,12 +677,12 @@ async function mockDemoApi(page: Page) {
       return route.fulfill({ status: 200, json: { items: contentItems } })
     }
     if (path === '/api/v1/admin/content_sources' && route.request().method() === 'GET') {
-      return route.fulfill({ status: 200, json: { sources: [] } })
+      return route.fulfill({ status: 200, json: { sources: [], permissions: sourceCollectionPermissions } })
     }
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
       const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
       const item: MockContentItem = {
-        id: 901, ...input, title: input.title.trim().replace(/\s+/g, ' '), draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true,
+        id: 901, ...input, title: input.title.trim().replace(/\s+/g, ' '), draft_revision: 1, draft_digest: 'item-draft-1', archived: false, editable: true, approvable: true,
         current_approved_version: null, versions: [], has_unapproved_changes: true,
         updated_at: '2026-10-01T01:00:00Z',
       }
@@ -709,7 +711,7 @@ async function mockDemoApi(page: Page) {
       const input = route.request().postDataJSON().pack as Pick<MockContentPack, 'name' | 'description' | 'scope' | 'pack_kind' | 'item_version_ids'>
       const selectedItems = contentItems.flatMap((item) => item.versions).filter((version) => input.item_version_ids.includes(version.id))
       const pack: MockContentPack = {
-        id: 921, ...input, name: input.name.trim().replace(/\s+/g, ' '), draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, draft_items: selectedItems,
+        id: 921, ...input, name: input.name.trim().replace(/\s+/g, ' '), draft_revision: 2, draft_manifest_digest: 'pack-draft-2', archived: false, editable: true, publishable: true, draft_items: selectedItems,
         current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: true, updated_at: '2026-10-01T01:03:00Z',
       }
       contentPacks = [pack]
@@ -3882,6 +3884,218 @@ test('Coach Studio preserves coach-authored community context through preview, p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio switches tenant context safely across responsive layouts', async ({ page }) => {
+  let firstPersona = personaDetailFixture()
+  const secondPersona = {
+    ...personaDetailFixture(),
+    id: 82,
+    name: 'Coach Ana',
+    description: 'Partner workspace assistant',
+    draft: {
+      ...structuredClone(personaConfiguration),
+      identity: { ...personaConfiguration.identity, assistant_name: 'Coach Ana' },
+    },
+    permissions: { read: true, edit: false, publish: true, assign: false, archive: false, restore: false },
+  }
+  const requestedWorkspaceIds: string[] = []
+  const mutationWorkspaceIds: string[] = []
+  let saveStarted = false
+  let releaseSave: (() => void) | undefined
+  const delayedSave = new Promise<void>((resolve) => { releaseSave = resolve })
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:coach-workspace-id', '1')
+  })
+  await page.route('http://api.test/api/v1/admin/personas', (route) => {
+    const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
+    requestedWorkspaceIds.push(workspaceId)
+    return route.fulfill({
+      status: 200,
+      json: { personas: workspaceId === '2' ? [secondPersona] : [firstPersona] },
+    })
+  })
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/personas\/(81|82)$/, async (route) => {
+    const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
+    requestedWorkspaceIds.push(workspaceId)
+    if (route.request().method() === 'PATCH') {
+      mutationWorkspaceIds.push(workspaceId)
+      const body = route.request().postDataJSON() as { persona: { description: string; draft_config: typeof personaConfiguration } }
+      saveStarted = true
+      await delayedSave
+      firstPersona = {
+        ...firstPersona,
+        description: body.persona.description,
+        draft: body.persona.draft_config,
+        draft_revision: (firstPersona.draft_revision ?? 0) + 1,
+      }
+      return route.fulfill({ status: 200, json: { persona: firstPersona } })
+    }
+    return route.fulfill({ status: 200, json: { persona: workspaceId === '2' ? secondPersona : firstPersona } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { cohorts: [] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+
+  const workspacePicker = page.getByLabel('Coach workspace')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await expect(page.getByText('Mrs. Mel · Owner')).toBeVisible()
+  expect(requestedWorkspaceIds).toContain('1')
+
+  await page.getByLabel('Internal description').fill('Unsaved workspace-specific note')
+  page.once('dialog', async (dialog) => dialog.dismiss())
+  await workspacePicker.selectOption('2')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByLabel('Internal description')).toHaveValue('Unsaved workspace-specific note')
+
+  page.once('dialog', async (dialog) => dialog.accept())
+  await workspacePicker.selectOption('2')
+  await expect(workspacePicker).toHaveValue('2')
+  await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
+  await expect(page.getByText('Coach Ana · Reviewer')).toBeVisible()
+  await expect.poll(() => requestedWorkspaceIds.includes('2')).toBe(true)
+  expect(await page.evaluate(() => ({
+    scrollX: window.scrollX,
+    fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
+  }))).toEqual({ scrollX: 0, fitsViewport: true })
+
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await expect(workspacePicker).toHaveValue('2')
+  await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
+
+  await workspacePicker.selectOption('1')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await expect(page.getByText('Mrs. Mel · Owner')).toBeVisible()
+  expect(await page.evaluate(() => ({
+    scrollX: window.scrollX,
+    fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
+  }))).toEqual({ scrollX: 0, fitsViewport: true })
+
+  await page.getByRole('link', { name: 'Home', exact: true }).click()
+  await openSection(page, 'Coach Studio')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await page.getByLabel('Internal description').fill('Saved after returning to the owner workspace')
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect.poll(() => saveStarted).toBe(true)
+  await expect(workspacePicker).toBeDisabled()
+  await expect(workspacePicker).toHaveValue('1')
+  releaseSave?.()
+  await expect(page.getByRole('status')).toContainText('Draft saved')
+  await expect(workspacePicker).toBeEnabled()
+  expect(mutationWorkspaceIds).toEqual(['1'])
+
+  await workspacePicker.selectOption('2')
+  await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
+  await expect(page.getByText(secondPersona.description, { exact: true })).toBeVisible()
+  await expect(page.getByText('Draft saved. Run an exact preview before publishing.')).toHaveCount(0)
+})
+
+test('Coach Studio platform administrator deliberately switches between global and selected workspace scope', async ({ page }) => {
+  const requestedWorkspaceIds: string[] = []
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({
+    status: 200,
+    json: { sources: [], permissions: { upload_coach: false, upload_platform: true, retry_cleanup: false } },
+  }))
+  await page.route('http://api.test/api/v1/admin/personas', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { personas: [personaDetailFixture()] } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { persona: personaDetailFixture() } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { cohorts: [] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=admin&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+
+  const workspacePicker = page.getByLabel('Coach workspace')
+  await expect(workspacePicker).toHaveValue('platform')
+  await expect(page.getByText('Platform administrator · all workspaces')).toBeVisible()
+  expect(requestedWorkspaceIds).toContain('')
+  const createAssistant = page.getByRole('button', { name: 'Create', exact: true, includeHidden: true })
+  await expect(createAssistant).toBeDisabled()
+
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: 'New item' }).click()
+  await expect(page.getByLabel('Owner').first()).toHaveValue('platform')
+  await expect(page.getByLabel('Owner').first().locator('option[value="coach"]')).toHaveCount(0)
+
+  await workspacePicker.selectOption('1')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect.poll(() => requestedWorkspaceIds.includes('1')).toBe(true)
+
+  await workspacePicker.selectOption('platform')
+  await expect(workspacePicker).toHaveValue('platform')
+  await expect.poll(() => requestedWorkspaceIds.filter((id) => id === '').length).toBeGreaterThan(1)
+
+  await openSection(page, 'Admin')
+  const adminWorkspacePicker = page.getByLabel('Admin workspace')
+  await expect(adminWorkspacePicker).toHaveValue('platform')
+  await expect(page.getByRole('button', { name: 'Create cohort' })).toBeDisabled()
+  await adminWorkspacePicker.selectOption('1')
+  await expect(page.getByRole('button', { name: 'Create cohort' })).toBeEnabled()
+  await page.getByLabel('Name').first().fill('Unsaved cohort workspace switch')
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('Discard unsaved cohort, invite, and user changes')
+    await dialog.dismiss()
+  })
+  await adminWorkspacePicker.selectOption('platform')
+  await expect(adminWorkspacePicker).toHaveValue('1')
+  page.once('dialog', async (dialog) => dialog.accept())
+  await adminWorkspacePicker.selectOption('platform')
+  await expect(adminWorkspacePicker).toHaveValue('platform')
+  await expect(page.getByLabel('Name').first()).toHaveValue('')
+})
+
+test('Coach Studio content controls follow independent editor and reviewer permissions', async ({ page }) => {
+  await page.route('http://api.test/api/v1/admin/content_items', (route) => {
+    const reviewer = route.request().headers()['x-coach-workspace-id'] === '2'
+    return route.fulfill({
+      status: 200,
+      json: {
+        items: [{
+          id: reviewer ? 902 : 901,
+          title: reviewer ? 'Reviewer content draft' : 'Editor content draft',
+          scope: 'coach',
+          kind: 'guidance',
+          draft_content: 'Review one exact next step.',
+          always_on: false,
+          draft_revision: 1,
+          draft_digest: 'role-draft-digest',
+          archived: false,
+          editable: !reviewer,
+          approvable: reviewer,
+          current_approved_version: null,
+          versions: [],
+          has_unapproved_changes: true,
+          updated_at: '2026-10-01T01:00:00Z',
+        }],
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: /Editor content draft/ }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await expect(itemPanel.getByLabel('Draft wording')).toBeEnabled()
+  await expect(itemPanel.getByRole('button', { name: /Approve/ })).toHaveCount(0)
+
+  await page.getByLabel('Coach workspace').selectOption('2')
+  await page.getByRole('button', { name: /Reviewer content draft/ }).click()
+  await expect(itemPanel.getByLabel('Draft wording')).toBeDisabled()
+  await expect(itemPanel.getByRole('button', { name: 'Approve new version' })).toBeEnabled()
+})
+
 test('Coach Studio participant tools preview publish and restore the exact cohort navigation', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Participant tools/ }).click()
@@ -4159,6 +4373,111 @@ test('Coach Studio builds and pins an exact coach-approved content pack', async 
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio locks workspace selection through a delayed Coaching Library mutation', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releaseCreate!: () => void
+  const createGate = new Promise<void>((resolve) => { releaseCreate = resolve })
+  await page.route('http://api.test/api/v1/admin/content_items', async (route) => {
+    if (route.request().method() !== 'POST') return route.fallback()
+    await createGate
+    return route.fulfill({
+      status: 201,
+      json: {
+        item: {
+          id: 990, title: 'Delayed library draft', scope: 'coach', kind: 'guidance', always_on: false,
+          draft_content: 'Keep the workspace fixed until this save returns.', draft_revision: 1, draft_digest: 'delayed-item',
+          archived: false, editable: true, approvable: false, current_approved_version: null, versions: [],
+          has_unapproved_changes: true, updated_at: '2026-10-02T00:00:00Z',
+        },
+      },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByRole('button', { name: 'New item' }).click()
+  const itemPanel = page.locator('.coach-content-panel').filter({ has: page.getByRole('heading', { name: 'Coach-authored building blocks' }) })
+  await itemPanel.getByLabel('Title').fill('Delayed library draft')
+  await itemPanel.getByLabel('Draft wording').fill('Keep the workspace fixed until this save returns.')
+  await itemPanel.getByRole('button', { name: 'Create draft' }).click()
+
+  const workspace = page.getByLabel('Coach workspace')
+  await expect(workspace).toBeDisabled()
+  releaseCreate()
+  await expect(workspace).toBeEnabled()
+})
+
+test('Coach Studio locks workspace selection across private-source presign and completion', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releasePresign!: () => void
+  let releaseComplete!: () => void
+  const presignGate = new Promise<void>((resolve) => { releasePresign = resolve })
+  const completeGate = new Promise<void>((resolve) => { releaseComplete = resolve })
+  await page.route('http://api.test/api/v1/admin/content_sources/presign', async (route) => {
+    await presignGate
+    return route.fulfill({ status: 200, json: { upload_url: 'http://storage.test/delayed-source', upload_headers: {}, upload_token: 'delayed-token' } })
+  })
+  await page.route('http://storage.test/delayed-source', (route) => route.fulfill({ status: 200, body: '' }))
+  await page.route('http://api.test/api/v1/admin/content_sources/complete', async (route) => {
+    await completeGate
+    return route.fulfill({
+      status: 201,
+      json: { source: {
+        id: 991, scope: 'coach', filename: 'delayed-source.txt', content_type: 'text/plain', byte_size: 22,
+        checksum_sha256: 'd'.repeat(64), status: 'queued', generation: 0, source_available: true,
+        error: null, error_code: null, source_delete_error_code: null, processing_metadata: {}, processed_at: null,
+        source_deleted_at: null, created_at: '2026-10-02T00:00:00Z', updated_at: '2026-10-02T00:00:00Z',
+        current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
+      } },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await page.getByLabel('Private source file').setInputFiles({ name: 'delayed-source.txt', mimeType: 'text/plain', buffer: Buffer.from('Private coaching text.') })
+  await page.getByRole('button', { name: 'Upload and read' }).click()
+
+  const workspace = page.getByLabel('Coach workspace')
+  await expect(workspace).toBeDisabled()
+  const completionRequest = page.waitForRequest('http://api.test/api/v1/admin/content_sources/complete')
+  releasePresign()
+  await completionRequest
+  await expect(workspace).toBeDisabled()
+  releaseComplete()
+  await expect(page.getByRole('status').filter({ hasText: 'Private upload complete' })).toBeVisible()
+  await expect(workspace).toBeEnabled()
+})
+
+test('Coach Studio locks workspace selection through a delayed Participant Tools mutation', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'workspace mutation lifecycle regression')
+  let releaseSave!: () => void
+  const saveGate = new Promise<void>((resolve) => { releaseSave = resolve })
+  await page.route('http://api.test/api/v1/admin/cohorts/41/experience_configuration', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.fallback()
+    await saveGate
+    return route.fulfill({
+      status: 200,
+      json: { experience_configuration: {
+        cohort: { id: 41, name: 'Household CFO pilot', status: 'active', participant_count: 1 },
+        draft: route.request().postDataJSON().experience_configuration.draft_config,
+        draft_revision: 2, preview_required: true, preview: null, published_version: null, versions: [],
+        permissions: { edit: true, publish: true, rollback: true },
+      } },
+    })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+  await page.getByRole('tab', { name: /Participant tools/ }).click()
+  await page.getByLabel('Include Optionality').uncheck()
+  await page.getByRole('button', { name: 'Save draft' }).click()
+
+  const workspace = page.getByLabel('Coach workspace')
+  await expect(workspace).toBeDisabled()
+  releaseSave()
+  await expect(page.getByRole('status')).toContainText('draft saved')
+  await expect(workspace).toBeEnabled()
+})
+
 test('Coach Studio keeps private source candidates reviewable and mobile-safe before publication', async ({ page }) => {
   const candidateBase = {
     source_id: 701, status: 'proposed', kind: 'guidance', topics: ['planning'], safety_code: null,
@@ -4181,13 +4500,13 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
     checksum_sha256: 'c'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
     source_delete_error_code: null, processing_metadata: { format: 'text', candidate_count: 2 }, processed_at: '2026-10-01T01:00:00Z',
     source_deleted_at: null, created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
-    current_attempt: { id: 702, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates,
+    current_attempt: { id: 702, generation: 1, status: 'succeeded', error: null, error_code: null }, permissions: sourceOwnerPermissions, candidates,
   })
   const uploadedSource = {
     id: 720, scope: 'coach', filename: 'new-guide.txt', content_type: 'text/plain', byte_size: 32,
     checksum_sha256: 'e'.repeat(64), status: 'queued', generation: 0, source_available: true, error: null, error_code: null,
     source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
-    created_at: '2026-10-01T01:02:00Z', updated_at: '2026-10-01T01:02:00Z', current_attempt: null, candidates: [],
+    created_at: '2026-10-01T01:02:00Z', updated_at: '2026-10-01T01:02:00Z', current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
   }
   let acceptedItem: MockContentItem | null = null
 
@@ -4195,7 +4514,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   const sourceListGate = new Promise<void>((resolve) => { releaseSourceList = resolve })
   await page.route('http://api.test/api/v1/admin/content_sources', async (route) => {
     await sourceListGate
-    return route.fulfill({ status: 200, json: { sources: [source()] } })
+    return route.fulfill({ status: 200, json: { sources: [source()], permissions: sourceCollectionPermissions } })
   })
   await page.route('http://api.test/api/v1/admin/content_sources/701', async (route) => {
     if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: { source: source() } })
@@ -4318,12 +4637,12 @@ test('Coach Studio preserves candidate edits through conflicts and server safety
     checksum_sha256: 'f'.repeat(64), status: 'needs_review', generation: 1, source_available: true, error: null, error_code: null,
     source_delete_error_code: null, processing_metadata: {}, processed_at: '2026-10-01T01:00:00Z', source_deleted_at: null,
     created_at: '2026-10-01T00:59:00Z', updated_at: '2026-10-01T01:00:00Z',
-    current_attempt: { id: 729, generation: 1, status: 'succeeded', error: null, error_code: null }, candidates: [candidate],
+    current_attempt: { id: 729, generation: 1, status: 'succeeded', error: null, error_code: null }, permissions: sourceOwnerPermissions, candidates: [candidate],
   })
   let conflictOnce = true
   let lastReviewInput: Record<string, unknown> = {}
 
-  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source()], permissions: sourceCollectionPermissions } }))
   await page.route('http://api.test/api/v1/admin/content_sources/730', (route) => route.fulfill({ status: 200, json: { source: source() } }))
   await page.route('http://api.test/api/v1/admin/content_sources/730/candidates/731', (route) => {
     const input = route.request().postDataJSON().candidate
@@ -4378,9 +4697,12 @@ test('administrators can see and retry terminal private upload cleanup', async (
     checksum_sha256: 'd'.repeat(64), status: 'upload_cleanup_failed', generation: 0, source_available: false,
     error: 'Private storage cleanup needs an administrator to retry it.', error_code: 'upload_cleanup_failed',
     source_delete_error_code: null, processing_metadata: {}, processed_at: null, source_deleted_at: null,
-    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:01:00Z', current_attempt: null, candidates: [],
+    created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:01:00Z', current_attempt: null, permissions: sourceOwnerPermissions, candidates: [],
   }
-  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: failed ? [source] : [] } }))
+  await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({
+    status: 200,
+    json: { sources: failed ? [source] : [], permissions: { ...sourceCollectionPermissions, upload_platform: true, retry_cleanup: true } },
+  }))
   await page.route('http://api.test/api/v1/admin/content_sources/retry_upload_cleanups', (route) => {
     failed = false
     return route.fulfill({ status: 200, json: { retried_count: 1 } })

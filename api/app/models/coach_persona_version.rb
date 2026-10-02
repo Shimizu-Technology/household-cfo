@@ -112,7 +112,7 @@ class CoachPersonaVersion < ApplicationRecord
       source_user_id = Integer(phrase["source_user_id"], exception: false)
       captured_role = phrase["source_role_at_capture"]
       valid = if phrase["provenance"] == "coach_authored"
-        source_user_id == coach_persona&.created_by_user_id && captured_role.in?(%w[admin coach])
+        source_user_id.present? && captured_role.in?(%w[admin coach])
       elsif phrase["provenance"] == "participant_supplied"
         source_user_id.present? && captured_role == "participant"
       end
