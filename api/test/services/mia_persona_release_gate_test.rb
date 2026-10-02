@@ -25,7 +25,10 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     def call(evaluation_case:, persona:, candidate:)
       Response.new(
         output: "Review the exact candidate facts and options before choosing the next step.",
-        metadata: { "source" => "live_model", "candidate_digest" => candidate.manifest_digest },
+        metadata: {
+          "source" => "live_model", "candidate_digest" => candidate.manifest_digest,
+          "model_identifier" => "test-model", "provider_request_id" => "gen-test-run"
+        },
         fallback_only: false
       )
     end
@@ -511,6 +514,31 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     refute evidence.reload.integrity_valid?
   end
 
+  test "behavioral preview evidence fails closed without concrete provider provenance" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: owner).call!
+    preview = {
+      status: "ready", source: "live_model", sample_prompt: "Test the exact candidate.",
+      sample_reply: "Review the exact facts and choose one step.", model_identifier: "test-model",
+      provider_request_id: nil, context_digest: Mia::PersonaPreviewer.context_digest
+    }
+
+    error = assert_raises(Mia::PersonaRelease::BehavioralPreviewRecorder::Error) do
+      Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: persona, actor: owner).call!(
+        candidate: candidate, preview: preview
+      )
+    end
+    assert_includes error.message, "provider request ID"
+
+    evidence = behavioral_preview_for(candidate, owner)
+    evidence.provider_request_id = nil
+    evidence.evidence_digest = CoachPersonaBehavioralPreviewEvidence.digest_for(evidence)
+    refute evidence.valid?
+    refute evidence.integrity_valid?
+    assert_raises(ActiveRecord::NotNullViolation) { evidence.update_column(:provider_request_id, nil) }
+  end
+
   test "publishing identical manifests is rejected as a no-op" do
     owner = persona_user
     persona = create_persona(creator: owner)
@@ -555,6 +583,7 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       preview: {
         status: "ready", source: "live_model", sample_prompt: "Test the exact candidate.",
         sample_reply: "Review the exact facts and choose one step.", model_identifier: "test-model",
+        provider_request_id: "gen-test-preview",
         context_digest: Mia::PersonaPreviewer.context_digest
       }
     )

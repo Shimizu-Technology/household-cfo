@@ -1,12 +1,10 @@
 # frozen_string_literal: true
 
 class MakePersonaRestoresAndAudienceReviewsAppendOnly < ActiveRecord::Migration[8.0]
-  def change
+  def up
     add_column :coach_persona_versions, :phrase_audience_attestation_digests, :jsonb, null: false, default: []
     add_column :coach_persona_publication_events, :phrase_audience_attestation_digests, :jsonb, null: false, default: []
-    reversible do |direction|
-      direction.up { backfill_phrase_audience_attestation_digests }
-    end
+    backfill_phrase_audience_attestation_digests
     add_check_constraint :coach_persona_versions,
       "jsonb_typeof(phrase_audience_attestation_digests) = 'array'",
       name: "persona_versions_audience_attestation_digests_array"
@@ -22,10 +20,13 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnly < ActiveRecord::Migration[
       %i[coach_persona_release_candidate_id artifact_id reviewed_at id],
       name: "idx_phrase_audience_attestations_effective"
 
-    add_column :coach_persona_behavioral_preview_evidences, :provider_request_id, :string
+    add_column :coach_persona_behavioral_preview_evidences, :provider_request_id, :string, null: false
     add_check_constraint :coach_persona_behavioral_preview_evidences,
-      "provider_request_id IS NULL OR char_length(provider_request_id) BETWEEN 1 AND 200",
+      "char_length(provider_request_id) BETWEEN 1 AND 200 AND provider_request_id !~ '[[:space:][:cntrl:]]'",
       name: "persona_behavioral_previews_request_id_bounded"
+    add_check_constraint :coach_persona_behavioral_preview_evidences,
+      "model_identifier !~ '[[:space:][:cntrl:]]'",
+      name: "persona_behavioral_previews_model_identifier_concrete"
 
     create_table :coach_persona_draft_restore_events do |t|
       t.references :coach_persona, null: false, foreign_key: true
@@ -55,7 +56,54 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnly < ActiveRecord::Migration[
       name: "persona_draft_restore_events_json_shape"
   end
 
+  def down
+    lock_audience_attestations!
+    if duplicate_audience_review_pairs?
+      raise ActiveRecord::IrreversibleMigration,
+        "Cannot reverse append-only persona audience reviews after a phrase has multiple audit records. " \
+        "Keep migration 20261003030000 applied so every approval and superseding review remains intact."
+    end
+
+    drop_table :coach_persona_draft_restore_events
+
+    remove_check_constraint :coach_persona_behavioral_preview_evidences,
+      name: "persona_behavioral_previews_request_id_bounded"
+    remove_check_constraint :coach_persona_behavioral_preview_evidences,
+      name: "persona_behavioral_previews_model_identifier_concrete"
+    remove_column :coach_persona_behavioral_preview_evidences, :provider_request_id
+
+    remove_index :coach_phrase_audience_attestations,
+      name: "idx_phrase_audience_attestations_effective"
+    add_index :coach_phrase_audience_attestations,
+      %i[coach_persona_release_candidate_id artifact_id],
+      unique: true,
+      name: "idx_phrase_audience_attestations_artifact"
+
+    remove_check_constraint :coach_persona_publication_events,
+      name: "persona_publication_events_audience_attestation_digests_array"
+    remove_check_constraint :coach_persona_versions,
+      name: "persona_versions_audience_attestation_digests_array"
+    remove_column :coach_persona_publication_events, :phrase_audience_attestation_digests
+    remove_column :coach_persona_versions, :phrase_audience_attestation_digests
+  end
+
   private
+
+  def lock_audience_attestations!
+    execute "LOCK TABLE coach_phrase_audience_attestations IN ACCESS EXCLUSIVE MODE"
+  end
+
+  def duplicate_audience_review_pairs?
+    select_value(<<~SQL.squish).to_i.positive?
+      SELECT COUNT(*)
+      FROM (
+        SELECT coach_persona_release_candidate_id, artifact_id
+        FROM coach_phrase_audience_attestations
+        GROUP BY coach_persona_release_candidate_id, artifact_id
+        HAVING COUNT(*) > 1
+      ) duplicate_reviews
+    SQL
+  end
 
   def backfill_phrase_audience_attestation_digests
     execute <<~SQL.squish

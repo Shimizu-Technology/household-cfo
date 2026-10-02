@@ -187,12 +187,13 @@ module Mia
         raise Error, "The behavioral adapter returned an invalid response" unless response.is_a?(BehavioralAdapter::Response)
 
         heartbeat!(run, token)
+        fallback_only = response.fallback_only || !provider_provenance_valid?(evaluation_case, response.metadata)
         assertion_results = AssertionEvaluator.evaluate(evaluation_case.assertions, output: response.output,
-          fallback_only: response.fallback_only, phrase_artifacts: run.release_candidate.config_snapshot["phrases"])
-        status = !response.fallback_only && assertion_results.all? { |assertion| assertion.fetch("passed") } ? "passed" : "failed"
+          fallback_only: fallback_only, phrase_artifacts: run.release_candidate.config_snapshot["phrases"])
+        status = !fallback_only && assertion_results.all? { |assertion| assertion.fetch("passed") } ? "passed" : "failed"
         result = run.results.new(evaluation_case: evaluation_case, status: status, case_snapshot: evaluation_case.snapshot,
           output: response.output.to_s.first(LiveBehavioralAdapter::MAX_OUTPUT_CHARS), adapter_metadata: response.metadata,
-          assertion_results: assertion_results, fallback_only: response.fallback_only)
+          assertion_results: assertion_results, fallback_only: fallback_only)
         result.result_digest = CoachPersonaEvaluationResult.digest_for(result)
         result.save!
       end
@@ -202,6 +203,16 @@ module Mia
         updated = CoachPersonaEvaluationRun.where(id: run.id, status: "running", lease_token: token)
           .update_all(heartbeat_at: now, lease_expires_at: now + LEASE_DURATION, updated_at: now)
         raise LeaseLost, "Evaluation lease was lost" unless updated == 1
+      end
+
+      def provider_provenance_valid?(evaluation_case, metadata)
+        return true unless evaluation_case.case_kind == "custom"
+        return false unless metadata.is_a?(Hash) && metadata["source"] == "live_model"
+
+        %w[model_identifier provider_request_id].all? do |key|
+          value = metadata[key].to_s
+          value.present? && value.length <= 200 && value.match?(/\A[^\s[:cntrl:]]+\z/)
+        end
       end
 
       def complete!(run, cases, token)

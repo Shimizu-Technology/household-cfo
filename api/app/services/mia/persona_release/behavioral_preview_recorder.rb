@@ -14,6 +14,9 @@ module Mia
         unless preview.fetch(:status) == "ready" && preview.fetch(:source) == "live_model"
           raise Error, "Only a live model preview can authorize publication"
         end
+        unless valid_provider_identifier?(preview[:model_identifier]) && valid_provider_identifier?(preview[:provider_request_id])
+          raise Error, "A concrete model identifier and provider request ID are required for publication evidence"
+        end
         persona.with_lock do
           raise Error, "The release candidate changed during the behavioral preview" unless candidate.current_for?(persona)
           unless preview.fetch(:context_digest) == PersonaPreviewer.context_digest
@@ -40,6 +43,11 @@ module Mia
       private
 
       attr_reader :persona, :actor
+
+      def valid_provider_identifier?(value)
+        normalized = value.to_s
+        normalized.present? && normalized.length <= 200 && normalized.match?(/\A[^\s[:cntrl:]]+\z/)
+      end
     end
   end
 end

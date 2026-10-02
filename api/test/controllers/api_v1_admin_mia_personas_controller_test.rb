@@ -706,6 +706,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
       {
         status: "ready", source: "live_model", sample_prompt: "Help me plan this month.",
         sample_reply: "Review your confirmed plan first.", model_identifier: "test-model",
+        provider_request_id: "gen-test-persona-controller",
         context_digest: Mia::PersonaPreviewer.context_digest, notice: "Test model response."
       }
     end

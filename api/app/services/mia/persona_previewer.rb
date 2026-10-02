@@ -34,10 +34,19 @@ module Mia
       source = active_responder.response_source.to_s
 
       if source == "live_model"
+        model_identifier = active_responder.model_identifier.to_s
+        provider_request_id = active_responder.provider_request_id.to_s
+        unless valid_provider_identifier?(model_identifier) && valid_provider_identifier?(provider_request_id)
+          return result(
+            status: "unavailable", source: "invalid_provider_provenance", reply: nil,
+            notice: "The model response did not include complete provider provenance, so it cannot be saved as publication evidence. Try again before publishing."
+          )
+        end
+
         result(
           status: "ready", source: source, reply: reply, notice: preview_notice(source),
-          model_identifier: active_responder.model_identifier,
-          provider_request_id: active_responder.provider_request_id
+          model_identifier: model_identifier,
+          provider_request_id: provider_request_id
         )
       elsif source == "deterministic_safety"
         result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
@@ -83,6 +92,10 @@ module Mia
       return "Safety rules took precedence over the coach persona for this test message. This checks the crisis boundary, but it does not exercise the coach persona and cannot authorize publication." if source == "deterministic_safety"
 
       "Generated from this exact draft in a no-write preview."
+    end
+
+    def valid_provider_identifier?(value)
+      value.present? && value.length <= 200 && value.match?(/\A[^\s[:cntrl:]]+\z/)
     end
 
     def result(status:, source:, reply:, notice:, model_identifier: nil, provider_request_id: nil)

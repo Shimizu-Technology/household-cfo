@@ -34,7 +34,21 @@ module Mia
         return unavailable(candidate, source.presence || "model_unavailable") unless source == "live_model"
         return unavailable(candidate, "invalid_model_output") if output.blank? || output.length > MAX_OUTPUT_CHARS
 
-        Response.new(output: output, metadata: metadata(candidate, source).merge("output_chars" => output.length), fallback_only: false)
+        model_identifier = responder.model_identifier.to_s
+        provider_request_id = responder.provider_request_id.to_s
+        unless valid_provider_identifier?(model_identifier) && valid_provider_identifier?(provider_request_id)
+          return unavailable(candidate, "invalid_provider_provenance")
+        end
+
+        Response.new(
+          output: output,
+          metadata: metadata(candidate, source).merge(
+            "model_identifier" => model_identifier,
+            "provider_request_id" => provider_request_id,
+            "output_chars" => output.length
+          ),
+          fallback_only: false
+        )
       rescue StandardError => error
         Rails.logger.warn("[Mia::PersonaRelease::LiveBehavioralAdapter] unavailable error=#{error.class}")
         unavailable(candidate, "model_error")
@@ -65,6 +79,10 @@ module Mia
           "privacy_mode" => "no_participant_or_household_data",
           "max_output_chars" => MAX_OUTPUT_CHARS
         }
+      end
+
+      def valid_provider_identifier?(value)
+        value.present? && value.length <= 200 && value.match?(/\A[^\s[:cntrl:]]+\z/)
       end
     end
   end

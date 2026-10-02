@@ -93,6 +93,8 @@ module Mia
               output: result.output,
               assertion_results: result.assertion_results,
               adapter_metadata: result.adapter_metadata,
+              model_identifier: result.adapter_metadata["model_identifier"],
+              provider_request_id: result.adapter_metadata["provider_request_id"],
               fallback_only: result.fallback_only?,
               digest: result.result_digest
             }

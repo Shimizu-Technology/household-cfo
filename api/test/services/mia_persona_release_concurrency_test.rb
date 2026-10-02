@@ -10,7 +10,14 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
     def kind = "test_live_model"
 
     def call(evaluation_case:, persona:, candidate:)
-      Response.new(output: "Review the exact candidate.", metadata: { "source" => "live_model" }, fallback_only: false)
+      Response.new(
+        output: "Review the exact candidate.",
+        metadata: {
+          "source" => "live_model", "model_identifier" => "test-model",
+          "provider_request_id" => "gen-test-concurrency-run"
+        },
+        fallback_only: false
+      )
     end
   end
 
@@ -87,6 +94,7 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
       preview: {
         status: "ready", source: "live_model", sample_prompt: "Review this fictional household.",
         sample_reply: "Review the exact candidate.", model_identifier: "test-model",
+        provider_request_id: "gen-test-concurrency",
         context_digest: Mia::PersonaPreviewer.context_digest
       }
     )

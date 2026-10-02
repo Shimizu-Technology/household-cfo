@@ -14,8 +14,8 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
   validates :prompt, presence: true, length: { maximum: 2_000 }
   validates :output, presence: true, length: { maximum: 4_000 }
   validates :response_source, inclusion: { in: [ "live_model" ] }
-  validates :model_identifier, presence: true, length: { maximum: 200 }
-  validates :provider_request_id, length: { maximum: 200 }, allow_nil: true
+  validates :model_identifier, :provider_request_id, presence: true, length: { maximum: 200 },
+    format: { with: /\A[^\s[:cntrl:]]+\z/ }
   validates :privacy_scope, inclusion: { in: [ PRIVACY_SCOPE ] }
   validates :context_digest, :candidate_digest, :config_digest, :content_manifest_digest,
     :phrase_manifest_digest, :evidence_digest, format: { with: /\A[0-9a-f]{64}\z/ }
@@ -48,8 +48,14 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
   end
 
   def integrity_valid?
-    release_candidate&.integrity_valid? && candidate_snapshot_matches? &&
+    release_candidate&.integrity_valid? && provider_provenance_valid? && candidate_snapshot_matches? &&
       evidence_digest.present? && ActiveSupport::SecurityUtils.secure_compare(evidence_digest, self.class.digest_for(self))
+  end
+
+  def provider_provenance_valid?
+    [ model_identifier, provider_request_id ].all? do |value|
+      value.to_s.present? && value.to_s.length <= 200 && value.to_s.match?(/\A[^\s[:cntrl:]]+\z/)
+    end
   end
 
   private

@@ -69,6 +69,7 @@ module PersonaTestHelper
       preview: {
         status: "ready", source: "live_model", sample_prompt: "Help this fictional household plan.",
         sample_reply: "Review the confirmed plan and choose one next step.", model_identifier: "test-model",
+        provider_request_id: "gen-test-helper",
         context_digest: Mia::PersonaPreviewer.context_digest
       }
     )

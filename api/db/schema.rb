@@ -523,7 +523,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
     t.string "phrase_manifest_digest", null: false
     t.string "privacy_scope", null: false
     t.text "prompt", null: false
-    t.string "provider_request_id"
+    t.string "provider_request_id", null: false
     t.string "response_source", null: false
     t.datetime "updated_at", null: false
     t.index ["coach_persona_release_candidate_id"], name: "idx_persona_behavioral_previews_candidate"
@@ -531,7 +531,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
     t.index ["generated_by_user_id"], name: "idx_on_generated_by_user_id_90cd84d1a1"
     t.check_constraint "char_length(prompt) >= 1 AND char_length(prompt) <= 2000 AND char_length(output) >= 1 AND char_length(output) <= 4000 AND char_length(model_identifier::text) >= 1 AND char_length(model_identifier::text) <= 200 AND response_source::text = 'live_model'::text AND privacy_scope::text = 'no_saved_participant_or_household_data'::text", name: "persona_behavioral_previews_bounded"
     t.check_constraint "context_digest::text ~ '^[0-9a-f]{64}$'::text AND candidate_digest::text ~ '^[0-9a-f]{64}$'::text AND config_digest::text ~ '^[0-9a-f]{64}$'::text AND content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_behavioral_previews_digest_shape"
-    t.check_constraint "provider_request_id IS NULL OR char_length(provider_request_id::text) >= 1 AND char_length(provider_request_id::text) <= 200", name: "persona_behavioral_previews_request_id_bounded"
+    t.check_constraint "char_length(provider_request_id::text) >= 1 AND char_length(provider_request_id::text) <= 200 AND provider_request_id::text !~ '[[:space:][:cntrl:]]'::text", name: "persona_behavioral_previews_request_id_bounded"
+    t.check_constraint "model_identifier::text !~ '[[:space:][:cntrl:]]'::text", name: "persona_behavioral_previews_model_identifier_concrete"
   end
 
   create_table "coach_persona_draft_content_packs", force: :cascade do |t|

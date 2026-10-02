@@ -76,6 +76,9 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     run_payload = response.parsed_body.fetch("evaluation_run")
     assert_equal "passed", run_payload.fetch("status")
     assert_equal false, run_payload.fetch("results").any? { |result| result.fetch("fallback_only") }
+    custom_result = run_payload.fetch("results").find { |result| result.dig("case", "id") == custom_case_id }
+    assert_equal "test-model", custom_result.fetch("model_identifier")
+    assert_equal "gen-test-live-evaluation", custom_result.fetch("provider_request_id")
     assert_equal owner.id, run_payload.dig("requested_by", "id")
     post "/api/v1/admin/personas/#{persona.id}/evaluation_runs",
       params: { evaluation_run: { request_id: run_request_id } }, headers: headers, as: :json
@@ -94,6 +97,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
       preview: {
         status: "ready", source: "live_model", sample_prompt: "Test the exact candidate.",
         sample_reply: "Review the exact candidate facts.", model_identifier: "test-model",
+        provider_request_id: "gen-test-controller",
         context_digest: Mia::PersonaPreviewer.context_digest
       }
     )
@@ -274,7 +278,10 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     Mia::PersonaRelease::LiveBehavioralAdapter.define_method(:call) do |evaluation_case:, persona:, candidate:|
       Mia::PersonaRelease::BehavioralAdapter::Response.new(
         output: "Review the exact candidate facts before choosing the next step.",
-        metadata: { "source" => "live_model", "candidate_digest" => candidate.manifest_digest },
+        metadata: {
+          "source" => "live_model", "candidate_digest" => candidate.manifest_digest,
+          "model_identifier" => "test-model", "provider_request_id" => "gen-test-live-evaluation"
+        },
         fallback_only: false
       )
     end
