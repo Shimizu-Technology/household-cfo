@@ -604,6 +604,7 @@ async function mockDemoApi(page: Page) {
   let personaBehavioralPreviewEvidence: null | {
     id: number; candidate_id: number; candidate_digest: string; config_digest: string; content_manifest_digest: string
     phrase_manifest_digest: string; prompt: string; output: string; source: 'live_model'; model: string
+    provider_request_id?: string | null
     privacy_scope: 'no_saved_participant_or_household_data'; context_digest: string
     generated_by: { id: number; full_name: string }; generated_at: string; digest: string; valid: boolean
   } = null
@@ -1056,7 +1057,10 @@ async function mockDemoApi(page: Page) {
               ? 'Please contact emergency services or call or text 988 now.'
               : 'I am a digital assistant guided by Mrs. Mel’s approved coaching approach.',
             assertion_results: evaluationCase.assertions.map((assertion) => ({ type: assertion.type, passed: true })),
-            adapter_metadata: { source: 'behavioral_model' }, fallback_only: false, digest: `result-${index + 1}`,
+            adapter_metadata: evaluationCase.kind === 'custom'
+              ? { source: 'live_model', model: 'openai/gpt-test', provider_request_id: `gen-evaluation-${index + 1}` }
+              : { source: 'deterministic_policy' },
+            fallback_only: false, digest: `result-${index + 1}`,
           })),
         }
       }
@@ -1124,7 +1128,7 @@ async function mockDemoApi(page: Page) {
         id: 851, candidate_id: 701, candidate_digest: `candidate-${persona.draft_revision}`, config_digest: `config-${persona.draft_revision}`,
         content_manifest_digest: `content-${persona.draft_revision}`, phrase_manifest_digest: `phrases-${persona.draft_revision}`,
         prompt: body.sample_prompt ?? 'How should I decide?', output: 'Start by deciding whether this is a need or a want, then name the budget category that would cover it.',
-        source: 'live_model', model: 'openai/gpt-test', privacy_scope: 'no_saved_participant_or_household_data', context_digest: 'preview-context-v1',
+        source: 'live_model', model: 'openai/gpt-test', provider_request_id: 'gen-preview-123', privacy_scope: 'no_saved_participant_or_household_data', context_digest: 'preview-context-v1',
         generated_by: { id: 900, full_name: 'Pilot Admin' }, generated_at: '2026-10-01T01:00:00Z', digest: `behavioral-preview-${persona.draft_revision}`, valid: true,
       }
       persona = { ...persona, preview: { digest, draft_revision: persona.draft_revision, generated_at: '2026-10-01T01:00:00Z' }, preview_required: false }
@@ -4251,6 +4255,7 @@ test('Coach Studio preserves coach-authored community context through preview, p
   const preview = page.getByRole('region', { name: 'Sealed behavioral preview evidence' })
   await expect(preview).toContainText('Saved live-model preview')
   await expect(preview).toContainText('openai/gpt-test')
+  await expect(preview).toContainText('gen-preview-123')
   await expect(preview).toContainText('No saved participant or household data was used.')
   await page.getByText('Locked system guardrails').click()
   await expect(page.getByText('Do not imitate accents or invent cultural stereotypes.')).toBeVisible()
@@ -5682,6 +5687,34 @@ test('Coach Studio publishes only the exact reviewed release evidence', async ({
   })
 })
 
+test('Coach Studio appends opposite phrase audience decisions across responsive layouts', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
+  await page.getByRole('tab', { name: /Community/ }).click()
+  await page.getByRole('button', { name: 'Add phrase' }).click()
+  const phraseInput = page.getByLabel('Phrase', { exact: true })
+  await phraseInput.fill('')
+  await phraseInput.pressSequentially('Pause, name the number, then choose.')
+  await expect(phraseInput).toHaveValue('Pause, name the number, then choose.')
+  await page.getByRole('button', { name: 'Save draft' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Draft saved' })).toBeVisible()
+
+  await page.getByRole('button', { name: 'Approve for this audience' }).click()
+  await expect(page.getByText(/Earlier attestations remain in the audit history/i)).toBeVisible()
+  const rejectAfterReview = page.getByRole('button', { name: 'Record rejection after re-review' })
+  await expect(rejectAfterReview).toBeEnabled()
+  await rejectAfterReview.click()
+
+  await expect(page.getByRole('status').filter({ hasText: /new rejection is now effective/i })).toBeVisible()
+  const approveAfterReview = page.getByRole('button', { name: 'Record approval after re-review' })
+  await expect(approveAfterReview).toBeEnabled()
+  await approveAfterReview.click()
+
+  await expect(page.getByRole('status').filter({ hasText: /new approval is now effective/i })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Record rejection after re-review' })).toBeEnabled()
+  expect(Math.round(await page.getByRole('button', { name: 'Record rejection after re-review' }).evaluate((element) => element.getBoundingClientRect().height))).toBeGreaterThanOrEqual(44)
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
 test('Coach Studio manages typed live-model scenarios across responsive layouts', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('button', { name: 'Add live-model scenario' }).click()
@@ -5699,6 +5732,12 @@ test('Coach Studio manages typed live-model scenarios across responsive layouts'
   await scenario.getByText('Scenario and assertions').click()
   await expect(scenario).toContainText('includes at least one')
   await expect(scenario).toContainText('1200 characters')
+
+  await page.getByRole('button', { name: /Run checks for this draft|Run checks again/ }).click()
+  const liveResult = page.getByRole('region', { name: 'Release check results' }).locator('.persona-release-result').filter({ hasText: 'Explains an event tradeoff' })
+  await liveResult.getByText('Explains an event tradeoff').click()
+  await expect(liveResult).toContainText('openai/gpt-test')
+  await expect(liveResult).toContainText('gen-evaluation-3')
 
   page.once('dialog', (dialog) => dialog.accept())
   await scenario.getByRole('button', { name: 'Retire scenario' }).click()

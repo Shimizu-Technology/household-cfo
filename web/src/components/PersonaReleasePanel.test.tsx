@@ -38,7 +38,7 @@ const evaluationCaseContract = { name_max_chars: 120, prompt_max_chars: 2000, ma
 const previewEvidence: AdminPersonaBehavioralPreviewEvidence = {
   id: 14, candidate_id: 8, candidate_digest: 'candidate-digest', config_digest: 'config-digest', content_manifest_digest: 'content-digest',
   phrase_manifest_digest: 'phrase-digest', prompt: 'Can I spend $100 this weekend?', output: 'Review the plan first, then choose one amount.',
-  source: 'live_model', model: 'openai/gpt-test', privacy_scope: 'no_saved_participant_or_household_data', context_digest: 'context-digest',
+  source: 'live_model', model: 'openai/gpt-test', provider_request_id: 'gen-preview-123', privacy_scope: 'no_saved_participant_or_household_data', context_digest: 'context-digest',
   generated_by: { id: 2, full_name: 'Coach Editor' }, generated_at: '2026-10-02T00:00:00Z', digest: 'behavioral-preview-digest', valid: true,
 }
 function makeReadiness(overrides: Partial<AdminPersonaReleaseReadiness> = {}): AdminPersonaReleaseReadiness {
@@ -83,6 +83,7 @@ describe('PersonaReleasePanel', () => {
     expect(screen.getByRole('button', { name: 'Add live-model scenario' })).toBeTruthy()
     expect(screen.getByText('Women building a steadier household plan.')).toBeTruthy()
     expect(screen.getByText('Island shipping costs')).toBeTruthy()
+    expect(screen.getByText('gen-preview-123')).toBeTruthy()
     const publish = screen.getByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
     expect(publish.disabled).toBe(false); await userEvent.click(publish)
     expect(onPublish).toHaveBeenCalledWith({ release_candidate_digest: 'candidate-digest', evaluation_run_digest: 'run-digest', evaluation_approval_digest: 'approval-digest', behavioral_preview_digest: 'behavioral-preview-digest' })
@@ -139,6 +140,54 @@ describe('PersonaReleasePanel', () => {
     expect(await screen.findByText(/prior reviewer does not have current review access/i)).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: 'Approve with fresh review for this audience' }))
     await waitFor(() => expect(apiMocks.reviewAdminPersonaAudience).toHaveBeenCalledWith(5, expect.objectContaining({ artifact_id: 'phrase-1', decision: 'approved' })))
+  })
+
+  it('appends opposite phrase decisions while preserving prior attestations in audit history', async () => {
+    const phrase: AdminPersonaAudienceReview = {
+      artifact_id: 'phrase-1', artifact_fingerprint: 'phrase-fingerprint',
+      phrase: { text: 'One step at a time', meaning: 'Choose one practical action.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: 'Avoid urgent safety moments.' },
+      provenance: { kind: 'coach_authored', source_user_id: 2, source_role_at_capture: 'coach' },
+      decision: 'approved', reviewed: true, review_state: 'approved', authority_snapshot_valid: true,
+      authority_current: true, refresh_required: false, self_review: false, reviewer: { id: 3, full_name: 'Coach Reviewer' },
+      reviewed_at: '2026-10-02T00:02:00Z', attestation_digest: 'approval-attestation',
+    }
+    const approved = makeReadiness({ phrase_audience_reviews: [phrase] })
+    const rejectedPhrase = { ...phrase, decision: 'rejected' as const, review_state: 'rejected' as const, reviewed_at: '2026-10-02T00:03:00Z', attestation_digest: 'rejection-attestation' }
+    const rejected = makeReadiness({ ready: false, phrase_audience_reviews: [rejectedPhrase], blockers: ['Approve every phrase.'] })
+    const reapproved = makeReadiness({ phrase_audience_reviews: [{ ...phrase, reviewed_at: '2026-10-02T00:04:00Z', attestation_digest: 'second-approval-attestation' }] })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValueOnce(approved).mockResolvedValueOnce(rejected).mockResolvedValue(reapproved)
+    apiMocks.reviewAdminPersonaAudience.mockResolvedValue({})
+    renderPanel({ persona: { ...persona, release_readiness: approved } })
+
+    expect(await screen.findByText(/Earlier attestations remain in the audit history/i)).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Record approval after re-review/i })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Record rejection after re-review' }))
+    await waitFor(() => expect(apiMocks.reviewAdminPersonaAudience).toHaveBeenLastCalledWith(5, expect.objectContaining({ decision: 'rejected' })))
+    expect(await screen.findByRole('button', { name: 'Record approval after re-review' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Record rejection after re-review/i })).toBeNull()
+    await userEvent.click(screen.getByRole('button', { name: 'Record approval after re-review' }))
+    await waitFor(() => expect(apiMocks.reviewAdminPersonaAudience).toHaveBeenLastCalledWith(5, expect.objectContaining({ decision: 'approved' })))
+    expect(await screen.findByRole('button', { name: 'Record rejection after re-review' })).toBeTruthy()
+  })
+
+  it('shows model provenance only for custom live-model results', async () => {
+    const customCase: AdminPersonaEvaluationCase = { ...systemCase, id: 22, system_key: null, kind: 'custom', name: 'Event tradeoff', required: false }
+    const customRun: AdminPersonaEvaluationRun = {
+      ...run,
+      results: [
+        { ...run.results![0], adapter_metadata: { model: 'deterministic/internal', provider_request_id: 'must-not-display' } },
+        { id: 12, case: customCase, status: 'passed', output: 'Review the budget and tradeoff.', assertion_results: [{ type: 'includes_any', passed: true }], adapter_metadata: { model: 'openai/gpt-live', provider_request_id: 'gen-evaluation-456' }, fallback_only: false, digest: 'custom-result-digest' },
+      ],
+    }
+    apiMocks.fetchAdminPersonaEvaluationRuns.mockResolvedValue([customRun])
+    apiMocks.fetchAdminPersonaEvaluationRun.mockResolvedValue(customRun)
+    renderPanel()
+
+    await userEvent.click(await screen.findByText('Event tradeoff'))
+    expect(screen.getByText('openai/gpt-live')).toBeTruthy()
+    expect(screen.getByText('gen-evaluation-456')).toBeTruthy()
+    expect(screen.getAllByText('gen-evaluation-456')).toHaveLength(1)
+    expect(screen.queryByText('must-not-display')).toBeNull()
   })
 
   it('shows failed assertions and withholds human approval', async () => {

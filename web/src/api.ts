@@ -1351,6 +1351,7 @@ export type AdminPersonaBehavioralPreviewEvidence = {
   output: string
   source: 'live_model'
   model: string
+  provider_request_id?: string | null
   privacy_scope: 'no_saved_participant_or_household_data'
   context_digest: string
   generated_by: AdminPersonaUser

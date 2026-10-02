@@ -356,7 +356,10 @@ export function PersonaReleasePanel({
   async function reviewPhrase(artifactId: string, decision: 'approved' | 'rejected') {
     const candidate = readiness?.candidate
     const review = readiness?.phrase_audience_reviews.find((item) => item.artifact_id === artifactId)
-    if (!candidate || !review || (review.reviewed && review.review_state === 'approved') || !readiness.permissions.review_phrase_audiences || action || parentBusy) return
+    const latestEffectiveDecision = review?.reviewed && (review.review_state === 'approved' || review.review_state === 'rejected')
+      ? review.decision
+      : null
+    if (!candidate || !review || latestEffectiveDecision === decision || !readiness.permissions.review_phrase_audiences || action || parentBusy) return
     const ticket = mutationLifecycle.begin()
     setAction(`phrase:${artifactId}:${decision}`)
     setError(null)
@@ -371,9 +374,11 @@ export function PersonaReleasePanel({
       if (!mutationLifecycle.isCurrent(ticket)) return
       await loadReleaseState({ quiet: true, preferredRunId: selectedRun?.id })
       if (!mutationLifecycle.isCurrent(ticket)) return
-      setNotice(decision === 'approved'
-        ? 'The phrase is approved for this exact audience and community context.'
-        : 'The phrase was rejected for this audience. Remove or replace it in the assistant draft, then run fresh checks.')
+      setNotice(latestEffectiveDecision
+        ? `The new ${decision === 'approved' ? 'approval' : 'rejection'} is now effective. The prior ${latestEffectiveDecision === 'approved' ? 'approval' : 'rejection'} remains in the audit history.`
+        : decision === 'approved'
+          ? 'The phrase is approved for this exact audience and community context.'
+          : 'The phrase was rejected for this audience. Remove or replace it in the assistant draft, then run fresh checks.')
     } catch (caught) {
       if (!mutationLifecycle.isCurrent(ticket)) return
       await loadReleaseState({ quiet: true, preferredRunId: selectedRun?.id })
@@ -558,7 +563,11 @@ function GuardrailCase({ evaluationCase }: { evaluationCase: AdminPersonaEvaluat
 
 function RunResult({ run }: { run: AdminPersonaEvaluationRun }) {
   const active = !TERMINAL_RUN_STATUSES.has(run.status)
-  return <section className={`persona-release-run is-${run.status}`} aria-label="Release check results"><header><div><strong>{run.status === 'passed' ? 'All release checks passed' : run.status === 'failed' ? 'Release checks need attention' : run.status === 'error' ? 'Checks could not finish' : run.execution.recoverable ? 'Evaluation needs recovery' : run.status === 'pending' ? 'Evaluation is queued' : 'Checks are running'}</strong><small>{run.requested_by ? `Run by ${run.requested_by.full_name}` : 'Workspace evaluation'} · {formatDate(run.completed_at ?? run.started_at ?? run.enqueued_at)}</small></div><StepState complete={run.passed} label={run.execution.recoverable ? 'Recovery available' : run.status} /></header>{active && <p className={`persona-release-execution ${run.execution.recoverable ? 'is-recoverable' : ''}`}>{run.execution.recoverable ? 'The worker lease expired before this saved run finished. Recovery safely replays the same request and does not create another run.' : run.execution.active_lease ? `A worker holds the active lease. Status checks use the saved run${run.execution.lease_expires_at ? ` through ${formatDate(run.execution.lease_expires_at)}` : ''}.` : 'The saved run is waiting for a worker. Checking status will not create another run.'}</p>}{run.results?.map((result) => <details key={result.id} className="persona-release-result" open={result.status !== 'passed'}><summary><span>{result.case.name}</span><StepState complete={result.status === 'passed' && !result.fallback_only} label={result.fallback_only ? 'Fallback output' : result.status} /></summary><div><div><small>{result.case.kind === 'system' ? 'Policy scenario' : 'Live-model prompt'}</small><p>{result.case.prompt}</p></div><div><small>{result.case.kind === 'system' ? 'Configuration and policy result' : 'Live-model answer'}</small><blockquote>{result.output}</blockquote></div><ul>{result.assertion_results.map((assertion, index) => <li key={`${assertion.type}-${index}`} className={assertion.passed ? 'is-passed' : 'is-failed'}>{assertion.passed ? 'Passed' : 'Failed'}: {assertionLabel(result.case.assertions[index] ?? { type: assertion.type })}</li>)}</ul></div></details>)}</section>
+  return <section className={`persona-release-run is-${run.status}`} aria-label="Release check results"><header><div><strong>{run.status === 'passed' ? 'All release checks passed' : run.status === 'failed' ? 'Release checks need attention' : run.status === 'error' ? 'Checks could not finish' : run.execution.recoverable ? 'Evaluation needs recovery' : run.status === 'pending' ? 'Evaluation is queued' : 'Checks are running'}</strong><small>{run.requested_by ? `Run by ${run.requested_by.full_name}` : 'Workspace evaluation'} · {formatDate(run.completed_at ?? run.started_at ?? run.enqueued_at)}</small></div><StepState complete={run.passed} label={run.execution.recoverable ? 'Recovery available' : run.status} /></header>{active && <p className={`persona-release-execution ${run.execution.recoverable ? 'is-recoverable' : ''}`}>{run.execution.recoverable ? 'The worker lease expired before this saved run finished. Recovery safely replays the same request and does not create another run.' : run.execution.active_lease ? `A worker holds the active lease. Status checks use the saved run${run.execution.lease_expires_at ? ` through ${formatDate(run.execution.lease_expires_at)}` : ''}.` : 'The saved run is waiting for a worker. Checking status will not create another run.'}</p>}{run.results?.map((result) => {
+    const model = result.case.kind === 'custom' ? metadataString(result.adapter_metadata, 'model', 'model_identifier') : null
+    const providerReference = result.case.kind === 'custom' ? metadataString(result.adapter_metadata, 'provider_request_id') : null
+    return <details key={result.id} className="persona-release-result" open={result.status !== 'passed'}><summary><span>{result.case.name}</span><StepState complete={result.status === 'passed' && !result.fallback_only} label={result.fallback_only ? 'Fallback output' : result.status} /></summary><div><div><small>{result.case.kind === 'system' ? 'Policy scenario' : 'Live-model prompt'}</small><p>{result.case.prompt}</p></div><div><small>{result.case.kind === 'system' ? 'Configuration and policy result' : 'Live-model answer'}</small><blockquote>{result.output}</blockquote>{(model || providerReference) && <dl className="persona-release-evidence"><div><dt>Model</dt><dd>{model ?? 'Not recorded'}</dd></div>{providerReference && <div><dt>Provider reference</dt><dd>{providerReference}</dd></div>}</dl>}</div><ul>{result.assertion_results.map((assertion, index) => <li key={`${assertion.type}-${index}`} className={assertion.passed ? 'is-passed' : 'is-failed'}>{assertion.passed ? 'Passed' : 'Failed'}: {assertionLabel(result.case.assertions[index] ?? { type: assertion.type })}</li>)}</ul></div></details>
+  })}</section>
 }
 
 function PhraseAudienceReview({ review, canReview, disabled, onReview }: {
@@ -568,6 +577,7 @@ function PhraseAudienceReview({ review, canReview, disabled, onReview }: {
   onReview: (decision: 'approved' | 'rejected') => void
 }) {
   const approved = review.reviewed && review.review_state === 'approved'
+  const rejected = review.reviewed && review.review_state === 'rejected'
   const hasPriorEvidence = review.reviewer != null && review.reviewed_at != null
   const freshReviewLabel = hasPriorEvidence ? ' with fresh review' : ''
   const stateLabel = review.review_state === 'approved' ? 'Approved'
@@ -575,7 +585,7 @@ function PhraseAudienceReview({ review, canReview, disabled, onReview }: {
       : review.review_state === 'stale_authority' ? 'Reviewer access changed'
         : review.review_state === 'invalid' ? 'Evidence invalid'
           : 'Needs review'
-  return <article className="persona-release-phrase"><header><div><strong>{review.phrase.text}</strong><small>{humanize(review.provenance.kind)}</small></div><StepState complete={approved} label={stateLabel} /></header><p>{review.phrase.meaning}</p><dl><div><dt>Use for</dt><dd>{review.phrase.allowed_contexts.map(humanize).join(', ') || 'No approved contexts'}</dd></div><div><dt>Never use for</dt><dd>{review.phrase.prohibited_contexts.map(humanize).join(', ') || 'No prohibited contexts'}</dd></div><div><dt>Frequency</dt><dd>{humanize(review.phrase.frequency)}</dd></div><div><dt>Caution</dt><dd>{review.phrase.caution || 'None recorded'}</dd></div></dl>{hasPriorEvidence && <p className="persona-release-review-meta">{humanize(review.decision ?? 'reviewed')} by {review.reviewer?.full_name ?? 'workspace reviewer'}{review.reviewer_role ? ` (${humanize(review.reviewer_role)})` : ''} · {formatDate(review.reviewed_at)}{review.self_review ? ' · sole-owner self review' : ''}</p>}{review.review_state === 'stale_authority' && <p className="persona-release-alert is-note" role="note">This evidence no longer authorizes release because the prior reviewer does not have current review access. A current reviewer must record fresh evidence.</p>}{review.review_state === 'invalid' && <p className="persona-release-alert is-error" role="alert">The prior review evidence did not pass its integrity check. A current reviewer must record fresh evidence.</p>}{review.review_state === 'rejected' && <p className="coach-inline-note">The latest authorized decision rejects this phrase for the sealed audience. A current reviewer may record a fresh decision after review.</p>}{!approved && canReview ? <div className="persona-release-actions"><Button size="compact" onClick={() => onReview('approved')} disabled={disabled}>Approve{freshReviewLabel} for this audience</Button><Button size="compact" variant="danger" onClick={() => onReview('rejected')} disabled={disabled}>Reject{freshReviewLabel}</Button></div> : !approved ? <p className="coach-inline-note">Waiting for a workspace owner or reviewer.</p> : null}</article>
+  return <article className="persona-release-phrase"><header><div><strong>{review.phrase.text}</strong><small>{humanize(review.provenance.kind)}</small></div><StepState complete={approved} label={stateLabel} /></header><p>{review.phrase.meaning}</p><dl><div><dt>Use for</dt><dd>{review.phrase.allowed_contexts.map(humanize).join(', ') || 'No approved contexts'}</dd></div><div><dt>Never use for</dt><dd>{review.phrase.prohibited_contexts.map(humanize).join(', ') || 'No prohibited contexts'}</dd></div><div><dt>Frequency</dt><dd>{humanize(review.phrase.frequency)}</dd></div><div><dt>Caution</dt><dd>{review.phrase.caution || 'None recorded'}</dd></div></dl>{hasPriorEvidence && <p className="persona-release-review-meta">{humanize(review.decision ?? 'reviewed')} by {review.reviewer?.full_name ?? 'workspace reviewer'}{review.reviewer_role ? ` (${humanize(review.reviewer_role)})` : ''} · {formatDate(review.reviewed_at)}{review.self_review ? ' · sole-owner self review' : ''}</p>}{review.review_state === 'stale_authority' && <p className="persona-release-alert is-note" role="note">This evidence no longer authorizes release because the prior reviewer does not have current review access. A current reviewer must record fresh evidence.</p>}{review.review_state === 'invalid' && <p className="persona-release-alert is-error" role="alert">The prior review evidence did not pass its integrity check. A current reviewer must record fresh evidence.</p>}{(approved || rejected) && <p className="coach-inline-note">This is the latest effective decision. After re-review, an opposite decision adds a new attestation and becomes effective. Earlier attestations remain in the audit history.</p>}{canReview ? <div className="persona-release-actions">{!approved && <Button onClick={() => onReview('approved')} disabled={disabled}>{rejected ? 'Record approval after re-review' : `Approve${freshReviewLabel} for this audience`}</Button>}{!rejected && <Button variant="danger" onClick={() => onReview('rejected')} disabled={disabled}>{approved ? 'Record rejection after re-review' : `Reject${freshReviewLabel}`}</Button>}</div> : !approved ? <p className="coach-inline-note">Waiting for a workspace owner or reviewer.</p> : null}</article>
 }
 
 function AudienceSnapshot({ readiness }: { readiness: AdminPersonaReleaseReadiness }) {
@@ -585,7 +595,7 @@ function AudienceSnapshot({ readiness }: { readiness: AdminPersonaReleaseReadine
 }
 
 function BehavioralPreviewEvidence({ evidence, current, superseded }: { evidence: AdminPersonaBehavioralPreviewEvidence; current: boolean; superseded: boolean }) {
-  return <section className="persona-release-preview-evidence" aria-label="Sealed behavioral preview evidence"><header><div><strong>Saved live-model preview</strong><small>{evidence.model} · {formatDate(evidence.generated_at)}</small></div><StepState complete={current} label={current ? 'Evidence intact' : superseded ? 'Newer preview saved' : evidence.valid ? 'Earlier candidate' : 'Evidence invalid'} /></header><div><small>Fictional prompt</small><p>{evidence.prompt}</p></div><div><small>Model answer</small><blockquote>{evidence.output}</blockquote></div><dl><div><dt>Privacy scope</dt><dd>No saved participant or household data was used.</dd></div><div><dt>Generated by</dt><dd>{evidence.generated_by.full_name}</dd></div><div><dt>Evidence</dt><dd>{shortDigest(evidence.digest)}</dd></div></dl></section>
+  return <section className="persona-release-preview-evidence" aria-label="Sealed behavioral preview evidence"><header><div><strong>Saved live-model preview</strong><small>{evidence.model} · {formatDate(evidence.generated_at)}</small></div><StepState complete={current} label={current ? 'Evidence intact' : superseded ? 'Newer preview saved' : evidence.valid ? 'Earlier candidate' : 'Evidence invalid'} /></header><div><small>Fictional prompt</small><p>{evidence.prompt}</p></div><div><small>Model answer</small><blockquote>{evidence.output}</blockquote></div><dl><div><dt>Model</dt><dd>{evidence.model}</dd></div>{evidence.provider_request_id && <div><dt>Provider reference</dt><dd>{evidence.provider_request_id}</dd></div>}<div><dt>Privacy scope</dt><dd>No saved participant or household data was used.</dd></div><div><dt>Generated by</dt><dd>{evidence.generated_by.full_name}</dd></div><div><dt>Evidence</dt><dd>{shortDigest(evidence.digest)}</dd></div></dl></section>
 }
 
 function PreviewSummary({ preview, current }: { preview: AdminPersonaPreview; current: boolean }) {
@@ -673,6 +683,14 @@ function formatDate(value: string | null | undefined) {
 
 function shortDigest(value: string | null | undefined) {
   return value ? `${value.slice(0, 12)}…` : 'Not available'
+}
+
+function metadataString(metadata: Record<string, unknown>, ...keys: string[]) {
+  for (const key of keys) {
+    const value = metadata[key]
+    if (typeof value === 'string' && value.trim()) return value.trim()
+  }
+  return null
 }
 
 function humanize(value: string) {
