@@ -152,10 +152,57 @@ module Mia
 
       attr_reader :api_key, :model, :transport
 
+      PERSONA_ARTIFACT_CLAIM_PATTERN = /(?:
+        (?:assistant|program|coach)(?:['’]s)?\s+(?:name|description|voice|tone)|
+        persona\s+(?:description|voice|tone)|
+        assistant|
+        persona(?:\s+(?:draft|configuration|settings?))?|
+        setup|
+        draft|
+        changes?|
+        assignment|
+        description|
+        (?:coaching\s+)?(?:philosophy|principles?)|
+        (?:approved\s+)?phrases?|
+        (?:voice|tone|language|energy|accountability)\s+(?:style|settings?|traits?)|
+        (?:locale|culture|response|curriculum)\s+(?:label|context|settings?|guidance|scripts?|examples?)
+      )/ix
+      PERSONA_MUTATION_CLAIM_PATTERN = /(?:
+        updat(?:e|ed|ing)|
+        chang(?:e|ed|ing)|
+        add(?:ed|ing)?|
+        remov(?:e|ed|ing)|
+        delet(?:e|ed|ing)|
+        renam(?:e|ed|ing)|
+        revis(?:e|ed|ing)|
+        edit(?:ed|ing)?|
+        modif(?:y|ied|ying)|
+        adjust(?:ed|ing)?|
+        replac(?:e|ed|ing)|
+        customiz(?:e|ed|ing)|
+        configur(?:e|ed|ing)|
+        creat(?:e|ed|ing)|
+        mak(?:e|ing)|
+        made|
+        insert(?:ed|ing)?|
+        record(?:ed|ing)?|
+        writ(?:e|ten|ing)|
+        wrote|
+        set(?:ting)?|
+        sav(?:e|ed|ing)|
+        appl(?:y|ied|ying)|
+        complet(?:e|ed|ing)|
+        finish(?:ed|ing)?|
+        publish(?:ed|ing)?|
+        assign(?:ed|ing)?|
+        activat(?:e|ed|ing)|
+        deploy(?:ed|ing)?
+      )/ix
       COMPLETION_CLAIM_PATTERNS = [
-        /\b(?:I|I've|I have|we|we've|we have|Mia|Mia has)\s+(?:now\s+)?(?:published|assigned|applied|saved|completed)\b/i,
-        /\b(?:the|your|this)\s+(?:changes?|draft|persona|assistant|setup|assignment)\s+(?:has|have|is|are|was|were)\s+(?:now\s+)?(?:been\s+)?(?:published|assigned|applied|saved|completed)\b/i,
-        /\b(?:published|assigned|applied|saved|completed)\s+(?:the|your|this)\s+(?:changes?|draft|persona|assistant|setup|assignment)\b/i,
+        /\b(?:I|I['’]ve|I\s+have|I['’]m|I\s+am|we|we['’]ve|we\s+have|we['’]re|we\s+are|Mia|Mia\s+has)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*#{PERSONA_MUTATION_CLAIM_PATTERN}\s+(?:the\s+|your\s+|this\s+|a\s+|an\s+)?#{PERSONA_ARTIFACT_CLAIM_PATTERN}\b/ix,
+        /\b(?:the|your|this)\s+#{PERSONA_ARTIFACT_CLAIM_PATTERN}\s+(?:has|have|is|are|was|were)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*(?:been\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix,
+        /(?:\A|[.!?]\s+)(?:successfully\s+|now\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\s+(?:the\s+|your\s+|this\s+|a\s+|an\s+)#{PERSONA_ARTIFACT_CLAIM_PATTERN}\b/ix,
+        /\b(?:the|your|this)\s+(?:persona|assistant|setup|persona\s+draft)\s+(?:is|are|was|were)\s+(?:now\s+)?(?:ready(?=\s*(?:[.!?]|\z))|ready\s+(?:to|for)\s+(?:use|publish(?:ing)?|assign(?:ment)?|deploy(?:ment)?|activat(?:e|ion)|launch(?:ing)?|go\s+live)|complete|completed|finished|live|active|all\s+set|good\s+to\s+go)\b/i,
         /\A\s*(?:done|all set|completed|finished)[.!]?\s*\z/i
       ].freeze
 

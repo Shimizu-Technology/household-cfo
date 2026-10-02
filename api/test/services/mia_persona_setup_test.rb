@@ -553,6 +553,21 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       "The changes have been applied.",
       "The draft is now saved.",
       "The setup is completed.",
+      "I updated the assistant name.",
+      "I changed the coaching philosophy.",
+      "I added the approved phrase.",
+      "Your persona is ready to use.",
+      "We're updating the assistant tone now.",
+      "Mia has set the locale label.",
+      "The coaching principles have been revised.",
+      "I modified your persona description.",
+      "I wrote the coaching philosophy.",
+      "Your persona is good to go.",
+      "I made the change.",
+      "I made the changes.",
+      "Your persona is ready.",
+      "Removed the phrase.",
+      "Your setup is complete.",
       "All set."
     ].each do |message|
       response = provider_response(
@@ -567,15 +582,21 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       assert_equal "persona_setup_invalid", error.code
     end
 
-    response = provider_response(
-      model: "exact/model",
-      content: JSON.generate(
-        "assistant_message" => "I prepared one draft change for review. Nothing has been saved.",
-        "operations" => operations
+    [
+      "I prepared one draft change for review. Nothing has been saved.",
+      "Your persona draft is ready for review. Apply it only if it looks right.",
+      "I changed my mind about the order of these questions.",
+      "I changed the tone of this explanation to make it clearer.",
+      "I added context below to explain this proposal."
+    ].each do |message|
+      response = provider_response(
+        model: "exact/model",
+        content: JSON.generate("assistant_message" => message, "operations" => operations)
       )
-    )
-    resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
-    assert_match(/Nothing has been saved/, resolver.call(context: {}, user_message: "Call the assistant Lina.").assistant_message)
+      resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+
+      assert_equal message, resolver.call(context: {}, user_message: "Call the assistant Lina.").assistant_message
+    end
   end
 
   test "provider usage retains only bounded nonnegative integer token counts" do
