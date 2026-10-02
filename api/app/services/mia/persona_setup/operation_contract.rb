@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "set"
 
 module Mia
   module PersonaSetup
@@ -47,7 +48,13 @@ module Mia
 
         before_state = PersonaDraftUpdater.state_for(persona)
         after_state = before_state.deep_dup
-        normalized = operations.map { |operation| normalize_operation(operation, after_state) }
+        mutation_targets = Set.new
+        normalized = operations.map do |operation|
+          normalize_operation(operation, after_state) do |normalized_operation|
+            target = mutation_target(normalized_operation)
+            raise ContractError, "Mia proposed more than one change to the same field." unless mutation_targets.add?(target)
+          end
+        end
         unless participant_artifacts(before_state) == participant_artifacts(after_state)
           raise ContractError, "Participant-supplied phrase artifacts cannot be changed by setup chat."
         end
@@ -91,6 +98,7 @@ module Mia
         validate_evidence!(op:, path:, value: operation["value"], source:, evidence:)
 
         normalized = { "op" => op, "path" => path, "value" => operation["value"], "source_basis" => source, "evidence_quote" => evidence }
+        yield normalized
         case op
         when "set"
           raise ContractError, "Mia tried to change a protected persona field." unless path.in?(SET_PATHS)
@@ -137,6 +145,20 @@ module Mia
 
         voice_request = user_message.match?(/\b(?:voice|tone|style|wording|language|warm|direct|calm|formal|concise|encouraging|lighthearted|patient)\b/i)
         raise ContractError, "A location label alone cannot authorize a voice or dialect change." unless source == "coach_quote" && voice_request
+
+        changed_exact_strings(path, value).each do |text|
+          next if text.blank? || (user_message.include?(text) && evidence.include?(text))
+
+          raise ContractError, "Every voice value must appear exactly in the coach's wording and cited evidence."
+        end
+      end
+
+      def mutation_target(operation)
+        return "set:#{operation.fetch('path')}" if operation.fetch("op") == "set"
+
+        value = PersonaSchema.normalize(operation.fetch("value"))
+        phrase = value.is_a?(Hash) ? value.fetch("text").to_s : value.to_s
+        "phrase:#{phrase.unicode_normalize(:nfkc).downcase.squish}"
       end
 
       def set_path!(state, path, value)

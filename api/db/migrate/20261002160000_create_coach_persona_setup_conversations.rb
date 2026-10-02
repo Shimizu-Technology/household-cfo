@@ -33,6 +33,8 @@ class CreateCoachPersonaSetupConversations < ActiveRecord::Migration[8.1]
       t.integer :position, null: false
       t.string :idempotency_key, null: false, limit: 200
       t.string :status, null: false, default: "processing"
+      t.integer :base_draft_revision, null: false
+      t.string :base_config_digest, null: false
       t.text :user_message, null: false
       t.text :assistant_message
       t.string :error_code
@@ -55,6 +57,10 @@ class CreateCoachPersonaSetupConversations < ActiveRecord::Migration[8.1]
       "status IN ('processing', 'ready', 'failed', 'stale')", name: "persona_setup_turns_status_valid"
     add_check_constraint :coach_persona_setup_turns,
       "position > 0", name: "persona_setup_turns_position_positive"
+    add_check_constraint :coach_persona_setup_turns,
+      "base_draft_revision > 0", name: "persona_setup_turns_revision_positive"
+    add_check_constraint :coach_persona_setup_turns,
+      "base_config_digest ~ '^[0-9a-f]{64}$'", name: "persona_setup_turns_digest_sha256"
     add_check_constraint :coach_persona_setup_turns,
       "char_length(user_message) BETWEEN 1 AND 4000", name: "persona_setup_turns_user_message_length"
     add_check_constraint :coach_persona_setup_turns,

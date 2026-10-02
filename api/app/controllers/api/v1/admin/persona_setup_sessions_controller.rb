@@ -43,21 +43,21 @@ module Api
 
         def rebase
           session = scoped_session
-          unless session.status == "active"
-            return render_error("This setup chat is no longer active.", code: "persona_setup_inactive", status: :conflict)
-          end
           ApplicationRecord.transaction do
             authorization = authorize_locked!(session.coach_persona)
             session.lock!
+            raise PersonaSessionConflict unless session.status == "active"
+
             mark_open_work_stale!(session, authorization.actor)
             session.update!(
-              status: "active",
               base_draft_revision: authorization.persona.draft_revision,
               base_config_digest: Mia::PersonaSchema.digest(authorization.persona.draft_config),
               last_activity_at: Time.current
             )
           end
           render_session(session.reload)
+        rescue PersonaSessionConflict
+          render_error("This setup chat is no longer active.", code: "persona_setup_inactive", status: :conflict)
         end
 
         def destroy
@@ -74,6 +74,7 @@ module Api
         private
 
         PersonaSessionError = Class.new(StandardError)
+        PersonaSessionConflict = Class.new(StandardError)
 
         def policy
           @policy ||= Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)

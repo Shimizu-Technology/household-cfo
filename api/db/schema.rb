@@ -535,6 +535,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
   end
   create_table "coach_persona_setup_turns", force: :cascade do |t|
     t.text "assistant_message"
+    t.string "base_config_digest", null: false
+    t.integer "base_draft_revision", null: false
     t.bigint "coach_persona_setup_session_id", null: false
     t.datetime "created_at", null: false
     t.string "error_code"
@@ -554,6 +556,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
     t.index ["coach_persona_setup_session_id"], name: "idx_persona_setup_turns_session"
     t.index ["id", "coach_persona_setup_session_id"], name: "idx_persona_setup_turns_id_session", unique: true
     t.check_constraint "(status::text <> 'processing'::text OR assistant_message IS NULL AND error_code IS NULL) AND (status::text <> 'ready'::text OR assistant_message IS NOT NULL AND error_code IS NULL) AND (status::text <> 'failed'::text OR error_code IS NOT NULL)", name: "persona_setup_turns_state_coherent"
+    t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_turns_digest_sha256"
+    t.check_constraint "base_draft_revision > 0", name: "persona_setup_turns_revision_positive"
     t.check_constraint "\"position\" > 0", name: "persona_setup_turns_position_positive"
     t.check_constraint "assistant_message IS NULL OR char_length(assistant_message) <= 2000", name: "persona_setup_turns_assistant_message_length"
     t.check_constraint "char_length(user_message) >= 1 AND char_length(user_message) <= 4000", name: "persona_setup_turns_user_message_length"

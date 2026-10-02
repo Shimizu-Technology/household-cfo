@@ -96,7 +96,12 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
 
     examples.each do |path, value|
       exact = Mia::PersonaSetup::OperationContract::RESTRICTED_EXACT_PATHS.include?(path)
-      evidence = exact ? Array(value).first.to_s : "approved"
+      evidence = if path.start_with?("voice.")
+        current = path.split(".").reduce(@persona.draft_config) { |target, key| target.to_h[key] }
+        ([ current, value ].flatten.grep(String).uniq).join(" ")
+      else
+        exact ? Array(value).first.to_s : "approved"
+      end
       message = path.start_with?("voice.") ? "approved voice tone #{evidence}" : "approved #{evidence}"
       result = begin
         Mia::PersonaSetup::OperationContract.new(actor: @coach, user_message: message, persona: @persona).build([
@@ -124,6 +129,16 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       contract.build([ operation("voice.tone_traits", [ "warm" ], evidence: "Guam") ])
     end
     assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(
+        actor: @coach, user_message: "Make it sound Southern.", persona: @persona
+      ).build([ operation("voice.tone_traits", [ "warm" ], evidence: "Southern") ])
+    end
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      Mia::PersonaSetup::OperationContract.new(
+        actor: @coach, user_message: "Please adjust the voice.", persona: @persona
+      ).build([ operation("voice.tone_traits", [ "calm" ], evidence: "voice") ])
+    end
+    assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       contract.build([
         {
           "op" => "add_phrase", "path" => "phrases", "source_basis" => "coach_quote", "evidence_quote" => "Guam",
@@ -131,6 +146,48 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
         }
       ])
     end
+  end
+
+  test "operation contract requires exact coach wording for every changed voice value" do
+    previous = Array(@persona.draft_config.dig("voice", "tone_traits"))
+    message = "Use a warm and direct tone, replacing #{previous.join(' and ')}."
+    result = Mia::PersonaSetup::OperationContract.new(
+      actor: @coach,
+      user_message: message,
+      persona: @persona
+    ).build([
+      operation("voice.tone_traits", [ "warm", "direct" ], evidence: message)
+    ])
+
+    assert_equal %w[warm direct], result.dig(:after_state, "draft_config", "voice", "tone_traits")
+  end
+
+  test "operation contract rejects duplicate mutation targets before sealing" do
+    contract = Mia::PersonaSetup::OperationContract.new(
+      actor: @coach,
+      user_message: "Use a warm tone and call the phrase Håfa adai.",
+      persona: @persona
+    )
+
+    duplicate_set = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      contract.build([
+        operation("description", "First", evidence: "Use"),
+        operation("description", "Second", evidence: "Use")
+      ])
+    end
+    assert_match(/more than one change/i, duplicate_set.message)
+
+    phrase = {
+      "text" => "Håfa adai", "meaning" => "Greeting", "allowed_contexts" => [ "greeting" ],
+      "prohibited_contexts" => [ "crisis" ], "frequency" => "rare", "caution" => ""
+    }
+    duplicate_phrase = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
+      contract.build([
+        { "op" => "add_phrase", "path" => "phrases", "value" => phrase, "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai" },
+        { "op" => "remove_phrase", "path" => "phrases", "value" => "Håfa adai", "source_basis" => "coach_quote", "evidence_quote" => "Håfa adai" }
+      ])
+    end
+    assert_match(/more than one change/i, duplicate_phrase.message)
   end
 
   test "operation contract cannot remove or rewrite participant phrase artifacts" do
@@ -176,14 +233,21 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
   end
 
   test "operation contract rejects an aggregate payload that exceeds the sealed proposal limit" do
-    operations = 24.times.map do |index|
-      operation("description", "#{index}-#{'x' * 1_900}", evidence: "approved")
+    evidence = "approved voice #{'e' * 470}"
+    operations = Mia::PersonaSetup::OperationContract::SET_PATHS.first(24).map do |path|
+      value = if path == "description"
+        @persona.description
+      else
+        path.split(".").reduce(@persona.draft_config) { |target, key| target.to_h[key] }
+      end
+      value = 10.times.map { { "participant" => "y" * 600, "assistant" => "z" * 1_200 } } if path == "curriculum.examples"
+      operation(path, value, evidence:)
     end
 
     error = assert_raises(Mia::PersonaSetup::OperationContract::ContractError) do
       Mia::PersonaSetup::OperationContract.new(
         actor: @coach,
-        user_message: "approved",
+        user_message: evidence,
         persona: @persona
       ).build(operations)
     end
@@ -212,7 +276,14 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
 
   test "context contains only bounded authoring data and strips phrase authority metadata" do
     config = @persona.draft_config.deep_dup
-    config["phrases"] = [ persona_phrase_artifact({ "text" => "Håfa adai" }, source_user_id: @coach.id) ]
+    config["phrases"] = [
+      persona_phrase_artifact({ "text" => "Håfa adai" }, source_user_id: @coach.id),
+      persona_phrase_artifact(
+        { "text" => "My private participant phrase" },
+        source_user_id: @coach.id,
+        provenance: "participant_supplied"
+      )
+    ]
     @persona.update!(draft_config: config)
     35.times do |index|
       @session.turns.create!(
@@ -232,6 +303,7 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     refute_includes JSON.generate(context), @coach.email
     refute_includes JSON.generate(context), "source_user_id"
     refute_includes JSON.generate(context), "fingerprint"
+    refute_includes JSON.generate(context), "My private participant phrase"
   end
 
   test "session serialization bounds the private transcript" do
@@ -279,6 +351,28 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
     assert_equal 2, persona.draft_revision
     assert_nil persona.preview_digest
     assert_equal "applied", result.proposal.reload.status
+  end
+
+  test "turn reserved on an older persona snapshot stays stale if a pending proposal is applied during provider work" do
+    prior = ready_proposal(name: "Lina")
+    resolver = fake_resolver do
+      Mia::PersonaSetup::ProposalApplier.new(proposal: prior, actor: @coach, workspace: @workspace)
+        .apply!(idempotency_key: "apply-during-provider")
+      resolver_result(
+        "Review this energy.",
+        [ operation("voice.energy", "steady", evidence: "steady") ]
+      )
+    end
+
+    result = Mia::PersonaSetup::TurnRunner.new(
+      session: @session, actor: @coach, workspace: @workspace, resolver:
+    ).call(user_message: "Use a steady voice energy.", idempotency_key: "snapshot-race-turn")
+
+    assert_equal "Lina", @persona.reload.name
+    assert_equal 2, @persona.draft_revision
+    assert_equal "stale", result.turn.reload.status
+    assert_nil result.proposal
+    assert_equal [ prior.id ], @session.proposals.pluck(:id)
   end
 
   test "turn runner strips unsafe control bytes before persistence and evidence checks" do
@@ -449,6 +543,39 @@ class MiaPersonaSetupTest < ActiveSupport::TestCase
       resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { flunk "transport must not run" })
       assert_equal "persona_setup_busy", assert_raises(Mia::PersonaSetup::ProposalResolver::Error) { resolver.call(context: {}, user_message: "Hello") }.code
     end
+  end
+
+  test "provider rejects assistant messages that falsely claim restricted actions completed" do
+    operations = [ operation("identity.assistant_name", "Lina", evidence: "Lina") ]
+    [
+      "I've published the persona.",
+      "I assigned the assistant to the cohort.",
+      "The changes have been applied.",
+      "The draft is now saved.",
+      "The setup is completed.",
+      "All set."
+    ].each do |message|
+      response = provider_response(
+        model: "exact/model",
+        content: JSON.generate("assistant_message" => message, "operations" => operations)
+      )
+      resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+
+      error = assert_raises(Mia::PersonaSetup::ProposalResolver::Error, message) do
+        resolver.call(context: {}, user_message: "Call the assistant Lina.")
+      end
+      assert_equal "persona_setup_invalid", error.code
+    end
+
+    response = provider_response(
+      model: "exact/model",
+      content: JSON.generate(
+        "assistant_message" => "I prepared one draft change for review. Nothing has been saved.",
+        "operations" => operations
+      )
+    )
+    resolver = Mia::PersonaSetup::ProposalResolver.new(api_key: "test", model: "exact/model", transport: ->(_) { response })
+    assert_match(/Nothing has been saved/, resolver.call(context: {}, user_message: "Call the assistant Lina.").assistant_message)
   end
 
   test "provider usage retains only bounded nonnegative integer token counts" do

@@ -31,7 +31,7 @@ module Mia
         return reserved if reserved.replayed
 
         turn = reserved.turn
-        context = ContextBuilder.new(session: reserved.session, persona: reserved.session.coach_persona).call
+        context = reserved_context!(turn.id)
         provider_result = resolver.call(context:, user_message: message)
         finalize_turn!(turn_id: turn.id, provider_result:)
       rescue ProposalResolver::Error => error
@@ -66,7 +66,14 @@ module Mia
           end
 
           position = session.turns.maximum(:position).to_i + 1
-          turn = session.turns.create!(position:, idempotency_key: key, status: "processing", user_message: message)
+          turn = session.turns.create!(
+            position:,
+            idempotency_key: key,
+            status: "processing",
+            user_message: message,
+            base_draft_revision: authorization.persona.draft_revision,
+            base_config_digest: PersonaSchema.digest(authorization.persona.draft_config)
+          )
           session.update!(last_activity_at: Time.current)
           Result.new(session:, turn:, proposal: nil, replayed: false)
         end
@@ -82,6 +89,20 @@ module Mia
         Result.new(session: retry_result.session, turn: retry_result, proposal: retry_result.proposal, replayed: true)
       end
 
+      def reserved_context!(turn_id)
+        ApplicationRecord.transaction do
+          authorization = authorize!
+          session = locked_session!
+          turn = session.turns.lock.find(turn_id)
+          unless turn.status == "processing" && turn_snapshot_current?(turn, session, authorization.persona)
+            turn.update!(status: "stale", assistant_message: "This response was stopped because the persona changed.") if turn.status == "processing"
+            raise Error.new("The persona changed. Rebase this setup chat before continuing.", code: "persona_setup_stale", status: :conflict)
+          end
+
+          ContextBuilder.new(session:, persona: authorization.persona).call
+        end
+      end
+
       def finalize_turn!(turn_id:, provider_result:)
         ApplicationRecord.transaction do
           authorization = authorize!
@@ -90,7 +111,7 @@ module Mia
           unless turn.status == "processing"
             return Result.new(session:, turn:, proposal: turn.proposal, replayed: true)
           end
-          unless session_current?(session, authorization.persona)
+          unless turn_snapshot_current?(turn, session, authorization.persona)
             turn.update!(status: "stale", assistant_message: "The persona changed while Mia was preparing this proposal. Rebase the setup chat and try again.")
             return Result.new(session:, turn:, proposal: nil, replayed: false)
           end
@@ -139,7 +160,7 @@ module Mia
           session = locked_session!
           turn = session.turns.lock.find_by(id: turn_id)
           return unless turn
-          if turn.status == "processing" && session_current?(session, authorization.persona)
+          if turn.status == "processing" && turn_snapshot_current?(turn, session, authorization.persona)
             turn.update!(
               status: "failed",
               error_code: code.to_s.first(80),
@@ -185,6 +206,11 @@ module Mia
       def session_current?(session, persona)
         !persona.archived? && session.status == "active" && session.base_draft_revision == persona.draft_revision &&
           secure_match?(session.base_config_digest, PersonaSchema.digest(persona.draft_config))
+      end
+
+      def turn_snapshot_current?(turn, session, persona)
+        session_current?(session, persona) && turn.base_draft_revision == persona.draft_revision &&
+          secure_match?(turn.base_config_digest, PersonaSchema.digest(persona.draft_config))
       end
 
       def stale_reserved_turn!(turn_id)

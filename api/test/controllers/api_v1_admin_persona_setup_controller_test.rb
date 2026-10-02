@@ -67,6 +67,36 @@ class ApiV1AdminPersonaSetupControllerTest < ActionDispatch::IntegrationTest
     assert_equal "persona_setup_inactive", response.parsed_body.fetch("code")
   end
 
+  test "rebase never revives inactive sessions when a replacement session exists" do
+    %w[abandoned completed].each do |status|
+      old_session = CoachPersonaSetupSession.create!(
+        coach_persona: @persona,
+        coach_workspace: @workspace,
+        created_by_user: @owner,
+        status:,
+        base_draft_revision: @persona.draft_revision,
+        base_config_digest: Mia::PersonaSchema.digest(@persona.draft_config),
+        last_activity_at: Time.current
+      )
+      replacement = CoachPersonaSetupSession.create!(
+        coach_persona: @persona,
+        coach_workspace: @workspace,
+        created_by_user: @owner,
+        base_draft_revision: @persona.draft_revision,
+        base_config_digest: Mia::PersonaSchema.digest(@persona.draft_config),
+        last_activity_at: Time.current
+      )
+
+      post "/api/v1/admin/personas/#{@persona.id}/setup_sessions/#{old_session.id}/rebase", headers: @headers, as: :json
+
+      assert_response :conflict
+      assert_equal "persona_setup_inactive", response.parsed_body.fetch("code")
+      assert_equal status, old_session.reload.status
+      assert_equal "active", replacement.reload.status
+      replacement.update!(status: "abandoned")
+    end
+  end
+
   test "turn proposal review apply and exact replay update only the draft" do
     session_id = create_setup_session
     resolver = fixed_resolver(

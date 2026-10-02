@@ -594,14 +594,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setDescription(state.description)
     setDraft(state.draft_config)
     setMode('guided')
-    const firstSegment = firstPath?.split('.')[0]
-    const step = guidedSteps.some((candidate) => candidate.id === firstSegment) ? firstSegment as GuidedStep : 'identity'
+    const step = guidedStepForPersonaPath(firstPath)
     setGuidedStep(step)
     setNotice('Proposal copied into the form for manual review. Save the draft when you are ready.')
     window.requestAnimationFrame(() => {
       const panel = document.querySelector<HTMLElement>(`[data-persona-step="${step}"]`)
-      panel?.scrollIntoView({ block: 'start' })
-      panel?.focus({ preventScroll: true })
+      const control = firstPath ? panel?.querySelector<HTMLElement>(`[data-persona-path="${firstPath}"]`) : null
+      const nestedField = control?.querySelector<HTMLElement>('input:not(:disabled), textarea:not(:disabled), select:not(:disabled)')
+      const nestedButton = control?.querySelector<HTMLElement>('button:not(:disabled)')
+      const target = nestedField ?? nestedButton ?? control ?? panel
+      target?.scrollIntoView({ block: 'start' })
+      target?.focus({ preventScroll: true })
     })
   }
 
@@ -887,6 +890,13 @@ function formatWorkspaceRole(role: string | null | undefined) {
   return (role ?? 'viewer').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase())
 }
 
+function guidedStepForPersonaPath(path: string | null): GuidedStep {
+  const root = path?.split('.')[0]
+  if (root === 'curriculum' || root === 'response_shape') return 'teaching'
+  if (root === 'phrases') return 'culture'
+  return guidedSteps.some((candidate) => candidate.id === root) ? root as GuidedStep : 'identity'
+}
+
 function PersonaEditor({
   draft,
   phraseArtifactAccess,
@@ -983,14 +993,14 @@ function renderEditorSection(
   if (step === 'identity') {
     return (
       <EditorFieldset legend="Who is this assistant?" copy="Use a distinct assistant name and name the human coach whose approved approach it applies.">
-        <TextInput label="Assistant name" value={draft.identity.assistant_name} maxLength={80} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, assistant_name: value } })} />
-        <TextInput label="Human coach name" value={draft.identity.human_coach_name} maxLength={120} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, human_coach_name: value } })} />
-        <TextInput label="Human coach title" value={draft.identity.human_coach_title} maxLength={120} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, human_coach_title: value } })} />
-        <TextInput label="Participant term" value={draft.identity.client_term} maxLength={80} help="For example: participant, household, member, or client." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, client_term: value } })} />
-        <TextArea label="Internal description" value={description} rows={2} help="Visible to staff in the assistant library." onChange={onDescriptionChange} />
-        <TextArea label="Audience" value={draft.identity.audience} maxLength={500} rows={3} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, audience: value } })} />
-        <TextArea label="Assistant relationship" value={draft.identity.assistant_relationship} maxLength={400} rows={3} help="Must clearly say this is a digital or AI assistant." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, assistant_relationship: value } })} />
-        <TextArea label="Disclosure shown to the model" value={draft.identity.disclosure} maxLength={500} rows={3} help="Keep the digital assistant identity explicit. This cannot be replaced by a human impersonation." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, disclosure: value } })} />
+        <TextInput label="Assistant name" personaPath="identity.assistant_name" value={draft.identity.assistant_name} maxLength={80} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, assistant_name: value } })} />
+        <TextInput label="Human coach name" personaPath="identity.human_coach_name" value={draft.identity.human_coach_name} maxLength={120} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, human_coach_name: value } })} />
+        <TextInput label="Human coach title" personaPath="identity.human_coach_title" value={draft.identity.human_coach_title} maxLength={120} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, human_coach_title: value } })} />
+        <TextInput label="Participant term" personaPath="identity.client_term" value={draft.identity.client_term} maxLength={80} help="For example: participant, household, member, or client." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, client_term: value } })} />
+        <TextArea label="Internal description" personaPath="description" value={description} rows={2} help="Visible to staff in the assistant library." onChange={onDescriptionChange} />
+        <TextArea label="Audience" personaPath="identity.audience" value={draft.identity.audience} maxLength={500} rows={3} onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, audience: value } })} />
+        <TextArea label="Assistant relationship" personaPath="identity.assistant_relationship" value={draft.identity.assistant_relationship} maxLength={400} rows={3} help="Must clearly say this is a digital or AI assistant." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, assistant_relationship: value } })} />
+        <TextArea label="Disclosure shown to the model" personaPath="identity.disclosure" value={draft.identity.disclosure} maxLength={500} rows={3} help="Keep the digital assistant identity explicit. This cannot be replaced by a human impersonation." onChange={(value) => onChange({ ...draft, identity: { ...draft.identity, disclosure: value } })} />
       </EditorFieldset>
     )
   }
@@ -998,10 +1008,10 @@ function renderEditorSection(
   if (step === 'voice') {
     return (
       <EditorFieldset legend="How should it sound?" copy="Choose from reviewed voice options. Community wording can only come from sealed phrase artifacts.">
-        <ChoiceChips label="Tone traits" options={PERSONA_TONE_TRAITS} selected={draft.voice.tone_traits} minimum={1} onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, tone_traits: values } })} />
-        <SelectChoice label="Energy" options={PERSONA_ENERGY_STYLES} value={draft.voice.energy} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, energy: value } })} />
-        <SelectChoice label="Accountability style" options={PERSONA_ACCOUNTABILITY_STYLES} value={draft.voice.accountability_style} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, accountability_style: value } })} />
-        <ChoiceChips label="Language style" options={PERSONA_LANGUAGE_STYLES} selected={draft.voice.language_style} minimum={1} onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, language_style: values } })} />
+        <ChoiceChips label="Tone traits" personaPath="voice.tone_traits" options={PERSONA_TONE_TRAITS} selected={draft.voice.tone_traits} minimum={1} onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, tone_traits: values } })} />
+        <SelectChoice label="Energy" personaPath="voice.energy" options={PERSONA_ENERGY_STYLES} value={draft.voice.energy} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, energy: value } })} />
+        <SelectChoice label="Accountability style" personaPath="voice.accountability_style" options={PERSONA_ACCOUNTABILITY_STYLES} value={draft.voice.accountability_style} onChange={(value) => onChange({ ...draft, voice: { ...draft.voice, accountability_style: value } })} />
+        <ChoiceChips label="Language style" personaPath="voice.language_style" options={PERSONA_LANGUAGE_STYLES} selected={draft.voice.language_style} minimum={1} onChange={(values) => onChange({ ...draft, voice: { ...draft.voice, language_style: values } })} />
       </EditorFieldset>
     )
   }
@@ -1009,11 +1019,11 @@ function renderEditorSection(
   if (step === 'coaching') {
     return (
       <EditorFieldset legend="How does the coach help someone decide?" copy="Capture the teaching method and accountability boundaries. Fixed safety rules still take priority.">
-        <TextArea label="Coaching philosophy" value={draft.coaching.philosophy} maxLength={1200} rows={4} onChange={(value) => onChange({ ...draft, coaching: { ...draft.coaching, philosophy: value } })} />
-        <TextArea label="Method" value={draft.coaching.method} maxLength={600} rows={4} onChange={(value) => onChange({ ...draft, coaching: { ...draft.coaching, method: value } })} />
-        <LineList label="Principles" values={draft.coaching.principles} minItems={1} maxItems={16} itemMaxLength={400} onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, principles: values } })} />
-        <LineList label="Do" values={draft.coaching.do} maxItems={16} itemMaxLength={400} help="Optional behaviors to encourage, one per line." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do: values } })} />
-        <LineList label="Do not" values={draft.coaching.do_not} maxItems={16} itemMaxLength={400} help="State a safe boundary without quoting or embedding cultural mimicry. Every line is validated as an instruction." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do_not: values } })} />
+        <TextArea label="Coaching philosophy" personaPath="coaching.philosophy" value={draft.coaching.philosophy} maxLength={1200} rows={4} onChange={(value) => onChange({ ...draft, coaching: { ...draft.coaching, philosophy: value } })} />
+        <TextArea label="Method" personaPath="coaching.method" value={draft.coaching.method} maxLength={600} rows={4} onChange={(value) => onChange({ ...draft, coaching: { ...draft.coaching, method: value } })} />
+        <LineList label="Principles" personaPath="coaching.principles" values={draft.coaching.principles} minItems={1} maxItems={16} itemMaxLength={400} onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, principles: values } })} />
+        <LineList label="Do" personaPath="coaching.do" values={draft.coaching.do} maxItems={16} itemMaxLength={400} help="Optional behaviors to encourage, one per line." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do: values } })} />
+        <LineList label="Do not" personaPath="coaching.do_not" values={draft.coaching.do_not} maxItems={16} itemMaxLength={400} help="State a safe boundary without quoting or embedding cultural mimicry. Every line is validated as an instruction." onChange={(values) => onChange({ ...draft, coaching: { ...draft.coaching, do_not: values } })} />
       </EditorFieldset>
     )
   }
@@ -1022,10 +1032,10 @@ function renderEditorSection(
     return (
       <EditorFieldset legend="What community context has the coach approved?" copy="Locale is a label for context. It never generates dialect, accent, slang, values, or stereotypes. Add only language and realities the coach has explicitly authored.">
         <div className="coach-culture-boundary" role="note"><strong>Coach authored only.</strong> Choosing Guam, the South, or another place does not add phrases automatically.</div>
-        <TextInput label="Locale label" value={draft.culture.locale_label} maxLength={120} help="For example: Guam families in Mrs. Mel's first cohort, or No locale selected." onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, locale_label: value } })} />
-        <TextArea label="Cultural and community context" value={draft.culture.context} maxLength={1000} rows={5} onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, context: value } })} />
-        <LineList label="Local realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified factual access, cost, calendar, weather, or regulatory reality per line." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
-        <LineList label="Approved references" values={draft.culture.references} maxItems={16} itemMaxLength={300} help="Coach authored examples, programs, or community references." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, references: values } })} />
+        <TextInput label="Locale label" personaPath="culture.locale_label" value={draft.culture.locale_label} maxLength={120} help="For example: Guam families in Mrs. Mel's first cohort, or No locale selected." onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, locale_label: value } })} />
+        <TextArea label="Cultural and community context" personaPath="culture.context" value={draft.culture.context} maxLength={1000} rows={5} onChange={(value) => onChange({ ...draft, culture: { ...draft.culture, context: value } })} />
+        <LineList label="Local realities" personaPath="culture.local_realities" values={draft.culture.local_realities} maxItems={16} itemMaxLength={300} help="One verified factual access, cost, calendar, weather, or regulatory reality per line." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, local_realities: values } })} />
+        <LineList label="Approved references" personaPath="culture.references" values={draft.culture.references} maxItems={16} itemMaxLength={300} help="Coach authored examples, programs, or community references." onChange={(values) => onChange({ ...draft, culture: { ...draft.culture, references: values } })} />
         <PhraseEditor draft={draft} mutate={mutate} access={phraseArtifactAccess} />
       </EditorFieldset>
     )
@@ -1037,12 +1047,12 @@ function renderEditorSection(
       <ScriptEditor draft={draft} mutate={mutate} />
       <ExampleEditor draft={draft} mutate={mutate} />
       <div className="coach-response-grid">
-        <NumberInput label="Minimum sentences" min={1} max={10} value={draft.response_shape.min_sentences} onChange={(value) => onChange({ ...draft, response_shape: { ...draft.response_shape, min_sentences: value } })} />
-        <NumberInput label="Maximum sentences" min={1} max={12} value={draft.response_shape.max_sentences} onChange={(value) => onChange({ ...draft, response_shape: { ...draft.response_shape, max_sentences: value } })} />
-        <NumberInput label="Maximum characters" min={200} max={4000} value={draft.response_shape.max_characters} onChange={(value) => onChange({ ...draft, response_shape: { ...draft.response_shape, max_characters: value } })} />
+        <NumberInput label="Minimum sentences" personaPath="response_shape.min_sentences" min={1} max={10} value={draft.response_shape.min_sentences} onChange={(value) => onChange({ ...draft, response_shape: { ...draft.response_shape, min_sentences: value } })} />
+        <NumberInput label="Maximum sentences" personaPath="response_shape.max_sentences" min={1} max={12} value={draft.response_shape.max_sentences} onChange={(value) => onChange({ ...draft, response_shape: { ...draft.response_shape, max_sentences: value } })} />
+        <NumberInput label="Maximum characters" personaPath="response_shape.max_characters" min={200} max={4000} value={draft.response_shape.max_characters} onChange={(value) => onChange({ ...draft, response_shape: { ...draft.response_shape, max_characters: value } })} />
       </div>
       <div className="coach-check-grid">
-        <CheckField label="Plain text answers" checked={draft.response_shape.plain_text_only} onChange={(checked) => onChange({ ...draft, response_shape: { ...draft.response_shape, plain_text_only: checked } })} />
+        <CheckField label="Plain text answers" personaPath="response_shape.plain_text_only" checked={draft.response_shape.plain_text_only} onChange={(checked) => onChange({ ...draft, response_shape: { ...draft.response_shape, plain_text_only: checked } })} />
       </div>
       <div className="coach-culture-boundary" role="note"><strong>Fact validation and one concrete next move are always on.</strong> Every persona must verify missing financial facts before coaching and end factual financial answers with one practical next step. These rules cannot be changed here.</div>
     </EditorFieldset>
@@ -1187,7 +1197,7 @@ function PhraseEditor({ draft, mutate, access }: { draft: PersonaConfiguration; 
   const capabilities = new Map((access?.artifacts ?? []).map((artifact) => [artifact.artifact_id, artifact]))
   const canAdd = access?.can_add === true
   return (
-    <section className="coach-array-editor">
+    <section className="coach-array-editor" data-persona-path="phrases" tabIndex={-1}>
       <header><div><strong>Approved phrases</strong><small>Meaning and context are required. Crisis use should normally stay prohibited.</small></div><Button type="button" size="compact" variant="secondary" disabled={!canAdd || phrases.length >= PERSONA_LIST_LIMITS.phrases} onClick={() => mutate((current) => ({ ...current, phrases: appendListItem(current.phrases, { text: 'New phrase', meaning: 'Coach-approved meaning and intent.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '' }, PERSONA_LIST_LIMITS.phrases) }))}>Add phrase</Button></header>
       {!canAdd && <p className="coach-phrase-access-note" role="note">Only the owning coach can add or change approved phrases.</p>}
       {phrases.length === 0 && <p>No phrases added. Locale alone will never create them.</p>}
@@ -1218,48 +1228,48 @@ function PhraseEditor({ draft, mutate, access }: { draft: PersonaConfiguration; 
 
 function GuidanceEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
   const items = draft.curriculum.guidance
-  return <StructuredEditor title="Approved guidance" addLabel="Add guidance" count={items.length} max={PERSONA_LIST_LIMITS.guidance} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: appendListItem(current.curriculum.guidance, { title: 'New guidance', content: 'Add the coach-approved teaching here.' }, PERSONA_LIST_LIMITS.guidance) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Guidance {index + 1}</strong><ArrayActions label={`guidance ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: moveItem(current.curriculum.guidance, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: current.curriculum.guidance.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], title: value }) } }))} /><TextArea label="Content" value={item.content} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], content: value }) } }))} /></article>)}</StructuredEditor>
+  return <StructuredEditor personaPath="curriculum.guidance" title="Approved guidance" addLabel="Add guidance" count={items.length} max={PERSONA_LIST_LIMITS.guidance} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: appendListItem(current.curriculum.guidance, { title: 'New guidance', content: 'Add the coach-approved teaching here.' }, PERSONA_LIST_LIMITS.guidance) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Guidance {index + 1}</strong><ArrayActions label={`guidance ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: moveItem(current.curriculum.guidance, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: current.curriculum.guidance.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], title: value }) } }))} /><TextArea label="Content" value={item.content} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, guidance: replaceAt(current.curriculum.guidance, index, { ...current.curriculum.guidance[index], content: value }) } }))} /></article>)}</StructuredEditor>
 }
 
 function ScriptEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
   const items = draft.curriculum.scripts
-  return <StructuredEditor title="Coaching scripts" addLabel="Add script" count={items.length} max={PERSONA_LIST_LIMITS.scripts} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: appendListItem(current.curriculum.scripts, { title: 'New script', steps: ['Add the first coach-approved step.'] }, PERSONA_LIST_LIMITS.scripts) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Script {index + 1}</strong><ArrayActions label={`script ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: moveItem(current.curriculum.scripts, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: current.curriculum.scripts.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], title: value }) } }))} /><LineList label="Steps" values={item.steps} minItems={1} maxItems={12} itemMaxLength={500} onChange={(values) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], steps: values }) } }))} /></article>)}</StructuredEditor>
+  return <StructuredEditor personaPath="curriculum.scripts" title="Coaching scripts" addLabel="Add script" count={items.length} max={PERSONA_LIST_LIMITS.scripts} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: appendListItem(current.curriculum.scripts, { title: 'New script', steps: ['Add the first coach-approved step.'] }, PERSONA_LIST_LIMITS.scripts) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Script {index + 1}</strong><ArrayActions label={`script ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: moveItem(current.curriculum.scripts, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: current.curriculum.scripts.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextInput label="Title" value={item.title} maxLength={140} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], title: value }) } }))} /><LineList label="Steps" values={item.steps} minItems={1} maxItems={12} itemMaxLength={500} onChange={(values) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, scripts: replaceAt(current.curriculum.scripts, index, { ...current.curriculum.scripts[index], steps: values }) } }))} /></article>)}</StructuredEditor>
 }
 
 function ExampleEditor({ draft, mutate }: { draft: PersonaConfiguration; mutate: (mutator: (current: PersonaConfiguration) => PersonaConfiguration) => void }) {
   const items = draft.curriculum.examples
-  return <StructuredEditor title="Example conversations" addLabel="Add example" count={items.length} max={PERSONA_LIST_LIMITS.examples} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: appendListItem(current.curriculum.examples, { participant: 'Participant question', assistant: 'Coach-approved example answer.' }, PERSONA_LIST_LIMITS.examples) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Example {index + 1}</strong><ArrayActions label={`example ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: moveItem(current.curriculum.examples, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: current.curriculum.examples.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextArea label="Participant" value={item.participant} maxLength={600} rows={3} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], participant: value }) } }))} /><TextArea label="Assistant" value={item.assistant} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], assistant: value }) } }))} /></article>)}</StructuredEditor>
+  return <StructuredEditor personaPath="curriculum.examples" title="Example conversations" addLabel="Add example" count={items.length} max={PERSONA_LIST_LIMITS.examples} onAdd={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: appendListItem(current.curriculum.examples, { participant: 'Participant question', assistant: 'Coach-approved example answer.' }, PERSONA_LIST_LIMITS.examples) } }))}>{items.map((item, index) => <article key={index}><div className="coach-array-row-heading"><strong>Example {index + 1}</strong><ArrayActions label={`example ${index + 1}`} index={index} count={items.length} onMove={(direction) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: moveItem(current.curriculum.examples, index, direction) } }))} onRemove={() => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: current.curriculum.examples.filter((_, itemIndex) => itemIndex !== index) } }))} /></div><TextArea label="Participant" value={item.participant} maxLength={600} rows={3} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], participant: value }) } }))} /><TextArea label="Assistant" value={item.assistant} maxLength={1200} rows={4} onChange={(value) => mutate((current) => ({ ...current, curriculum: { ...current.curriculum, examples: replaceAt(current.curriculum.examples, index, { ...current.curriculum.examples[index], assistant: value }) } }))} /></article>)}</StructuredEditor>
 }
 
-function StructuredEditor({ title, addLabel, count, max, onAdd, children }: { title: string; addLabel: string; count: number; max: number; onAdd: () => void; children: ReactNode }) {
-  return <section className="coach-array-editor"><header><div><strong>{title}</strong><small>{count} of {max}</small></div><Button type="button" size="compact" variant="secondary" disabled={count >= max} onClick={onAdd}>{addLabel}</Button></header>{count === 0 ? <p>Nothing added yet.</p> : children}</section>
+function StructuredEditor({ personaPath, title, addLabel, count, max, onAdd, children }: { personaPath: string; title: string; addLabel: string; count: number; max: number; onAdd: () => void; children: ReactNode }) {
+  return <section className="coach-array-editor" data-persona-path={personaPath} tabIndex={-1}><header><div><strong>{title}</strong><small>{count} of {max}</small></div><Button type="button" size="compact" variant="secondary" disabled={count >= max} onClick={onAdd}>{addLabel}</Button></header>{count === 0 ? <p>Nothing added yet.</p> : children}</section>
 }
 
 function EditorFieldset({ legend, copy, children }: { legend: string; copy: string; children: ReactNode }) {
   return <fieldset className="coach-fieldset"><legend>{legend}</legend><p>{copy}</p><div className="coach-field-grid">{children}</div></fieldset>
 }
 
-function TextInput({ label, value, onChange, maxLength, help, disabled = false }: { label: string; value: string; onChange: (value: string) => void; maxLength?: number; help?: string; disabled?: boolean }) {
-  return <label><span>{label}</span><input value={value} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
+function TextInput({ personaPath, label, value, onChange, maxLength, help, disabled = false }: { personaPath?: string; label: string; value: string; onChange: (value: string) => void; maxLength?: number; help?: string; disabled?: boolean }) {
+  return <label><span>{label}</span><input data-persona-path={personaPath} value={value} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
 }
 
-function TextArea({ label, value, onChange, rows, maxLength, help, disabled = false }: { label: string; value: string; onChange: (value: string) => void; rows: number; maxLength?: number; help?: string; disabled?: boolean }) {
-  return <label className="is-wide"><span>{label}</span><textarea value={value} rows={rows} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
+function TextArea({ personaPath, label, value, onChange, rows, maxLength, help, disabled = false }: { personaPath?: string; label: string; value: string; onChange: (value: string) => void; rows: number; maxLength?: number; help?: string; disabled?: boolean }) {
+  return <label className="is-wide"><span>{label}</span><textarea data-persona-path={personaPath} value={value} rows={rows} maxLength={maxLength} disabled={disabled} onChange={(event) => onChange(event.target.value)} />{help && <small>{help}</small>}</label>
 }
 
-function ChoiceChips<Option extends string>({ label, options, selected, onChange, minimum = 0 }: { label: string; options: readonly Option[]; selected: readonly Option[]; onChange: (values: Option[]) => void; minimum?: number }) {
+function ChoiceChips<Option extends string>({ personaPath, label, options, selected, onChange, minimum = 0 }: { personaPath?: string; label: string; options: readonly Option[]; selected: readonly Option[]; onChange: (values: Option[]) => void; minimum?: number }) {
   const toggle = (option: Option, checked: boolean) => {
     if (checked) onChange([...selected.filter((value) => value !== option), option])
     else if (selected.length > minimum) onChange(selected.filter((value) => value !== option))
   }
-  return <fieldset className="coach-choice-field is-wide"><legend>{label}</legend><div>{options.map((option) => <label key={option}><input type="checkbox" checked={selected.includes(option)} disabled={selected.includes(option) && selected.length <= minimum} onChange={(event) => toggle(option, event.target.checked)} /><span>{option.includes(' ') ? option : titleize(option)}</span></label>)}</div><small>Choose {minimum === 1 ? 'at least one reviewed option' : 'reviewed options'}.</small></fieldset>
+  return <fieldset data-persona-path={personaPath} className="coach-choice-field is-wide"><legend>{label}</legend><div>{options.map((option) => <label key={option}><input type="checkbox" checked={selected.includes(option)} disabled={selected.includes(option) && selected.length <= minimum} onChange={(event) => toggle(option, event.target.checked)} /><span>{option.includes(' ') ? option : titleize(option)}</span></label>)}</div><small>Choose {minimum === 1 ? 'at least one reviewed option' : 'reviewed options'}.</small></fieldset>
 }
 
-function SelectChoice<Option extends string>({ label, options, value, onChange }: { label: string; options: readonly Option[]; value: Option; onChange: (value: Option) => void }) {
-  return <label className="coach-select-choice"><span>{label}</span><select value={value} onChange={(event) => onChange(event.target.value as Option)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
+function SelectChoice<Option extends string>({ personaPath, label, options, value, onChange }: { personaPath?: string; label: string; options: readonly Option[]; value: Option; onChange: (value: Option) => void }) {
+  return <label className="coach-select-choice"><span>{label}</span><select data-persona-path={personaPath} value={value} onChange={(event) => onChange(event.target.value as Option)}>{options.map((option) => <option key={option} value={option}>{option}</option>)}</select></label>
 }
 
-function LineList({ label, values, onChange, minItems = 0, maxItems, itemMaxLength, help }: { label: string; values: string[]; onChange: (values: string[]) => void; minItems?: number; maxItems: number; itemMaxLength: number; help?: string }) {
+function LineList({ personaPath, label, values, onChange, minItems = 0, maxItems, itemMaxLength, help }: { personaPath?: string; label: string; values: string[]; onChange: (values: string[]) => void; minItems?: number; maxItems: number; itemMaxLength: number; help?: string }) {
   const updateLines = (rawValue: string) => {
     const lines = rawValue.replaceAll('\r\n', '\n').replaceAll('\r', '\n').split('\n').slice(0, maxItems)
     onChange(lines.map((line) => line.slice(0, itemMaxLength)))
@@ -1267,15 +1277,15 @@ function LineList({ label, values, onChange, minItems = 0, maxItems, itemMaxLeng
   const normalizeLines = () => {
     onChange(lineListToArray(arrayToLineList(values)).slice(0, maxItems))
   }
-  return <label className="is-wide"><span>{label}</span><textarea rows={Math.max(3, Math.min(values.length + 1, 7))} value={arrayToLineList(values)} onChange={(event) => updateLines(event.target.value)} onBlur={normalizeLines} /> <small>{help ?? `One item per line. ${minItems ? `At least ${minItems}; ` : ''}up to ${maxItems}, ${itemMaxLength} characters each.`}</small></label>
+  return <label className="is-wide"><span>{label}</span><textarea data-persona-path={personaPath} rows={Math.max(3, Math.min(values.length + 1, 7))} value={arrayToLineList(values)} onChange={(event) => updateLines(event.target.value)} onBlur={normalizeLines} /> <small>{help ?? `One item per line. ${minItems ? `At least ${minItems}; ` : ''}up to ${maxItems}, ${itemMaxLength} characters each.`}</small></label>
 }
 
-function NumberInput({ label, value, onChange, min, max }: { label: string; value: number; onChange: (value: number) => void; min: number; max: number }) {
-  return <label><span>{label}</span><input type="number" inputMode="numeric" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>
+function NumberInput({ personaPath, label, value, onChange, min, max }: { personaPath?: string; label: string; value: number; onChange: (value: number) => void; min: number; max: number }) {
+  return <label><span>{label}</span><input data-persona-path={personaPath} type="number" inputMode="numeric" min={min} max={max} value={value} onChange={(event) => onChange(Number(event.target.value))} /></label>
 }
 
-function CheckField({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return <label className="coach-check"><input type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span>{label}</span></label>
+function CheckField({ personaPath, label, checked, onChange }: { personaPath?: string; label: string; checked: boolean; onChange: (checked: boolean) => void }) {
+  return <label className="coach-check"><input data-persona-path={personaPath} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} /><span>{label}</span></label>
 }
 
 function ContextChecks({ label, selected, onChange, disabled = false }: { label: string; selected: string[]; onChange: (values: typeof PERSONA_PHRASE_CONTEXTS[number][]) => void; disabled?: boolean }) {

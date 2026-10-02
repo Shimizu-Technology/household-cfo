@@ -685,18 +685,32 @@ async function mockDemoApi(page: Page) {
     if (path === '/api/v1/admin/personas/81/setup_sessions/601/turns' && route.request().method() === 'POST') {
       const message = route.request().postDataJSON().turn.message
       const beforeState = { description: persona.description, draft_config: structuredClone(persona.draft) }
-      const afterState = {
-        description: persona.description,
-        draft_config: { ...structuredClone(persona.draft), identity: { ...persona.draft.identity, human_coach_name: 'Mrs. Mel' } },
-      }
+      const teachingFocus = message.includes('teaching review focus')
+      const phraseFocus = message.includes('phrase review focus')
+      const phrase = { text: 'Pause and verify.', meaning: 'Verify facts first.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: '' }
+      const draftConfig = structuredClone(persona.draft)
+      if (teachingFocus) draftConfig.curriculum.guidance = [{ title: 'Verify first', content: 'Check the amount before coaching.' }]
+      else if (phraseFocus) draftConfig.phrases = [phrase]
+      else draftConfig.identity.human_coach_name = 'Mrs. Mel'
+      const afterState = { description: persona.description, draft_config: draftConfig }
+      const operation = teachingFocus
+        ? { op: 'set', path: 'curriculum.guidance', value: draftConfig.curriculum.guidance, source_basis: 'coach_quote', evidence_quote: 'teaching review focus' }
+        : phraseFocus
+          ? { op: 'add_phrase', path: 'phrases', value: phrase, source_basis: 'coach_quote', evidence_quote: 'Pause and verify.' }
+          : { op: 'set', path: 'identity.human_coach_name', value: 'Mrs. Mel', source_basis: 'coach_quote', evidence_quote: 'Mrs. Mel' }
+      const change = teachingFocus
+        ? { group: 'Teaching', path: 'curriculum.guidance', label: 'Approved guidance', before: persona.draft.curriculum.guidance, after: draftConfig.curriculum.guidance, source_basis: 'coach_quote', evidence_quote: 'teaching review focus' }
+        : phraseFocus
+          ? { group: 'Community', path: 'phrases', label: 'Approved phrase', before: persona.draft.phrases, after: draftConfig.phrases, source_basis: 'coach_quote', evidence_quote: 'Pause and verify.' }
+          : { group: 'Identity', path: 'identity.human_coach_name', label: 'Human coach name', before: persona.draft.identity.human_coach_name, after: 'Mrs. Mel', source_basis: 'coach_quote', evidence_quote: 'Mrs. Mel' }
       setupSession = {
         ...setupSession,
         turns: [{ id: 611, position: 1, status: 'ready', user_message: message, assistant_message: 'I prepared one exact name change for review.', error_code: null, created_at: '2026-10-02T00:01:00Z' }],
         proposal: {
           id: 621, status: 'pending', base_draft_revision: persona.draft_revision, base_config_digest: 'setup-base', proposal_digest: 'setup-proposal',
-          operations: [{ op: 'set', path: 'identity.human_coach_name', value: 'Mrs. Mel', source_basis: 'coach_quote', evidence_quote: 'Mrs. Mel' }],
+          operations: [operation],
           before_state: beforeState, after_state: afterState,
-          grouped_changes: [{ group: 'Identity', changes: [{ group: 'Identity', path: 'identity.human_coach_name', label: 'Human coach name', before: persona.draft.identity.human_coach_name, after: 'Mrs. Mel', source_basis: 'coach_quote', evidence_quote: 'Mrs. Mel' }] }],
+          grouped_changes: [{ group: change.group, changes: [change] }],
           created_at: '2026-10-02T00:01:00Z', resolved_at: null,
         },
       }
@@ -3912,6 +3926,37 @@ test('Coach Studio creates a persona through private setup chat and reviewed cha
   await page.getByRole('button', { name: /Guided setup/ }).click()
   await expect(page.getByLabel('Human coach name')).toHaveValue('Mrs. Mel')
   await expect(page.getByText('Draft matches the latest server revision.')).toBeVisible()
+  expect(await page.evaluate(() => ({ scrollX: window.scrollX, fits: document.documentElement.scrollWidth <= window.innerWidth }))).toEqual({ scrollX: 0, fits: true })
+})
+
+test('Coach Studio Review in form opens and focuses the exact teaching and phrase controls', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
+  await openSection(page, 'Coach Studio')
+  const createButton = page.getByRole('button', { name: 'Create', exact: true })
+  if (!(await createButton.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
+  await createButton.click()
+  const createForm = page.locator('.coach-create-form')
+  await createForm.getByLabel('Assistant name').fill('Review focus assistant')
+  await createForm.getByLabel('Internal description').fill('Review focus coverage')
+  await createForm.getByRole('button', { name: 'Create safe draft' }).click()
+  await expect(page.getByRole('button', { name: /Setup chat/ })).toHaveAttribute('aria-pressed', 'true')
+
+  const composer = page.getByLabel('Message Mia')
+  await composer.fill('Use this teaching review focus.')
+  await page.getByRole('button', { name: 'Send to Mia' }).click()
+  await page.getByRole('button', { name: 'Review in form' }).click()
+
+  await expect(page.getByRole('tab', { name: /Teaching & response/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('Title', { exact: true }).first()).toBeFocused()
+
+  await page.getByRole('button', { name: /Setup chat/ }).click()
+  await page.getByRole('button', { name: 'Reject proposal' }).click()
+  await composer.fill('Use this phrase review focus: Pause and verify.')
+  await page.getByRole('button', { name: 'Send to Mia' }).click()
+  await page.getByRole('button', { name: 'Review in form' }).click()
+
+  await expect(page.getByRole('tab', { name: /Community/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.getByLabel('Phrase', { exact: true }).first()).toBeFocused()
   expect(await page.evaluate(() => ({ scrollX: window.scrollX, fits: document.documentElement.scrollWidth <= window.innerWidth }))).toEqual({ scrollX: 0, fits: true })
 })
 

@@ -86,6 +86,9 @@ module Mia
         unless assistant_message.present? && assistant_message.length <= 2_000
           raise Error.new("Mia returned an invalid setup message.", code: "persona_setup_invalid")
         end
+        if assistant_message_claims_completion?(assistant_message)
+          raise Error.new("Mia returned a setup message that claimed an action it cannot perform.", code: "persona_setup_invalid")
+        end
 
         Result.new(
           assistant_message:,
@@ -148,6 +151,17 @@ module Mia
       private
 
       attr_reader :api_key, :model, :transport
+
+      COMPLETION_CLAIM_PATTERNS = [
+        /\b(?:I|I've|I have|we|we've|we have|Mia|Mia has)\s+(?:now\s+)?(?:published|assigned|applied|saved|completed)\b/i,
+        /\b(?:the|your|this)\s+(?:changes?|draft|persona|assistant|setup|assignment)\s+(?:has|have|is|are|was|were)\s+(?:now\s+)?(?:been\s+)?(?:published|assigned|applied|saved|completed)\b/i,
+        /\b(?:published|assigned|applied|saved|completed)\s+(?:the|your|this)\s+(?:changes?|draft|persona|assistant|setup|assignment)\b/i,
+        /\A\s*(?:done|all set|completed|finished)[.!]?\s*\z/i
+      ].freeze
+
+      def assistant_message_claims_completion?(message)
+        COMPLETION_CLAIM_PATTERNS.any? { |pattern| message.match?(pattern) }
+      end
 
       def response_schema
         {

@@ -32,8 +32,11 @@ module Mia
 
       def safe_authoring_state
         state = PersonaDraftUpdater.state_for(persona).deep_dup
-        state.fetch("draft_config")["phrases"] = Array(state.dig("draft_config", "phrases")).map do |phrase|
-          PersonaSchema.normalize(phrase).slice("text", "meaning", "allowed_contexts", "prohibited_contexts", "frequency", "caution")
+        state.fetch("draft_config")["phrases"] = Array(state.dig("draft_config", "phrases")).filter_map do |phrase|
+          normalized = PersonaSchema.normalize(phrase)
+          next if normalized["provenance"] == "participant_supplied"
+
+          normalized.slice("text", "meaning", "allowed_contexts", "prohibited_contexts", "frequency", "caution")
         end
         state
       end
