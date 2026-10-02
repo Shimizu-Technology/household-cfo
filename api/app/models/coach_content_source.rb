@@ -19,6 +19,7 @@ class CoachContentSource < ApplicationRecord
   has_many :draft_provenances, class_name: "CoachContentItemDraftProvenance", dependent: :restrict_with_exception
   has_many :version_provenances, class_name: "CoachContentItemVersionProvenance", dependent: :restrict_with_exception
   has_many :phrase_proposals, class_name: "CoachPhraseProposal", dependent: :restrict_with_exception
+  has_one :url_intake, class_name: "CoachContentSourceUrlIntake", dependent: :restrict_with_exception
 
   validates :scope, inclusion: { in: SCOPES }
   validates :status, inclusion: { in: STATUSES }
@@ -28,6 +29,7 @@ class CoachContentSource < ApplicationRecord
   validates :checksum_sha256, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :upload_request_id, presence: true, length: { maximum: 100 }
   validates :generation, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
+  validates :ingestion_method, inclusion: { in: %w[upload url_snapshot] }
   validate :creator_can_manage_scope, on: :create
   validate :workspace_matches_scope
   validate :current_attempt_belongs_to_source
@@ -77,7 +79,7 @@ class CoachContentSource < ApplicationRecord
   end
 
   def upload_identity_is_immutable
-    protected_fields = %w[scope coach_workspace_id created_by_user_id filename content_type byte_size checksum_sha256 upload_request_id]
+    protected_fields = %w[scope coach_workspace_id created_by_user_id filename content_type byte_size checksum_sha256 upload_request_id ingestion_method]
     errors.add(:base, "source upload identity is immutable") if changes_to_save.keys.intersect?(protected_fields)
     if will_save_change_to_s3_key? && !(s3_key.nil? && status == "source_deleted")
       errors.add(:s3_key, "can only be cleared after confirmed source deletion")

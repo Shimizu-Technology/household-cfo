@@ -16,7 +16,7 @@ module Api
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          sources = policy.accessible_sources.where.not(status: "source_deleted").includes(:current_attempt)
+          sources = policy.accessible_sources.where.not(status: "source_deleted").includes(:current_attempt, :url_intake)
             .order(Arel.sql("CASE WHEN status = 'upload_cleanup_failed' THEN 0 ELSE 1 END ASC"), created_at: :desc).limit(100)
           render json: {
             sources: sources.map { |source| serialize_source(source, include_candidates: false) },
@@ -278,6 +278,9 @@ module Api
 
         def create_upload_intent!(metadata)
           with_advisory_lock("upload-quota:#{upload_owner_key(metadata)}") do
+            if quota_for(metadata).intake_scope.where.not(status: "deleted").exists?(request_id: metadata.fetch(:upload_request_id))
+              raise ContentSources::Error, "upload_conflict"
+            end
             existing = source_owner_scope(metadata).find_by(upload_request_id: metadata.fetch(:upload_request_id))
             if existing
               same_identity = metadata.slice(:scope, :filename, :content_type, :byte_size, :checksum_sha256).all? { |key, value| existing.public_send(key) == value }
@@ -299,18 +302,12 @@ module Api
         end
 
         def enforce_upload_quota!(metadata)
-          owned = source_owner_scope(metadata)
-          active = owned.where.not(status: "source_deleted")
-          if active.count >= CoachContentSource::MAX_ACTIVE_SOURCES_PER_OWNER ||
-              active.sum(:byte_size) + metadata.fetch(:byte_size) > CoachContentSource::MAX_ACTIVE_BYTES_PER_OWNER
-            raise ContentSources::Error, "source_quota_reached"
-          end
-          if active.where(status: %w[uploading verifying upload_cleanup]).count >= CoachContentSource::MAX_IN_FLIGHT_UPLOADS_PER_OWNER
-            raise ContentSources::Error, "upload_limit_reached"
-          end
-          if owned.where(created_at: CoachContentSource::UPLOAD_WINDOW.ago..).count >= CoachContentSource::MAX_NEW_UPLOADS_PER_WINDOW
-            raise ContentSources::Error, "upload_rate_limited"
-          end
+          quota_for(metadata).enforce!(requested_bytes: metadata.fetch(:byte_size))
+        end
+
+        def quota_for(metadata)
+          workspace = metadata.fetch(:scope).to_s == "coach" ? CoachWorkspace.find_by(id: upload_workspace_id(metadata)) : nil
+          ContentSources::Quota.new(scope: metadata.fetch(:scope), user: current_user, workspace: workspace)
         end
 
         def upload_intent_source(metadata)
@@ -397,15 +394,7 @@ module Api
         end
 
         def with_advisory_lock(value, &block)
-          ApplicationRecord.transaction(requires_new: true) do
-            first_key, second_key = Digest::SHA256.digest(value).unpack("l>2")
-            integer = ActiveRecord::Type::Integer.new
-            binds = [ first_key, second_key ].each_with_index.map do |value, index|
-              ActiveRecord::Relation::QueryAttribute.new("key#{index}", value, integer)
-            end
-            ApplicationRecord.connection.exec_query("SELECT pg_advisory_xact_lock($1, $2)", "Coach content source upload lock", binds)
-            block.call
-          end
+          ContentSources::OwnerLock.call(value, &block)
         end
 
         def upload_verifier

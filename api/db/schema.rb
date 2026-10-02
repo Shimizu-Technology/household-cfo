@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -167,10 +167,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.string "evidence_excerpt_digest", null: false
     t.jsonb "evidence_locator", default: {}, null: false
     t.string "provenance_digest", null: false
+    t.integer "provenance_digest_version", default: 1, null: false
     t.bigint "source_byte_size", null: false
     t.string "source_checksum_sha256", null: false
     t.string "source_content_type", null: false
     t.string "source_filename", null: false
+    t.string "source_ingestion_method", default: "upload", null: false
     t.datetime "updated_at", null: false
     t.index ["accepted_by_user_id"], name: "idx_on_accepted_by_user_id_332eae8c27"
     t.index ["coach_content_item_id"], name: "idx_content_item_draft_provenance_item", unique: true
@@ -183,8 +185,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.check_constraint "candidate_revision > 0", name: "coach_content_item_draft_provenances_candidate_revision_positiv"
     t.check_constraint "evidence_excerpt_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_excerpt_digest_sha256"
     t.check_constraint "provenance_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_provenance_digest_sha256"
+    t.check_constraint "provenance_digest_version = ANY (ARRAY[1, 2])", name: "coach_content_item_draft_provenances_digest_version_valid"
     t.check_constraint "source_byte_size > 0", name: "coach_content_item_draft_provenances_source_size_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_source_checksum_sha256"
+    t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_item_draft_provenances_ingestion_method_valid"
   end
 
   create_table "coach_content_item_version_provenances", force: :cascade do |t|
@@ -207,10 +211,12 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.string "evidence_excerpt_digest", null: false
     t.jsonb "evidence_locator", default: {}, null: false
     t.string "provenance_digest", null: false
+    t.integer "provenance_digest_version", default: 1, null: false
     t.bigint "source_byte_size", null: false
     t.string "source_checksum_sha256", null: false
     t.string "source_content_type", null: false
     t.string "source_filename", null: false
+    t.string "source_ingestion_method", default: "upload", null: false
     t.datetime "updated_at", null: false
     t.index ["accepted_by_user_id"], name: "idx_on_accepted_by_user_id_34a5b728f1"
     t.index ["coach_content_item_version_id"], name: "idx_content_item_version_provenance_version", unique: true
@@ -224,8 +230,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.check_constraint "candidate_revision > 0", name: "coach_content_item_version_provenances_candidate_revision_posit"
     t.check_constraint "evidence_excerpt_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_excerpt_digest_sha256"
     t.check_constraint "provenance_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_provenance_digest_sha256"
+    t.check_constraint "provenance_digest_version = ANY (ARRAY[1, 2])", name: "coach_content_item_version_provenances_digest_version_valid"
     t.check_constraint "source_byte_size > 0", name: "coach_content_item_version_provenances_source_size_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_source_checksum_sha256"
+    t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_item_version_provenances_ingestion_method_valid"
   end
 
   create_table "coach_content_item_versions", force: :cascade do |t|
@@ -401,6 +409,64 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'accepted'::character varying, 'rejected'::character varying, 'superseded'::character varying]::text[])", name: "coach_content_source_candidates_status_valid"
   end
 
+  create_table "coach_content_source_url_intake_attempts", force: :cascade do |t|
+    t.bigint "coach_content_source_url_intake_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_source_url_intake_id"], name: "idx_url_intake_attempts_intake"
+    t.index ["created_at"], name: "idx_url_intake_attempts_created_at"
+  end
+
+  create_table "coach_content_source_url_intakes", force: :cascade do |t|
+    t.integer "cleanup_attempts", default: 0, null: false
+    t.bigint "coach_content_source_id"
+    t.bigint "coach_workspace_id"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.string "encrypted_url_auth_tag"
+    t.text "encrypted_url_ciphertext"
+    t.string "encrypted_url_iv"
+    t.integer "encryption_key_version", null: false
+    t.string "error_code"
+    t.datetime "fetched_at"
+    t.bigint "fetched_byte_size"
+    t.string "fetched_checksum_sha256"
+    t.string "final_s3_key"
+    t.integer "hmac_key_version", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.datetime "redaction_requested_at"
+    t.integer "redirect_count", default: 0, null: false
+    t.string "request_id", null: false
+    t.bigint "reserved_bytes", null: false
+    t.string "resolved_content_type"
+    t.string "resolved_filename"
+    t.string "scope", default: "coach", null: false
+    t.string "staging_s3_key"
+    t.string "status", default: "queued", null: false
+    t.datetime "updated_at", null: false
+    t.string "url_identity_hmac", null: false
+    t.index ["coach_content_source_id"], name: "idx_on_coach_content_source_id_f2c735608e"
+    t.index ["coach_content_source_id"], name: "idx_url_intakes_registered_source", unique: true, where: "(coach_content_source_id IS NOT NULL)"
+    t.index ["coach_workspace_id", "request_id"], name: "idx_url_intakes_workspace_request", unique: true, where: "((scope)::text = 'coach'::text)"
+    t.index ["coach_workspace_id"], name: "index_coach_content_source_url_intakes_on_coach_workspace_id"
+    t.index ["created_by_user_id", "request_id"], name: "idx_url_intakes_platform_request", unique: true, where: "((scope)::text = 'platform'::text)"
+    t.index ["created_by_user_id"], name: "index_coach_content_source_url_intakes_on_created_by_user_id"
+    t.index ["final_s3_key"], name: "index_coach_content_source_url_intakes_on_final_s3_key", unique: true, where: "(final_s3_key IS NOT NULL)"
+    t.index ["staging_s3_key"], name: "index_coach_content_source_url_intakes_on_staging_s3_key", unique: true, where: "(staging_s3_key IS NOT NULL)"
+    t.index ["status", "updated_at"], name: "idx_url_intakes_recovery"
+    t.index ["url_identity_hmac", "hmac_key_version"], name: "idx_url_intakes_hmac_version"
+    t.check_constraint "status::text = 'registered'::text AND coach_content_source_id IS NOT NULL OR status::text = 'deleted'::text OR (status::text <> ALL (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NULL", name: "url_intakes_source_state_coherent"
+    t.check_constraint "fetched_checksum_sha256 IS NULL OR fetched_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_checksum_sha256"
+    t.check_constraint "redirect_count >= 0 AND redirect_count <= 3", name: "url_intakes_redirects_bounded"
+    t.check_constraint "reserved_bytes > 0 AND reserved_bytes <= 12582912", name: "url_intakes_reservation_bounded"
+    t.check_constraint "scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL OR scope::text = 'platform'::text AND coach_workspace_id IS NULL", name: "url_intakes_workspace_matches_scope"
+    t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "url_intakes_scope_valid"
+    t.check_constraint "status::text = 'deleted'::text OR redaction_requested_at IS NOT NULL OR encrypted_url_ciphertext IS NOT NULL AND encrypted_url_iv IS NOT NULL AND encrypted_url_auth_tag IS NOT NULL", name: "url_intakes_encrypted_payload_present"
+    t.check_constraint "status::text = ANY (ARRAY['queued'::character varying::text, 'fetching'::character varying::text, 'staged'::character varying::text, 'registering'::character varying::text, 'registered'::character varying::text, 'failed'::character varying::text, 'cleanup_pending'::character varying::text, 'cleanup_failed'::character varying::text, 'deleted'::character varying::text])", name: "url_intakes_status_valid"
+    t.check_constraint "url_identity_hmac::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_hmac_sha256"
+  end
+
   create_table "coach_content_sources", force: :cascade do |t|
     t.bigint "byte_size", null: false
     t.string "checksum_sha256", null: false
@@ -414,6 +480,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.string "error_message"
     t.string "filename", null: false
     t.integer "generation", default: 0, null: false
+    t.string "ingestion_method", default: "upload", null: false
     t.integer "lock_version", default: 0, null: false
     t.datetime "processed_at"
     t.jsonb "processing_metadata", default: {}, null: false
@@ -438,6 +505,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
     t.check_constraint "scope::text = 'platform'::text AND coach_workspace_id IS NULL OR scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL", name: "coach_content_sources_workspace_matches_scope"
     t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "coach_content_sources_scope_valid"
     t.check_constraint "status::text = ANY (ARRAY['uploading'::character varying::text, 'verifying'::character varying::text, 'upload_cleanup'::character varying::text, 'queued'::character varying::text, 'processing'::character varying::text, 'needs_review'::character varying::text, 'failed'::character varying::text, 'deletion_pending'::character varying::text, 'deletion_failed'::character varying::text, 'source_deleted'::character varying::text, 'upload_cleanup_failed'::character varying::text])", name: "coach_content_sources_status_valid"
+    t.check_constraint "ingestion_method::text = ANY (ARRAY['upload'::character varying::text, 'url_snapshot'::character varying::text])", name: "coach_content_sources_ingestion_method_valid"
   end
 
   create_table "coach_persona_draft_content_packs", force: :cascade do |t|
@@ -1747,6 +1815,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_170000) do
   add_foreign_key "coach_content_pack_versions", "users", column: "published_by_user_id"
   add_foreign_key "coach_content_packs", "coach_content_pack_versions", column: "current_published_version_id"
   add_foreign_key "coach_content_packs", "users", column: "created_by_user_id"
+  add_foreign_key "coach_content_source_url_intake_attempts", "coach_content_source_url_intakes", on_delete: :cascade
+  add_foreign_key "coach_content_source_url_intakes", "coach_content_sources"
+  add_foreign_key "coach_content_source_url_intakes", "coach_workspaces"
+  add_foreign_key "coach_content_source_url_intakes", "users", column: "created_by_user_id"
   add_foreign_key "coach_content_source_attempts", "coach_content_sources"
   add_foreign_key "coach_content_source_candidates", "coach_content_items", column: "accepted_content_item_id"
   add_foreign_key "coach_content_source_candidates", "coach_content_source_attempts"

@@ -11,6 +11,10 @@ class CoachContentItemVersionProvenance < ApplicationRecord
 
   validates :source_filename, :source_content_type, :attempt_provider, :attempt_model,
     :attempt_prompt_version, :attempt_schema_version, presence: true
+  validates :source_ingestion_method, inclusion: { in: %w[upload url_snapshot] }
+  validates :provenance_digest_version, inclusion: {
+    in: [ CoachContentItemDraftProvenance::LEGACY_DIGEST_VERSION, CoachContentItemDraftProvenance::CURRENT_DIGEST_VERSION ]
+  }
   validates :source_byte_size, numericality: { only_integer: true, greater_than: 0 }
   validates :source_checksum_sha256, :candidate_content_digest, :candidate_original_proposal_digest, :evidence_excerpt_digest,
     :approved_content_digest, :provenance_digest, format: { with: /\A[0-9a-f]{64}\z/ }
@@ -39,7 +43,7 @@ class CoachContentItemVersionProvenance < ApplicationRecord
     end
 
     def snapshot(attributes)
-      CoachContentItemDraftProvenance.snapshot(attributes).merge(
+      CoachContentItemDraftProvenance.snapshot(attributes, digest_version: attributes[:provenance_digest_version]).merge(
         item_version_id: record_id(attributes, :coach_content_item_version, :coach_content_item_version_id),
         item_version_number: attributes[:coach_content_item_version]&.version_number || attributes[:item_version_number],
         approved_content_digest: attributes[:approved_content_digest]
@@ -78,6 +82,7 @@ class CoachContentItemVersionProvenance < ApplicationRecord
       candidate.status == candidate_review_action && candidate_review_action == "accepted" && candidate.accepted_content_item_id == item.id &&
       source_filename == CoachContentItemDraftProvenance.provenance_filename_for(source.filename) &&
       source_content_type == source.content_type && source_byte_size == source.byte_size && source_checksum_sha256 == source.checksum_sha256 &&
+      source_ingestion_method == source.ingestion_method &&
       attempt.coach_content_source_id == source.id && attempt_provider == attempt.provider && attempt_model == attempt.model &&
       attempt_prompt_version == attempt.prompt_version && attempt_schema_version == attempt.schema_version &&
       candidate.coach_content_source_id == source.id && candidate.coach_content_source_attempt_id == attempt.id &&

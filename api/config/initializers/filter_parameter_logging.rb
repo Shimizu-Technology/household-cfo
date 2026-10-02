@@ -7,5 +7,5 @@ Rails.application.config.filter_parameters += [
   :passw, :email, :secret, :token, :_key, :crypt, :salt, :certificate, :otp, :ssn, :cvv, :cvc,
   :file, :image, :document, :file_data, :source_data, :extracted_text, :evidence_excerpt,
   :candidate_content, :draft_content, :content, :filename, :title, :topics, :evidence_locator,
-  :checksum_sha256
+  :checksum_sha256, :url, :encrypted_url
 ]

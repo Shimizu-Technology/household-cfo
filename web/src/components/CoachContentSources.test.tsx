@@ -12,6 +12,12 @@ const apiMocks = vi.hoisted(() => ({
   fetchAdminContentSources: vi.fn(),
   fetchAdminContentSource: vi.fn(),
   fetchAdminContentSourceUrl: vi.fn(),
+  fetchAdminContentSourceUrlIntake: vi.fn(),
+  fetchAdminContentSourceUrlIntakes: vi.fn(),
+  createAdminContentSourceUrlIntake: vi.fn(),
+  createAdminContentSourceUrlRequestId: vi.fn(() => 'stable-request-id'),
+  deleteAdminContentSourceUrlIntake: vi.fn(),
+  retryAdminContentSourceUrlIntakeCleanup: vi.fn(),
   updateAdminContentSourceCandidate: vi.fn(),
   acceptAdminContentSourceCandidate: vi.fn(),
   rejectAdminContentSourceCandidate: vi.fn(),
@@ -101,7 +107,10 @@ function renderSources(user: CurrentUser = currentUser) {
 }
 
 describe('CoachContentSources role controls', () => {
-  beforeEach(() => vi.clearAllMocks())
+  beforeEach(() => {
+    vi.clearAllMocks()
+    apiMocks.fetchAdminContentSourceUrlIntakes.mockResolvedValue({ intakes: [], url_intake: { enabled: true, available: true } })
+  })
   afterEach(cleanup)
 
   it('gives an editor candidate fields and source maintenance without review decisions', async () => {
@@ -183,5 +192,25 @@ describe('CoachContentSources role controls', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Reject' }))
     await userEvent.click(screen.getByRole('button', { name: 'Yes, reject' }))
     await waitFor(() => expect(apiMocks.rejectAdminContentSourceCandidate).toHaveBeenCalledWith(7, platformSource.candidates[0]))
+  })
+
+  it('labels URL source reprocessing as reading the saved immutable snapshot', async () => {
+    const urlSource = {
+      ...source({ edit_candidates: true, review_candidates: false, download: true, reprocess: true, delete: true }),
+      status: 'failed' as const,
+      ingestion_method: 'url_snapshot' as const,
+      url_snapshot: { intake_id: 4, redirect_count: 1, fetched_at: '2026-10-01T00:00:00Z', cleanup_required: false },
+    }
+    apiMocks.fetchAdminContentSources.mockResolvedValue({
+      sources: [urlSource],
+      permissions: { upload_coach: true, upload_platform: false, retry_cleanup: false, url_intake_enabled: true },
+    })
+    apiMocks.fetchAdminContentSource.mockResolvedValue(urlSource)
+    renderSources()
+
+    await userEvent.click(await screen.findByRole('button', { name: /coach-source\.txt/i }))
+
+    expect(await screen.findByRole('button', { name: 'Re-read saved snapshot' })).toBeTruthy()
+    expect(screen.getByText(/never revisits the address/)).toBeTruthy()
   })
 })

@@ -4,7 +4,7 @@ const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', '
 const currentMonth = new Intl.DateTimeFormat('en-US', { month: 'long' }).format(new Date())
 const currentShortMonth = new Intl.DateTimeFormat('en-US', { month: 'short' }).format(new Date())
 const currentYear = new Date().getFullYear()
-const sourceCollectionPermissions = { upload_coach: true, upload_platform: false, retry_cleanup: false }
+const sourceCollectionPermissions = { upload_coach: true, upload_platform: false, retry_cleanup: false, url_intake_enabled: true }
 const sourceOwnerPermissions = { edit_candidates: true, review_candidates: true, download: true, reprocess: true, delete: true }
 
 async function openSection(page: Page, name: string) {
@@ -786,6 +786,9 @@ async function mockDemoApi(page: Page) {
     }
     if (path === '/api/v1/admin/content_sources' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { sources: [], permissions: sourceCollectionPermissions } })
+    }
+    if (path === '/api/v1/admin/content_source_url_intakes' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { intakes: [], url_intake: { enabled: true, available: true } } })
     }
     if (path === '/api/v1/admin/content_items' && route.request().method() === 'POST') {
       const input = route.request().postDataJSON().item as Pick<MockContentItem, 'title' | 'scope' | 'kind' | 'draft_content' | 'always_on'>
@@ -4796,6 +4799,62 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await expect(itemPanel.getByLabel('Title')).toHaveValue('Keep this edit through a same-request refresh')
   await expect(itemPanel.getByLabel('Title')).not.toBeFocused()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio imports, retries, and redacts a secure web snapshot without browser fetching the target', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'responsive secure URL intake regression')
+  const privateTarget = 'https://private-source.example/lesson?token=browser-canary'
+  const requestIds: string[] = []
+  const browserRequests: string[] = []
+  page.on('request', (request) => browserRequests.push(request.url()))
+
+  const failedIntake = {
+    id: 880, scope: 'coach', status: 'failed', source_id: null,
+    error_code: 'url_fetch_failed', error: 'The source could not be fetched safely.',
+    cleanup_retryable: false, redaction_allowed: true, redaction_pending: false,
+    redirect_count: 0, created_at: '2026-10-02T02:00:00Z', completed_at: '2026-10-02T02:01:00Z',
+  }
+  await page.route('http://api.test/api/v1/admin/content_source_url_intakes', async (route) => {
+    if (route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { intakes: [], url_intake: { enabled: true, available: true } } })
+    }
+    const body = route.request().postDataJSON()
+    requestIds.push(body.request_id)
+    expect(body).toMatchObject({ url: privateTarget, scope: 'coach' })
+    return route.fulfill({ status: 202, json: { intake: failedIntake, url_intake: { enabled: true, available: true } } })
+  })
+  await page.route('http://api.test/api/v1/admin/content_source_url_intakes/880', async (route) => {
+    expect(route.request().method()).toBe('DELETE')
+    return route.fulfill({ status: 200, json: { intake: { ...failedIntake, status: 'deleted', redaction_allowed: false } } })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach#Coach%20Studio')
+  await page.getByRole('tab', { name: /Coaching Library/ }).click()
+  await expect(page.getByRole('heading', { name: 'Add a secure web source' })).toBeVisible()
+  await expect(page.getByText(/Mia never browses the live site or sees the address/)).toBeVisible()
+
+  await page.getByLabel('HTTPS address').fill(privateTarget)
+  await page.getByRole('button', { name: 'Import private snapshot' }).click()
+  await expect(page.getByText('Needs attention')).toBeVisible()
+  await expect(page.getByText(/address hidden/)).toBeVisible()
+  await expect(page.getByText(privateTarget, { exact: false })).toHaveCount(0)
+  expect(browserRequests.filter((url) => url.startsWith('https://private-source.example'))).toEqual([])
+
+  await page.getByRole('button', { name: 'Retry secure import' }).click()
+  await expect.poll(() => requestIds.length).toBe(2)
+  expect(requestIds[1]).toBe(requestIds[0])
+
+  for (const width of [320, 390, 1280]) {
+    await page.setViewportSize({ width, height: 900 })
+    await expect(page.getByRole('heading', { name: 'Add a secure web source' })).toBeVisible()
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+  }
+
+  await page.getByRole('button', { name: 'Remove saved address' }).click()
+  await expect(page.getByText(/Remove the encrypted address/)).toBeVisible()
+  await page.getByRole('button', { name: 'Remove address' }).click()
+  await expect(page.getByRole('status')).toContainText('Minimal redacted audit metadata remains')
+  await expect(page.getByText('Needs attention')).toHaveCount(0)
 })
 
 test('Coach Studio promotes only an attested source phrase and keeps it locked across responsive layouts', async ({ page }) => {

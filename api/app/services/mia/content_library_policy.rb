@@ -114,7 +114,8 @@ module Mia
       {
         upload_coach: workspace.present? && (user.admin? || workspace.allows?(user, :edit)),
         upload_platform: user.admin?,
-        retry_cleanup: user.admin?
+        retry_cleanup: user.admin?,
+        url_intake_enabled: ContentSources::UrlIntake.available?
       }
     end
 

@@ -68,6 +68,34 @@ class S3Service
       nil
     end
 
+    def upload_file!(key, path, content_type:, checksum_sha256:)
+      raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
+
+      File.open(path, "rb") do |file|
+        s3_client.put_object(
+          bucket: bucket_name,
+          key: key,
+          body: file,
+          content_type: content_type,
+          checksum_sha256: Base64.strict_encode64([ checksum_sha256 ].pack("H*")),
+          server_side_encryption: "AES256"
+        )
+      end
+      key
+    end
+
+    def copy!(source_key, destination_key)
+      raise MissingConfigurationError, "AWS S3 storage is not configured" unless configured?
+
+      destination = Aws::S3::Object.new(bucket_name, destination_key, client: s3_client)
+      destination.copy_from(
+        copy_source: "#{bucket_name}/#{source_key}",
+        server_side_encryption: "AES256",
+        checksum_algorithm: "SHA256"
+      )
+      destination_key
+    end
+
     def download_to_io(key, io)
       download_to_io!(key, io)
     rescue Aws::S3::Errors::ServiceError => e

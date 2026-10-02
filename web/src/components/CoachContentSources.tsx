@@ -25,6 +25,7 @@ import type {
 } from '../api'
 import { Button } from './Button'
 import { CoachPhraseProposalPanel } from './CoachPhraseProposalPanel'
+import { CoachUrlSourceIntake } from './CoachUrlSourceIntake'
 import type { CoachWorkspaceMutationLifecycle, CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachContentSources.css'
 
@@ -68,6 +69,8 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [phraseDirty, setPhraseDirty] = useState(false)
   const [phraseBusy, setPhraseBusy] = useState(false)
+  const [urlDirty, setUrlDirty] = useState(false)
+  const [urlBusy, setUrlBusy] = useState(false)
   const [conflictCandidate, setConflictCandidate] = useState<AdminContentSourceCandidate | null>(null)
   const requestSequence = useRef(0)
   const listRequestSequence = useRef(0)
@@ -106,7 +109,7 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
     draft.kind !== selectedCandidate.kind ||
     parseTopics(draft.topics).join('\n') !== selectedCandidate.topics.join('\n')
   ))
-  const dirty = Boolean(file || candidateDirty || phraseDirty || action === 'upload')
+  const dirty = Boolean(file || candidateDirty || phraseDirty || urlDirty || urlBusy || action === 'upload')
 
   useEffect(() => onDirtyChange(dirty), [dirty, onDirtyChange])
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
@@ -290,7 +293,9 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
       if (!mutationLifecycle.isCurrent(ticket)) return
       setSelectedSource(source)
       setSources((current) => replaceSource(current, source))
-      setNotice('Retry queued. You may keep working while the source is read.')
+      setNotice(selectedSource.ingestion_method === 'url_snapshot'
+        ? 'Saved snapshot re-read queued. The live address will not be visited again.'
+        : 'Retry queued. You may keep working while the source is read.')
     })
   }
 
@@ -361,7 +366,9 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
       setSelectedSource(source)
       setSources((current) => replaceSource(current, source))
       setConfirmDelete(false)
-      setNotice('Private source deletion is in progress. Approved content keeps its audit provenance.')
+      setNotice(selectedSource.ingestion_method === 'url_snapshot'
+        ? 'Saved snapshot deletion is in progress. The encrypted address will be redacted; approved content keeps its audit provenance.'
+        : 'Private source deletion is in progress. Approved content keeps its audit provenance.')
     })
   }
 
@@ -418,7 +425,16 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
   const failedCleanupCount = useMemo(() => sources.filter((source) => source.status === 'upload_cleanup_failed').length, [sources])
   const canUpload = collectionPermissions.upload_coach || collectionPermissions.upload_platform
   const showUpload = !listReady || canUpload
-  const controlsBusy = Boolean(action) || phraseBusy
+  const controlsBusy = Boolean(action) || phraseBusy || urlBusy
+
+  const openReadyUrlSource = useCallback((sourceId: number) => {
+    void loadSources()
+    if (candidateDirty || phraseDirty) {
+      setNotice('Secure snapshot ready. Finish or discard the current review edits, then open it from Private sources.')
+      return
+    }
+    void openSource(sourceId)
+  }, [candidateDirty, loadSources, openSource, phraseDirty])
 
   async function retryFailedUploadCleanups() {
     await runAction('cleanup-sweep', async (ticket) => {
@@ -432,7 +448,7 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
   return (
     <article className="panel coach-source-intake" aria-labelledby="coach-source-title">
       <header className="coach-source-header">
-        <div><p className="eyebrow">Bring in a source (optional)</p><h3 id="coach-source-title">Turn private material into reviewable drafts</h3><p>Upload text-based teaching material. Nothing becomes available to Mia automatically.</p></div>
+        <div><p className="eyebrow">Bring in a source (optional)</p><h3 id="coach-source-title">Turn private material into reviewable drafts</h3><p>Upload a file or save a secure web snapshot. Nothing becomes available to Mia automatically.</p></div>
         <ol className="coach-source-trust" aria-label="Content publication steps"><li>Private source</li><li>Review candidates</li><li>Content draft</li><li>Approve item</li><li>Publish pack</li><li>Publish assistant</li></ol>
       </header>
 
@@ -440,14 +456,27 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
       {conflictCandidate && <div className="coach-source-alert is-error" role="alert" tabIndex={-1} ref={conflictRef}><span>This candidate changed on the server. Your edits are still here.</span><button type="button" onClick={() => { adoptCandidateBase(conflictCandidate); setConflictCandidate(null); queueMicrotask(() => candidateContentRef.current?.focus()) }}>Keep editing</button><button type="button" onClick={reloadConflictCandidate}>Reload server candidate</button></div>}
       {notice && <div className="coach-source-alert is-success" role="status" tabIndex={-1} ref={noticeRef}><span>{notice}</span>{selectedCandidate?.accepted_content_item_id && <button type="button" onClick={() => onReviewItem(selectedCandidate.accepted_content_item_id!)}>Review content draft</button>}</div>}
 
-      {showUpload ? <form className="coach-source-upload" onSubmit={(event) => void upload(event)}>
-        <label htmlFor="coach-source-file"><span>Private source file</span><input ref={fileInputRef} id="coach-source-file" type="file" accept=".pdf,.docx,.txt,.md,.vtt,.srt" onChange={selectFile} aria-describedby="coach-source-file-help" disabled={!listReady || loading || controlsBusy} /></label>
-        {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || controlsBusy || platformMode} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{collectionPermissions.upload_platform && <option value="platform">Platform library</option>}{collectionPermissions.upload_coach && <option value="coach">My coaching library</option>}</select></label>}
-        <Button type="submit" disabled={!file || !listReady || loading || controlsBusy}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
-        <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file is stored privately. Extracted text is sent through the configured AI provider's no-data-collection routing setting to propose drafts. It never reaches participant chat until you approve an item, publish a pack, and publish the assistant.</p>
-        <details className="coach-source-limits"><summary>Library and upload limits</summary><p>Each staff account may keep up to 100 active private sources totaling 512 MB, with 5 uploads in progress and 10 new uploads started per 15 minutes.</p></details>
-        {file && <p className="coach-source-file-name"><strong>Ready:</strong> {file.name} · {formatBytes(file.size)}</p>}
-      </form> : <p className="coach-content-note">You can review private sources here. Editors manage uploads and candidate wording.</p>}
+      <div className="coach-source-create-grid">
+        {showUpload ? <section className="coach-source-upload-card" aria-labelledby="coach-file-upload-title"><div className="coach-source-create-heading"><div><h4 id="coach-file-upload-title">Upload a private file</h4><p>Use a file already saved on this device.</p></div><span className="coach-source-private-label">Private file</span></div><form className="coach-source-upload" onSubmit={(event) => void upload(event)}>
+          <label htmlFor="coach-source-file"><span>Private source file</span><input ref={fileInputRef} id="coach-source-file" type="file" accept=".pdf,.docx,.txt,.md,.vtt,.srt" onChange={selectFile} aria-describedby="coach-source-file-help" disabled={!listReady || loading || controlsBusy} /></label>
+          {currentUser.is_admin && <label><span>Owner</span><select value={scope} disabled={!listReady || loading || controlsBusy || platformMode} onChange={(event) => setScope(event.target.value as AdminContentScope)}>{collectionPermissions.upload_platform && <option value="platform">Platform library</option>}{collectionPermissions.upload_coach && <option value="coach">My coaching library</option>}</select></label>}
+          <Button type="submit" disabled={!file || !listReady || loading || controlsBusy}>{action === 'upload' ? 'Uploading privately…' : 'Upload and read'}</Button>
+          <p id="coach-source-file-help">PDF (12 MB), DOCX (10 MB), or TXT, MD, VTT, SRT (2 MB). Text PDFs only; scanned pages need OCR first. The file is stored privately. Extracted text is sent through the configured AI provider's no-data-collection routing setting to propose drafts. It never reaches participant chat until you approve an item, publish a pack, and publish the assistant.</p>
+          <details className="coach-source-limits"><summary>Library and upload limits</summary><p>Each staff account may keep up to 100 active private sources totaling 512 MB, with 5 uploads in progress and 10 new uploads started per 15 minutes.</p></details>
+          {file && <p className="coach-source-file-name"><strong>Ready:</strong> {file.name} · {formatBytes(file.size)}</p>}
+        </form></section> : <p className="coach-content-note">You can review private sources here. Editors manage uploads and candidate wording.</p>}
+        <CoachUrlSourceIntake
+          key={`${activeCoachWorkspaceId ?? 'platform'}:${currentUser.is_admin ? scope : 'coach'}`}
+          scope={currentUser.is_admin ? scope : 'coach'}
+          canCreate={canUpload}
+          permissionEnabled={collectionPermissions.url_intake_enabled}
+          disabled={!listReady || loading || Boolean(action) || phraseBusy}
+          mutationLifecycle={mutationLifecycle}
+          onDirtyChange={setUrlDirty}
+          onBusyChange={setUrlBusy}
+          onSourceReady={openReadyUrlSource}
+        />
+      </div>
 
       {collectionPermissions.retry_cleanup && failedCleanupCount > 0 && <div className="coach-source-alert is-error" role="alert"><span>{failedCleanupCount} abandoned private upload {failedCleanupCount === 1 ? 'needs' : 'need'} storage cleanup.</span><button type="button" disabled={controlsBusy} onClick={() => void retryFailedUploadCleanups()}>Retry failed cleanup</button></div>}
 
@@ -456,14 +485,15 @@ export function CoachContentSources({ currentUser, selectedPersona, refreshReque
           <header><h4>Private sources</h4><small>Showing {sources.length} current</small></header>
           {loading && sources.length === 0 && <p role="status">Loading private sources…</p>}
           {!loading && sources.length === 0 && !error && <p>No private sources yet. Manual content creation below is always available.</p>}
-          {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={controlsBusy}><span><strong>{source.filename}</strong><small>{formatBytes(source.byte_size)}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
+          {sources.map((source) => <button type="button" key={source.id} aria-current={selectedSource?.id === source.id ? 'true' : undefined} className={selectedSource?.id === source.id ? 'is-selected' : ''} onClick={() => requestSource(source.id)} disabled={controlsBusy}><span><strong>{source.filename}</strong><small>{formatBytes(source.byte_size)}{source.ingestion_method === 'url_snapshot' ? ' · Fixed web snapshot' : ''}</small></span><span className={`coach-source-status is-${source.status}`}>{statusLabel(source.status)}</span></button>)}
         </section>
 
         <section className="coach-source-detail" aria-label="Selected source details">
           {!selectedSource && <p>Select a source to review its status and candidates.</p>}
           {selectedSource && <>
-            <header><div><h4>{selectedSource.filename}</h4><p><span className={`coach-source-status is-${selectedSource.status}`}>{statusLabel(selectedSource.status)}</span> · {activeCount} candidate{activeCount === 1 ? '' : 's'} waiting</p></div><div className="coach-source-detail-actions">{selectedSource.source_available && selectedSource.permissions.download && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => void downloadSource()}>Download source</Button>}{selectedSource.status === 'failed' && selectedSource.permissions.reprocess && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => void retrySource()}>Retry reading</Button>}{selectedSource.status === 'deletion_failed' && selectedSource.permissions.delete && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy} onClick={() => void removeSource()}>Retry private-file deletion</Button>}{selectedSource.source_available && selectedSource.permissions.delete && !confirmDelete && <Button id="coach-source-delete-trigger" size="compact" variant="ghost" disabled={Boolean(action) || phraseBusy} onClick={() => candidateDirty || phraseDirty ? setPendingOpen({ type: 'delete' }) : setConfirmDelete(true)}>Delete source</Button>}</div></header>
-            {confirmDelete && <div className="coach-source-confirm" role="alert" tabIndex={-1} ref={deleteConfirmRef}><p>Delete the private file? Redacted evidence excerpts and review records remain with approved content provenance.</p><div><Button size="compact" variant="danger" onClick={() => void removeSource()} disabled={controlsBusy}>Delete private file</Button><Button size="compact" variant="ghost" disabled={controlsBusy} onClick={() => { setConfirmDelete(false); queueMicrotask(() => document.getElementById('coach-source-delete-trigger')?.focus()) }}>Keep source</Button></div></div>}
+            <header><div><h4>{selectedSource.filename}</h4><p><span className={`coach-source-status is-${selectedSource.status}`}>{statusLabel(selectedSource.status)}</span> · {activeCount} candidate{activeCount === 1 ? '' : 's'} waiting</p></div><div className="coach-source-detail-actions">{selectedSource.source_available && selectedSource.permissions.download && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy || urlBusy} onClick={() => void downloadSource()}>{selectedSource.ingestion_method === 'url_snapshot' ? 'Download snapshot' : 'Download source'}</Button>}{selectedSource.status === 'failed' && selectedSource.permissions.reprocess && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy || urlBusy} onClick={() => void retrySource()}>{selectedSource.ingestion_method === 'url_snapshot' ? 'Re-read saved snapshot' : 'Retry reading'}</Button>}{selectedSource.status === 'deletion_failed' && selectedSource.permissions.delete && <Button size="compact" variant="secondary" disabled={Boolean(action) || phraseBusy || urlBusy} onClick={() => void removeSource()}>{selectedSource.ingestion_method === 'url_snapshot' ? 'Retry snapshot deletion' : 'Retry private-file deletion'}</Button>}{selectedSource.source_available && selectedSource.permissions.delete && !confirmDelete && <Button id="coach-source-delete-trigger" size="compact" variant="ghost" disabled={Boolean(action) || phraseBusy || urlBusy} onClick={() => candidateDirty || phraseDirty ? setPendingOpen({ type: 'delete' }) : setConfirmDelete(true)}>{selectedSource.ingestion_method === 'url_snapshot' ? 'Delete snapshot' : 'Delete source'}</Button>}</div></header>
+            {selectedSource.url_snapshot && <p className="coach-source-snapshot-note"><strong>Fixed web snapshot.</strong> Saved {formatTimestamp(selectedSource.url_snapshot.fetched_at)} after {selectedSource.url_snapshot.redirect_count} redirect{selectedSource.url_snapshot.redirect_count === 1 ? '' : 's'}. Reprocessing reads this saved copy and never revisits the address.</p>}
+            {confirmDelete && <div className="coach-source-confirm" role="alert" tabIndex={-1} ref={deleteConfirmRef}><p>{selectedSource.ingestion_method === 'url_snapshot' ? 'Delete the saved web snapshot and redact its encrypted address?' : 'Delete the private file?'} Redacted evidence excerpts and review records remain with approved content provenance.</p><div><Button size="compact" variant="danger" onClick={() => void removeSource()} disabled={controlsBusy}>{selectedSource.ingestion_method === 'url_snapshot' ? 'Delete saved snapshot' : 'Delete private file'}</Button><Button size="compact" variant="ghost" disabled={controlsBusy} onClick={() => { setConfirmDelete(false); queueMicrotask(() => document.getElementById('coach-source-delete-trigger')?.focus()) }}>Keep source</Button></div></div>}
             {selectedSource.error && <p className="coach-source-alert is-error" role="alert">{selectedSource.error}</p>}
             {['queued', 'processing'].includes(selectedSource.status) && <p role="status">{selectedSource.status === 'queued' ? 'Queued to read. You may leave this page.' : 'Reading and proposing candidates. You may keep working.'}</p>}
             {selectedSource.status === 'needs_review' && selectedSource.candidates.length === 0 && <p>No safe, general coaching candidates were found. The private source remains unavailable to Mia.</p>}
@@ -559,6 +589,13 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${Math.ceil(bytes / 1024)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(bytes % (1024 * 1024) === 0 ? 0 : 1)} MB`
+}
+
+function formatTimestamp(value: string | null) {
+  if (!value) return 'recently'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'recently'
+  return new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' }).format(date)
 }
 
 function label(value: string) { return value.replaceAll('_', ' ').replace(/^./, (letter) => letter.toUpperCase()) }
