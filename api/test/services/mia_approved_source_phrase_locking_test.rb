@@ -21,9 +21,6 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     verifier_entered = Queue.new
     release_verifier = Queue.new
     writer_result = Queue.new
-    approval_pid = Queue.new
-    approval_started = Queue.new
-    approval_result = Queue.new
     original_download = S3Service.method(:download_to_io!)
     S3Service.define_singleton_method(:download_to_io!) do |_key, io|
       io.write(source_text)
@@ -54,45 +51,38 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     end
     verifier_entered.pop
 
-    approval_thread = Thread.new do
-      Thread.current.report_on_exception = false
-      ActiveRecord::Base.connection_pool.with_connection do |connection|
-        approval_pid << connection.select_value("SELECT pg_backend_pid()").to_i
-        begin
-          locked_item = CoachContentItem.find(item.id)
-          approval_started << true
-          approved = locked_item.approve!(
-            actor: User.find(owner.id),
-            expected_draft_revision: locked_item.draft_revision,
-            expected_draft_digest: locked_item.draft_digest
-          )
-          approval_result << approved.id
-        rescue StandardError => error
-          approval_result << error
-        end
-      end
+    connection = ActiveRecord::Base.connection
+    connection.execute("SET lock_timeout = '500ms'")
+    locked_item = CoachContentItem.find(item.id)
+    assert_raises ActiveRecord::LockWaitTimeout do
+      locked_item.approve!(
+        actor: owner,
+        expected_draft_revision: locked_item.draft_revision,
+        expected_draft_digest: locked_item.draft_digest
+      )
     end
-
-    approval_backend_pid = approval_pid.pop
-    approval_started.pop
-    assert wait_for_database_lock(approval_backend_pid), "expected approval to wait on the locked content item"
     assert_equal version.id, item.reload.current_approved_version_id
+    connection.execute("SET lock_timeout = DEFAULT")
 
     release_verifier << true
     writer_thread.join
-    approval_thread.join
     proposal_id = writer_result.pop
-    approved_version_id = approval_result.pop
     assert_kind_of Integer, proposal_id
+    locked_item.reload
+    approved_version_id = locked_item.approve!(
+      actor: owner,
+      expected_draft_revision: locked_item.draft_revision,
+      expected_draft_digest: locked_item.draft_digest
+    ).id
     assert_kind_of Integer, approved_version_id
     assert_equal version.id, CoachPhraseProposal.find(proposal_id).coach_content_item_version_id
     assert_equal approved_version_id, item.reload.current_approved_version_id
     assert_equal version.id, approved_version_id
   ensure
+    connection&.execute("SET lock_timeout = DEFAULT")
     S3Service.define_singleton_method(:download_to_io!, original_download) if defined?(original_download) && original_download
     release_verifier << true if defined?(release_verifier) && release_verifier&.empty?
     writer_thread&.join(2)
-    approval_thread&.join(2)
     cleanup_records
   end
 
@@ -136,19 +126,6 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     item = candidate.accept!(actor: owner, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
     version = item.approve!(actor: owner, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest)
     [ source.reload, candidate.reload, version ]
-  end
-
-  def wait_for_database_lock(pid)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 10
-    loop do
-      wait_type = ActiveRecord::Base.connection.select_value(
-        "SELECT wait_event_type FROM pg_stat_activity WHERE pid = #{Integer(pid)}"
-      )
-      return true if wait_type == "Lock"
-      return false if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
-
-      sleep 0.01
-    end
   end
 
   def remember_records(owner:, editor:, workspace:, source:, item:)
