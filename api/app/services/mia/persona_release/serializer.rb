@@ -18,7 +18,30 @@ module Mia
           retirement_digest: record.retirement_digest,
           retirement_valid: record.retirement_integrity_valid?,
           digest: record.case_digest,
+          request_id: record.request_key,
           created_at: record.created_at
+        }
+      end
+
+      def self.system_case_definition(definition, record: nil)
+        return evaluation_case(record) if record
+
+        {
+          id: nil,
+          system_key: definition.fetch(:system_key),
+          name: definition.fetch(:name),
+          kind: "system",
+          prompt: definition.fetch(:prompt),
+          assertions: definition.fetch(:assertions),
+          required: true,
+          active: true,
+          retired_at: nil,
+          retired_by: nil,
+          retirement_digest: nil,
+          retirement_valid: true,
+          digest: definition.fetch(:case_digest),
+          request_id: nil,
+          created_at: nil
         }
       end
 
@@ -27,6 +50,7 @@ module Mia
           id: record.id,
           candidate_id: record.release_candidate.id,
           candidate_digest: record.release_candidate.manifest_digest,
+          request_id: record.request_key,
           status: record.status,
           adapter_kind: record.adapter_kind,
           cases_digest: record.cases_digest,
@@ -34,6 +58,8 @@ module Mia
           passed: record.current_suite_pass?,
           started_at: record.started_at,
           completed_at: record.completed_at,
+          enqueued_at: record.enqueued_at,
+          requested_by: user(record.requested_by_user),
           approval: approval(record.approval)
         }
         if include_results
@@ -75,9 +101,17 @@ module Mia
           audience_digest: record.audience_digest,
           decision: record.decision,
           self_review: record.self_review?,
+          reviewer: user(record.reviewed_by_user),
           attestation_digest: record.attestation_digest,
           reviewed_at: record.reviewed_at
         }
+      end
+
+
+      def self.user(record)
+        return nil unless record
+
+        { id: record.id, full_name: record.full_name }
       end
     end
   end

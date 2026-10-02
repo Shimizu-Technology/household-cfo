@@ -6,6 +6,14 @@ require_relative "../support/persona_test_helper"
 class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
   include PersonaTestHelper
 
+  class LiveTestAdapter < Mia::PersonaRelease::BehavioralAdapter
+    def kind = "test_live_model"
+
+    def call(evaluation_case:, persona:, candidate:)
+      Response.new(output: "Review the exact candidate.", metadata: { "source" => "live_model" }, fallback_only: false)
+    end
+  end
+
   self.use_transactional_tests = false
 
   test "concurrent reviewers seal one immutable approval for a run" do
@@ -65,13 +73,16 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
       prompt: "Can I afford this purchase?",
       assertions: [ { "type" => "not_fallback" } ],
       required: false,
-      active: true
+      active: true,
+      request_key: "locking-case-#{SecureRandom.uuid}",
+      request_fingerprint: "d" * 64
     )
     evaluation_case.case_digest = CoachPersonaEvaluationCase.digest_for(evaluation_case)
     evaluation_case.save!
     preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
       .preview!(expected_draft_revision: persona.draft_revision)
-    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
+    hybrid = Mia::PersonaRelease::HybridBehavioralAdapter.new(live: LiveTestAdapter.new)
+    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner, adapter: hybrid).call!
     approval = Mia::PersonaRelease::RunApprover.new(run: run, actor: owner).call!(
       decision: "approved", expected_run_digest: run.run_digest
     )

@@ -35,7 +35,7 @@ class CoachPersonaReleaseCandidate < ApplicationRecord
   end
 
   def integrity_valid?
-    manifest_matches_snapshot?
+    manifest_matches_snapshot? && config_digest_matches?
   end
 
   private
@@ -59,12 +59,20 @@ class CoachPersonaReleaseCandidate < ApplicationRecord
     expected = Mia::PhraseManifest.canonicalize(expected_manifest)
     audience_matches = audience_digest.present? &&
       ActiveSupport::SecurityUtils.secure_compare(audience_digest, self.class.digest_for(audience_snapshot))
-    audience_matches && JSON.generate(canonical) == JSON.generate(expected) &&
+    audience_matches && config_digest_matches? && JSON.generate(canonical) == JSON.generate(expected) &&
       manifest_digest.present? && ActiveSupport::SecurityUtils.secure_compare(manifest_digest, self.class.digest_for(expected))
+  end
+
+  def config_digest_matches?
+    config_snapshot.is_a?(Hash) && config_digest.present? &&
+      ActiveSupport::SecurityUtils.secure_compare(config_digest, Mia::PersonaSchema.digest(config_snapshot))
+  rescue Mia::PersonaSchema::InvalidConfiguration
+    false
   end
 
   def snapshots_are_bounded
     errors.add(:audience_snapshot, "is too large") if JSON.generate(audience_snapshot).bytesize > 8.kilobytes
+    errors.add(:config_snapshot, "is too large") if JSON.generate(config_snapshot).bytesize > 49_152
     errors.add(:phrase_artifacts_snapshot, "is too large") if JSON.generate(phrase_artifacts_snapshot).bytesize > 40.kilobytes
   end
 

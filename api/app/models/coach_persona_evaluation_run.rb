@@ -16,10 +16,14 @@ class CoachPersonaEvaluationRun < ApplicationRecord
   validates :status, inclusion: { in: STATUSES }
   validates :adapter_kind, presence: true, length: { maximum: 80 }
   validates :cases_digest, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :request_key, presence: true, length: { maximum: 100 }
+  validates :request_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :execution_attempts, numericality: { only_integer: true, greater_than_or_equal_to: 0 }
   validates :run_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validate :lifecycle_is_coherent
-  validate :requester_can_edit_persona
+  validate :requester_can_edit_persona, on: :create
   validate :sealed_run_is_immutable, on: :update
+  validate :request_identity_is_immutable, on: :update
   before_destroy :prevent_destroy
 
   def self.digest_for(run:, results:)
@@ -28,6 +32,8 @@ class CoachPersonaEvaluationRun < ApplicationRecord
       requested_by_user_id: run.requested_by_user_id,
       adapter_kind: run.adapter_kind,
       cases_digest: run.cases_digest,
+      request_key: run.request_key,
+      request_fingerprint: run.request_fingerprint,
       status: run.status,
       started_at: run.started_at&.in_time_zone("UTC")&.iso8601(6),
       completed_at: run.completed_at&.in_time_zone("UTC")&.iso8601(6),
@@ -58,6 +64,10 @@ class CoachPersonaEvaluationRun < ApplicationRecord
     active_ids.sort == evaluated_ids.sort && (required_keys - evaluated_keys).empty?
   end
 
+  def terminal?
+    status.in?(%w[passed failed error])
+  end
+
   private
 
   def lifecycle_is_coherent
@@ -78,6 +88,13 @@ class CoachPersonaEvaluationRun < ApplicationRecord
     return unless status_was.in?(%w[passed failed error])
 
     errors.add(:base, "completed evaluation runs are immutable") if has_changes_to_save?
+  end
+
+  def request_identity_is_immutable
+    fields = %w[
+      coach_persona_release_candidate_id requested_by_user_id adapter_kind cases_digest request_key request_fingerprint
+    ]
+    errors.add(:base, "evaluation request identity is immutable") if changes_to_save.keys.intersect?(fields)
   end
 
   def prevent_destroy

@@ -87,6 +87,34 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     end
   end
 
+  test "strict privacy model requests deny provider data collection and tools" do
+    captured = nil
+    response = Net::HTTPOK.new("1.1", "200", "OK")
+    response.instance_variable_set(:@read, true)
+    response.body = JSON.generate(
+      choices: [ { message: { content: "Review the exact facts, then choose one next step." } } ]
+    )
+    start = lambda do |*_args, **_options, &block|
+      http = Object.new
+      http.define_singleton_method(:request) do |request|
+        captured = JSON.parse(request.body)
+        response
+      end
+      block.call(http)
+    end
+    responder = Demo::MiaResponder.new(api_key: "test-key", strict_privacy: true)
+
+    with_net_http_start(start) do
+      responder.send(:openrouter_response, "What should I review?", [], context: { metrics: {} }.to_json)
+    end
+
+    assert_equal(
+      { "data_collection" => "deny", "allow_fallbacks" => false, "require_parameters" => true },
+      captured.fetch("provider")
+    )
+    assert_equal [], captured.fetch("tools")
+  end
+
   test "fallback discretionary purchase response preserves local demo line when api key is missing" do
     response = Demo::MiaResponder.new(api_key: nil).call("Can I buy the purse?")
 
@@ -597,6 +625,16 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
   end
 
   private
+
+  def with_net_http_start(replacement)
+    singleton = Net::HTTP.singleton_class
+    original = singleton.instance_method(:start)
+    singleton.define_method(:start, replacement)
+    yield
+  ensure
+    singleton.send(:remove_method, :start) if singleton.method_defined?(:start)
+    singleton.define_method(:start, original)
+  end
 
   def stubbed_model_responder(response)
     Demo::MiaResponder.new(api_key: "test-key").tap do |responder|

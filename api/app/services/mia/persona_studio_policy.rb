@@ -2,6 +2,8 @@
 
 module Mia
   class PersonaStudioPolicy
+    attr_reader :user
+
     def initialize(user, workspace: nil)
       @user = user
       @workspace = workspace
@@ -76,7 +78,7 @@ module Mia
 
     private
 
-    attr_reader :user, :workspace
+    attr_reader :workspace
 
     def global_admin?
       user.admin? && workspace.nil?

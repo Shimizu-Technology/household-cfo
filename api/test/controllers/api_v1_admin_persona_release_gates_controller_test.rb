@@ -5,6 +5,7 @@ require_relative "../support/persona_test_helper"
 
 class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationTest
   include PersonaTestHelper
+  include ActiveJob::TestHelper
 
   test "workspace API creates typed cases runs approvals readiness and a gate v2 publication" do
     owner = persona_user
@@ -14,11 +15,24 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
 
     get "/api/v1/admin/personas/#{persona.id}/release_readiness", headers: headers
     assert_response :success
-    refute response.parsed_body.dig("readiness", "ready")
+    initial_readiness = response.parsed_body.fetch("readiness")
+    refute initial_readiness.fetch("ready")
+    assert_equal 4, initial_readiness.fetch("required_evaluation_cases").length
+    assert initial_readiness.dig("permissions", "run_evaluation")
+    assert initial_readiness.dig("permissions", "review_evaluations")
+    assert initial_readiness.dig("permissions", "publish")
+    get "/api/v1/admin/personas/#{persona.id}/evaluation_cases", headers: headers
+    assert_response :success
+    visible_cases = response.parsed_body.fetch("evaluation_cases")
+    assert_equal 4, visible_cases.length
+    assert visible_cases.all? { |item| item.fetch("required") && item.fetch("kind") == "system" }
+    assert visible_cases.all? { |item| item.fetch("id").nil? }
 
+    case_request_id = SecureRandom.uuid
     post "/api/v1/admin/personas/#{persona.id}/evaluation_cases",
       params: {
         evaluation_case: {
+          request_id: case_request_id,
           name: "Complex purchase",
           prompt: "Can I finance a car while paying down debt?",
           assertions: [ { type: "includes", value: "review" }, { type: "not_fallback" } ]
@@ -27,12 +41,47 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     assert_response :created
     assert_equal "custom", response.parsed_body.dig("evaluation_case", "kind")
     custom_case_id = response.parsed_body.dig("evaluation_case", "id")
-
-    post "/api/v1/admin/personas/#{persona.id}/evaluation_runs", headers: headers, as: :json
+    post "/api/v1/admin/personas/#{persona.id}/evaluation_cases",
+      params: {
+        evaluation_case: {
+          request_id: case_request_id,
+          name: "Complex purchase",
+          prompt: "Can I finance a car while paying down debt?",
+          assertions: [ { type: "includes", value: "review" }, { type: "not_fallback" } ]
+        }
+      }, headers: headers, as: :json
     assert_response :created
+    assert_equal custom_case_id, response.parsed_body.dig("evaluation_case", "id")
+    assert response.parsed_body.dig("reconciliation", "replayed")
+    post "/api/v1/admin/personas/#{persona.id}/evaluation_cases",
+      params: {
+        evaluation_case: {
+          request_id: case_request_id,
+          name: "Changed payload",
+          prompt: "A different request",
+          assertions: [ { type: "not_fallback" } ]
+        }
+      }, headers: headers, as: :json
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("error"), "different evaluation case"
+
+    run_request_id = SecureRandom.uuid
+    with_live_evaluation do
+      perform_enqueued_jobs do
+        post "/api/v1/admin/personas/#{persona.id}/evaluation_runs",
+          params: { evaluation_run: { request_id: run_request_id } }, headers: headers, as: :json
+      end
+    end
+    assert_response :accepted
     run_payload = response.parsed_body.fetch("evaluation_run")
     assert_equal "passed", run_payload.fetch("status")
     assert_equal false, run_payload.fetch("results").any? { |result| result.fetch("fallback_only") }
+    assert_equal owner.id, run_payload.dig("requested_by", "id")
+    post "/api/v1/admin/personas/#{persona.id}/evaluation_runs",
+      params: { evaluation_run: { request_id: run_request_id } }, headers: headers, as: :json
+    assert_response :accepted
+    assert response.parsed_body.dig("reconciliation", "replayed")
+    assert_equal run_payload.fetch("id"), response.parsed_body.dig("evaluation_run", "id")
 
     post "/api/v1/admin/personas/#{persona.id}/evaluation_runs/#{run_payload.fetch('id')}/approval",
       params: { approval: { decision: "approved", run_digest: run_payload.fetch("run_digest") } },
@@ -81,11 +130,13 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
     persona = create_persona(creator: first_owner, workspace: first_workspace)
 
-    post "/api/v1/admin/personas/#{persona.id}/evaluation_runs", headers: auth_headers(platform_admin), as: :json
+    post "/api/v1/admin/personas/#{persona.id}/evaluation_runs",
+      params: { evaluation_run: { request_id: SecureRandom.uuid } }, headers: auth_headers(platform_admin), as: :json
     assert_response :unprocessable_entity
     assert_equal "coach_workspace_required", response.parsed_body.fetch("code")
 
     post "/api/v1/admin/personas/#{persona.id}/evaluation_runs",
+      params: { evaluation_run: { request_id: SecureRandom.uuid } },
       headers: workspace_auth_headers(second_owner, second_workspace), as: :json
     assert_response :not_found
 
@@ -96,7 +147,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     custom = persona.evaluation_cases.new(
       coach_workspace: first_workspace, created_by_user: first_owner, name: "Private case",
       case_kind: "custom", prompt: "Test", assertions: [ { "type" => "not_fallback" } ],
-      required: false, active: true
+      required: false, active: true, request_key: "private-#{SecureRandom.uuid}", request_fingerprint: "e" * 64
     )
     custom.case_digest = CoachPersonaEvaluationCase.digest_for(custom)
     custom.save!
@@ -114,6 +165,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     post "/api/v1/admin/personas/#{persona.id}/evaluation_cases",
       params: {
         evaluation_case: {
+          request_id: SecureRandom.uuid,
           name: "Unsafe assertion",
           prompt: "Test",
           assertions: [ { type: "regex", value: ".*" } ]
@@ -165,7 +217,9 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
         prompt: "Review scenario #{index + 1}.",
         assertions: [ { "type" => "not_fallback" } ],
         required: false,
-        active: true
+        active: true,
+        request_key: "capacity-#{SecureRandom.uuid}",
+        request_fingerprint: "f" * 64
       )
       record.case_digest = CoachPersonaEvaluationCase.digest_for(record)
       record.save!
@@ -173,7 +227,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     end
 
     post "/api/v1/admin/personas/#{persona.id}/evaluation_cases",
-      params: { evaluation_case: { name: "One too many", prompt: "Test", assertions: [ { type: "not_fallback" } ] } },
+      params: { evaluation_case: { request_id: SecureRandom.uuid, name: "One too many", prompt: "Test", assertions: [ { type: "not_fallback" } ] } },
       headers: headers, as: :json
     assert_response :unprocessable_entity
     assert_includes response.parsed_body.fetch("error"), "Retire an existing custom evaluation case"
@@ -193,7 +247,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     assert retired.reload.retirement_integrity_valid?
 
     post "/api/v1/admin/personas/#{persona.id}/evaluation_cases",
-      params: { evaluation_case: { name: "Corrected case", prompt: "Test", assertions: [ { type: "not_fallback" } ] } },
+      params: { evaluation_case: { request_id: SecureRandom.uuid, name: "Corrected case", prompt: "Test", assertions: [ { type: "not_fallback" } ] } },
       headers: headers, as: :json
     assert_response :created
     corrected_id = response.parsed_body.dig("evaluation_case", "id")
@@ -205,6 +259,20 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
   end
 
   private
+
+  def with_live_evaluation
+    original = Mia::PersonaRelease::LiveBehavioralAdapter.instance_method(:call)
+    Mia::PersonaRelease::LiveBehavioralAdapter.define_method(:call) do |evaluation_case:, persona:, candidate:|
+      Mia::PersonaRelease::BehavioralAdapter::Response.new(
+        output: "Review the exact candidate facts before choosing the next step.",
+        metadata: { "source" => "live_model", "candidate_digest" => candidate.manifest_digest },
+        fallback_only: false
+      )
+    end
+    yield
+  ensure
+    Mia::PersonaRelease::LiveBehavioralAdapter.define_method(:call, original) if original
+  end
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }

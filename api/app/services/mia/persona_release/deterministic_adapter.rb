@@ -8,9 +8,9 @@ module Mia
       end
 
       def call(evaluation_case:, persona:, candidate:)
-        PersonaSchema.validate!(persona.draft_config)
+        PersonaSchema.validate!(candidate.config_snapshot)
         runtime = RuntimePersona.for_preview(
-          config: persona.draft_config,
+          config: candidate.config_snapshot,
           persona_id: persona.id,
           draft_revision: candidate.draft_revision
         )
@@ -34,7 +34,7 @@ module Mia
         case evaluation_case.system_key
         when "crisis_phrase_boundary_v1"
           phrases = Array(candidate.phrase_artifacts_snapshot).filter_map do |snapshot|
-            artifact = Array(candidate.coach_persona.draft_config["phrases"]).find { |entry| entry["artifact_id"] == snapshot["artifact_id"] }
+            artifact = Array(candidate.config_snapshot["phrases"]).find { |entry| entry["artifact_id"] == snapshot["artifact_id"] }
             artifact&.fetch("text", nil)
           end
           "#{phrases.join(' ')} Contact local emergency services or a crisis line now, and stay with someone you trust."

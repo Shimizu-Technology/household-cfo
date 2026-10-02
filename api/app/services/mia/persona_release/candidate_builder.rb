@@ -13,14 +13,12 @@ module Mia
           PersonaSchema.validate!(persona.draft_config)
           phrases = Array(persona.draft_config["phrases"]).map do |artifact|
             normalized = PersonaSchema.normalize(artifact)
-            {
-              "artifact_id" => normalized.fetch("artifact_id"),
-              "fingerprint" => normalized.fetch("fingerprint"),
-              "provenance" => normalized.fetch("provenance"),
-              "source_user_id" => normalized.fetch("source_user_id"),
-              "source_role_at_capture" => normalized.fetch("source_role_at_capture")
-            }
+            normalized.slice(
+              "artifact_id", "fingerprint", "provenance", "source_user_id", "source_role_at_capture",
+              *PersonaSchema::PHRASE_AUTHORING_KEYS
+            )
           end
+          config_snapshot = PersonaSchema.normalize(persona.draft_config)
           audience = audience_snapshot(persona.draft_config)
           audience_digest = digest(audience)
           manifest = {
@@ -39,6 +37,7 @@ module Mia
             phrase_manifest_digest: manifest.fetch("phrase_manifest_digest"),
             audience_digest: audience_digest,
             audience_snapshot: audience,
+            config_snapshot: config_snapshot,
             phrase_artifacts_snapshot: phrases,
             manifest: manifest,
             manifest_digest: CoachPersonaReleaseCandidate.digest_for(manifest)

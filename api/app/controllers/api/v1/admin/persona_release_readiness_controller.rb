@@ -9,7 +9,7 @@ module Api
 
         def show
           persona = policy.visible_personas.find(params[:persona_id])
-          render json: { readiness: Mia::PersonaRelease::Readiness.new(persona: persona).call }
+          render json: { readiness: Mia::PersonaRelease::Readiness.new(persona: persona, actor: current_user).call }
         end
 
         private

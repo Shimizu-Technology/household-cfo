@@ -5,6 +5,7 @@ require_relative "../support/persona_test_helper"
 
 class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
   include PersonaTestHelper
+  include ActiveJob::TestHelper
 
   class FallbackAdapter < Mia::PersonaRelease::BehavioralAdapter
     def kind = "test_fallback"
@@ -14,6 +15,18 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
         output: "Review the facts and options, then choose your next step.",
         metadata: { "source" => "deterministic_fallback" },
         fallback_only: true
+      )
+    end
+  end
+
+  class LiveTestAdapter < Mia::PersonaRelease::BehavioralAdapter
+    def kind = "test_live_model"
+
+    def call(evaluation_case:, persona:, candidate:)
+      Response.new(
+        output: "Review the exact candidate facts and options before choosing the next step.",
+        metadata: { "source" => "live_model", "candidate_digest" => candidate.manifest_digest },
+        fallback_only: false
       )
     end
   end
@@ -113,6 +126,14 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       decision: "approved"
     )
     assert attestation.self_review?
+    readiness = Mia::PersonaRelease::Readiness.new(persona: persona, actor: owner).call
+    assert_equal "Adults in Mrs. Mel's Guam household finance cohort.", readiness.dig(:candidate, :audience_snapshot, "audience")
+    phrase_review = readiness.fetch(:phrase_audience_reviews).sole
+    assert_equal "Håfa adai", phrase_review.dig(:phrase, "text")
+    assert_equal "coach_authored", phrase_review.dig(:provenance, :kind)
+    assert_equal owner.id, phrase_review.dig(:reviewer, :id)
+    assert_equal attestation.reviewed_at, phrase_review.fetch(:reviewed_at)
+    assert_equal attestation.attestation_digest, phrase_review.fetch(:attestation_digest)
     version = publish_v2(persona, owner, preview, run, approval)
     assert version.release_evidence_valid?
 
@@ -120,7 +141,7 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     changed["identity"]["audience"] = "Adults in a new regional cohort."
     persona.update!(draft_config: changed)
     refute run.release_candidate.current_for?(persona)
-    readiness = Mia::PersonaRelease::Readiness.new(persona: persona).call
+    readiness = Mia::PersonaRelease::Readiness.new(persona: persona, actor: owner).call
     refute readiness.fetch(:ready)
     assert_nil readiness.fetch(:candidate)
   end
@@ -172,14 +193,17 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       prompt: "Keep the household plan in context across this follow-up.",
       assertions: [ { "type" => "not_fallback" } ],
       required: false,
-      active: true
+      active: true,
+      request_key: "custom-latest-#{SecureRandom.uuid}",
+      request_fingerprint: "a" * 64
     )
     custom.case_digest = CoachPersonaEvaluationCase.digest_for(custom)
     custom.save!
     refute run.reload.current_suite_pass?
     assert approval.reload.integrity_valid?, "historical approval integrity should remain stable"
 
-    replacement = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
+    hybrid = Mia::PersonaRelease::HybridBehavioralAdapter.new(live: LiveTestAdapter.new)
+    replacement = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner, adapter: hybrid).call!
     replacement_approval = approve(replacement, owner)
     assert replacement.current_suite_pass?
     fallback = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner, adapter: FallbackAdapter.new).call!
@@ -205,7 +229,9 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       case_kind: "custom",
       prompt: "Can I afford a new car?",
       assertions: [ { "type" => "includes", "value" => "review" }, { "type" => "not_fallback" } ],
-      required: false
+      required: false,
+      request_key: "custom-valid-#{SecureRandom.uuid}",
+      request_fingerprint: "b" * 64
     )
     valid.case_digest = CoachPersonaEvaluationCase.digest_for(valid)
     assert valid.save
@@ -218,6 +244,8 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       prompt: "Test",
       assertions: [ { "type" => "regex", "value" => ".*" } ],
       required: false,
+      request_key: "custom-invalid-#{SecureRandom.uuid}",
+      request_fingerprint: "c" * 64,
       case_digest: "0" * 64
     )
     refute invalid.valid?
@@ -255,6 +283,23 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       )
     end
     assert_equal "Rollback target release evidence is invalid", error.message
+  end
+
+  test "queued evaluation fails closed when the requester loses edit access" do
+    owner = persona_user
+    editor = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    membership = workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    persona = create_persona(creator: owner, workspace: workspace)
+    queued = Mia::PersonaRelease::Runner.new(persona: persona, actor: editor)
+      .enqueue!(request_key: SecureRandom.uuid)
+
+    membership.update!(role: "viewer")
+    run = Mia::PersonaRelease::Runner.execute_pending!(queued.run.id)
+
+    assert_equal "error", run.reload.status
+    assert run.run_digest.present?
+    assert_empty run.results
   end
 
   private

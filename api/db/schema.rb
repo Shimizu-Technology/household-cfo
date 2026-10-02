@@ -546,6 +546,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.bigint "created_by_user_id", null: false
     t.string "name", null: false
     t.text "prompt", null: false
+    t.string "request_fingerprint"
+    t.string "request_key"
     t.boolean "required", default: false, null: false
     t.datetime "retired_at"
     t.bigint "retired_by_user_id"
@@ -557,8 +559,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.index ["coach_workspace_id"], name: "index_coach_persona_evaluation_cases_on_coach_workspace_id"
     t.index ["created_by_user_id"], name: "index_coach_persona_evaluation_cases_on_created_by_user_id"
     t.index ["retired_by_user_id"], name: "index_coach_persona_evaluation_cases_on_retired_by_user_id"
+    t.index ["request_key"], name: "idx_persona_evaluation_cases_request_key", unique: true, where: "(request_key IS NOT NULL)"
     t.check_constraint "case_kind::text = ANY (ARRAY['system'::character varying::text, 'custom'::character varying::text])", name: "persona_evaluation_cases_kind_valid"
-    t.check_constraint "jsonb_typeof(assertions) = 'array'::text AND (case_kind::text <> 'system'::text OR required = true AND active = true AND system_key IS NOT NULL) AND (active = true AND retired_by_user_id IS NULL AND retired_at IS NULL AND retirement_digest IS NULL OR active = false AND case_kind::text = 'custom'::text AND retired_by_user_id IS NOT NULL AND retired_at IS NOT NULL AND retirement_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_evaluation_cases_shape"
+    t.check_constraint "jsonb_typeof(assertions) = 'array'::text AND (case_kind::text = 'system'::text AND required = true AND active = true AND system_key IS NOT NULL AND request_key IS NULL AND request_fingerprint IS NULL OR case_kind::text = 'custom'::text AND system_key IS NULL AND request_key IS NOT NULL AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100 AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text) AND (active = true AND retired_by_user_id IS NULL AND retired_at IS NULL AND retirement_digest IS NULL OR active = false AND case_kind::text = 'custom'::text AND retired_by_user_id IS NOT NULL AND retired_at IS NOT NULL AND retirement_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_evaluation_cases_shape"
   end
   create_table "coach_persona_evaluation_results", force: :cascade do |t|
     t.jsonb "adapter_metadata", default: {}, null: false
@@ -584,6 +587,10 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.bigint "coach_persona_release_candidate_id", null: false
     t.datetime "completed_at"
     t.datetime "created_at", null: false
+    t.datetime "enqueued_at"
+    t.integer "execution_attempts", default: 0, null: false
+    t.string "request_fingerprint", null: false
+    t.string "request_key", null: false
     t.bigint "requested_by_user_id", null: false
     t.string "run_digest"
     t.datetime "started_at"
@@ -591,7 +598,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.datetime "updated_at", null: false
     t.index ["coach_persona_release_candidate_id"], name: "idx_persona_evaluation_runs_candidate"
     t.index ["requested_by_user_id"], name: "index_coach_persona_evaluation_runs_on_requested_by_user_id"
-    t.check_constraint "cases_digest::text ~ '^[0-9a-f]{64}$'::text AND (run_digest IS NULL OR run_digest::text ~ '^[0-9a-f]{64}$'::text) AND (status::text = 'pending'::text AND started_at IS NULL AND completed_at IS NULL AND run_digest IS NULL OR status::text = 'running'::text AND started_at IS NOT NULL AND completed_at IS NULL AND run_digest IS NULL OR (status::text = ANY (ARRAY['passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])) AND started_at IS NOT NULL AND completed_at IS NOT NULL AND run_digest IS NOT NULL)", name: "persona_evaluation_runs_lifecycle"
+    t.index ["request_key"], name: "idx_persona_evaluation_runs_request_key", unique: true
+    t.check_constraint "cases_digest::text ~ '^[0-9a-f]{64}$'::text AND request_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND char_length(request_key::text) >= 1 AND char_length(request_key::text) <= 100 AND execution_attempts >= 0 AND (run_digest IS NULL OR run_digest::text ~ '^[0-9a-f]{64}$'::text) AND (status::text = 'pending'::text AND started_at IS NULL AND completed_at IS NULL AND run_digest IS NULL OR status::text = 'running'::text AND started_at IS NOT NULL AND completed_at IS NULL AND run_digest IS NULL OR (status::text = ANY (ARRAY['passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])) AND started_at IS NOT NULL AND completed_at IS NOT NULL AND run_digest IS NOT NULL)", name: "persona_evaluation_runs_lifecycle"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])", name: "persona_evaluation_runs_status_valid"
   end
   create_table "coach_persona_release_candidates", force: :cascade do |t|
@@ -599,6 +607,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.jsonb "audience_snapshot", default: {}, null: false
     t.bigint "coach_persona_id", null: false
     t.string "config_digest", null: false
+    t.jsonb "config_snapshot", default: {}, null: false
     t.string "content_manifest_digest", null: false
     t.datetime "created_at", null: false
     t.bigint "created_by_user_id", null: false
@@ -613,7 +622,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.index ["coach_persona_id"], name: "index_coach_persona_release_candidates_on_coach_persona_id"
     t.index ["created_by_user_id"], name: "index_coach_persona_release_candidates_on_created_by_user_id"
     t.check_constraint "draft_revision > 0 AND config_digest::text ~ '^[0-9a-f]{64}$'::text AND content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_release_candidates_digest_shape"
-    t.check_constraint "jsonb_typeof(audience_snapshot) = 'object'::text AND jsonb_typeof(phrase_artifacts_snapshot) = 'array'::text AND jsonb_typeof(manifest) = 'object'::text", name: "persona_release_candidates_json_shape"
+    t.check_constraint "jsonb_typeof(audience_snapshot) = 'object'::text AND jsonb_typeof(config_snapshot) = 'object'::text AND jsonb_typeof(phrase_artifacts_snapshot) = 'array'::text AND jsonb_typeof(manifest) = 'object'::text", name: "persona_release_candidates_json_shape"
   end
   create_table "coach_phrase_audience_attestations", force: :cascade do |t|
     t.string "artifact_fingerprint", null: false

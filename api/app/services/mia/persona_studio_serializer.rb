@@ -39,7 +39,7 @@ module Mia
           draft_revision: persona.draft_revision,
           has_unpublished_changes: unpublished_changes?,
           preview_required: preview_required?,
-          release_readiness: Mia::PersonaRelease::Readiness.new(persona: persona).call
+          release_readiness: Mia::PersonaRelease::Readiness.new(persona: persona, actor: policy.user).call
         )
       end
       payload

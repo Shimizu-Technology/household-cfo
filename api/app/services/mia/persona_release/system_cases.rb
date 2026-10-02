@@ -47,23 +47,28 @@ module Mia
         }
       ].freeze
 
-      def self.ensure!(persona:, actor:)
+      def self.catalog
         DEFINITIONS.map do |definition|
+          attributes = definition.merge(case_kind: "system", required: true, active: true)
+          attributes.merge(case_digest: CoachPersonaEvaluationCase.digest_for(attributes.stringify_keys))
+        end
+      end
+
+      def self.ensure!(persona:, actor:)
+        catalog.map do |definition|
           attributes = definition.merge(
             coach_workspace: persona.coach_workspace,
             coach_persona: persona,
-            created_by_user: actor,
-            case_kind: "system",
-            required: true,
-            active: true
+            created_by_user: actor
           )
-          digest = CoachPersonaEvaluationCase.digest_for(attributes.stringify_keys)
           existing = persona.evaluation_cases.find_by(system_key: definition.fetch(:system_key))
           if existing
-            raise ArgumentError, "A required evaluation case definition changed unexpectedly" unless existing.integrity_valid? && existing.case_digest == digest
+            unless existing.integrity_valid? && existing.case_digest == definition.fetch(:case_digest)
+              raise ArgumentError, "A required evaluation case definition changed unexpectedly"
+            end
             existing
           else
-            CoachPersonaEvaluationCase.create!(attributes.merge(case_digest: digest))
+            CoachPersonaEvaluationCase.create!(attributes)
           end
         end
       end

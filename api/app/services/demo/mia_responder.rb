@@ -66,11 +66,13 @@ module Demo
 
     attr_reader :response_source, :supplied_content_context
 
-    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default, approved_content: [])
+    def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default,
+      approved_content: [], strict_privacy: false)
       @api_key = api_key
       @model = model
       @persona = persona
       @approved_content = Array(approved_content)
+      @strict_privacy = strict_privacy
       @supplied_content_context = []
     end
 
@@ -126,7 +128,7 @@ module Demo
       request["Content-Type"] = "application/json"
       request["HTTP-Referer"] = "https://github.com/Shimizu-Technology/household-cfo"
       request["X-Title"] = "Household CFO Method powered by VERA"
-      request.body = {
+      payload = {
         model: @model,
         messages: [
           { role: "system", content: @persona.system_prompt },
@@ -139,7 +141,12 @@ module Demo
         ],
         max_tokens: 220,
         temperature: 0.5
-      }.to_json
+      }
+      if @strict_privacy
+        payload[:provider] = { data_collection: "deny", allow_fallbacks: false, require_parameters: true }
+        payload[:tools] = []
+      end
+      request.body = payload.to_json
 
       response = Net::HTTP.start(uri.hostname, uri.port, use_ssl: uri.scheme == "https", read_timeout: 20, open_timeout: 5) do |http|
         http.request(request)

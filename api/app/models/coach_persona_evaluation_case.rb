@@ -17,6 +17,8 @@ class CoachPersonaEvaluationCase < ApplicationRecord
   validates :prompt, presence: true, length: { maximum: 2_000 }
   validates :system_key, length: { maximum: 80 }, allow_nil: true
   validates :case_digest, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :request_key, length: { maximum: 100 }, allow_nil: true
+  validates :request_fingerprint, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validates :retirement_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validate :workspace_matches_persona
   validate :creator_can_edit_persona, on: :create
@@ -35,7 +37,9 @@ class CoachPersonaEvaluationCase < ApplicationRecord
       "case_kind" => value["case_kind"],
       "prompt" => value["prompt"],
       "assertions" => Mia::PhraseManifest.canonicalize(value["assertions"] || []),
-      "required" => value["required"] == true
+      "required" => value["required"] == true,
+      "request_key" => value["request_key"],
+      "request_fingerprint" => value["request_fingerprint"]
     }
     Digest::SHA256.hexdigest(JSON.generate(snapshot).b)
   end
@@ -110,8 +114,12 @@ class CoachPersonaEvaluationCase < ApplicationRecord
       errors.add(:system_key, "is required for a system case") if system_key.blank?
       errors.add(:required, "must be true for a system case") unless required?
       errors.add(:active, "must be true for a system case") unless active?
-    elsif system_key.present?
-      errors.add(:system_key, "must be blank for a custom case")
+      errors.add(:request_key, "must be blank for a system case") if request_key.present? || request_fingerprint.present?
+    else
+      errors.add(:system_key, "must be blank for a custom case") if system_key.present?
+      if request_key.blank? || request_fingerprint.blank?
+        errors.add(:request_key, "and fingerprint are required for a custom case")
+      end
     end
   end
 
@@ -141,7 +149,10 @@ class CoachPersonaEvaluationCase < ApplicationRecord
   end
 
   def sealed_fields_are_immutable
-    sealed = %w[coach_workspace_id coach_persona_id created_by_user_id system_key name case_kind prompt assertions required case_digest]
+    sealed = %w[
+      coach_workspace_id coach_persona_id created_by_user_id system_key name case_kind prompt assertions required
+      case_digest request_key request_fingerprint
+    ]
     errors.add(:base, "evaluation case evidence is immutable") if changes_to_save.keys.intersect?(sealed)
     return if active_was
 
