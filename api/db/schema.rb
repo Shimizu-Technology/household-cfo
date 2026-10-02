@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_202000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -167,6 +167,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.string "evidence_excerpt_digest", null: false
     t.jsonb "evidence_locator", default: {}, null: false
     t.string "provenance_digest", null: false
+    t.integer "provenance_digest_version", default: 1, null: false
     t.bigint "source_byte_size", null: false
     t.string "source_checksum_sha256", null: false
     t.string "source_content_type", null: false
@@ -184,6 +185,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.check_constraint "candidate_revision > 0", name: "coach_content_item_draft_provenances_candidate_revision_positiv"
     t.check_constraint "evidence_excerpt_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_excerpt_digest_sha256"
     t.check_constraint "provenance_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_provenance_digest_sha256"
+    t.check_constraint "provenance_digest_version = ANY (ARRAY[1, 2])", name: "coach_content_item_draft_provenances_digest_version_valid"
     t.check_constraint "source_byte_size > 0", name: "coach_content_item_draft_provenances_source_size_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_draft_provenances_source_checksum_sha256"
     t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_item_draft_provenances_ingestion_method_valid"
@@ -209,6 +211,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.string "evidence_excerpt_digest", null: false
     t.jsonb "evidence_locator", default: {}, null: false
     t.string "provenance_digest", null: false
+    t.integer "provenance_digest_version", default: 1, null: false
     t.bigint "source_byte_size", null: false
     t.string "source_checksum_sha256", null: false
     t.string "source_content_type", null: false
@@ -227,6 +230,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.check_constraint "candidate_revision > 0", name: "coach_content_item_version_provenances_candidate_revision_posit"
     t.check_constraint "evidence_excerpt_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_excerpt_digest_sha256"
     t.check_constraint "provenance_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_provenance_digest_sha256"
+    t.check_constraint "provenance_digest_version = ANY (ARRAY[1, 2])", name: "coach_content_item_version_provenances_digest_version_valid"
     t.check_constraint "source_byte_size > 0", name: "coach_content_item_version_provenances_source_size_positive"
     t.check_constraint "source_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_item_version_provenances_source_checksum_sha256"
     t.check_constraint "source_ingestion_method::text = ANY (ARRAY['upload'::character varying, 'url_snapshot'::character varying]::text[])", name: "coach_content_item_version_provenances_ingestion_method_valid"
@@ -423,6 +427,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.string "final_s3_key"
     t.integer "hmac_key_version", null: false
     t.integer "lock_version", default: 0, null: false
+    t.datetime "redaction_requested_at"
     t.integer "redirect_count", default: 0, null: false
     t.string "request_id", null: false
     t.bigint "reserved_bytes", null: false
@@ -443,13 +448,13 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_201000) do
     t.index ["staging_s3_key"], name: "index_coach_content_source_url_intakes_on_staging_s3_key", unique: true, where: "(staging_s3_key IS NOT NULL)"
     t.index ["status", "updated_at"], name: "idx_url_intakes_recovery"
     t.index ["url_identity_hmac", "hmac_key_version"], name: "idx_url_intakes_hmac_version"
-    t.check_constraint "(status::text = ANY (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NOT NULL OR (status::text <> ALL (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NULL", name: "url_intakes_source_state_coherent"
+    t.check_constraint "status::text = 'registered'::text AND coach_content_source_id IS NOT NULL OR status::text = 'deleted'::text OR (status::text <> ALL (ARRAY['registered'::character varying, 'deleted'::character varying]::text[])) AND coach_content_source_id IS NULL", name: "url_intakes_source_state_coherent"
     t.check_constraint "fetched_checksum_sha256 IS NULL OR fetched_checksum_sha256::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_checksum_sha256"
     t.check_constraint "redirect_count >= 0 AND redirect_count <= 3", name: "url_intakes_redirects_bounded"
     t.check_constraint "reserved_bytes > 0 AND reserved_bytes <= 12582912", name: "url_intakes_reservation_bounded"
     t.check_constraint "scope::text = 'coach'::text AND coach_workspace_id IS NOT NULL OR scope::text = 'platform'::text AND coach_workspace_id IS NULL", name: "url_intakes_workspace_matches_scope"
     t.check_constraint "scope::text = ANY (ARRAY['coach'::character varying::text, 'platform'::character varying::text])", name: "url_intakes_scope_valid"
-    t.check_constraint "status::text = 'deleted'::text OR encrypted_url_ciphertext IS NOT NULL AND encrypted_url_iv IS NOT NULL AND encrypted_url_auth_tag IS NOT NULL", name: "url_intakes_encrypted_payload_present"
+    t.check_constraint "status::text = 'deleted'::text OR redaction_requested_at IS NOT NULL OR encrypted_url_ciphertext IS NOT NULL AND encrypted_url_iv IS NOT NULL AND encrypted_url_auth_tag IS NOT NULL", name: "url_intakes_encrypted_payload_present"
     t.check_constraint "status::text = ANY (ARRAY['queued'::character varying::text, 'fetching'::character varying::text, 'staged'::character varying::text, 'registering'::character varying::text, 'registered'::character varying::text, 'failed'::character varying::text, 'cleanup_pending'::character varying::text, 'cleanup_failed'::character varying::text, 'deleted'::character varying::text])", name: "url_intakes_status_valid"
     t.check_constraint "url_identity_hmac::text ~ '^[0-9a-f]{64}$'::text", name: "url_intakes_hmac_sha256"
   end

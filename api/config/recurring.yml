@@ -16,3 +16,9 @@ production:
   recover_stale_plaid_items:
     class: PlaidStaleItemRecoveryJob
     schedule: every day at 17:17
+  recover_stale_content_source_url_intakes:
+    class: CoachContentSourceUrlIntakeRecoveryJob
+    schedule: every 5 minutes
+  redact_terminal_content_source_url_intakes:
+    class: CoachContentSourceUrlIntakeRetentionJob
+    schedule: every day at 03:37

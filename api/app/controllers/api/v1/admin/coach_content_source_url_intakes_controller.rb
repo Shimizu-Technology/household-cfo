@@ -6,14 +6,17 @@ module Api
       class CoachContentSourceUrlIntakesController < BaseController
         before_action :authenticate_user!
         before_action :require_staff!
-        before_action :set_intake, only: %i[show retry_cleanup]
+        before_action :set_intake, only: %i[show destroy retry_cleanup]
         rescue_from ActiveRecord::RecordNotFound, with: :not_found
 
         def index
-          render json: { intakes: visible_intakes.where.not(status: "deleted").order(created_at: :desc, id: :desc).limit(100).map { |intake| serialize(intake) } }
+          render json: feature_payload.merge(
+            intakes: visible_intakes.where.not(status: "deleted").order(created_at: :desc, id: :desc).limit(100).map { |intake| serialize(intake) }
+          )
         end
 
         def create
+          return feature_disabled unless ContentSources::UrlIntake.enabled?
           return storage_unavailable unless S3Service.configured?
 
           normalized_url = ContentSources::UrlValidator.normalize!(params.require(:url))
@@ -37,7 +40,7 @@ module Api
             end
             intake = intake_scope(scope, workspace).find_by(request_id: request_id)
             if intake
-              same_identity = intake.url_identity_hmac == identity && intake.hmac_key_version == ContentSources::UrlCipher::CURRENT_VERSION
+              same_identity = identity_matches?(intake, normalized_url)
               raise ContentSources::Error, "url_intake_conflict" unless same_identity
               if intake.status == "failed"
                 quota.enforce!(requested_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES, exclude_intake: intake)
@@ -59,7 +62,7 @@ module Api
                 encrypted_url_auth_tag: encrypted.fetch(:auth_tag),
                 encryption_key_version: encrypted.fetch(:key_version),
                 url_identity_hmac: identity,
-                hmac_key_version: ContentSources::UrlCipher::CURRENT_VERSION,
+                hmac_key_version: ContentSources::UrlCipher.current_version,
                 status: "queued",
                 reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES
               )
@@ -69,7 +72,7 @@ module Api
           job = CoachContentSourceUrlIntakeJob.perform_later(intake.id) if intake.status == "queued"
           raise ActiveJob::EnqueueError, "Secure URL intake could not be queued" if intake.status == "queued" && !job
 
-          render json: { intake: serialize(intake.reload) }, status: created ? :accepted : :ok
+          render json: feature_payload.merge(intake: serialize(intake.reload)), status: created ? :accepted : :ok
         rescue ActionController::ParameterMissing
           render json: { error: "Enter a source address and try again.", code: "url_intake_request_invalid" }, status: :unprocessable_entity
         rescue ContentSources::Error => error
@@ -80,14 +83,27 @@ module Api
           intake&.destroy! if created && intake&.status == "queued"
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         rescue ActiveRecord::RecordNotUnique
-          existing = intake_scope(requested_scope, requested_scope == "coach" ? coach_workspace_for_policy : nil).find_by(request_id: params[:request_id])
-          return render json: { intake: serialize(existing) } if existing && existing.url_identity_hmac == ContentSources::UrlCipher.identity(normalized_url)
-
-          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_conflict"), code: "url_intake_conflict" }, status: :conflict
+          render_concurrent_create(normalized_url)
         end
 
         def show
-          render json: { intake: serialize(@intake) }
+          render json: feature_payload.merge(intake: serialize(@intake))
+        end
+
+        def destroy
+          return render_intake_forbidden unless policy.can_upload_source?(@intake.scope)
+          unless @intake.redaction_allowed?
+            return render json: { error: "Only a failed, unregistered URL intake can be removed.", code: "url_intake_conflict" }, status: :unprocessable_entity
+          end
+
+          result = @intake.request_redaction!
+          if result == :cleanup_required
+            job = CoachContentSourceUrlCleanupJob.perform_later(@intake.id)
+            raise ActiveJob::EnqueueError, "Secure URL cleanup could not be queued" unless job
+          end
+          render json: feature_payload.merge(intake: serialize(@intake.reload)), status: result == :cleanup_required ? :accepted : :ok
+        rescue ActiveJob::EnqueueError
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         end
 
         def retry_cleanup
@@ -103,7 +119,7 @@ module Api
           job = CoachContentSourceUrlCleanupJob.perform_later(@intake.id)
           raise ActiveJob::EnqueueError, "Secure URL cleanup could not be queued" unless job
 
-          render json: { intake: serialize(@intake) }, status: :accepted
+          render json: feature_payload.merge(intake: serialize(@intake)), status: :accepted
         rescue ActiveJob::EnqueueError
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         end
@@ -153,6 +169,8 @@ module Api
               intake.status == "cleanup_failed" ||
               (intake.status == "registered" && intake.staging_s3_key.present? && intake.error_code == "url_staging_cleanup_failed")
             ),
+            redaction_allowed: policy.can_upload_source?(intake.scope) && intake.redaction_allowed?,
+            redaction_pending: intake.redaction_pending?,
             redirect_count: intake.redirect_count,
             created_at: intake.created_at,
             completed_at: intake.completed_at
@@ -165,6 +183,36 @@ module Api
 
         def storage_unavailable
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("storage_unavailable"), code: "storage_unavailable" }, status: :service_unavailable
+        end
+
+        def feature_disabled
+          render json: feature_payload.merge(
+            error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_disabled"), code: "url_intake_disabled"
+          ), status: :service_unavailable
+        end
+
+        def feature_payload
+          {
+            url_intake: {
+              enabled: ContentSources::UrlIntake.enabled?,
+              available: ContentSources::UrlIntake.available?
+            }
+          }
+        end
+
+        def identity_matches?(intake, normalized_url)
+          expected = ContentSources::UrlCipher.identity(normalized_url, version: intake.hmac_key_version)
+          ActiveSupport::SecurityUtils.secure_compare(intake.url_identity_hmac, expected)
+        end
+
+        def render_concurrent_create(normalized_url)
+          scope = requested_scope
+          existing = intake_scope(scope, scope == "coach" ? coach_workspace_for_policy : nil).find_by(request_id: params[:request_id])
+          return render json: feature_payload.merge(intake: serialize(existing)) if existing && identity_matches?(existing, normalized_url)
+
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_conflict"), code: "url_intake_conflict" }, status: :conflict
+        rescue ContentSources::UrlCipher::ConfigurationError
+          render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         end
 
         def not_found

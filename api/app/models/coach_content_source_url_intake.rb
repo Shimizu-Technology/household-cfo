@@ -37,7 +37,35 @@ class CoachContentSourceUrlIntake < ApplicationRecord
   end
 
   def url_redacted?
-    status == "deleted"
+    status == "deleted" || redaction_requested_at.present?
+  end
+
+  def redaction_allowed?
+    coach_content_source_id.nil? && status.in?(%w[failed cleanup_failed])
+  end
+
+  def redaction_pending?
+    redaction_requested_at.present? && status != "deleted"
+  end
+
+  def request_redaction!
+    cleanup_required = false
+    with_lock do
+      return :already_redacted if status == "deleted" && coach_content_source_id.nil?
+      raise ContentSources::Error, "url_intake_conflict" unless redaction_allowed?
+
+      now = Time.current
+      cleanup_required = staging_s3_key.present? || final_s3_key.present?
+      update!(
+        status: cleanup_required ? "cleanup_pending" : "deleted",
+        redaction_requested_at: now,
+        encrypted_url_ciphertext: nil,
+        encrypted_url_iv: nil,
+        encrypted_url_auth_tag: nil,
+        completed_at: now
+      )
+    end
+    cleanup_required ? :cleanup_required : :redacted
   end
 
   private
@@ -57,8 +85,14 @@ class CoachContentSourceUrlIntake < ApplicationRecord
   end
 
   def source_state_is_coherent
-    expects_source = status.in?(%w[registered deleted])
-    return if expects_source == coach_content_source.present?
+    valid = if status == "registered"
+      coach_content_source.present?
+    elsif status == "deleted"
+      true
+    else
+      coach_content_source.nil?
+    end
+    return if valid
 
     errors.add(:coach_content_source, "must match the URL intake lifecycle state")
   end

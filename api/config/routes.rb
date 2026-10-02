@@ -149,7 +149,7 @@ Rails.application.routes.draw do
             end
           end
         end
-        resources :content_source_url_intakes, controller: "coach_content_source_url_intakes", only: %i[index create show] do
+        resources :content_source_url_intakes, controller: "coach_content_source_url_intakes", only: %i[index create show destroy] do
           post :retry_cleanup, on: :member
         end
         resources :phrase_proposals, controller: "coach_phrase_proposals", only: %i[show update] do

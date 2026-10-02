@@ -1,7 +1,8 @@
 # frozen_string_literal: true
 
-Rails.application.config.after_initialize do
-  if Rails.env.production? && S3Service.configured?
-    ContentSources::UrlCipher.validate_configuration!
-  end
+configured = ENV["CONTENT_SOURCE_URL_INTAKE_ENABLED"]
+Rails.application.config.x.content_source_url_intake_enabled = if configured.nil?
+  Rails.env.development? || Rails.env.test?
+else
+  ActiveModel::Type::Boolean.new.cast(configured)
 end

@@ -14,6 +14,10 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
     return recover_boundary!(intake) if recovery
     return enqueue_processing!(intake) if intake.status == "registered"
     return unless intake.status == "queued"
+    unless ContentSources::UrlIntake.enabled?
+      fail_safely(intake, "url_intake_disabled")
+      return
+    end
 
     url = claim_fetch!(intake)
     return unless url
@@ -98,6 +102,7 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
   end
 
   def register!(intake)
+    raise ContentSources::Error, "url_intake_disabled" unless ContentSources::UrlIntake.enabled?
     raise ContentSources::Error, "url_intake_unavailable" unless current_permission?(intake)
 
     destination = S3Service.namespaced_key(
@@ -115,7 +120,7 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
     ContentSources::OwnerLock.call("upload-quota:#{quota.owner_key}") do
       intake.lock!
       raise ContentSources::Error, "url_intake_conflict" unless intake.status == "registering"
-      raise ContentSources::Error, "url_intake_unavailable" unless current_permission?(intake)
+      raise ContentSources::Error, "url_intake_unavailable" unless current_permission?(intake, lock: true)
 
       quota.enforce!(requested_bytes: intake.fetched_byte_size, exclude_intake: intake)
       source = CoachContentSource.create!(
@@ -145,15 +150,20 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
     enqueue_processing!(intake)
   end
 
-  def current_permission?(intake)
-    user = User.find_by(id: intake.created_by_user_id)
-    return false unless user&.staff?
+  def current_permission?(intake, lock: false)
+    users = lock ? User.lock : User.all
+    user = users.find_by(id: intake.created_by_user_id)
+    return false unless user&.staff? && user.invitation_accepted?
+    return user.admin? if intake.scope == "platform"
 
-    workspace = intake.scope == "coach" ? CoachWorkspace.find_by(id: intake.coach_workspace_id) : nil
-    if workspace
-      CoachWorkspaceMembership.where(coach_workspace: workspace, user: user).lock.load if ApplicationRecord.connection.transaction_open?
-    end
-    Mia::ContentLibraryPolicy.new(user, workspace: workspace).can_upload_source?(intake.scope)
+    workspace = CoachWorkspace.find_by(id: intake.coach_workspace_id)
+    return false unless workspace
+    return true if user.admin?
+
+    memberships = CoachWorkspaceMembership.where(coach_workspace: workspace, user: user)
+    memberships = memberships.lock if lock
+    role = memberships.first&.role
+    CoachWorkspace::PERMISSIONS.fetch(role, []).include?(:edit)
   end
 
   def verify_final_object!(intake, key)

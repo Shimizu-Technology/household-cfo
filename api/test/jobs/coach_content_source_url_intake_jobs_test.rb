@@ -90,6 +90,53 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
     assert_nil intake.coach_content_source
   end
 
+  test "revoked staff is rejected before fetch and after a fetch race" do
+    coach = persona_user
+    intake = url_intake(coach: coach)
+    coach.update!(invitation_status: "revoked")
+    sandbox = Object.new
+    sandbox.define_singleton_method(:call) { |_url| flunk("revoked staff must not fetch") }
+
+    with_singleton_method(ContentSources::FetchSandbox, :new, -> { sandbox }) do
+      CoachContentSourceUrlIntakeJob.perform_now(intake.id)
+    end
+    assert_equal "failed", intake.reload.status
+    assert_equal "url_intake_unavailable", intake.error_code
+
+    coach.update!(invitation_status: "accepted")
+    raced = url_intake(coach: coach)
+    tempfile = Tempfile.new([ "url-intake-revocation", ".txt" ])
+    tempfile.write("A bounded snapshot")
+    tempfile.flush
+    checksum = Digest::SHA256.file(tempfile.path).hexdigest
+    result = ContentSources::FetchSandbox::Result.new(
+      tempfile: tempfile, filename: "guide.txt", content_type: "text/plain", byte_size: File.size(tempfile.path),
+      checksum_sha256: checksum, redirect_count: 0
+    )
+    racing_sandbox = Object.new
+    racing_sandbox.define_singleton_method(:call) { |_url| result }
+    metadata = {
+      byte_size: result.byte_size,
+      content_type: result.content_type,
+      checksum_sha256: Base64.strict_encode64([ checksum ].pack("H*")),
+      server_side_encryption: "AES256"
+    }
+
+    with_singleton_method(ContentSources::FetchSandbox, :new, -> { racing_sandbox }) do
+      with_singleton_method(S3Service, :upload_file!, ->(key, *, **) { key }) do
+        with_singleton_method(S3Service, :copy!, ->(*args) { coach.reload.update!(invitation_status: "revoked"); args.last }) do
+          with_singleton_method(S3Service, :object_metadata, ->(*) { metadata }) do
+            assert_no_difference -> { CoachContentSource.count } do
+              CoachContentSourceUrlIntakeJob.perform_now(raced.id)
+            end
+          end
+        end
+      end
+    end
+    assert_equal "cleanup_pending", raced.reload.status
+    assert_nil raced.coach_content_source
+  end
+
   test "fetch failure stores only a safe code and releases the reservation" do
     coach = persona_user
     intake = url_intake(coach: coach, url: "https://example.com/private?canary=7ZQ")
@@ -105,6 +152,24 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
     assert_equal "url_fetch_failed", intake.error_code
     refute_includes intake.attributes.except("encrypted_url_ciphertext", "encrypted_url_iv", "encrypted_url_auth_tag").values.compact.join(" "), "7ZQ"
     assert_empty CoachContentSourceUrlIntake.reserving_quota.where(id: intake.id)
+  end
+
+  test "disabled feature stops a queued intake before any network fetch" do
+    coach = persona_user
+    intake = url_intake(coach: coach)
+    previous = Rails.application.config.x.content_source_url_intake_enabled
+    Rails.application.config.x.content_source_url_intake_enabled = false
+    sandbox = Object.new
+    sandbox.define_singleton_method(:call) { |_url| flunk("disabled URL intake must not fetch") }
+
+    with_singleton_method(ContentSources::FetchSandbox, :new, -> { sandbox }) do
+      CoachContentSourceUrlIntakeJob.perform_now(intake.id)
+    end
+
+    assert_equal "failed", intake.reload.status
+    assert_equal "url_intake_disabled", intake.error_code
+  ensure
+    Rails.application.config.x.content_source_url_intake_enabled = previous
   end
 
   test "a normal duplicate delivery cannot race a staged intake" do
@@ -136,6 +201,64 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
 
     assert_equal "cleanup_pending", intake.reload.status
     assert_equal "url_fetch_failed", intake.error_code
+  end
+
+  test "recurring recovery replaces lost boundary and cleanup enqueues for every stale state" do
+    coach = persona_user
+    queued = url_intake(coach: coach)
+    fetching = url_intake(coach: coach).tap { |record| record.update!(status: "fetching") }
+    staged = url_intake(coach: coach).tap do |record|
+      record.update!(
+        status: "staged", staging_s3_key: "staging/#{SecureRandom.uuid}", resolved_filename: "guide.txt",
+        resolved_content_type: "text/plain", fetched_byte_size: 5,
+        fetched_checksum_sha256: Digest::SHA256.hexdigest("guide"), fetched_at: Time.current
+      )
+    end
+    registering = url_intake(coach: coach).tap do |record|
+      record.update!(
+        status: "staged", staging_s3_key: "staging/#{SecureRandom.uuid}", resolved_filename: "guide.txt",
+        resolved_content_type: "text/plain", fetched_byte_size: 5,
+        fetched_checksum_sha256: Digest::SHA256.hexdigest("guide"), fetched_at: Time.current
+      )
+      record.update!(status: "registering", final_s3_key: "final/#{SecureRandom.uuid}")
+    end
+    cleanup = url_intake(coach: coach).tap { |record| record.update!(status: "cleanup_pending") }
+    ids = [ queued, fetching, staged, registering, cleanup ].map(&:id)
+    CoachContentSourceUrlIntake.where(id: ids).update_all(updated_at: 6.minutes.ago)
+
+    assert_enqueued_jobs 5 do
+      CoachContentSourceUrlIntakeRecoveryJob.perform_now
+    end
+    queued_jobs = enqueued_jobs.last(5)
+    assert_equal 4, queued_jobs.count { |entry| entry.fetch(:job) == CoachContentSourceUrlIntakeJob }
+    assert_equal 1, queued_jobs.count { |entry| entry.fetch(:job) == CoachContentSourceUrlCleanupJob }
+  end
+
+  test "retention redacts old failures and cleanup completes a storage-backed redaction" do
+    coach = persona_user
+    plain = url_intake(coach: coach).tap do |record|
+      record.update!(status: "failed", error_code: "url_fetch_failed", completed_at: 31.days.ago)
+    end
+    stored = url_intake(coach: coach).tap do |record|
+      record.update!(
+        status: "cleanup_failed", error_code: "url_fetch_failed", completed_at: 31.days.ago,
+        staging_s3_key: "staging/#{SecureRandom.uuid}"
+      )
+    end
+
+    assert_enqueued_with(job: CoachContentSourceUrlCleanupJob, args: [ stored.id ]) do
+      CoachContentSourceUrlIntakeRetentionJob.perform_now
+    end
+    assert_equal "deleted", plain.reload.status
+    assert_nil plain.encrypted_url_ciphertext
+    assert_equal "cleanup_pending", stored.reload.status
+    assert_nil stored.encrypted_url_ciphertext
+
+    with_singleton_method(S3Service, :delete!, ->(*) { true }) do
+      CoachContentSourceUrlCleanupJob.perform_now(stored.id)
+    end
+    assert_equal "deleted", stored.reload.status
+    assert_nil stored.staging_s3_key
   end
 
   test "source deletion redacts the encrypted URL and marks the intake deleted" do
@@ -220,8 +343,36 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
 
     assert_equal "url_snapshot", item.draft_source_provenance.source_ingestion_method
     assert_equal "url_snapshot", version.source_provenance.source_ingestion_method
+    assert_equal 2, item.draft_source_provenance.provenance_digest_version
+    assert_equal 2, version.source_provenance.provenance_digest_version
     assert item.draft_source_provenance.integrity_valid?
     assert version.source_provenance.integrity_valid?
+  end
+
+  test "legacy provenance keeps its v1 digest while v2 binds the ingestion method" do
+    coach = persona_user
+    source, item, version = accepted_source_artifacts(coach: coach)
+    draft = item.draft_source_provenance
+    approved = version.source_provenance
+
+    draft_v1 = CoachContentItemDraftProvenance.digest_for(
+      draft.send(:attributes_for_digest).merge(provenance_digest_version: 1)
+    )
+    approved_v1 = CoachContentItemVersionProvenance.digest_for(
+      approved.send(:attributes_for_digest).merge(provenance_digest_version: 1)
+    )
+    draft.update_columns(provenance_digest_version: 1, provenance_digest: draft_v1)
+    approved.update_columns(provenance_digest_version: 1, provenance_digest: approved_v1)
+
+    assert draft.reload.integrity_valid?
+    assert approved.reload.integrity_valid?
+    assert_equal draft_v1, CoachContentItemDraftProvenance.digest_for(
+      draft.send(:attributes_for_digest).merge(source_ingestion_method: "url_snapshot", provenance_digest_version: 1)
+    )
+    refute_equal draft_v1, CoachContentItemDraftProvenance.digest_for(
+      draft.send(:attributes_for_digest).merge(source_ingestion_method: "url_snapshot", provenance_digest_version: 2)
+    )
+    assert_equal "upload", source.ingestion_method
   end
 
   private
@@ -238,6 +389,30 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
       status: status, reserved_bytes: source&.byte_size || CoachContentSourceUrlIntakeJob::RESERVATION_BYTES,
       final_s3_key: source&.s3_key
     )
+  end
+
+  def accepted_source_artifacts(coach:)
+    source = CoachContentSource.create!(
+      scope: "coach", created_by_user: coach, status: "processing", generation: 1,
+      ingestion_method: "upload", filename: "guide.txt", content_type: "text/plain", byte_size: 42,
+      checksum_sha256: Digest::SHA256.hexdigest("snapshot"), s3_key: "test/#{SecureRandom.uuid}",
+      upload_request_id: SecureRandom.uuid
+    )
+    attempt = source.attempts.create!(
+      generation: 1, provider: "openrouter", model: "test", prompt_version: "v1", schema_version: "v1",
+      status: "succeeded", started_at: 1.minute.ago, completed_at: Time.current
+    )
+    source.update!(status: "needs_review", current_attempt: attempt)
+    content = "Choose one clear next step."
+    candidate = source.candidates.create!(
+      coach_content_source_attempt: attempt, position: 0, status: "proposed", title: "One step",
+      kind: "guidance", content: content, topics: [],
+      evidence_locator: { "type" => "text", "segment" => 1, "line_start" => 1, "line_end" => 1, "excerpt_digest" => Digest::SHA256.hexdigest(content) },
+      evidence_excerpt: content,
+      content_digest: CoachContentSourceCandidate.digest_for(title: "One step", kind: "guidance", content: content, topics: [])
+    )
+    item = candidate.accept!(actor: coach, expected_revision: candidate.revision, expected_digest: candidate.content_digest)
+    [ source, item, item.approve!(actor: coach, expected_draft_revision: item.draft_revision, expected_draft_digest: item.draft_digest) ]
   end
 
   def with_singleton_method(target, name, implementation)

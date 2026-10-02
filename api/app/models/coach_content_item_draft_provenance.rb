@@ -3,6 +3,8 @@
 require "digest"
 
 class CoachContentItemDraftProvenance < ApplicationRecord
+  LEGACY_DIGEST_VERSION = 1
+  CURRENT_DIGEST_VERSION = 2
   belongs_to :coach_content_item
   belongs_to :coach_content_source
   belongs_to :coach_content_source_attempt
@@ -12,6 +14,7 @@ class CoachContentItemDraftProvenance < ApplicationRecord
   validates :source_filename, :source_content_type, :attempt_provider, :attempt_model,
     :attempt_prompt_version, :attempt_schema_version, presence: true
   validates :source_ingestion_method, inclusion: { in: %w[upload url_snapshot] }
+  validates :provenance_digest_version, inclusion: { in: [ LEGACY_DIGEST_VERSION, CURRENT_DIGEST_VERSION ] }
   validates :source_byte_size, numericality: { only_integer: true, greater_than: 0 }
   validates :source_checksum_sha256, :candidate_content_digest, :candidate_original_proposal_digest, :evidence_excerpt_digest,
     :provenance_digest, format: { with: /\A[0-9a-f]{64}\z/ }
@@ -48,7 +51,8 @@ class CoachContentItemDraftProvenance < ApplicationRecord
         accepted_by_user: candidate.reviewed_by_user,
         accepted_at: candidate.reviewed_at,
         evidence_locator: candidate.evidence_locator,
-        evidence_excerpt_digest: candidate.evidence_locator.fetch("excerpt_digest")
+        evidence_excerpt_digest: candidate.evidence_locator.fetch("excerpt_digest"),
+        provenance_digest_version: CURRENT_DIGEST_VERSION
       }
       record = new(attributes)
       record.provenance_digest = digest_for(record.send(:attributes_for_digest))
@@ -57,7 +61,8 @@ class CoachContentItemDraftProvenance < ApplicationRecord
     end
 
     def digest_for(attributes)
-      Digest::SHA256.hexdigest(JSON.generate(snapshot(attributes)).b)
+      version = Integer(attributes[:provenance_digest_version] || attributes["provenance_digest_version"] || LEGACY_DIGEST_VERSION)
+      Digest::SHA256.hexdigest(JSON.generate(snapshot(attributes, digest_version: version)).b)
     end
 
     def provenance_filename_for(filename)
@@ -65,8 +70,9 @@ class CoachContentItemDraftProvenance < ApplicationRecord
       "uploaded-source#{extension}"
     end
 
-    def snapshot(attributes)
-      {
+    def snapshot(attributes, digest_version: nil)
+      version = Integer(digest_version || attributes[:provenance_digest_version] || attributes["provenance_digest_version"] || LEGACY_DIGEST_VERSION)
+      snapshot = {
         source_id: record_id(attributes, :coach_content_source, :coach_content_source_id),
         source_attempt_id: record_id(attributes, :coach_content_source_attempt, :coach_content_source_attempt_id),
         source_candidate_id: record_id(attributes, :coach_content_source_candidate, :coach_content_source_candidate_id),
@@ -74,7 +80,6 @@ class CoachContentItemDraftProvenance < ApplicationRecord
         source_content_type: attributes[:source_content_type],
         source_byte_size: attributes[:source_byte_size],
         source_checksum_sha256: attributes[:source_checksum_sha256],
-        source_ingestion_method: attributes[:source_ingestion_method],
         attempt_provider: attributes[:attempt_provider],
         attempt_model: attributes[:attempt_model],
         attempt_prompt_version: attributes[:attempt_prompt_version],
@@ -88,6 +93,8 @@ class CoachContentItemDraftProvenance < ApplicationRecord
         evidence_locator: attributes[:evidence_locator].to_h.sort.to_h,
         evidence_excerpt_digest: attributes[:evidence_excerpt_digest]
       }
+      snapshot[:source_ingestion_method] = attributes[:source_ingestion_method] if version >= CURRENT_DIGEST_VERSION
+      snapshot
     end
 
     private
@@ -108,10 +115,11 @@ class CoachContentItemDraftProvenance < ApplicationRecord
   end
 
   def attributes_for_version
-    self.class.snapshot(attributes_for_digest).except(:source_id, :source_attempt_id, :source_candidate_id).merge(
+    self.class.snapshot(attributes_for_digest, digest_version: provenance_digest_version).except(:source_id, :source_attempt_id, :source_candidate_id).merge(
       coach_content_source_id: coach_content_source_id,
       coach_content_source_attempt_id: coach_content_source_attempt_id,
-      coach_content_source_candidate_id: coach_content_source_candidate_id
+      coach_content_source_candidate_id: coach_content_source_candidate_id,
+      provenance_digest_version: provenance_digest_version
     )
   end
 

@@ -50,6 +50,7 @@ module ContentSources
       "html_invalid" => "This web page could not be read safely.",
       "html_no_readable_text" => "No readable article text was found on this web page.",
       "url_intake_conflict" => "This source request changed unexpectedly. Start a new import.",
+      "url_intake_disabled" => "Secure URL intake is not enabled for this Household CFO environment.",
       "url_intake_unavailable" => "Secure URL intake is temporarily unavailable. Try again shortly.",
       "url_staging_cleanup_failed" => "The source is ready, but temporary private storage cleanup needs an administrator retry."
     }.freeze

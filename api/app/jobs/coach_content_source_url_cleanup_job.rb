@@ -25,7 +25,12 @@ class CoachContentSourceUrlCleanupJob < ApplicationJob
       if intake.status == "registered"
         intake.update!(staging_s3_key: nil, cleanup_attempts: 0, error_code: nil)
       else
-        intake.update!(status: "failed", staging_s3_key: nil, final_s3_key: nil)
+        intake.update!(
+          status: intake.redaction_requested_at.present? ? "deleted" : "failed",
+          staging_s3_key: nil,
+          final_s3_key: nil,
+          completed_at: Time.current
+        )
       end
     end
   rescue Aws::S3::Errors::ServiceError, S3Service::MissingConfigurationError

@@ -13,23 +13,34 @@ module ContentSources
     class DecryptionError < StandardError; end
 
     class << self
+      def current_version
+        CURRENT_VERSION
+      end
+
+      def configured?
+        validate_configuration!
+      rescue ConfigurationError
+        false
+      end
+
       def validate_configuration!
-        encryption_key(CURRENT_VERSION)
-        hmac_key(CURRENT_VERSION)
+        encryption_key(current_version)
+        hmac_key(current_version)
         true
       end
 
       def encrypt(url)
         cipher = OpenSSL::Cipher.new("aes-256-gcm").encrypt
-        cipher.key = encryption_key(CURRENT_VERSION)
+        version = current_version
+        cipher.key = encryption_key(version)
         iv = cipher.random_iv
-        cipher.auth_data = aad(CURRENT_VERSION)
+        cipher.auth_data = aad(version)
         ciphertext = cipher.update(url.to_s) + cipher.final
         {
           ciphertext: Base64.strict_encode64(ciphertext),
           iv: Base64.strict_encode64(iv),
           auth_tag: Base64.strict_encode64(cipher.auth_tag),
-          key_version: CURRENT_VERSION
+          key_version: version
         }
       end
 
@@ -45,7 +56,7 @@ module ContentSources
         raise DecryptionError, "Stored source address could not be decrypted"
       end
 
-      def identity(url, version: CURRENT_VERSION)
+      def identity(url, version: current_version)
         OpenSSL::HMAC.hexdigest("SHA256", hmac_key(version), url.to_s)
       end
 
