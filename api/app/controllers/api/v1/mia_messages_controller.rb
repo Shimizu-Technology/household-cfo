@@ -1,6 +1,14 @@
 module Api
   module V1
     class MiaMessagesController < BaseController
+      ATTACHMENT_ACTION_VERB_SOURCE = "set|change|update|increase|decrease|lower|raise|move|create|add(?!\\s+up\\b)|rename|archive|restore|schedule|end|stop|link|unlink|reconcile".freeze
+      ATTACHMENT_ACTION_NOUN_SOURCE = "budget|category|allocation|income|goal|household|runway|expense|spending|debt|asset|account|bank".freeze
+      ATTACHMENT_ACTION_VERB_PATTERN = /\b(?:#{ATTACHMENT_ACTION_VERB_SOURCE})\b/i.freeze
+      ATTACHMENT_ACTION_NOUN_PATTERN = /\b(?:#{ATTACHMENT_ACTION_NOUN_SOURCE})\b/i.freeze
+      ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE = "(?:(?:and|also|then|and\\s+then)\\s*[,;:]?\\s*)?(?:please\\s+)?(?:(?:(?:can|could|would|will)\\s+you(?:\\s+please)?|i\\s+(?:want|need)(?:\\s+you)?\\s+to|i(?:'d|\\s+would)\\s+like\\s+to|help\\s+me)\\s+)?".freeze
+      ATTACHMENT_INFORMATIONAL_FRAME_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:update\s+me\b|tell\s+me\b|explain\b|increase\s+(?:my|our)\s+understanding\b)/i.freeze
+      ATTACHMENT_NAMED_AMOUNT_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:set|change|update|increase|decrease|lower|raise)\s+[^?!.;,\r\n]{1,60}?\s+(?:to|at|by)\s+\$?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:dollars?|monthly|per\s+month))?\s*[?!.;]*\z/i.freeze
+
       before_action :authenticate_user!
       before_action :require_writable_household!, only: %i[create destroy]
 
@@ -218,7 +226,7 @@ module Api
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: transaction_draft ? serialize_transaction_draft(transaction_draft) : nil,
-          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
+          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
           budget: annual_plan && !intent_result&.read_only_plan? ? current_data_presenter(household: current_household.reload, annual_plan: annual_plan).budget : nil,
           spending_report: spending_report
         }
@@ -574,7 +582,7 @@ module Api
           user_message: serialize_chat_message(user_message, author: "You"),
           assistant_message: serialize_chat_message(assistant_message),
           transaction_draft: nil,
-          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft) : nil,
+          mia_action_draft: mia_action_draft ? serialize_mia_action_draft(mia_action_draft, selected_item_ids: action_result&.selected_item_ids) : nil,
           budget: response_budget,
           spending_report: nil
         }
@@ -590,9 +598,9 @@ module Api
 
       def supported_attached_action_intent?(intent_result)
         return false unless intent_result
-        return false unless intent_result.intent.in?(%w[budget_action household_action income_action])
+        return false unless intent_result.intent.in?(%w[action_plan budget_action household_action income_action debt_action asset_action goal_action])
 
-        intent_result.action.to_h[:type].to_s != "none"
+        intent_result.action_plan? || intent_result.action.to_h[:type].to_s != "none"
       end
 
       def attachment_action_boundary(intent_result, conversation_context)
@@ -607,16 +615,40 @@ module Api
       def attachment_action_request?(message = params[:message])
         return false if pure_attachment_review_request?(message)
 
-        message.to_s.match?(
-          /\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b.{0,100}\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b|\b(?:budget|category|allocation|income|goal|household|runway|expense|spending|debt)\b.{0,100}\b(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i
-        )
+        attachment_mutation_request?(message)
       end
 
       def pure_attachment_review_request?(message)
         normalized = message.to_s.squish
-        return false unless HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(normalized)
+        generic_opening = normalized.match?(HouseholdFinance::AttachedDocumentQuestionAnswerer::GENERIC_REVIEW_PATTERN)
+        return false unless generic_opening || HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(normalized)
 
-        !normalized.match?(/\b(?:also|and then|then)\b|\band\s+(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i)
+        !attachment_mutation_request?(message)
+      end
+
+      def attachment_mutation_request?(message)
+        attachment_request_segments(message).any? { |segment| attachment_mutation_segment?(segment) }
+      end
+
+      def attachment_mutation_segment?(segment)
+        return false if segment.match?(ATTACHMENT_INFORMATIONAL_FRAME_PATTERN)
+
+        direct_request = segment.match?(
+          /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}#{ATTACHMENT_ACTION_VERB_PATTERN.source}.{0,100}#{ATTACHMENT_ACTION_NOUN_PATTERN.source}/i
+        )
+        evidence_directed_request = segment.match?(
+          /\A\s*(?:please\s+)?(?:use|import)\b.{0,100}\bto\s+#{ATTACHMENT_ACTION_VERB_PATTERN.source}.{0,100}#{ATTACHMENT_ACTION_NOUN_PATTERN.source}/i
+        )
+        direct_request || evidence_directed_request || segment.match?(ATTACHMENT_NAMED_AMOUNT_PATTERN)
+      end
+
+      def attachment_request_segments(message)
+        message.to_s
+          .gsub(/\R+/, ". ")
+          .gsub(/([?!.;])(?=[[:alpha:]])/, '\\1 ')
+          .split(
+            /(?<=[?!.;])\s+|\s+\b(?:also|and then|then)\b\s*|\s+(?=and\s+#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}#{ATTACHMENT_ACTION_VERB_PATTERN.source})/i
+          )
       end
 
       def attached_document_evidence_prompt(content, intent_result)
@@ -624,17 +656,14 @@ module Api
         structured_action = action_type.present? && action_type != "none"
         return content unless structured_action || attachment_action_request?(content)
 
-        segments = content.to_s.split(
-          /(?<=[?!.;])\s+|\s+\b(?:also|and then|then)\b\s*|\s+(?=(?:and\s+)?(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b)/i
-        )
+        segments = attachment_request_segments(content)
         evidence_segments = segments.reject do |segment|
-          attachment_action_request?(segment) ||
-            segment.match?(/\A\s*(?:also\s+|and\s+)?(?:please\s+)?(?:set|change|update|increase|decrease|lower|raise|move|create|add|rename|archive|restore|schedule|end|stop)\b/i)
+          attachment_action_request?(segment)
         end.select do |segment|
           segment.match?(HouseholdFinance::AttachedDocumentQuestionAnswerer::SUBSTANTIVE_QUESTION_PATTERN) ||
             HouseholdFinance::AttachedDocumentQuestionAnswerer.generic_review_request?(segment)
         end
-        evidence_segments.join(" ").strip.presence
+        evidence_segments.map { |segment| segment.strip.sub(/[?!.;]+\z/, "") }.join(" ").strip.presence
       end
 
       def prior_document_evidence(conversation_context)
@@ -1218,7 +1247,20 @@ module Api
           end
 
           case transaction_lookup_answer ? nil : intent_result.intent
-          when "budget_action", "household_action", "income_action", "debt_action", "asset_action"
+          when "action_plan"
+            if intent_result.actionable?
+              action_result = HouseholdFinance::MiaActionDraftBuilder.new(
+                current_household,
+                user: current_user,
+                annual_budget_manager: annual_budget_manager,
+                selected_month: budget_month_param,
+                raw_input: content,
+                command: { type: "compound_action_plan", actions: intent_result.write_plan.to_h[:actions] }
+              ).call
+            else
+              direct_answer = clarification_answer(intent_result)
+            end
+          when "budget_action", "household_action", "income_action", "debt_action", "asset_action", "goal_action"
             if intent_result.actionable?
               action_result = HouseholdFinance::MiaActionDraftBuilder.new(
                 current_household,
@@ -1549,7 +1591,7 @@ module Api
         topic = intent_result.topic.to_h.deep_symbolize_keys
         action = intent_result.action.to_h.deep_symbolize_keys
         {
-          schema_version: intent_result.read_only_plan? ? 3 : 2,
+          schema_version: intent_result.action_plan? ? 5 : intent_result.read_only_plan? ? 3 : 2,
           type: topic[:type],
           title: topic[:title],
           subject: topic[:subject],
@@ -1764,8 +1806,10 @@ module Api
         [ "mia-transaction", current_user.id, current_chat_session.id, request_key, action, draft_id ].compact.join(":").first(200)
       end
 
-      def serialize_mia_action_draft(draft)
-        HouseholdFinance::MiaActionDraftPresenter.new(draft).call
+      def serialize_mia_action_draft(draft, selected_item_ids: nil)
+        HouseholdFinance::MiaActionDraftPresenter.new(draft).call.tap do |payload|
+          payload[:suggested_selected_item_ids] = Array(selected_item_ids) if selected_item_ids.present?
+        end
       end
 
       def serialize_transaction_draft(draft)

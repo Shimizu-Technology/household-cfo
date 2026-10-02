@@ -212,6 +212,44 @@ const miaIncomeDraft = {
   }],
 }
 
+const miaCompoundActionPlan = {
+  id: 79, status: 'pending', draft_type: 'action_plan', year: currentYear,
+  title: 'Review 2 household changes',
+  summary: 'I prepared an ordered plan from 2 parts of your request. Apply all, or select a dependency-safe subset.',
+  rationale: 'Every selected change is rechecked against the latest approved household data, then applied together or not at all.',
+  source_prompt: 'Set checking to $250 and set trip progress to $900.',
+  created_at: '2026-10-02T00:00:00Z', applied_at: null, canceled_at: null,
+  applied_item_count: 0, remaining_item_count: 2, impact: null,
+  items: [
+    {
+      id: 791, position: 0, action_type: 'update_account', operation_key: 'account.record.update', operation_version: 1,
+      target_record_type: 'Account', target_record_id: 22, label: 'Update Everyday checking',
+      description: 'Review the approved balance before saving.', payload: { account_id: 22, balance_cents: 25_000, balance_known: true, balance_as_of_on: '2026-10-02' },
+      before_snapshot: {}, after_snapshot: {}, source_text: 'Set checking to $250', source_start: 0, source_end: 20,
+      dependencies: [], applied_at: null, manual_section: 'My Profile',
+      review_fields: [{ label: 'Approved balance', before: '$100.00', after: '$250.00' }],
+    },
+    {
+      id: 792, position: 1, action_type: 'update_goal', operation_key: 'goal.record.update', operation_version: 1,
+      target_record_type: 'Goal', target_record_id: 31, label: 'Update Family trip',
+      description: 'Review the tracked progress before saving.', payload: { goal_id: 31, current_amount_cents: 90_000 },
+      before_snapshot: {}, after_snapshot: {}, source_text: 'and set trip progress to $900', source_start: 21, source_end: 50,
+      dependencies: [0], applied_at: null, manual_section: 'My Profile',
+      review_fields: [{ label: 'Current progress', before: '$500.00', after: '$900.00' }],
+    },
+  ],
+}
+
+function singleItemActionPlan(item: Record<string, unknown>, title = 'Review one household change') {
+  return {
+    ...miaCompoundActionPlan,
+    title,
+    summary: 'Mia prepared one exact change for review.',
+    items: [{ ...miaCompoundActionPlan.items[0], dependencies: [], ...item }],
+    remaining_item_count: 1,
+  }
+}
+
 const miaAssetDraft = {
   id: 74, status: 'pending', draft_type: 'asset_plan', year: currentYear,
   title: 'Update the emergency reserve', summary: 'Mia prepared an account change for review.',
@@ -5305,7 +5343,466 @@ test('real review controls keep transaction and Mia changes behind explicit part
   await expect(miaCard).toContainText('leave actual spending untouched')
   const cancelRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/71/cancel') && request.method() === 'POST')
   await miaCard.getByRole('button', { name: 'Cancel draft' }).click()
-  await cancelRequest
+  expect((await cancelRequest).headers()['idempotency-key']).toBeTruthy()
+})
+
+test('mobile Ask Mia action plans keep apply-all simple and partial selection dependency-safe', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [miaCompoundActionPlan]
+  const appliedWorkspace = realWorkspaceData(true)
+  appliedWorkspace.budget.annual_plan.pending_mia_action_drafts = []
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.route('http://api.test/api/v1/mia_action_drafts/79/apply', (route) => route.fulfill({
+    status: 200,
+    json: { workspace: appliedWorkspace },
+  }))
+
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  await expect(card).toBeVisible()
+  await expect(card.getByText('Set checking to $250', { exact: false })).toBeVisible()
+  await expect(card.getByText('and set trip progress to $900', { exact: false })).toBeVisible()
+  await expect(card.getByText('Account', { exact: true })).toBeVisible()
+  await expect(card.getByText('Goal', { exact: true })).toBeVisible()
+  await expect(card.getByRole('checkbox')).toHaveCount(0)
+  await expect(card.getByRole('button', { name: 'Apply all 2 changes' })).toBeEnabled()
+
+  await card.getByRole('button', { name: 'Choose changes' }).click()
+  const accountChange = card.getByRole('checkbox', { name: 'Include Update Everyday checking' })
+  const goalChange = card.getByRole('checkbox', { name: 'Include Update Family trip' })
+  await expect(accountChange).toBeChecked()
+  await expect(goalChange).toBeChecked()
+  await expect(card.locator('.mia-action-selection-row').first()).toHaveCSS('min-height', '44px')
+  await goalChange.uncheck()
+  await expect(accountChange).toBeChecked()
+  await expect(card.getByRole('button', { name: 'Apply 1 selected' })).toBeEnabled()
+
+  const applyRequest = page.waitForRequest((request) => request.url().endsWith('/api/v1/mia_action_drafts/79/apply') && request.method() === 'POST')
+  await card.getByRole('button', { name: 'Apply 1 selected' }).click()
+  const request = await applyRequest
+  expect(request.headers()['idempotency-key']).toBeTruthy()
+  expect(request.postDataJSON()).toEqual({ item_ids: [791] })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('partial action plans keep dependencies satisfied by already-applied steps', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{
+    ...miaCompoundActionPlan,
+    status: 'partially_applied',
+    applied_item_count: 1,
+    remaining_item_count: 2,
+    items: [
+      { ...miaCompoundActionPlan.items[0], applied_at: '2026-10-02T01:00:00Z' },
+      { ...miaCompoundActionPlan.items[1], id: 792, dependencies: [0] },
+      {
+        ...miaCompoundActionPlan.items[1], id: 793, position: 2, label: 'Update Car replacement goal',
+        source_text: 'and update the car goal', dependencies: [], applied_at: null,
+      },
+    ],
+  }]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  await card.getByRole('button', { name: 'Choose changes' }).click()
+  const dependent = card.getByRole('checkbox', { name: 'Include Update Family trip' })
+  const independent = card.getByRole('checkbox', { name: 'Include Update Car replacement goal' })
+  await expect(dependent).toBeChecked()
+  await independent.uncheck()
+  await expect(dependent).toBeChecked()
+})
+
+test('Ask Mia opens an authoritative named-step selection in explicit review mode', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{
+    ...miaCompoundActionPlan,
+    suggested_selected_item_ids: [792],
+    items: [miaCompoundActionPlan.items[0], { ...miaCompoundActionPlan.items[1], dependencies: [] }],
+  }]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const card = page.locator('.mia-action-draft-card').filter({ hasText: 'Review 2 household changes' })
+  await expect(card.getByRole('checkbox', { name: 'Include Update Everyday checking' })).not.toBeChecked()
+  await expect(card.getByRole('checkbox', { name: 'Include Update Family trip' })).toBeChecked()
+  await expect(card.getByRole('button', { name: 'Apply 1 selected' })).toBeEnabled()
+  await expect(card.getByRole('button', { name: 'Cancel plan' })).toBeEnabled()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('390px action-plan account link opens and focuses the exact account editor', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [miaCompoundActionPlan]
+  workspace.workspace.accounts = [{
+    id: 22, label: 'Everyday checking', account_type: 'checking', balance: 100,
+    balance_as_of_on: '2026-10-01', active: true, archived_at: null,
+    source_type: 'manual_ui', source_metadata: {}, plaid_link: null,
+  }]
+  workspace.workspace.asset_portfolio = {
+    active_count: 1, archived_count: 0, known_balance_total: 100, liquid_total: 100,
+    nonliquid_total: 0, unknown_balance_account_ids: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const item = page.locator('.mia-action-item').filter({ hasText: 'Update Everyday checking' })
+  await item.getByRole('button', { name: 'Open My Profile' }).click()
+
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  const accountName = page.locator('.account-manager').getByLabel('Account name')
+  await expect(accountName).toHaveValue('Everyday checking')
+  await expect(accountName).toBeFocused()
+  await expect(page.locator('.account-form input[placeholder="Unknown"]')).toHaveValue('250')
+  await expect(page.locator('.account-form input[type="date"]')).toHaveValue('2026-10-02')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('320px action-plan goal link opens and focuses the exact goal editor', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [miaCompoundActionPlan]
+  workspace.workspace.goals = [{
+    id: 31, label: 'Family trip', goal_type: 'travel', target_amount: 5000,
+    current_amount: 500, target_on: '2027-06-01', priority: 1, active: true,
+    archived_at: null, source_type: 'manual_ui', source_metadata: {},
+  }]
+  workspace.workspace.goal_portfolio = {
+    active_count: 1, archived_count: 0, target_total: 5000, progress_total: 500,
+    target_known_count: 1, progress_known_count: 1,
+    unknown_target_goal_ids: [], unknown_progress_goal_ids: [],
+  }
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const item = page.locator('.mia-action-item').filter({ hasText: 'Update Family trip' })
+  await item.getByRole('button', { name: 'Open My Profile' }).click()
+
+  await expect(page).toHaveURL(/#My%20Profile$/)
+  const goalName = page.locator('.goal-manager').getByLabel('Goal name')
+  await expect(goalName).toHaveValue('Family trip')
+  await expect(goalName).toBeFocused()
+  const goalAmounts = page.locator('.goal-form input[placeholder="Unknown"]')
+  await expect(goalAmounts.nth(0)).toHaveValue('5000')
+  await expect(goalAmounts.nth(1)).toHaveValue('900')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 390px action-plan budget link opens and focuses the exact category month control', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [{
+    ...miaCompoundActionPlan,
+    title: 'Review one budget change',
+    summary: 'Mia prepared one monthly allocation for review.',
+    items: [{
+      ...miaCompoundActionPlan.items[0],
+      id: 794,
+      action_type: 'update_allocation',
+      operation_key: 'budget.allocation.set',
+      target_record_type: 'BudgetCategory',
+      target_record_id: 2,
+      label: 'Set Dining out for January',
+      payload: { category_id: 2, category_name: 'Dining out', year: currentYear, changes: [{ month: 1, month_label: 'January', budget_period_id: 1, allocation_id: 201, before_cents: 45_000, after_cents: 50_000 }] },
+      source_text: 'set Dining out to $500 in January',
+      manual_section: 'Budget',
+      dependencies: [],
+    }],
+  }]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  const item = page.locator('.mia-action-item').filter({ hasText: 'Set Dining out for January' })
+  await item.getByRole('button', { name: 'Open Budget' }).click()
+
+  await expect(page).toHaveURL(/#Budget$/)
+  const januaryAmount = page.getByLabel('Dining out planned for Jan')
+  await expect(januaryAmount).toBeFocused()
+  await expect(januaryAmount).toHaveValue('500')
+  await expect(page.getByLabel('Dining out planned for Feb')).toHaveValue('450')
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 320px category-create link preserves and submits exact month scope', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 801, action_type: 'create_category', operation_key: 'budget.category.create',
+    target_record_type: 'BudgetCategory', target_record_id: null, label: 'Add School supplies',
+    payload: { name: 'School supplies', stack_key: 'sinking_expected', monthly_amount_cents: 12_000, month_numbers: [1, 2, 3] },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  let submittedCategory: Record<string, unknown> | null = null
+  await page.route('http://api.test/api/v1/budget_categories*', (route) => {
+    submittedCategory = route.request().postDataJSON().category
+    return route.fulfill({ status: 201, json: { category: { id: 5, active: true, ...submittedCategory }, budget: workspace.budget } })
+  })
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  const form = page.locator('.annual-category-form')
+  await expect(form.getByLabel('New category', { exact: true })).toHaveValue('School supplies')
+  await expect(form.getByLabel('Expense Stack group')).toHaveValue('sinking_expected')
+  await expect(form.getByLabel('Monthly plan')).toHaveValue('120')
+  await expect(form.getByLabel('Category month scope')).toHaveValue('selected')
+  await expect(form.getByLabel('New category', { exact: true })).toBeFocused()
+  for (const month of months.slice(0, 3)) await expect(form.getByLabel(`Fund new category in ${month}`)).toBeChecked()
+  for (const month of months.slice(3)) await expect(form.getByLabel(`Fund new category in ${month}`)).not.toBeChecked()
+  await form.getByLabel('Fund new category in Mar').uncheck()
+  await form.getByLabel('Fund new category in Mar').check()
+  await form.getByRole('button', { name: 'Add category' }).click()
+  await expect.poll(() => submittedCategory).not.toBeNull()
+  expect(submittedCategory).toMatchObject({
+    name: 'School supplies', stack_key: 'sinking_expected', monthly_amount: '120', month_numbers: [1, 2, 3],
+  })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 390px category-create link keeps the scoped months editable', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 803, action_type: 'create_category', operation_key: 'budget.category.create',
+    target_record_type: 'BudgetCategory', target_record_id: null, label: 'Add School supplies',
+    payload: { name: 'School supplies', stack_key: 'sinking_expected', monthly_amount_cents: 12_000, month_numbers: [1, 2, 3] },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  const form = page.locator('.annual-category-form')
+  await expect(form.getByLabel('Category month scope')).toHaveValue('selected')
+  await expect(form.getByLabel('Fund new category in Jan')).toBeChecked()
+  await expect(form.getByLabel('Fund new category in Apr')).not.toBeChecked()
+  await form.getByLabel('Fund new category in Apr').check()
+  await expect(form.getByLabel('Fund new category in Apr')).toBeChecked()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('desktop category-create manual route defaults to an editable all-year scope', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  const workspace = realWorkspaceData(true)
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Budget')
+
+  await page.getByRole('button', { name: 'Manage manually' }).click()
+  const form = page.locator('.annual-category-form')
+  await expect(form.getByLabel('Category month scope')).toHaveValue('all')
+  await form.getByLabel('Category month scope').selectOption('selected')
+  await expect(form.getByLabel(`Fund new category in ${currentShortMonth}`)).toBeChecked()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('desktop action-plan category update prefills only proposed fields', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 802, action_type: 'update_category', operation_key: 'budget.category.update',
+    target_record_type: 'BudgetCategory', target_record_id: 2, label: 'Rename Dining out',
+    payload: { category_id: 2, name: 'Restaurants' }, manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  const row = page.locator('[data-budget-category-id="2"]')
+  await expect(row.locator('[data-budget-category-action="name"]')).toHaveValue('Restaurants')
+  await expect(row.locator('select')).toHaveValue('discretionary')
+  await expect(row.locator('[data-budget-category-action="name"]')).toBeFocused()
+})
+
+test('desktop action-plan profile link focuses the exact manual control', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 795, action_type: 'update_household_profile', operation_key: 'profile.household.update',
+    target_record_type: 'Household', target_record_id: 77, label: 'Update primary goal',
+    payload: { primary_goal: 'Build a twelve-month reserve.' }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Build a twelve-month reserve.')
+  await expect(page.getByLabel('Primary goal')).toBeFocused()
+})
+
+test('desktop setup-confirmation manual route prefills the reviewed runway target', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  const confirmationItem = (id: number, label: string, payload: Record<string, unknown>) => singleItemActionPlan({
+    id, action_type: 'confirm_household_setup', operation_key: 'profile.setup_confirmation.update',
+    target_record_type: 'Household', target_record_id: 77, label, payload, manual_section: 'My Profile',
+  })
+  workspace.budget.annual_plan.pending_mia_action_drafts = [
+    confirmationItem(804, 'Confirm household name', {
+      confirmed_fields: ['household_name'], confirm_only_fields: ['household_name'], expected_values: { household_name: 'Test Participant Household' },
+    }),
+    confirmationItem(805, 'Clear runway target', {
+      confirmed_fields: ['target_runway_months'], confirm_only_fields: ['target_runway_months'], expected_values: { target_runway_months: null },
+    }),
+    confirmationItem(806, 'Confirm runway target', {
+      confirmed_fields: ['target_runway_months'], confirm_only_fields: ['target_runway_months'], expected_values: { target_runway_months: '9' },
+    }),
+  ]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').filter({ hasText: 'Confirm household name' }).getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Target runway months')).toHaveValue('6')
+  await openSection(page, 'Ask Mia')
+  await page.locator('.mia-action-item').filter({ hasText: 'Clear runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Target runway months')).toHaveValue('')
+  await openSection(page, 'Ask Mia')
+  await page.locator('.mia-action-item').filter({ hasText: 'Confirm runway target' }).getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Target runway months')).toHaveValue('9')
+  await expect(page.getByLabel('Target runway months')).toBeFocused()
+})
+
+test('desktop action-plan debt link focuses the exact debt editor', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.workspace.debts = [{
+    id: 41, label: 'Visa Gold', debt_type: 'credit_card', balance: 3100,
+    minimum_payment: 125, interest_rate_percent: 18.9, active: true, archived_at: null,
+    source_type: 'manual_ui', source_metadata: {},
+  }]
+  workspace.workspace.debt_portfolio = {
+    mode: 'individual', total_balance: 3100, monthly_minimum: 125, balance_known: true,
+    minimum_payment_known: true, active_count: 1, archived_count: 0,
+  }
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 796, action_type: 'update_debt', operation_key: 'debt.record.update',
+    target_record_type: 'Debt', target_record_id: 41, label: 'Update Visa Gold',
+    payload: { debt_id: 41, balance_cents: 280_000, balance_known: true, minimum_payment_cents: 0, minimum_payment_known: false }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.locator('.debt-form').getByLabel('Debt name')).toHaveValue('Visa Gold')
+  await expect(page.locator('.debt-form').getByLabel('Debt name')).toBeFocused()
+  const debtAmounts = page.locator('.debt-form input[placeholder="Unknown"]')
+  await expect(debtAmounts.nth(0)).toHaveValue('2800')
+  await expect(debtAmounts.nth(1)).toHaveValue('')
+})
+
+test('320px action-plan income-source link focuses the exact profile control', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 797, action_type: 'update_income_source', operation_key: 'income.source.update',
+    target_record_type: 'IncomeSource', target_record_id: 1, label: 'Update Primary income',
+    payload: { income_source_id: 1, amount_cents: 1_500_000 }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  const sourceName = page.locator('.income-source-form').getByLabel('Name', { exact: true })
+  await expect(sourceName).toHaveValue('Primary income')
+  await expect(sourceName).toBeFocused()
+  await expect(page.locator('.income-source-form').getByLabel('Amount')).toHaveValue('15000')
+})
+
+test('320px action-plan runway-policy link focuses the exact profile control', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 760 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 798, action_type: 'update_runway_policy', operation_key: 'goal.runway_policy.update',
+    target_record_type: 'Household', target_record_id: 77, label: 'Set runway target',
+    payload: { target_months: 9 }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Target runway months')).toHaveValue('9')
+  await expect(page.getByLabel('Target runway months')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 390px action-plan schedule-create link preloads and focuses exact controls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.income_sources.push({
+    id: 2, label: 'Consulting', source_type: 'business', base_amount: 1200, base_cadence: 'monthly',
+    starts_on: `${currentYear}-01-01`, ends_on: null, active: true, schedule_entries: [],
+  })
+  workspace.workspace.income_sources = structuredClone(workspace.budget.annual_plan.income_sources)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 799, action_type: 'create_income_schedule_entry', operation_key: 'income.schedule.create',
+    target_record_type: 'IncomeSource', target_record_id: 2, label: 'Schedule Consulting increase',
+    payload: { income_source_id: 2, entry_type: 'recurring_change', amount_cents: 175_000, cadence: 'monthly', effective_on: `${currentYear}-11-01` },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  const scheduleForm = page.locator('.income-schedule-form')
+  await expect(scheduleForm.getByLabel('Income source')).toHaveValue('2')
+  await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-11`)
+  await expect(scheduleForm.getByLabel('Amount')).toHaveValue('1750')
+  await expect(scheduleForm.getByLabel('Amount')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('mobile Ask Mia 390px schedule-update link merges proposed values into the saved entry', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 803, action_type: 'update_income_schedule_entry', operation_key: 'income.schedule.update',
+    target_record_type: 'IncomeScheduleEntry', target_record_id: 1, label: 'Update scheduled income',
+    payload: { entry_id: 1, income_source_id: 1, amount_cents: 160_000, effective_on: `${currentYear}-10-01`, retained_after_transition: true },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  const scheduleForm = page.locator('.income-schedule-form')
+  await expect(scheduleForm.getByLabel('Income source')).toHaveValue('1')
+  await expect(scheduleForm.getByLabel('Starting month')).toHaveValue(`${currentYear}-10`)
+  await expect(scheduleForm.getByLabel('Amount')).toHaveValue('1600')
+  await expect(scheduleForm.getByLabel('Cadence')).toHaveValue('monthly')
+  await expect(scheduleForm.getByLabel('Amount')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('a missing scheduled-income manual target is cleared after the first routing attempt', async ({ page }) => {
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 807, action_type: 'update_income_schedule_entry', operation_key: 'income.schedule.update',
+    target_record_type: 'IncomeScheduleEntry', target_record_id: 999, label: 'Update removed scheduled income',
+    payload: { entry_id: 999, income_source_id: 1, amount_cents: 160_000, effective_on: `${currentYear}-10-01` },
+    manual_section: 'Budget',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open Budget' }).click()
+  await expect(page.locator('.budget-manual-manager')).toBeVisible()
+  await page.getByRole('button', { name: 'Close manual tools' }).click()
+  await openSection(page, 'Home')
+  await openSection(page, 'Budget')
+
+  await expect(page.locator('.budget-manual-manager')).toHaveCount(0)
+})
+
+test('mobile Ask Mia 390px action-plan transition-policy link focuses the exact profile control', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  const workspace = realWorkspaceData(true)
+  workspace.budget.annual_plan.pending_mia_action_drafts = [singleItemActionPlan({
+    id: 800, action_type: 'update_transition_policy', operation_key: 'goal.transition_policy.update',
+    target_record_type: 'Household', target_record_id: 77, label: 'Update transition priority',
+    payload: { label: 'Prepare for a careful transition.' }, manual_section: 'My Profile',
+  })]
+  await page.route('http://api.test/api/v1/workspace', (route) => route.fulfill({ status: 200, json: workspace }))
+  await page.goto('/?pilot_e2e_role=participant#Ask%20Mia')
+  await page.locator('.mia-action-item').getByRole('button', { name: 'Open My Profile' }).click()
+  await expect(page.getByLabel('Primary goal')).toHaveValue('Prepare for a careful transition.')
+  await expect(page.getByLabel('Primary goal')).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
 test('manual transaction capture joins the unified review queue without changing actuals', async ({ page }) => {

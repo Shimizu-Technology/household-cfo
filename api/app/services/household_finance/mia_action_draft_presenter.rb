@@ -19,6 +19,9 @@ module HouseholdFinance
         canceled_at: draft.canceled_at&.iso8601,
         impact: draft.metadata.to_h["impact"],
         setup_coverage_after_apply: setup_coverage_after_apply,
+        applied_item_count: draft.mia_action_items.count { |item| item.applied_at.present? },
+        canceled_item_count: draft.mia_action_items.count { |item| item.canceled_at.present? },
+        remaining_item_count: draft.mia_action_items.count { |item| item.applied_at.blank? && item.canceled_at.blank? },
         items: action_items
       }
     end
@@ -31,6 +34,7 @@ module HouseholdFinance
       draft.mia_action_items.map do |item|
         {
           id: item.id,
+          position: item.position,
           action_type: item.action_type,
           target_record_type: item.target_record_type,
           target_record_id: item.target_record_id,
@@ -41,6 +45,14 @@ module HouseholdFinance
           after_snapshot: item.after_snapshot,
           operation_key: item.operation_key,
           operation_version: item.operation_version,
+          source_text: item.source_text,
+          source_start: item.source_start,
+          source_end: item.source_end,
+          dependencies: item.dependencies,
+          applied_at: item.applied_at&.iso8601,
+          canceled_at: item.canceled_at&.iso8601,
+          status: item.applied_at.present? ? "applied" : item.canceled_at.present? ? "canceled" : "pending",
+          manual_section: manual_section(item),
           review_fields: review_fields(item)
         }
       end
@@ -53,6 +65,10 @@ module HouseholdFinance
       before = prepared.fetch("before_snapshot", {})
       after = prepared.fetch("predicted_after_snapshot", {})
       case item.operation_key
+      when "profile.household.update"
+        household_review_fields(before.fetch("household", {}), after.fetch("household", {}))
+      when "profile.setup_confirmation.update"
+        setup_confirmation_review_fields(before, after)
       when "income.source.create"
         source = after.fetch("source", {})
         [
@@ -81,10 +97,20 @@ module HouseholdFinance
         goal_create_review_fields(after.fetch("goal", {}))
       when "goal.record.update", "goal.record.archive", "goal.record.restore"
         goal_review_fields(before.fetch("goal", {}), after.fetch("goal", {}))
+      when "goal.transition_policy.update"
+        before_policy = before["policy"] || {}
+        after_policy = after["policy"] || {}
+        [ {
+          label: "Transition goal",
+          before: before_policy["label"].presence || "Does not exist",
+          after: after_policy["label"].presence || "Removed"
+        } ]
       when "budget.allocation.set"
         before_rows = Array(before["allocations"]).index_by { |row| row["id"] }
-        Array(after["allocations"]).map do |row|
+        Array(after["allocations"]).filter_map do |row|
           previous = before_rows.fetch(row["id"], {})
+          next if previous["planned_amount_cents"] == row["planned_amount_cents"]
+
           {
             label: "#{month_label(row["month"])} planned amount",
             before: money_from_cents(previous["planned_amount_cents"]),
@@ -112,6 +138,30 @@ module HouseholdFinance
         end
         fields
       end
+    end
+
+    def household_review_fields(before, after)
+      { "name" => "Household name", "primary_goal" => "Primary goal", "location" => "Location", "stage" => "Household stage" }.filter_map do |key, label|
+        next if before[key] == after[key]
+
+        { label: label, before: before[key].presence || "Not entered", after: after[key].presence || "Not entered" }
+      end
+    end
+
+    def setup_confirmation_review_fields(before, after)
+      newly_confirmed = Array(after["confirmed_fields"]) - Array(before["confirmed_fields"])
+      newly_confirmed.map do |key|
+        { label: MiaActionDraftHouseholdCommands::SETUP_LABELS.fetch(key.to_sym, key.humanize), before: "Not confirmed", after: "Confirmed" }
+      end
+    end
+
+    def manual_section(item)
+      key = item.operation_key.to_s
+      return "Budget" if key.start_with?("budget.", "income.schedule.")
+      return "My Profile" if key.start_with?("income.source.")
+      return "My Profile" if key.start_with?("profile.", "debt.", "account.", "goal.")
+
+      item.action_type.in?(%w[update_setup_value]) ? "My Profile" : "Budget"
     end
 
     def money_from_cents(value)
@@ -346,14 +396,23 @@ module HouseholdFinance
       return unless draft.draft_type == "household_setup"
 
       proposed_values = draft.mia_action_items.each_with_object({}) do |item, values|
-        next unless item.action_type == "update_setup_value"
-
         payload = item.payload.to_h
-        values[payload["key"]] = payload["value"]
+        if item.action_type == "update_setup_value"
+          values[payload["key"]] = payload["value"]
+        elsif item.action_type == "update_household_profile"
+          values["household_name"] = payload["name"] if payload.key?("name")
+          values["primary_goal"] = payload["primary_goal"] if payload.key?("primary_goal")
+        elsif item.action_type == "confirm_household_setup"
+          values.merge!(payload.fetch("updates", {}))
+        end
+      end
+      additional = draft.mia_action_items.flat_map do |item|
+        next [] unless item.action_type == "confirm_household_setup"
+        item.payload.to_h.fetch("confirm_only_fields", []) + item.payload.to_h.fetch("updates", {}).keys
       end
       SetupStatus.new(
         draft.household,
-        additional_confirmed_fields: proposed_values.keys,
+        additional_confirmed_fields: (proposed_values.keys + additional).uniq,
         proposed_values: proposed_values
       ).as_json
     end

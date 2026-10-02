@@ -11,7 +11,7 @@ module HouseholdFinance
       .merge(Date::MONTHNAMES.each_with_index.filter_map { |name, index| [ name.downcase, index ] if name }.to_h).freeze
     MONTH_PATTERN = /(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:t(?:ember)?)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)/i
     GENERIC_REVIEW_PATTERN = /\A(?:please\s+)?(?:review|read|check|process|summarize)\b/i
-    SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
+    SUBSTANTIVE_QUESTION_PATTERN = /\b(?:total|sum|add up|how much|largest|biggest|highest|which|what|merchant|where|category|when|date|period|fit|fits|within|covered|room|duplicate|double charged|charged twice|over\s+\$|under\s+\$)\b/i
     SETUP_REQUEST_PATTERN = /\A(?:(?:can|could|would)\s+you\s+)?(?:use|set up|import).{0,100}\b(?:budget|profile|household|income)\b/i
 
     def self.generic_review_request?(message)
@@ -234,7 +234,7 @@ module HouseholdFinance
     end
 
     def transaction_total_question?
-      message.match?(/\b(?:total|sum|how much|amount|spend|spent|paid)\b/i) || message.match?(/\b(?:over|above|more than|greater than|under|below|less than)\s+\$/i)
+      message.match?(/\b(?:total|sum|add up|how much|amount|spend|spending|spent|paid)\b/i) || message.match?(/\b(?:over|above|more than|greater than|under|below|less than)\s+\$/i)
     end
 
     def transaction_question?

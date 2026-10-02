@@ -51,6 +51,7 @@ import {
   deleteIncomeScheduleEntry,
   matchTransactionDraft,
   reopenTransactionDraft,
+  saveWorkspaceSetup,
   updateTransactionDraft,
 } from './api'
 
@@ -99,11 +100,26 @@ describe('budget operation idempotency contract', () => {
       .mockResolvedValueOnce(jsonResponse({ budget: { total_monthly_outflow: 325 } }))
     vi.stubGlobal('fetch', fetchMock)
 
-    await createBudgetCategory({ name: 'Dining', stack_key: 'discretionary', monthly_amount: 250 }, 2026, 'category-attempt')
+    await createBudgetCategory({ name: 'Dining', stack_key: 'discretionary', monthly_amount: 250, month_numbers: [1, 2, 3] }, 2026, 'category-attempt')
     await updateBudgetAllocation(44, 325, 'allocation-attempt')
 
     expect((fetchMock.mock.calls[0][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'category-attempt' })
+    expect(JSON.parse(String((fetchMock.mock.calls[0][1] as RequestInit).body))).toEqual({
+      category: { name: 'Dining', stack_key: 'discretionary', monthly_amount: 250, month_numbers: [1, 2, 3] },
+    })
     expect((fetchMock.mock.calls[1][1] as RequestInit).headers).toMatchObject({ 'Idempotency-Key': 'allocation-attempt' })
+  })
+})
+
+describe('manual setup idempotency contract', () => {
+  it('sends the caller-owned stable key for the typed setup transaction', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ workspace: {} }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await saveWorkspaceSetup({ household_name: 'Typed Household' }, 'workspace-setup-attempt')
+
+    const request = fetchMock.mock.calls[0][1] as RequestInit
+    expect((request.headers as Record<string, string>)['Idempotency-Key']).toBe('workspace-setup-attempt')
   })
 })
 

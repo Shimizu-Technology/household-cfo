@@ -74,8 +74,11 @@ module HouseholdFinance
 
       read_only_plan = read_only_plan_payload(topic["read_only_plan"]) if topic["schema_version"].to_i >= 3
       document_evidence = DocumentEvidenceContinuity.payload(topic["document_evidence"], household: household, require_ready: true) if topic["schema_version"].to_i >= 4
+      action_plan = action_plan_payload(topic) if topic["schema_version"].to_i >= 5
       schema_version = if document_evidence
         4
+      elsif action_plan
+        5
       elsif read_only_plan
         3
       elsif topic["schema_version"].to_i >= 2
@@ -100,10 +103,27 @@ module HouseholdFinance
         action: action_payload(topic["action"]),
         read_only_plan: read_only_plan,
         document_evidence: document_evidence&.deep_symbolize_keys,
+        action_plan: action_plan,
         mia_action_draft_id: topic["mia_action_draft_id"].presence,
         transaction_draft_id: topic["transaction_draft_id"].presence,
         updated_at: sanitized_text(topic["updated_at"], max_length: 40)
       }.compact
+    end
+
+    def action_plan_payload(topic)
+      draft_id = bounded_integer(topic["mia_action_draft_id"], 1..MAX_RECORD_ID)
+      return unless draft_id
+
+      draft = household.mia_action_drafts.includes(:mia_action_items).find_by(id: draft_id, draft_type: "action_plan")
+      return unless draft
+
+      {
+        draft_id: draft.id,
+        status: draft.status,
+        title: sanitized_text(draft.title, max_length: 160),
+        item_count: draft.mia_action_items.length,
+        remaining_item_ids: draft.mia_action_items.select { |item| item.applied_at.blank? }.map(&:id).first(12)
+      }
     end
 
     def rolling_summary(active_topic, open_topics)

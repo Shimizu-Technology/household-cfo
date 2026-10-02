@@ -4,6 +4,7 @@ import {
   type GoalInput, type GoalPortfolio, type GoalRecord, type GoalType,
 } from '../api'
 import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
+import { proposedChoice, proposedMoney, proposedText, type MiaManualPayload } from '../lib/miaManualPrefill'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
 const goalTypes: GoalType[] = ['savings', 'debt_payoff', 'purchase', 'education', 'business', 'business_income', 'travel', 'home', 'retirement', 'other']
@@ -12,9 +13,19 @@ const goalTypeLabels: Record<GoalType, string> = {
   business: 'Business', business_income: 'Business income', travel: 'Travel', home: 'Home', retirement: 'Retirement', other: 'Other',
 }
 type GoalAction = 'create_goal' | 'update_goal' | 'archive_goal' | 'restore_goal'
-export type GoalFocusRequest = { key: number; actionType: GoalAction; goalId: number | null }
+export type GoalFocusRequest = { key: number; actionType: GoalAction; goalId: number | null; payload: MiaManualPayload }
 type Draft = { label: string; goal_type: GoalType; target_amount: string; current_amount: string; target_on: string }
 const emptyDraft: Draft = { label: '', goal_type: 'savings', target_amount: '', current_amount: '', target_on: '' }
+
+function goalDraftWithProposal(base: Draft, payload: MiaManualPayload): Draft {
+  return {
+    label: proposedText(payload, 'label', base.label),
+    goal_type: proposedChoice(payload, 'goal_type', base.goal_type, goalTypes),
+    target_amount: proposedMoney(payload, 'target_amount_cents', base.target_amount, 'target_amount_known'),
+    current_amount: proposedMoney(payload, 'current_amount_cents', base.current_amount, 'current_amount_known'),
+    target_on: proposedText(payload, 'target_on', base.target_on),
+  }
+}
 
 export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequest, onFocusRequestHandled }: {
   sectionRef?: Ref<HTMLElement>
@@ -45,10 +56,10 @@ export function GoalManager({ sectionRef, goals, portfolio, onChanged, focusRequ
     const goal = goals.find((candidate) => candidate.id === focusRequest.goalId)
     requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_goal') {
-        setDraft(emptyDraft); setEditing('new'); setArchiveId(null); setError(null)
+        setDraft(goalDraftWithProposal(emptyDraft, focusRequest.payload)); setEditing('new'); setArchiveId(null); setError(null)
         requestAnimationFrame(() => labelInputRef.current?.focus())
       } else if (focusRequest.actionType === 'update_goal' && goal?.active) {
-        setDraft({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' })
+        setDraft(goalDraftWithProposal({ label: goal.label, goal_type: goal.goal_type, target_amount: goal.target_amount === null ? '' : String(goal.target_amount), current_amount: goal.current_amount === null ? '' : String(goal.current_amount), target_on: goal.target_on ?? '' }, focusRequest.payload))
         setEditing(goal.id); setArchiveId(null); setError(null)
         requestAnimationFrame(() => labelInputRef.current?.focus())
       } else if (focusRequest.actionType === 'archive_goal' || focusRequest.actionType === 'restore_goal') {

@@ -55,15 +55,31 @@ describe('GoalManager', () => {
 
   it('opens the exact goal editor requested by a Mia review', async () => {
     const handled = vi.fn()
-    render(<GoalManager goals={[goal(), goal({ id: 2, label: 'Tuition', goal_type: 'education' })]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={vi.fn()} focusRequest={{ key: 1, actionType: 'update_goal', goalId: 2 }} onFocusRequestHandled={handled} />)
+    render(<GoalManager goals={[goal(), goal({ id: 2, label: 'Tuition', goal_type: 'education' })]} portfolio={{ ...portfolio, active_count: 2 }} onChanged={vi.fn()} focusRequest={{ key: 1, actionType: 'update_goal', goalId: 2, payload: {} }} onFocusRequestHandled={handled} />)
     const input = await screen.findByDisplayValue('Tuition')
     await waitFor(() => expect(document.activeElement).toBe(input))
     expect(handled).toHaveBeenCalledOnce()
   })
 
+  it('merges proposed goal fields without replacing unrelated saved values', async () => {
+    render(<GoalManager
+      goals={[goal({ id: 2, label: 'Tuition', goal_type: 'education', target_amount: 8_000, current_amount: 900, target_on: '2028-05-01' })]}
+      portfolio={portfolio}
+      onChanged={vi.fn()}
+      focusRequest={{ key: 3, actionType: 'update_goal', goalId: 2, payload: { current_amount_cents: 125_000, current_amount_known: true, target_amount_cents: 0, target_amount_known: false, target_on: null } }}
+    />)
+
+    expect((await screen.findByLabelText('Goal name') as HTMLInputElement).value).toBe('Tuition')
+    expect((screen.getByLabelText('Type') as HTMLSelectElement).value).toBe('education')
+    const amounts = document.querySelectorAll<HTMLInputElement>('.goal-form input[placeholder="Unknown"]')
+    expect(amounts[0].value).toBe('')
+    expect(amounts[1].value).toBe('1250')
+    expect((document.querySelector('.goal-form input[type="date"]') as HTMLInputElement).value).toBe('')
+  })
+
   it('schedules one focus action when the same request rerenders before the frame runs', async () => {
     const handled = vi.fn()
-    const request = { key: 7, actionType: 'update_goal' as const, goalId: 1 }
+    const request = { key: 7, actionType: 'update_goal' as const, goalId: 1, payload: {} }
     const { rerender } = render(<GoalManager goals={[goal()]} portfolio={portfolio} onChanged={vi.fn()} focusRequest={request} onFocusRequestHandled={handled} />)
     rerender(<GoalManager goals={[goal()]} portfolio={portfolio} onChanged={vi.fn()} focusRequest={request} onFocusRequestHandled={handled} />)
 
@@ -73,7 +89,7 @@ describe('GoalManager', () => {
 
   it('explains a stale Mia goal reference and returns focus to a safe control', async () => {
     const handled = vi.fn()
-    render(<GoalManager goals={[]} portfolio={{ ...portfolio, active_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }} onChanged={vi.fn()} focusRequest={{ key: 2, actionType: 'update_goal', goalId: 99 }} onFocusRequestHandled={handled} />)
+    render(<GoalManager goals={[]} portfolio={{ ...portfolio, active_count: 0, unknown_target_goal_ids: [], unknown_progress_goal_ids: [] }} onChanged={vi.fn()} focusRequest={{ key: 2, actionType: 'update_goal', goalId: 99, payload: {} }} onFocusRequestHandled={handled} />)
 
     expect((await screen.findByRole('alert')).textContent).toMatch(/no longer available to edit/i)
     await waitFor(() => expect(document.activeElement).toBe(screen.getByRole('button', { name: 'Add a goal' })))

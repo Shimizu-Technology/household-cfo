@@ -6,6 +6,7 @@ import {
 } from '../api'
 import { OperationIdempotencyKeys } from '../lib/operationIdempotency'
 import { guamTodayIso } from '../lib/householdDate'
+import { proposedChoice, proposedMoney, proposedText, type MiaManualPayload } from '../lib/miaManualPrefill'
 import { accountSummaryText } from './accountSummary'
 
 const money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' })
@@ -16,9 +17,19 @@ const titleize = (value: string) => value.replaceAll('_', ' ').replace(/\b\w/g, 
 
 type AccountAction = 'create_account' | 'update_account' | 'archive_account' | 'restore_account' | 'link_plaid_account' | 'reconcile_plaid_account' | 'unlink_plaid_account'
 type ReconcileDecision = 'accept_observed' | 'keep_saved'
-export type AccountFocusRequest = { key: number; actionType: AccountAction; accountId: number | null; reconcileDecision?: ReconcileDecision }
+export type AccountFocusRequest = { key: number; actionType: AccountAction; accountId: number | null; payload: MiaManualPayload; reconcileDecision?: ReconcileDecision }
 type Draft = { label: string; account_type: AccountType; balance: string; balance_as_of_on: string; plaid_account_id: string }
 const emptyDraft: Draft = { label: '', account_type: 'checking', balance: '', balance_as_of_on: '', plaid_account_id: '' }
+
+function accountDraftWithProposal(base: Draft, payload: MiaManualPayload): Draft {
+  return {
+    ...base,
+    label: proposedText(payload, 'label', base.label),
+    account_type: proposedChoice(payload, 'account_type', base.account_type, accountTypes),
+    balance: proposedMoney(payload, 'balance_cents', base.balance, 'balance_known'),
+    balance_as_of_on: proposedText(payload, 'balance_as_of_on', base.balance_as_of_on),
+  }
+}
 
 export function AccountManager({ sectionRef, accounts, portfolio, onChanged, focusRequest, onFocusRequestHandled }: {
   sectionRef?: Ref<HTMLElement>
@@ -67,10 +78,10 @@ export function AccountManager({ sectionRef, accounts, portfolio, onChanged, foc
     const account = accounts.find((candidate) => candidate.id === focusRequest.accountId)
     window.requestAnimationFrame(() => {
       if (focusRequest.actionType === 'create_account') {
-        setDraft(emptyDraft); setEditing('new'); setArchiveId(null); setError(null)
+        setDraft(accountDraftWithProposal(emptyDraft, focusRequest.payload)); setEditing('new'); setArchiveId(null); setError(null)
         window.requestAnimationFrame(() => labelInputRef.current?.focus())
       } else if (focusRequest.actionType === 'update_account' && account?.active) {
-        setDraft({ label: account.label, account_type: account.account_type, balance: account.balance === null ? '' : String(account.balance), balance_as_of_on: account.balance_as_of_on ?? '', plaid_account_id: '' })
+        setDraft(accountDraftWithProposal({ label: account.label, account_type: account.account_type, balance: account.balance === null ? '' : String(account.balance), balance_as_of_on: account.balance_as_of_on ?? '', plaid_account_id: '' }, focusRequest.payload))
         setEditing(account.id); setArchiveId(null); setError(null)
         window.requestAnimationFrame(() => labelInputRef.current?.focus())
       } else if (focusRequest.actionType === 'update_account' && account && !account.active) {

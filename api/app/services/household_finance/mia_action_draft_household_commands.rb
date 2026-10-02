@@ -53,20 +53,23 @@ module HouseholdFinance
 
       before_values = current_setup_values
       confirmed_fields = SetupStatus.new(household).confirmed_field_keys
-      items = normalized.filter_map do |key, value|
+      changed = normalized.filter_map do |key, value|
         before = normalized_setup_value(key, before_values.fetch(key))
         requires_confirmation = key.in?(SetupStatus::REQUIRED_FIELDS) && !confirmed_fields.include?(key.to_s)
         next if before == value && !requires_confirmation
 
-        setup_value_item(key, before, value, confirmation_only: before == value)
+        [ key, before, value, requires_confirmation ]
       end
-      return validation_result("Those household values already match your approved profile, so I did not create a draft.") if items.empty?
+      return validation_result("Those household values already match your approved profile, so I did not create a draft.") if changed.empty?
+
+      items = typed_setup_items(changed)
+      return items if items.is_a?(MiaActionDraftBuilder::Result)
 
       impact = setup_impact(before_values, normalized)
       proposal_result(
         draft_type: "household_setup",
-        title: items.one? ? "Update an approved household number" : "Update approved household numbers",
-        summary: "I prepared #{items.length} household #{'change'.pluralize(items.length)} for your review.",
+        title: changed.one? ? "Update an approved household value" : "Update approved household values",
+        summary: "I prepared #{changed.length} household #{'change'.pluralize(changed.length)} for your review.",
         rationale: "These values shape Mia’s coaching and the Home snapshot. They stay unchanged until you approve this card.",
         items: items,
         metadata: { source: "mia_chat", parser: "model_intent", impact: impact }
@@ -285,17 +288,152 @@ module HouseholdFinance
       value.to_s.squish
     end
 
-    def setup_value_item(key, before, after, confirmation_only: false)
-      MiaActionDraftBuilder::Item.new(
-        action_type: "update_setup_value",
+    def typed_setup_items(changes)
+      domain_items = []
+      changes.each do |key, before, after, _requires_confirmation|
+        item = setup_domain_item(key, before, after)
+        return item if item.is_a?(MiaActionDraftBuilder::Result)
+        if item
+          nested_items = item.is_a?(Array) ? item : [ item ]
+          offset = domain_items.length
+          nested_items.each do |nested|
+            nested.dependencies = Array(nested.dependencies).map { |position| position + offset }
+          end
+          domain_items.concat(nested_items)
+        end
+      end
+
+      fields = changes.map { |key, _before, _after, _requires_confirmation| key.to_s }
+      expected_values = changes.to_h { |key, _before, after, _requires_confirmation| [ key.to_s, after ] }
+      confirmation = MiaActionDraftBuilder::Item.new(
+        action_type: "confirm_household_setup",
+        label: fields.one? ? "Confirm #{SETUP_LABELS.fetch(fields.first.to_sym)}" : "Confirm #{fields.length} starting-picture fields",
+        description: "Record only these reviewed fields as confirmed after their typed household changes succeed.",
+        target_record_type: "Household", target_record_id: household.id,
+        payload: { confirmed_fields: fields, confirm_only_fields: fields, expected_values: expected_values },
+        before_snapshot: { confirmed_fields: SetupStatus.new(household).confirmed_field_keys & fields },
+        after_snapshot: { confirmed_fields: fields },
+        dependencies: (0...domain_items.length).to_a
+      )
+      domain_items + [ confirmation ]
+    end
+
+    def setup_domain_item(key, before, after)
+      return if before == after
+      return setup_profile_items(key, before, after) if key.in?(SETUP_TEXT_KEYS)
+      return setup_income_item(key, after) if key.in?(%i[primary_income business_income])
+      return setup_budget_item(key, after) if key.in?(%i[fixed_expenses flexible_spend expected_sinking_fund unexpected_sinking_fund])
+      return setup_account_item(key, after) if key.in?(%i[emergency_fund other_assets])
+      return setup_runway_item(before, after) if key == :target_runway_months
+
+      validation_result("#{SETUP_LABELS.fetch(key)} needs a supported typed household operation before it can be confirmed. Nothing changed.")
+    end
+
+    def setup_profile_items(key, before, after)
+      attribute = key == :household_name ? :name : :primary_goal
+      items = [ MiaActionDraftBuilder::Item.new(
+        action_type: "update_household_profile",
         label: SETUP_LABELS.fetch(key),
-        description: setup_value_description(key, before, after, confirmation_only: confirmation_only),
-        target_record_type: "Household",
-        target_record_id: household.id,
-        payload: { key: key.to_s, value: after },
+        description: setup_value_description(key, before, after, confirmation_only: false),
+        target_record_type: "Household", target_record_id: household.id,
+        payload: { key: key.to_s, value: after, attribute => after },
         before_snapshot: { key: key.to_s, value: before, display: display_setup_value(key, before) },
         after_snapshot: { key: key.to_s, value: after, display: display_setup_value(key, after) }
+      ) ]
+      if key == :primary_goal
+        items << MiaActionDraftBuilder::Item.new(
+          action_type: "update_transition_policy",
+          label: "Align the transition goal",
+          description: after.to_s.present? ? "Keep the transition goal aligned with the reviewed primary goal." : "Remove the transition goal after clearing the reviewed primary goal.",
+          target_record_type: "Goal",
+          target_record_id: household.goals.policy.find_by(goal_type: "transition")&.id,
+          payload: { label: after },
+          before_snapshot: { label: before },
+          after_snapshot: { label: after },
+          dependencies: [ 0 ]
+        )
+      end
+      items
+    end
+
+    def setup_income_item(key, after)
+      source_type = key == :primary_income ? "job" : "business"
+      label = key == :primary_income ? "Primary income" : "Business income"
+      current = household.income_sources.where(source_type: source_type).to_a.select { |source| source.effective_on?(Date.current) }
+      return validation_result("#{label} has multiple saved sources. Edit a specific income source so no detailed amount changes silently. Nothing changed.") if current.many?
+      return if current.empty? && Money.cents(after).zero?
+
+      command = if current.one?
+        {
+          type: "schedule_income_change", income_source_id: current.first.id, income_source_name: current.first.label,
+          entry_type: "recurring_change", amount: after.to_s, effective_on: Date.current.beginning_of_month.iso8601
+        }
+      else
+        {
+          type: "create_income_source", income_source_name: label, source_type: source_type,
+          amount: after.to_s, cadence: "monthly", effective_on: Date.current.beginning_of_month.iso8601
+        }
+      end
+      setup_item_from_command(command)
+    end
+
+    def setup_budget_item(key, after)
+      label, stack_key = {
+        fixed_expenses: [ "Fixed essentials", "non_discretionary" ],
+        flexible_spend: [ "Flexible spending", "discretionary" ],
+        expected_sinking_fund: [ "Expected sinking fund", "sinking_expected" ],
+        unexpected_sinking_fund: [ "Unexpected sinking fund", "sinking_unexpected" ]
+      }.fetch(key)
+      categories = household.budget_categories.active.where(stack_key: stack_key).order(:id).to_a
+      if categories.many?
+        return validation_result("#{SETUP_LABELS.fetch(key)} is tracked by multiple budget categories. Edit the specific categories so detailed planned dollars do not change silently. Nothing changed.")
+      end
+
+      command = if categories.one?
+        { type: "set_allocation", category_id: categories.first.id, category_name: categories.first.name, amount: after.to_s, months: (1..12).to_a, year: annual_budget_manager.year }
+      else
+        { type: "create_category", new_name: label, stack_key: stack_key, amount: after.to_s, months: (1..12).to_a, year: annual_budget_manager.year }
+      end
+      setup_item_from_command(command)
+    end
+
+    def setup_account_item(key, after)
+      label, account_type = key == :emergency_fund ? [ "Emergency fund", "emergency_fund" ] : [ "Other assets", "other" ]
+      accounts = household.accounts.active.where(account_type: account_type).order(:id).to_a
+      if accounts.many?
+        return validation_result("#{SETUP_LABELS.fetch(key)} is tracked by multiple accounts. Edit a specific account so detailed balances do not change silently. Nothing changed.")
+      end
+      command = if accounts.one?
+        { type: "update_account", account_id: accounts.first.id, account_name: accounts.first.label, amount: after.to_s, balance_as_of_on: Date.current.iso8601 }
+      else
+        { type: "create_account", account_name: label, account_type: account_type, amount: after.to_s, balance_as_of_on: Date.current.iso8601 }
+      end
+      setup_item_from_command(command)
+    end
+
+    def setup_runway_item(before, after)
+      MiaActionDraftBuilder::Item.new(
+        action_type: "update_runway_policy", label: "Update runway target",
+        description: setup_value_description(:target_runway_months, before, after, confirmation_only: false),
+        target_record_type: "Goal", target_record_id: household.goals.policy.find_by(goal_type: "runway")&.id,
+        payload: { target_months: after.to_s },
+        before_snapshot: { target_months: before }, after_snapshot: { target_months: after }
       )
+    end
+
+    def setup_item_from_command(nested_command)
+      result = MiaActionDraftBuilder.new(
+        household,
+        user: user,
+        annual_budget_manager: annual_budget_manager,
+        selected_month: selected_month,
+        raw_input: raw_input,
+        command: nested_command
+      ).call
+      return result if result&.proposal.nil?
+      return validation_result("That starting-picture value expanded into an unsafe review. Nothing changed.") unless result.proposal.items.one?
+
+      result.proposal.items.first
     end
 
     def setup_value_description(key, before, after, confirmation_only:)

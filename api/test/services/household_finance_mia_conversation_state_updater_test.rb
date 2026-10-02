@@ -97,6 +97,55 @@ class HouseholdFinanceMiaConversationStateUpdaterTest < ActiveSupport::TestCase
     assert_equal "Fixed essentials", @session.active_topic.fetch("subject")
   end
 
+  test "recall preserves a version-five database-backed action plan pointer" do
+    draft = @household.mia_action_drafts.create!(
+      requested_by_user: @user,
+      status: "pending",
+      draft_type: "action_plan",
+      year: Date.current.year,
+      title: "Debt and car goal",
+      summary: "Two reviewed changes",
+      source_prompt: "Update the debt and car goal"
+    )
+    topic = {
+      schema_version: 5,
+      id: "durable-plan",
+      type: "action_plan",
+      title: draft.title,
+      subject: "Debt and car goal",
+      status: "pending_review",
+      mia_action_draft_id: draft.id
+    }
+    @session.update!(active_topic: topic, open_topics: [ topic ])
+    user_message = @session.chat_messages.create!(role: "user", content: "What were we discussing?")
+    assistant_message = @session.chat_messages.create!(role: "assistant", content: "Your debt and car-goal plan is still waiting for review.")
+    intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "recall",
+      confidence: 0.99,
+      continuation: false,
+      resolved_message: "Recall the debt and car-goal action plan",
+      needs_clarification: false,
+      clarification: "",
+      topic: { type: "action_plan", title: draft.title, subject: "Debt and car goal" },
+      action: { type: "none" },
+      source: "model"
+    )
+
+    assert HouseholdFinance::MiaConversationStateUpdater.new(
+      @session,
+      intent_result: intent,
+      user_message: user_message,
+      assistant_message: assistant_message
+    ).call
+
+    active = @session.reload.active_topic
+    assert_equal 5, active.fetch("schema_version")
+    assert_equal "durable-plan", active.fetch("id")
+    assert_equal draft.id, active.fetch("mia_action_draft_id")
+    context = HouseholdFinance::ConversationContextBuilder.new(@session, household: @household).call
+    assert_equal draft.id, context.dig(:active_topic, :action_plan, :draft_id)
+  end
+
   test "persists a bounded version-three read-only plan for safe corrections" do
     user_message = @session.chat_messages.create!(role: "user", content: "What if I get a $2,000 bonus?")
     assistant_message = @session.chat_messages.create!(role: "assistant", content: "Scenario only — the bonus is not saved.")

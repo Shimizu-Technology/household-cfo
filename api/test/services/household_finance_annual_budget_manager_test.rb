@@ -207,6 +207,35 @@ class HouseholdFinanceAnnualBudgetManagerTest < ActiveSupport::TestCase
     assert_equal "Statement Merchant 25", plan.fetch(:pending_transaction_drafts).first.fetch(:merchant)
   end
 
+  test "plan data keeps year-independent action plans visible in other budget years" do
+    household = create_household
+    user = household.created_by_user
+    account_plan = household.mia_action_drafts.create!(
+      requested_by_user: user, draft_type: "action_plan", status: "pending", year: 2026,
+      title: "Update account and goal", summary: "Review household records"
+    )
+    account_plan.mia_action_items.create!(
+      position: 0, action_type: "update_account", operation_key: "account.record.update", operation_version: 1,
+      prepared_operation: { "operation_key" => "account.record.update" }, prepared_operation_fingerprint: "account-plan",
+      label: "Update checking", payload: {}, before_snapshot: {}, after_snapshot: {}
+    )
+    budget_plan = household.mia_action_drafts.create!(
+      requested_by_user: user, draft_type: "action_plan", status: "pending", year: 2026,
+      title: "Update budget", summary: "Review a 2026 budget change"
+    )
+    budget_plan.mia_action_items.create!(
+      position: 0, action_type: "update_allocation", operation_key: "budget.allocation.set", operation_version: 1,
+      prepared_operation: { "operation_key" => "budget.allocation.set" }, prepared_operation_fingerprint: "budget-plan",
+      label: "Update dining", payload: {}, before_snapshot: {}, after_snapshot: {}
+    )
+
+    ids = HouseholdFinance::AnnualBudgetManager.new(household, year: 2027).plan_data
+      .fetch(:pending_mia_action_drafts).pluck(:id)
+
+    assert_includes ids, account_plan.id
+    refute_includes ids, budget_plan.id
+  end
+
   test "budget allocation upsert recovers from uniqueness races" do
     household = create_household
     manager = HouseholdFinance::AnnualBudgetManager.new(household)

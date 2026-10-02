@@ -31,6 +31,7 @@ import { FINANCIAL_UPLOAD_SIZE_GUIDANCE, validateFinancialUpload } from './lib/f
 import { readPlaidOAuthSession } from './lib/plaidOAuthSession'
 import { budgetAllocationOperationSignature, OperationIdempotencyKeys } from './lib/operationIdempotency'
 import { guamTodayIso } from './lib/householdDate'
+import { budgetMonthsFromPayload, payloadHas, proposedBoolean, proposedChoice, proposedMoney, proposedText } from './lib/miaManualPrefill'
 import {
   applyDocumentImport,
   applyMiaActionDraft,
@@ -328,6 +329,24 @@ const documentUploadCards: Array<{
 type WorkspaceSetupMoneyKey = Exclude<keyof WorkspaceSetupValues, 'household_name' | 'primary_goal'>
 type WorkspaceSetupDraft = Omit<WorkspaceSetupValues, WorkspaceSetupMoneyKey> & Record<WorkspaceSetupMoneyKey, string>
 
+type NewBudgetCategoryDraft = {
+  name: string
+  stack_key: BudgetStackKey
+  monthly_amount: string
+  month_numbers: number[]
+}
+
+const allBudgetMonthNumbers = Array.from({ length: 12 }, (_, index) => index + 1)
+
+function blankBudgetCategoryDraft(): NewBudgetCategoryDraft {
+  return {
+    name: '',
+    stack_key: 'discretionary',
+    monthly_amount: '',
+    month_numbers: [...allBudgetMonthNumbers],
+  }
+}
+
 const workspaceSetupMoneyKeys: WorkspaceSetupMoneyKey[] = [
   'primary_income',
   'business_income',
@@ -362,6 +381,24 @@ function workspaceSetupDraftFromValues(values: WorkspaceSetupValues, status?: Wo
     draft[key] = values[key] === null || (values[key] === 0 && !confirmedFields.has(key)) ? '' : String(values[key])
   })
   return draft
+}
+
+function workspaceSetupDraftWithProposal(current: WorkspaceSetupDraft, payload: Record<string, unknown>) {
+  const next = { ...current }
+  if (payloadHas(payload, 'name')) next.household_name = proposedText(payload, 'name', next.household_name)
+  if (payloadHas(payload, 'primary_goal')) next.primary_goal = proposedText(payload, 'primary_goal', next.primary_goal)
+  if (payloadHas(payload, 'label')) next.primary_goal = proposedText(payload, 'label', next.primary_goal)
+  if (payloadHas(payload, 'target_months')) next.target_runway_months = proposedText(payload, 'target_months', next.target_runway_months)
+
+  const expectedValues = payload.expected_values
+  if (expectedValues && typeof expectedValues === 'object' && !Array.isArray(expectedValues)) {
+    Object.entries(expectedValues).forEach(([key, value]) => {
+      if (key === 'household_name' || key === 'primary_goal') next[key] = value === null ? '' : String(value)
+      else if (key === 'target_runway_months') next.target_runway_months = value === null ? '' : String(value)
+      else if (workspaceSetupMoneyKeys.includes(key as WorkspaceSetupMoneyKey)) next[key as WorkspaceSetupMoneyKey] = value === null ? '' : String(value)
+    })
+  }
+  return next
 }
 
 function workspaceSetupValuesFromDraft(draft: WorkspaceSetupDraft): WorkspaceSetupValues {
@@ -416,11 +453,7 @@ function App() {
   const [spendingReport, setSpendingReport] = useState<SpendingReport | null>(null)
   const [spendingReportLoading, setSpendingReportLoading] = useState(false)
   const [spendingReportError, setSpendingReportError] = useState<string | null>(null)
-  const [newBudgetCategory, setNewBudgetCategory] = useState<{ name: string; stack_key: BudgetStackKey; monthly_amount: string }>({
-    name: '',
-    stack_key: 'discretionary',
-    monthly_amount: '',
-  })
+  const [newBudgetCategory, setNewBudgetCategory] = useState<NewBudgetCategoryDraft>(blankBudgetCategoryDraft)
   const [isChatExpanded, setIsChatExpanded] = useState(false)
   const [showMiaSuggestions, setShowMiaSuggestions] = useState(false)
   const [showChatScrollButton, setShowChatScrollButton] = useState(false)
@@ -443,6 +476,8 @@ function App() {
   const miaAttachmentInputRef = useRef<HTMLInputElement | null>(null)
   const setupFormRef = useRef<HTMLFormElement | null>(null)
   const incomeSourcesRef = useRef<HTMLElement | null>(null)
+  const incomeFocusSequenceRef = useRef(0)
+  const [incomeFocusRequest, setIncomeFocusRequest] = useState<IncomeSourceFocusRequest | null>(null)
   const accountManagerRef = useRef<HTMLElement | null>(null)
   const accountFocusSequenceRef = useRef(0)
   const [accountFocusRequest, setAccountFocusRequest] = useState<AccountFocusRequest | null>(null)
@@ -450,6 +485,10 @@ function App() {
   const goalFocusSequenceRef = useRef(0)
   const [goalFocusRequest, setGoalFocusRequest] = useState<GoalFocusRequest | null>(null)
   const debtManagerRef = useRef<HTMLElement | null>(null)
+  const debtFocusSequenceRef = useRef(0)
+  const [debtFocusRequest, setDebtFocusRequest] = useState<DebtFocusRequest | null>(null)
+  const budgetFocusSequenceRef = useRef(0)
+  const [budgetFocusRequest, setBudgetFocusRequest] = useState<BudgetFocusRequest | null>(null)
   const documentImportsRef = useRef<HTMLElement | null>(null)
   const miaChatShellRef = useRef<HTMLElement | null>(null)
   const clearChatTriggerRef = useRef<HTMLButtonElement | null>(null)
@@ -469,6 +508,7 @@ function App() {
   const voiceChunksRef = useRef<Blob[]>([])
   const lastTrackedSectionRef = useRef<string | null>(null)
   const lastWorkspaceDraftSignatureRef = useRef<string | null>(null)
+  const setupSaveIdempotencyKeyRef = useRef<string | null>(null)
   const spendingReportRequestRef = useRef(0)
   const miaRetryRequestRef = useRef<MiaRetryRequest | null>(null)
   const selectedBudgetPeriodRef = useRef<{ startsOn: string | null; endsOn: string | null }>({ startsOn: null, endsOn: null })
@@ -1274,11 +1314,25 @@ function App() {
     requestAnimationFrame(() => composerRef.current?.focus({ preventScroll: true }))
   }
 
-  function openManualControls(draft: MiaActionDraft) {
-    switchSection(draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget')
-    if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
-    if (draft.draft_type === 'asset_plan') {
-      const accountItem = draft.items.find((item) => item.target_record_type === 'Account' || item.operation_key?.startsWith('account.'))
+  function openManualControls(draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) {
+    const targetItem = item ?? (
+      draft.draft_type === 'asset_plan'
+        ? draft.items.find((candidate) => candidate.target_record_type === 'Account' || candidate.operation_key?.startsWith('account.'))
+        : draft.draft_type === 'goal_plan'
+          ? draft.items.find((candidate) => candidate.target_record_type === 'Goal' || candidate.operation_key?.startsWith('goal.'))
+          : draft.draft_type === 'debt_plan'
+            ? draft.items.find((candidate) => candidate.target_record_type === 'Debt' || candidate.operation_key?.startsWith('debt.'))
+            : draft.items[0]
+    )
+    const operationKey = targetItem?.operation_key ?? ''
+    const actionType = targetItem?.action_type
+    const targetSection = operationKey.startsWith('income.source.')
+      ? 'My Profile'
+      : targetItem?.manual_section ?? (draft.draft_type === 'household_setup' || draft.draft_type === 'debt_plan' || draft.draft_type === 'asset_plan' || draft.draft_type === 'goal_plan' ? 'My Profile' : 'Budget')
+    if (!switchSection(targetSection, { focusHeading: false })) return
+
+    if (targetItem && (operationKey.startsWith('account.') || actionType?.endsWith('_account'))) {
+      const accountItem = targetItem
       const accountId = accountItem?.target_record_id ?? (Number(accountItem?.payload.account_id ?? 0) || null)
       const actionType = accountItem?.action_type
       if (actionType && actionType.endsWith('_account')) {
@@ -1286,22 +1340,87 @@ function App() {
           ? accountItem.payload.decision
           : undefined
         accountFocusSequenceRef.current += 1
-        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId, reconcileDecision })
+        setAccountFocusRequest({ key: accountFocusSequenceRef.current, actionType: actionType as AccountFocusRequest['actionType'], accountId, payload: accountItem.payload, reconcileDecision })
       } else {
         window.setTimeout(focusAccountManager, 80)
       }
+      return
     }
-    if (draft.draft_type === 'goal_plan') {
-      const goalItem = draft.items.find((item) => item.target_record_type === 'Goal' || item.operation_key?.startsWith('goal.'))
+    if (targetItem && operationKey === 'goal.runway_policy.update') {
+      focusProfileSetupField('target_runway_months', targetItem.payload)
+      return
+    }
+    if (targetItem && operationKey === 'goal.transition_policy.update') {
+      focusProfileSetupField('primary_goal', targetItem.payload)
+      return
+    }
+    if (targetItem && (operationKey.startsWith('goal.record.') || actionType?.endsWith('_goal'))) {
+      const goalItem = targetItem
       const goalId = goalItem?.target_record_id ?? (Number(goalItem?.payload.goal_id ?? 0) || null)
       const actionType = goalItem?.action_type
       if (actionType && actionType.endsWith('_goal')) {
         goalFocusSequenceRef.current += 1
-        setGoalFocusRequest({ key: goalFocusSequenceRef.current, actionType: actionType as GoalFocusRequest['actionType'], goalId })
+        setGoalFocusRequest({ key: goalFocusSequenceRef.current, actionType: actionType as GoalFocusRequest['actionType'], goalId, payload: goalItem.payload })
       } else {
         window.setTimeout(focusGoalManager, 80)
       }
+      return
     }
+    if (targetItem && (operationKey.startsWith('debt.') || actionType?.includes('debt'))) {
+      const debtId = targetItem.target_record_id ?? (Number(targetItem.payload.debt_id ?? 0) || null)
+      debtFocusSequenceRef.current += 1
+      setDebtFocusRequest({ key: debtFocusSequenceRef.current, actionType: actionType as DebtFocusRequest['actionType'], debtId, payload: targetItem.payload })
+      return
+    }
+    if (targetItem && operationKey.startsWith('profile.')) {
+      const field = targetItem.payload.name !== undefined
+        ? 'household_name'
+        : targetItem.payload.primary_goal !== undefined
+          ? 'primary_goal'
+          : ((targetItem.payload.confirm_only_fields as string[] | undefined)?.[0] ?? 'household_name')
+      focusProfileSetupField(field, targetItem.payload)
+      return
+    }
+    if (targetItem && operationKey.startsWith('income.source.')) {
+      incomeFocusSequenceRef.current += 1
+      setIncomeFocusRequest({
+        key: incomeFocusSequenceRef.current,
+        actionType: actionType as IncomeSourceFocusRequest['actionType'],
+        sourceId: targetItem.target_record_id ?? (Number(targetItem.payload.income_source_id ?? 0) || null),
+        payload: targetItem.payload,
+      })
+      return
+    }
+    if (targetItem && (operationKey.startsWith('budget.') || operationKey.startsWith('income.schedule.'))) {
+      budgetFocusSequenceRef.current += 1
+      setBudgetFocusRequest({
+        key: budgetFocusSequenceRef.current,
+        operationKey,
+        actionType: targetItem.action_type,
+        categoryId: targetItem.target_record_id ?? (Number(targetItem.payload.category_id ?? 0) || null),
+        months: budgetMonthsFromPayload(targetItem.payload),
+        incomeScheduleEntryId: Number(targetItem.payload.entry_id ?? 0) || null,
+        payload: targetItem.payload,
+      })
+      return
+    }
+
+    if (draft.draft_type === 'debt_plan') window.setTimeout(focusDebtManager, 80)
+    if (draft.draft_type === 'asset_plan') window.setTimeout(focusAccountManager, 80)
+    if (draft.draft_type === 'goal_plan') window.setTimeout(focusGoalManager, 80)
+  }
+
+  function focusProfileSetupField(fieldName: string, payload: Record<string, unknown>) {
+    setSetupDraft((current) => current ? workspaceSetupDraftWithProposal(current, payload) : current)
+    setIsProfileEditing(true)
+    window.setTimeout(() => {
+      const field = setupFormRef.current?.querySelector<HTMLInputElement | HTMLTextAreaElement>(`[name="${fieldName}"]`)
+      const optionalFields = field?.closest('details')
+      if (optionalFields instanceof HTMLDetailsElement) optionalFields.open = true
+      field?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      field?.focus({ preventScroll: true })
+      field?.select()
+    }, 80)
   }
 
   function focusDebtManager() {
@@ -1434,7 +1553,20 @@ function App() {
         attachment_count: attachmentsToSend.length,
       })
       if (response.budget) {
-        setData((current) => current ? { ...current, budget: response.budget! } : current)
+        const responseBudget = response.mia_action_draft?.suggested_selected_item_ids?.length && response.budget.annual_plan
+          ? {
+              ...response.budget,
+              annual_plan: {
+                ...response.budget.annual_plan,
+                pending_mia_action_drafts: (response.budget.annual_plan.pending_mia_action_drafts ?? []).map((draft) => (
+                  draft.id === response.mia_action_draft?.id
+                    ? { ...draft, suggested_selected_item_ids: response.mia_action_draft.suggested_selected_item_ids }
+                    : draft
+                )),
+              },
+            }
+          : response.budget
+        setData((current) => current ? { ...current, budget: responseBudget } : current)
         const responseMonthIndex = response.transaction_draft ? monthIndexFromIsoDate(response.transaction_draft.occurred_on) : selectedBudgetMonthIndex
         if (response.transaction_draft && response.budget.annual_plan) {
           setBudgetView({ year: response.budget.annual_plan.year, monthIndex: responseMonthIndex })
@@ -1582,6 +1714,10 @@ function App() {
       setBudgetError('Add a category name first.')
       return
     }
+    if (newBudgetCategory.month_numbers.length === 0) {
+      setBudgetError('Choose at least one month for this category.')
+      return
+    }
 
     setBudgetAction('create-category')
     setBudgetError(null)
@@ -1589,6 +1725,7 @@ function App() {
       name: newBudgetCategory.name,
       stack_key: newBudgetCategory.stack_key,
       monthly_amount: newBudgetCategory.monthly_amount || 0,
+      month_numbers: newBudgetCategory.month_numbers,
     }
     const signature = `create-category:${selectedBudgetYear}:${JSON.stringify(input)}`
     try {
@@ -1596,7 +1733,7 @@ function App() {
       budgetOperationKeysRef.current.complete(signature)
       setData((current) => current ? { ...current, budget } : current)
       refreshSpendingReportForBudget(budget)
-      setNewBudgetCategory({ name: '', stack_key: 'discretionary', monthly_amount: '' })
+      setNewBudgetCategory(blankBudgetCategoryDraft())
       captureAnalyticsEvent('budget_category_created', { stack_key: newBudgetCategory.stack_key })
     } catch (caught) {
       setBudgetError(caught instanceof Error ? caught.message : 'Budget category could not be created.')
@@ -1848,14 +1985,17 @@ function App() {
     }
   }
 
-  async function handleApplyMiaActionDraft(draft: MiaActionDraft) {
+  async function handleApplyMiaActionDraft(draft: MiaActionDraft, itemIds?: number[]) {
     if (!isRealWorkspace) return
 
     setBudgetAction(`apply-mia-action:${draft.id}`)
     setBudgetError(null)
     setMiaError(null)
+    const selection = itemIds?.slice().sort((left, right) => left - right)
+    const signature = `apply-mia-action:${draft.id}:${selection?.join(',') ?? 'remaining'}`
     try {
-      const workspace = await applyMiaActionDraft(draft.id)
+      const workspace = await applyMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature), selection)
+      budgetOperationKeysRef.current.complete(signature)
       setData(workspace)
       if (draft.draft_type === 'household_setup') {
         setSetupDraft(workspace.workspace?.setup_values ? workspaceSetupDraftFromValues(workspace.workspace.setup_values, workspace.workspace.setup_status) : null)
@@ -1884,8 +2024,10 @@ function App() {
     setBudgetAction(`cancel-mia-action:${draft.id}`)
     setBudgetError(null)
     setMiaError(null)
+    const signature = `cancel-mia-action:${draft.id}`
     try {
-      const workspace = await cancelMiaActionDraft(draft.id)
+      const workspace = await cancelMiaActionDraft(draft.id, budgetOperationKeysRef.current.keyFor(signature))
+      budgetOperationKeysRef.current.complete(signature)
       setData(workspace)
       if (workspace.budget.annual_plan) setBudgetView({ year: workspace.budget.annual_plan.year, monthIndex: selectedBudgetMonthIndex })
       refreshSpendingReportForBudget(workspace.budget, selectedBudgetMonthIndex)
@@ -2435,7 +2577,10 @@ function App() {
       const submittedSetupValues = Object.fromEntries(Object.entries(setupValues).filter(([key]) => (
         wasSetupComplete ? !excludedSetupKeys.includes(key) : firstSessionSetupKeys.has(key as keyof WorkspaceSetupValues)
       )))
-      const payload = await saveWorkspaceSetup(submittedSetupValues)
+      const idempotencyKey = setupSaveIdempotencyKeyRef.current ?? clientSideId('workspace-setup')
+      setupSaveIdempotencyKeyRef.current = idempotencyKey
+      const payload = await saveWorkspaceSetup(submittedSetupValues, idempotencyKey)
+      setupSaveIdempotencyKeyRef.current = null
       setData(payload)
       setSetupDraft(payload.workspace?.setup_values ? workspaceSetupDraftFromValues(payload.workspace.setup_values, payload.workspace.setup_status) : setupDraft)
       setBudgetView((current) => {
@@ -2474,6 +2619,7 @@ function App() {
     if (!isProfileEditing && !isFirstSessionSetup) return
 
     setSetupError(null)
+    setupSaveIdempotencyKeyRef.current = null
     setSetupDraft((current) => {
       if (!current) return current
       return { ...current, [key]: value }
@@ -3056,6 +3202,8 @@ function App() {
               onSave={handleSaveIncomeSource}
               onArchive={handleArchiveIncomeSource}
               onRestore={handleRestoreIncomeSource}
+              focusRequest={incomeFocusRequest}
+              onFocusRequestHandled={() => setIncomeFocusRequest(null)}
             />
           )}
 
@@ -3089,6 +3237,8 @@ function App() {
               debts={data.workspace?.debts ?? []}
               portfolio={data.workspace?.debt_portfolio ?? { mode: 'individual', total_balance: 0, monthly_minimum: 0, balance_known: true, minimum_payment_known: true, active_count: 0, archived_count: 0 }}
               onChanged={refreshWorkspaceAfterDebtChange}
+              focusRequest={debtFocusRequest}
+              onFocusRequestHandled={() => setDebtFocusRequest(null)}
             />
           )}
 
@@ -3220,6 +3370,8 @@ function App() {
               onReopenDraft={handleReopenTransactionDraft}
               onBulkConfirmDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'confirm')}
               onBulkIgnoreDrafts={(drafts) => void handleBulkTransactionDrafts(drafts, 'ignore')}
+              focusRequest={budgetFocusRequest}
+              onFocusRequestHandled={() => setBudgetFocusRequest(null)}
             />
           ) : (
             <article className="panel coach-panel">
@@ -6667,6 +6819,13 @@ type DebtDraft = {
   interest_rate_percent: string
 }
 
+type DebtFocusRequest = {
+  key: number
+  actionType: 'create_debt' | 'update_debt' | 'archive_debt' | 'restore_debt' | 'update_debt_tracking'
+  debtId: number | null
+  payload: MiaActionItem['payload']
+}
+
 const emptyDebtDraft: DebtDraft = {
   label: '', debt_type: 'credit_card', balance: '', minimum_payment: '', interest_rate_percent: '',
 }
@@ -6681,11 +6840,28 @@ function debtDraftFor(debt: DebtRecord): DebtDraft {
   }
 }
 
+function debtDraftWithProposal(base: DebtDraft, payload: MiaActionItem['payload']): DebtDraft {
+  return {
+    label: proposedText(payload, 'label', base.label),
+    debt_type: proposedChoice(payload, 'debt_type', base.debt_type, debtTypeOptions as DebtType[]),
+    balance: proposedMoney(payload, 'balance_cents', base.balance, 'balance_known'),
+    minimum_payment: proposedMoney(payload, 'minimum_payment_cents', base.minimum_payment, 'minimum_payment_known'),
+    interest_rate_percent: proposedText(payload, 'interest_rate_percent', base.interest_rate_percent),
+  }
+}
+
 function debtSourceLabel(source: DebtRecord['source_type']) {
   return { manual_ui: 'Added manually', mia: 'Prepared by Mia', document_import: 'Approved import', setup: 'Household setup' }[source]
 }
 
-function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?: Ref<HTMLElement>; debts: DebtRecord[]; portfolio: DebtPortfolio; onChanged: () => Promise<void> }) {
+function DebtManager({ sectionRef, debts, portfolio, onChanged, focusRequest, onFocusRequestHandled }: {
+  sectionRef?: Ref<HTMLElement>
+  debts: DebtRecord[]
+  portfolio: DebtPortfolio
+  onChanged: () => Promise<void>
+  focusRequest?: DebtFocusRequest | null
+  onFocusRequestHandled?: () => void
+}) {
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
   const [draft, setDraft] = useState<DebtDraft>(emptyDebtDraft)
   const [saving, setSaving] = useState(false)
@@ -6695,8 +6871,45 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?:
   const [summaryBalance, setSummaryBalance] = useState(portfolio.balance_known ? String(portfolio.total_balance) : '')
   const [summaryMinimum, setSummaryMinimum] = useState(portfolio.minimum_payment_known ? String(portfolio.monthly_minimum) : '')
   const operationKeys = useRef(new OperationIdempotencyKeys())
+  const debtNameRef = useRef<HTMLInputElement | null>(null)
+  const handledFocusKeyRef = useRef<number | null>(null)
   const activeDebts = debts.filter((debt) => debt.active)
   const archivedDebts = debts.filter((debt) => !debt.active)
+
+  useEffect(() => {
+    if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
+    handledFocusKeyRef.current = focusRequest.key
+    const debt = debts.find((candidate) => candidate.id === focusRequest.debtId)
+    requestAnimationFrame(() => {
+      if (focusRequest.actionType === 'create_debt') {
+        setDraft(debtDraftWithProposal(emptyDebtDraft, focusRequest.payload)); setEditingId('new'); setArchiveId(null); setError(null)
+        requestAnimationFrame(() => debtNameRef.current?.focus())
+      } else if (focusRequest.actionType === 'update_debt' && debt?.active) {
+        setDraft(debtDraftWithProposal(debtDraftFor(debt), focusRequest.payload)); setEditingId(debt.id); setArchiveId(null); setError(null)
+        requestAnimationFrame(() => debtNameRef.current?.focus())
+      } else {
+        const action = focusRequest.actionType === 'archive_debt' ? 'archive'
+          : focusRequest.actionType === 'restore_debt' ? 'restore'
+            : focusRequest.actionType === 'update_debt_tracking' ? 'tracking' : null
+        const target = action === 'tracking'
+          ? document.querySelector<HTMLElement>('[data-debt-action="tracking"]')
+          : document.querySelector<HTMLElement>(`[data-debt-id="${focusRequest.debtId}"] [data-debt-action="${action}"]`)
+        const disclosure = target?.closest('details')
+        if (action === 'tracking') {
+          const nextMode = focusRequest.payload.mode === 'summary' || focusRequest.payload.mode === 'individual' ? focusRequest.payload.mode : modeDraft
+          setModeDraft(nextMode)
+          if (nextMode === 'summary') {
+            setSummaryBalance(proposedMoney(focusRequest.payload, 'summary_balance_cents', summaryBalance, 'summary_balance_known'))
+            setSummaryMinimum(proposedMoney(focusRequest.payload, 'summary_minimum_payment_cents', summaryMinimum, 'summary_minimum_payment_known'))
+          }
+        }
+        if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        target?.focus({ preventScroll: true })
+      }
+      onFocusRequestHandled?.()
+    })
+  }, [debts, focusRequest, modeDraft, onFocusRequestHandled, summaryBalance, summaryMinimum])
 
   function beginCreate() {
     setDraft(emptyDebtDraft); setEditingId('new'); setArchiveId(null); setError(null)
@@ -6819,7 +7032,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?:
         {editingId === null && <button type="button" onClick={beginCreate}>{portfolio.mode === 'summary' ? 'Add preserved record' : 'Add a debt'}</button>}
       </div>
 
-      <form className="debt-tracking" onSubmit={saveTrackingMode}>
+      <form className="debt-tracking" data-debt-action="tracking" tabIndex={-1} onSubmit={saveTrackingMode}>
         <fieldset disabled={saving}>
           <legend>How should Household CFO track debt?</legend>
           <label className={modeDraft === 'summary' ? 'selected' : ''}><input type="radio" name="debt-tracking-mode" value="summary" checked={modeDraft === 'summary'} onChange={() => setModeDraft('summary')} /><span><strong>One household summary</strong><small>Best when you know the totals but do not want to enter every lender yet.</small></span></label>
@@ -6842,16 +7055,16 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?:
 
       {portfolio.mode === 'individual' && activeDebts.length === 0 && editingId === null && <div className="debt-empty"><strong>No active debts entered yet.</strong><p>Add the first debt, or explicitly confirm that the household has no debt. Blank details stay marked as unknown.</p><button type="button" className="secondary-button" disabled={saving} onClick={() => void confirmNoDebt()}>{saving ? 'Saving' : 'Confirm no debt ($0)'}</button></div>}
       {activeDebts.length > 0 && <><div className="debt-list-heading"><strong>{portfolio.mode === 'summary' ? 'Preserved individual records' : 'Active debts'}</strong>{portfolio.mode === 'summary' && <span>Excluded from the approved summary total</span>}</div><div className="debt-list" aria-label={portfolio.mode === 'summary' ? 'Preserved individual debt records' : 'Active debts'}>
-        {activeDebts.map((debt) => <div className="debt-row" key={debt.id}>
+        {activeDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}>
           <div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · {debt.interest_rate_percent === null ? 'APR not entered' : `${debt.interest_rate_percent}% APR`} · {debtSourceLabel(debt.source_type)}</span></div>
           <div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div>
-          <div className="debt-row-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button></div>
+          <div className="debt-row-actions"><button type="button" data-debt-action="edit" className="secondary-button" disabled={saving} onClick={() => beginEdit(debt)}>Edit</button><button type="button" data-debt-action="archive" className={archiveId === debt.id ? 'danger-button' : 'quiet-button'} disabled={saving} onClick={() => void archiveRecord(debt)}>{archiveId === debt.id ? 'Confirm archive' : 'Archive'}</button></div>
         </div>)}
       </div></>}
 
       {editingId !== null && <form className="debt-form" onSubmit={saveDebt}>
         <div className="debt-form-grid">
-          <label className="setup-field text-wide"><span>Debt name</span><input autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
+          <label className="setup-field text-wide"><span>Debt name</span><input ref={debtNameRef} autoFocus required value={draft.label} onChange={(event) => setDraft((current) => ({ ...current, label: event.target.value }))} placeholder="Visa, auto loan, student loan" /><small>Use the name you recognize on a statement.</small></label>
           <label className="setup-field"><span>Debt type</span><select value={draft.debt_type} onChange={(event) => setDraft((current) => ({ ...current, debt_type: event.target.value as DebtType }))}>{debtTypeOptions.map((option) => <option key={option} value={option}>{titleize(option)}</option>)}</select><small>This helps Mia explain tradeoffs clearly.</small></label>
           <label className="setup-field"><span>Current balance</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.balance} onChange={(event) => setDraft((current) => ({ ...current, balance: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the latest balance is not confirmed.</small></label>
           <label className="setup-field"><span>Monthly minimum</span><span className="money-input-shell"><span aria-hidden="true">$</span><input type="number" inputMode="decimal" min="0" step="0.01" value={draft.minimum_payment} onChange={(event) => setDraft((current) => ({ ...current, minimum_payment: event.target.value }))} placeholder="Unknown" /></span><small>Leave blank if the required payment is not confirmed.</small></label>
@@ -6861,7 +7074,7 @@ function DebtManager({ sectionRef, debts, portfolio, onChanged }: { sectionRef?:
         <div className="debt-form-actions"><button type="button" className="secondary-button" disabled={saving} onClick={cancelEdit}>Cancel</button><button type="submit" disabled={saving}>{saving ? 'Saving' : editingId === 'new' ? 'Add debt' : 'Save debt'}</button></div>
       </form>}
 
-      {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" className="secondary-button" disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
+      {archivedDebts.length > 0 && <details className="debt-archive"><summary>Archived debts ({archivedDebts.length})</summary><p>Archived records keep their history and do not affect planning totals.</p><div className="debt-list">{archivedDebts.map((debt) => <div className="debt-row" data-debt-id={debt.id} key={debt.id}><div><strong>{debt.label}</strong><span>{titleize(debt.debt_type)} · Archived {debt.archived_at ? new Date(debt.archived_at).toLocaleDateString() : ''}</span></div><div><strong>{recordMoney(debt.balance)}</strong><span>{recordMoney(debt.minimum_payment)} minimum</span></div><div className="debt-row-actions"><button type="button" data-debt-action="restore" className="secondary-button" disabled={saving} onClick={() => void restoreRecord(debt)}>Restore</button></div></div>)}</div></details>}
       {error && editingId === null && <p className="setup-error" role="alert">{error}</p>}
       <p className="debt-privacy-note">Household CFO uses the selected tracking mode for planning. It does not move money, contact lenders, or make payments.</p>
     </article>
@@ -6935,9 +7148,9 @@ function MiaActionDraftReviewStack({
   compact?: boolean
   draftActionsDisabled?: boolean
   disabledReason?: string
-  onApply: (draft: MiaActionDraft) => void
+  onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
-  onEditManually?: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
 }) {
   return (
     <div className={`mia-action-draft-stack ${compact ? 'compact' : ''}`}>
@@ -6976,15 +7189,62 @@ function MiaActionDraftReviewCard({
   isRealWorkspace: boolean
   action: string | null
   draftActionsDisabled: boolean
-  onApply: (draft: MiaActionDraft) => void
+  onApply: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancel: (draft: MiaActionDraft) => void
-  onEditManually?: (draft: MiaActionDraft) => void
+  onEditManually?: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
 }) {
-  const isPending = draft.status === 'pending'
+  const isPending = draft.status === 'pending' || draft.status === 'partially_applied'
   const actionsDisabled = !isRealWorkspace || draftActionsDisabled || !isPending
+  const remainingItems = draft.items.filter((item) => !item.applied_at && !item.canceled_at)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(() => new Set(
+    draft.suggested_selected_item_ids?.length ? draft.suggested_selected_item_ids : remainingItems.map((item) => item.id),
+  ))
+  const [isChoosingChanges, setIsChoosingChanges] = useState(Boolean(draft.suggested_selected_item_ids?.length))
+  const planRequiresFullApply = remainingItems.some((item) => item.action_type === 'confirm_household_setup')
+  const positions = new Map(draft.items.map((item, index) => [item.position ?? index, item]))
+  const togglePlanItem = (item: MiaActionDraft['items'][number]) => {
+    setSelectedIds((current) => {
+      const next = new Set(current)
+      if (next.has(item.id)) {
+        next.delete(item.id)
+        let changed = true
+        while (changed) {
+          changed = false
+          draft.items.forEach((candidate) => {
+            if (!next.has(candidate.id)) return
+            if ((candidate.dependencies ?? []).some((dependency) => {
+              const required = positions.get(dependency)
+              return Boolean(required && !required.applied_at && !next.has(required.id))
+            })) {
+              next.delete(candidate.id)
+              changed = true
+            }
+          })
+        }
+      } else {
+        next.add(item.id)
+        const addDependencies = (candidate: MiaActionDraft['items'][number]) => {
+          ;(candidate.dependencies ?? []).forEach((position) => {
+            const dependency = positions.get(position)
+            if (dependency && !dependency.applied_at) {
+              next.add(dependency.id)
+              addDependencies(dependency)
+            }
+          })
+        }
+        addDependencies(item)
+      }
+      return next
+    })
+  }
   const proposedSetupKeys = new Set(draft.items
-    .filter((item) => item.action_type === 'update_setup_value')
-    .map((item) => String(item.payload.key ?? '')))
+    .flatMap((item) => {
+      if (item.action_type === 'update_setup_value') return [String(item.payload.key ?? '')]
+      if (item.action_type === 'update_household_profile') return [item.payload.name !== undefined ? 'household_name' : '', item.payload.primary_goal !== undefined ? 'primary_goal' : '']
+      if (item.action_type === 'confirm_household_setup') return [...Object.keys((item.payload.updates as Record<string, unknown> | undefined) ?? {}), ...(((item.payload.confirm_only_fields as string[] | undefined) ?? []))]
+      return []
+    })
+    .filter(Boolean))
   const touchesStartingPicture = Boolean(draft.setup_coverage_after_apply?.required_fields.some((field) => proposedSetupKeys.has(field.key)))
   const setupCoverage = draft.draft_type === 'household_setup' && touchesStartingPicture ? draft.setup_coverage_after_apply : null
   const applyLabel = setupCoverage?.complete
@@ -6992,6 +7252,9 @@ function MiaActionDraftReviewCard({
     : setupCoverage
       ? `Apply these ${draft.items.length} value${draft.items.length === 1 ? '' : 's'}`
       : 'Apply reviewed change'
+  const planApplyLabel = !isChoosingChanges || selectedIds.size === remainingItems.length
+    ? `Apply all ${remainingItems.length} ${remainingItems.length === 1 ? 'change' : 'changes'}`
+    : `Apply ${selectedIds.size} selected`
 
   return (
     <article className="mia-action-draft-card">
@@ -7000,18 +7263,47 @@ function MiaActionDraftReviewCard({
           <strong>{draft.title}</strong>
           <div className="mia-action-draft-labels">
             <span className="document-status">{miaActionDraftTypeLabel(draft.draft_type)}</span>
-            <span className={`document-status ${draft.status === 'pending' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
+            <span className={`document-status ${draft.status === 'pending' || draft.status === 'partially_applied' ? 'gold' : draft.status === 'applied' ? 'green' : 'red'}`}>{titleize(draft.status)}</span>
           </div>
         </div>
         <p>{draft.summary}</p>
         {draft.rationale && <p>{draft.rationale}</p>}
-        <div className="mia-action-item-list">
-          {draft.items.map((item) => {
+        {draft.draft_type === 'action_plan' && (
+          <div className="mia-action-plan-toolbar">
+            <span><strong>{remainingItems.length}</strong> reviewed {remainingItems.length === 1 ? 'change remains' : 'changes remain'} in this ordered plan.</span>
+            {remainingItems.length > 1 && !planRequiresFullApply && (
+              <button type="button" className="secondary-button" aria-expanded={isChoosingChanges} onClick={() => {
+                if (isChoosingChanges) setSelectedIds(new Set(remainingItems.map((item) => item.id)))
+                setIsChoosingChanges((current) => !current)
+              }} disabled={actionsDisabled || Boolean(action)}>
+                {isChoosingChanges ? 'Apply the full plan' : 'Choose changes'}
+              </button>
+            )}
+          </div>
+        )}
+        <div className={`mia-action-item-list${draft.draft_type === 'action_plan' ? ' ordered-plan' : ''}`}>
+          {draft.items.map((item, itemIndex) => {
             const reviewFields = miaActionItemReviewFields(item)
 
             return (
-              <div className="mia-action-item" key={item.id}>
-                <strong>{item.label}</strong>
+              <div className={`mia-action-item${item.applied_at ? ' is-applied' : ''}${item.canceled_at ? ' is-canceled' : ''}`} key={item.id}>
+                {draft.draft_type === 'action_plan' && isChoosingChanges && !item.applied_at && !item.canceled_at ? (
+                  <label className="mia-action-selection-row">
+                    <input type="checkbox" checked={selectedIds.has(item.id)} onChange={() => togglePlanItem(item)} aria-label={`Include ${item.label}`} />
+                    <span className="mia-action-step-number" aria-hidden="true">{(item.position ?? itemIndex) + 1}</span>
+                    <strong>{item.label}</strong>
+                    <span className="document-status">{miaActionItemDomainLabel(item)}</span>
+                  </label>
+                ) : (
+                <div className="mia-action-item-heading">
+                  {draft.draft_type === 'action_plan' && <span className="mia-action-step-number" aria-hidden="true">{(item.position ?? itemIndex) + 1}</span>}
+                  <strong>{item.label}</strong>
+                  {draft.draft_type === 'action_plan' && <span className="document-status">{miaActionItemDomainLabel(item)}</span>}
+                  {item.applied_at && <span className="document-status green">Applied</span>}
+                  {item.canceled_at && <span className="document-status red">Canceled</span>}
+                </div>
+                )}
+                {item.source_text && <small className="mia-action-source">From your message: “{item.source_text}”</small>}
                 {item.description && <span>{item.description}</span>}
                 {reviewFields.length > 0 && (
                   <dl className="mia-action-before-after" aria-label={`Before and after for ${item.label}`}>
@@ -7024,6 +7316,11 @@ function MiaActionDraftReviewCard({
                   </dl>
                 )}
                 {miaActionItemFinePrint(item) && <small>{miaActionItemFinePrint(item)}</small>}
+                {onEditManually && draft.draft_type === 'action_plan' && !item.applied_at && !item.canceled_at && (
+                  <button type="button" className="mia-item-manual-link" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft, item)}>
+                    Open {item.manual_section ?? 'manual controls'}
+                  </button>
+                )}
               </div>
             )
           })}
@@ -7040,17 +7337,20 @@ function MiaActionDraftReviewCard({
           </section>
         )}
         {draft.impact && <MiaActionImpact impact={draft.impact} />}
+        {draft.draft_type === 'action_plan' && isChoosingChanges && (
+          <small className="mia-action-selection-note">Selected changes apply in one transaction. Required earlier steps are selected automatically; removing one also removes changes that depend on it.</small>
+        )}
         <small className="mia-action-safety-copy">You stay the Household CFO. We’ll check the draft against your latest saved data when you apply it, keep an audit record, and leave actual spending untouched.</small>
       </div>
       {isPending ? (
         <div className="mia-action-draft-actions">
-          <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}`} onClick={() => onApply(draft)}>
-            {action === `apply-mia-action:${draft.id}` ? 'Applying' : applyLabel}
+          <button type="button" disabled={actionsDisabled || action === `apply-mia-action:${draft.id}` || (draft.draft_type === 'action_plan' && selectedIds.size === 0)} onClick={() => onApply(draft, draft.draft_type === 'action_plan' && isChoosingChanges ? [...selectedIds] : undefined)}>
+            {action === `apply-mia-action:${draft.id}` ? 'Applying' : draft.draft_type === 'action_plan' ? planApplyLabel : applyLabel}
           </button>
           <button type="button" className="secondary-button" disabled={actionsDisabled || action === `cancel-mia-action:${draft.id}`} onClick={() => onCancel(draft)}>
-            {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : 'Cancel draft'}
+            {action === `cancel-mia-action:${draft.id}` ? 'Canceling' : draft.draft_type === 'action_plan' ? 'Cancel plan' : 'Cancel draft'}
           </button>
-          {onEditManually && (
+          {onEditManually && draft.draft_type !== 'action_plan' && (
             <button type="button" className="secondary-button" disabled={!isRealWorkspace || Boolean(action)} onClick={() => onEditManually(draft)}>
               Open manual controls
             </button>
@@ -7058,7 +7358,7 @@ function MiaActionDraftReviewCard({
         </div>
       ) : (
         <div className="mia-action-draft-actions terminal">
-          <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : 'Canceled. No household numbers changed.'}</span>
+          <span>{draft.status === 'applied' ? 'Applied to your approved household plan. Actual spending did not change.' : draft.draft_type === 'action_plan' && (draft.applied_item_count ?? 0) > 0 ? `Canceled the remaining plan. ${draft.applied_item_count} previously applied ${draft.applied_item_count === 1 ? 'step remains' : 'steps remain'} in effect.` : 'Canceled. No household numbers changed.'}</span>
         </div>
       )}
     </article>
@@ -7109,11 +7409,23 @@ function miaActionDraftTypeLabel(draftType: MiaActionDraft['draft_type']) {
   if (draftType === 'debt_plan') return 'Debt plan'
   if (draftType === 'asset_plan') return 'Accounts & assets'
   if (draftType === 'goal_plan') return 'Tracked goals'
+  if (draftType === 'action_plan') return 'Action plan'
   return 'Budget plan'
 }
 
+function miaActionItemDomainLabel(item: MiaActionItem) {
+  const domain = item.operation_key?.split('.')[0]
+  if (domain === 'profile') return 'Profile'
+  if (domain === 'income') return 'Income'
+  if (domain === 'budget') return 'Budget'
+  if (domain === 'debt') return 'Debt'
+  if (domain === 'account') return 'Account'
+  if (domain === 'goal') return 'Goal'
+  return 'Plan'
+}
+
 function miaActionDraftRenderKey(draft: MiaActionDraft) {
-  return [draft.id, draft.status, draft.items.map((item) => `${item.id}:${item.label}`).join(',')].join('|')
+  return [draft.id, draft.status, draft.suggested_selected_item_ids?.join(',') ?? '', draft.items.map((item) => `${item.id}:${item.label}:${item.applied_at ?? ''}:${item.canceled_at ?? ''}`).join(',')].join('|')
 }
 
 function miaActionItemFinePrint(item: MiaActionItem) {
@@ -8053,7 +8365,7 @@ function CategoryEditCell({
     <div className="annual-category-cell-editor">
       <label>
         <span className="sr-only">Category name</span>
-        <input value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
+        <input data-budget-category-action="name" value={draft.name} onChange={(event) => onChange({ name: event.currentTarget.value })} />
       </label>
       <label>
         <span className="sr-only">Expense stack</span>
@@ -8066,6 +8378,7 @@ function CategoryEditCell({
       </label>
       <button
         type="button"
+        data-budget-category-action="archive"
         className="archive-category-button"
         disabled={hasPendingDrafts || action === `archive-category:${row.id}`}
         title={hasPendingDrafts ? 'This category has pending drafts. Confirm, correct, or ignore those drafts before archiving.' : 'Archive this category'}
@@ -8088,6 +8401,23 @@ type IncomeSourceDraft = {
   starts_on: string
 }
 
+type IncomeSourceFocusRequest = {
+  key: number
+  actionType: 'create_income_source' | 'update_income_source' | 'archive_income_source' | 'restore_income_source'
+  sourceId: number | null
+  payload: MiaActionItem['payload']
+}
+
+type BudgetFocusRequest = {
+  key: number
+  operationKey: string
+  actionType: MiaActionItem['action_type']
+  categoryId: number | null
+  months: number[]
+  incomeScheduleEntryId: number | null
+  payload: MiaActionItem['payload']
+}
+
 function blankIncomeSourceDraft(): IncomeSourceDraft {
   const currentMonth = guamCurrentMonthIso()
   return {
@@ -8106,6 +8436,16 @@ function incomeSourceDraftFor(source: IncomeTimelineSource): IncomeSourceDraft {
     amount: String(source.base_amount),
     cadence: source.base_cadence,
     starts_on: source.starts_on || blankIncomeSourceDraft().starts_on,
+  }
+}
+
+function incomeSourceDraftWithProposal(base: IncomeSourceDraft, payload: MiaActionItem['payload']): IncomeSourceDraft {
+  return {
+    label: proposedText(payload, 'label', base.label),
+    source_type: proposedChoice(payload, 'source_type', base.source_type, incomeSourceTypeOptions),
+    amount: proposedMoney(payload, 'amount_cents', base.amount),
+    cadence: proposedChoice(payload, 'cadence', base.cadence, ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']),
+    starts_on: proposedText(payload, 'starts_on', base.starts_on),
   }
 }
 
@@ -8158,6 +8498,8 @@ function IncomeSourceManager({
   onSave,
   onArchive,
   onRestore,
+  focusRequest,
+  onFocusRequestHandled,
 }: {
   sectionRef?: Ref<HTMLElement>
   sources: IncomeTimelineSource[]
@@ -8166,6 +8508,8 @@ function IncomeSourceManager({
   onSave: (values: IncomeSourceInput, sourceId?: number) => Promise<void>
   onArchive: (source: IncomeTimelineSource, endsOn: string) => Promise<void>
   onRestore: (source: IncomeTimelineSource) => Promise<void>
+  focusRequest?: IncomeSourceFocusRequest | null
+  onFocusRequestHandled?: () => void
 }) {
   const [draft, setDraft] = useState<IncomeSourceDraft>(() => blankIncomeSourceDraft())
   const [editingId, setEditingId] = useState<number | null>(null)
@@ -8177,6 +8521,30 @@ function IncomeSourceManager({
   const endMonthRef = useRef<HTMLInputElement | null>(null)
   const lastActionTriggerRef = useRef<HTMLButtonElement | null>(null)
   const sourceCardRefs = useRef(new Map<number, HTMLElement>())
+  const handledFocusKeyRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
+    handledFocusKeyRef.current = focusRequest.key
+    const source = sources.find((candidate) => candidate.id === focusRequest.sourceId)
+    requestAnimationFrame(() => {
+      if (focusRequest.actionType === 'create_income_source') {
+        setDraft(incomeSourceDraftWithProposal(blankIncomeSourceDraft(), focusRequest.payload)); setEditingId(null); setEndingId(null); setFormError(null); lastActionTriggerRef.current = null
+        requestAnimationFrame(() => sourceNameRef.current?.focus())
+      } else if (focusRequest.actionType === 'update_income_source' && source) {
+        setEndingId(null); setEditingId(source.id); setDraft(incomeSourceDraftWithProposal(incomeSourceDraftFor(source), focusRequest.payload)); setFormError(null)
+        requestAnimationFrame(() => { sourceFormRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' }); sourceNameRef.current?.focus({ preventScroll: true }); sourceNameRef.current?.select() })
+      } else if (focusRequest.actionType === 'archive_income_source' && source) {
+        beginEnd(source.id)
+        if (payloadHas(focusRequest.payload, 'ends_on')) setEndingMonth(proposedText(focusRequest.payload, 'ends_on', '').slice(0, 7))
+      } else if (focusRequest.actionType === 'restore_income_source' && source) {
+        const target = sourceCardRefs.current.get(source.id)?.querySelector<HTMLButtonElement>('[data-income-source-action="restore"]')
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        target?.focus({ preventScroll: true })
+      }
+      onFocusRequestHandled?.()
+    })
+  }, [focusRequest, onFocusRequestHandled, sources])
 
   function focusSourceCard(sourceId: number) {
     requestAnimationFrame(() => sourceCardRefs.current.get(sourceId)?.focus())
@@ -8189,8 +8557,8 @@ function IncomeSourceManager({
     lastActionTriggerRef.current = null
   }
 
-  function beginEdit(source: IncomeTimelineSource, trigger: HTMLButtonElement) {
-    lastActionTriggerRef.current = trigger
+  function beginEdit(source: IncomeTimelineSource, trigger?: HTMLButtonElement) {
+    lastActionTriggerRef.current = trigger ?? null
     setEndingId(null)
     setEditingId(source.id)
     setDraft(incomeSourceDraftFor(source))
@@ -8208,8 +8576,8 @@ function IncomeSourceManager({
     requestAnimationFrame(() => trigger?.focus())
   }
 
-  function beginEnd(sourceId: number, trigger: HTMLButtonElement) {
-    lastActionTriggerRef.current = trigger
+  function beginEnd(sourceId: number, trigger?: HTMLButtonElement) {
+    lastActionTriggerRef.current = trigger ?? null
     setEditingId(null)
     setEndingId(sourceId)
     setEndingMonth('')
@@ -8334,7 +8702,7 @@ function IncomeSourceManager({
                 </dl>
                 <div className="income-source-manager-actions">
                   {ended && canUndoEnd ? (
-                    <button type="button" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={action === `restore-income-source:${source.id}`} onClick={() => void restoreSource(source)}>
+                    <button type="button" data-income-source-action="restore" className="secondary-button" aria-label={`Restore ${source.label}`} disabled={action === `restore-income-source:${source.id}`} onClick={() => void restoreSource(source)}>
                       {action === `restore-income-source:${source.id}` ? 'Restoring' : 'Restore source'}
                     </button>
                   ) : ended ? (
@@ -8442,17 +8810,82 @@ function AnnualIncomePlanner({
   action,
   onSave,
   onDelete,
+  focusRequest,
+  onFocusRequestHandled,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
   action: string | null
   onSave: (values: IncomeScheduleEntryInput, entryId?: number) => Promise<void>
   onDelete: (entry: IncomeScheduleEntry) => void
+  focusRequest?: BudgetFocusRequest | null
+  onFocusRequestHandled?: () => void
 }) {
   const [draft, setDraft] = useState<IncomeScheduleDraft>(() => blankIncomeScheduleDraft(plan))
   const [editingId, setEditingId] = useState<number | null>(null)
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const amountInputRef = useRef<HTMLInputElement | null>(null)
+  const handledFocusKeyRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
+    handledFocusKeyRef.current = focusRequest.key
+    const located = plan.income_sources.flatMap((source) => source.schedule_entries.map((entry) => ({ source, entry })))
+      .find(({ entry }) => entry.id === focusRequest.incomeScheduleEntryId)
+    if (focusRequest.operationKey === 'income.schedule.create') {
+      const payload = focusRequest.payload
+      const sourceId = Number(payload.income_source_id ?? payload.source_id ?? 0)
+      const entryType = payload.entry_type === 'one_time' ? 'one_time' : 'recurring_change'
+      const amountCents = Number(payload.amount_cents ?? 0)
+      const fallback = blankIncomeScheduleDraft(plan)
+      requestAnimationFrame(() => {
+        setRemovingId(null)
+        setEditingId(null)
+        setFormError(null)
+        setDraft({
+          income_source_id: sourceId > 0 ? String(sourceId) : fallback.income_source_id,
+          entry_type: entryType,
+          label: String(payload.label ?? ''),
+          amount: Number.isFinite(amountCents) && amountCents >= 0 ? String(amountCents / 100) : '',
+          cadence: entryType === 'one_time' ? 'one_time' : String(payload.cadence ?? 'monthly'),
+          effective_on: String(payload.effective_on ?? fallback.effective_on),
+          retained_after_transition: payload.retained_after_transition === true,
+        })
+        requestAnimationFrame(() => amountInputRef.current?.focus())
+        onFocusRequestHandled?.()
+      })
+    } else if (focusRequest.operationKey === 'income.schedule.update' && located) {
+      const payload = focusRequest.payload
+      const baseEntryType = located.entry.entry_type
+      const entryType = proposedChoice(payload, 'entry_type', baseEntryType, ['one_time', 'recurring_change'] as const)
+      requestAnimationFrame(() => {
+        setRemovingId(null)
+        setEditingId(located.entry.id)
+        setFormError(null)
+        setDraft({
+          income_source_id: proposedText(payload, payloadHas(payload, 'income_source_id') ? 'income_source_id' : 'source_id', String(located.source.id)),
+          entry_type: entryType,
+          label: proposedText(payload, 'label', located.entry.label ?? ''),
+          amount: proposedMoney(payload, 'amount_cents', String(located.entry.amount)),
+          cadence: entryType === 'one_time' ? 'one_time' : proposedChoice(payload, 'cadence', located.entry.cadence, ['weekly', 'biweekly', 'semi_monthly', 'monthly', 'annual']),
+          effective_on: proposedText(payload, 'effective_on', located.entry.effective_on),
+          retained_after_transition: proposedBoolean(payload, 'retained_after_transition', located.entry.retained_after_transition === true),
+        })
+        requestAnimationFrame(() => amountInputRef.current?.focus())
+        onFocusRequestHandled?.()
+      })
+    } else if (focusRequest.operationKey === 'income.schedule.delete' && located) {
+      requestAnimationFrame(() => {
+        const target = document.querySelector<HTMLButtonElement>(`[data-income-entry-id="${located.entry.id}"] [data-income-entry-action="remove"]`)
+        target?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        target?.focus({ preventScroll: true })
+        onFocusRequestHandled?.()
+      })
+    } else {
+      onFocusRequestHandled?.()
+    }
+  }, [focusRequest, onFocusRequestHandled, plan])
 
   function editEntry(sourceId: number, entry: IncomeScheduleEntry) {
     setRemovingId(null)
@@ -8555,7 +8988,7 @@ function AnnualIncomePlanner({
                 ) : (
                   <div className="income-schedule-list">
                     {source.schedule_entries.map((entry) => (
-                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} key={entry.id}>
+                      <div className={`income-schedule-row${entry.active === false ? ' is-inactive' : ''}`} data-income-entry-id={entry.id} key={entry.id}>
                         <div>
                           <strong>{entry.entry_type === 'one_time' ? (entry.label || 'One-time income') : entry.amount === 0 ? 'Income ends' : 'Recurring amount changes'}</strong>
                           <span>{formatMonthYear(entry.effective_on)} · {currency.format(entry.amount)}{entry.entry_type === 'one_time' ? ' once' : ` ${titleize(entry.cadence)}`}</span>
@@ -8575,7 +9008,7 @@ function AnnualIncomePlanner({
                             ) : (
                               <>
                                 <button type="button" className="secondary-button" onClick={() => editEntry(source.id, entry)}>Edit</button>
-                                <button type="button" className="secondary-button" onClick={() => { setEditingId(null); setRemovingId(entry.id) }}>Remove</button>
+                                <button type="button" data-income-entry-action="remove" className="secondary-button" onClick={() => { setEditingId(null); setRemovingId(entry.id) }}>Remove</button>
                               </>
                             )}
                           </div>
@@ -8629,7 +9062,7 @@ function AnnualIncomePlanner({
                   <span>Amount</span>
                   <div className="income-schedule-money-input">
                     <span aria-hidden="true">$</span>
-                    <input aria-label="Amount" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
+                    <input ref={amountInputRef} aria-label="Amount" type="number" min={draft.entry_type === 'one_time' ? '0.01' : '0'} step="0.01" value={draft.amount} placeholder={draft.entry_type === 'recurring_change' ? '1200' : '500'} onChange={(event) => updateIncomeDraft({ amount: event.currentTarget.value })} />
                   </div>
                 </label>
                 {draft.entry_type === 'recurring_change' ? (
@@ -8754,6 +9187,8 @@ function AnnualBudgetPlanner({
   onReopenDraft,
   onBulkConfirmDrafts,
   onBulkIgnoreDrafts,
+  focusRequest,
+  onFocusRequestHandled,
 }: {
   plan: AnnualBudgetPlan
   isRealWorkspace: boolean
@@ -8763,8 +9198,8 @@ function AnnualBudgetPlanner({
   spendingReport: SpendingReport | null
   spendingReportLoading: boolean
   spendingReportError: string | null
-  newCategory: { name: string; stack_key: BudgetStackKey; monthly_amount: string }
-  onNewCategoryChange: (value: { name: string; stack_key: BudgetStackKey; monthly_amount: string }) => void
+  newCategory: NewBudgetCategoryDraft
+  onNewCategoryChange: (value: NewBudgetCategoryDraft) => void
   onCreateCategory: (event: FormEvent<HTMLFormElement>) => void
   onSaveIncomeScheduleEntry: (values: IncomeScheduleEntryInput, entryId?: number) => Promise<void>
   onDeleteIncomeScheduleEntry: (entry: IncomeScheduleEntry) => void
@@ -8774,9 +9209,9 @@ function AnnualBudgetPlanner({
   onAskMia: () => void
   onArchiveCategory: (row: BudgetCategoryRow) => void
   onRestoreCategory: (categoryId: number) => void
-  onApplyMiaActionDraft: (draft: MiaActionDraft) => void
+  onApplyMiaActionDraft: (draft: MiaActionDraft, itemIds?: number[]) => void
   onCancelMiaActionDraft: (draft: MiaActionDraft) => void
-  onOpenManualMiaAction: (draft: MiaActionDraft) => void
+  onOpenManualMiaAction: (draft: MiaActionDraft, item?: MiaActionDraft['items'][number]) => void
   onUpdateDraft: (draft: TransactionDraft, values: TransactionDraftUpdateInput) => Promise<void> | void
   onMatchDraft: (draft: TransactionDraft, matchId?: number) => void
   onConfirmDraft: (draft: TransactionDraft) => void
@@ -8784,6 +9219,8 @@ function AnnualBudgetPlanner({
   onReopenDraft: (draft: TransactionDraft) => void
   onBulkConfirmDrafts: (drafts: TransactionDraft[]) => void
   onBulkIgnoreDrafts: (drafts: TransactionDraft[]) => void
+  focusRequest?: BudgetFocusRequest | null
+  onFocusRequestHandled?: () => void
 }) {
   const currentMonthIndex = Math.max(0, Math.min(plan.months.length - 1, selectedMonthIndex))
   const currentMonth = plan.months[currentMonthIndex]
@@ -8814,6 +9251,7 @@ function AnnualBudgetPlanner({
   const manualManagerRef = useRef<HTMLElement | null>(null)
   const manualTriggerRef = useRef<HTMLButtonElement | null>(null)
   const newCategoryInputRef = useRef<HTMLInputElement | null>(null)
+  const handledFocusKeyRef = useRef<number | null>(null)
   const allocationDrafts = useMemo(
     () => budgetEditState.signature === planSignature ? budgetEditState.allocationDrafts : {},
     [budgetEditState.allocationDrafts, budgetEditState.signature, planSignature],
@@ -8839,6 +9277,84 @@ function AnnualBudgetPlanner({
     onUnsavedChangesChange(hasUnsavedBudgetChanges)
     return () => onUnsavedChangesChange(false)
   }, [hasUnsavedBudgetChanges, onUnsavedChangesChange])
+
+  useEffect(() => {
+    if (!focusRequest || handledFocusKeyRef.current === focusRequest.key) return
+    handledFocusKeyRef.current = focusRequest.key
+    const tool = focusRequest.operationKey === 'budget.category.create'
+      ? 'category'
+      : focusRequest.operationKey.startsWith('income.schedule.') ? 'income' : 'monthly'
+    const allocationDrafts: Record<string, string> = {}
+    const categoryDrafts: Record<string, { name: string; stack_key: BudgetStackKey }> = {}
+    const row = plan.rows.find((candidate) => candidate.id === focusRequest.categoryId)
+    const changes = Array.isArray(focusRequest.payload.changes) ? focusRequest.payload.changes : []
+    if (row && focusRequest.operationKey === 'budget.allocation.set') {
+      changes.forEach((rawChange) => {
+        if (!rawChange || typeof rawChange !== 'object') return
+        const change = rawChange as Record<string, unknown>
+        const monthNumber = Number(change.month)
+        const month = row.months[monthNumber - 1]
+        const cents = Number(change.after_cents)
+        if (month && Number.isFinite(cents)) allocationDrafts[allocationDraftKey(month)] = String(cents / 100)
+      })
+      if (changes.length === 0 && payloadHas(focusRequest.payload, 'amount_cents')) {
+        const cents = Number(focusRequest.payload.amount_cents)
+        focusRequest.months.forEach((monthNumber) => {
+          const month = row.months[monthNumber - 1]
+          if (month && Number.isFinite(cents)) allocationDrafts[allocationDraftKey(month)] = String(cents / 100)
+        })
+      }
+    }
+    if (row && focusRequest.operationKey === 'budget.category.update') {
+      categoryDrafts[categoryDraftKey(row)] = {
+        name: proposedText(focusRequest.payload, 'name', row.name),
+        stack_key: proposedChoice(focusRequest.payload, 'stack_key', row.stack_key, ['non_discretionary', 'discretionary', 'sinking_expected', 'sinking_unexpected']),
+      }
+    }
+    if (focusRequest.operationKey === 'budget.category.create') {
+      const proposedMonths = budgetMonthsFromPayload(focusRequest.payload)
+      onNewCategoryChange({
+        name: proposedText(focusRequest.payload, 'name', ''),
+        stack_key: proposedChoice(focusRequest.payload, 'stack_key', 'discretionary' as BudgetStackKey, ['non_discretionary', 'discretionary', 'sinking_expected', 'sinking_unexpected']),
+        monthly_amount: proposedMoney(focusRequest.payload, 'monthly_amount_cents', ''),
+        month_numbers: proposedMonths.length > 0 ? proposedMonths : [...allBudgetMonthNumbers],
+      })
+    }
+    setBudgetEditState({
+      signature: planSignature,
+      isEditing: tool === 'monthly',
+      allocationDrafts,
+      categoryDrafts,
+    })
+    setManualTool(tool)
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      let target: HTMLElement | null = null
+      if (tool === 'category') target = newCategoryInputRef.current
+      if (tool === 'monthly') {
+        const categoryId = focusRequest.categoryId
+        const month = focusRequest.months[0]
+        const row = categoryId ? document.querySelector<HTMLElement>(`[data-budget-category-id="${categoryId}"]`) : null
+        if (focusRequest.operationKey === 'budget.allocation.set' && month) {
+          target = row?.querySelector<HTMLElement>(`[data-budget-month="${month}"]`) ?? null
+        } else if (focusRequest.operationKey === 'budget.category.restore') {
+          target = document.querySelector<HTMLElement>(`[data-archived-budget-category-id="${categoryId}"] button`)
+        } else if (focusRequest.operationKey === 'budget.category.archive') {
+          target = row?.querySelector<HTMLElement>('[data-budget-category-action="archive"]') ?? null
+        } else {
+          target = row?.querySelector<HTMLElement>('[data-budget-category-action="name"]') ?? null
+        }
+      }
+      if (target) {
+        const disclosure = target.closest('details')
+        if (disclosure instanceof HTMLDetailsElement) disclosure.open = true
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        target.focus({ preventScroll: true })
+      } else if (tool !== 'income') {
+        manualManagerRef.current?.focus({ preventScroll: true })
+      }
+      if (tool !== 'income') onFocusRequestHandled?.()
+    }))
+  }, [focusRequest, onFocusRequestHandled, onNewCategoryChange, plan.rows, planSignature])
 
   function beginBudgetEdit() {
     setBudgetEditState({ signature: planSignature, isEditing: true, allocationDrafts: {}, categoryDrafts: {} })
@@ -9010,6 +9526,50 @@ function AnnualBudgetPlanner({
                   <span>Monthly plan</span>
                   <input type="number" min="0" step="1" value={newCategory.monthly_amount} placeholder="0" onChange={(event) => onNewCategoryChange({ ...newCategory, monthly_amount: event.target.value })} disabled={action === 'create-category'} />
                 </label>
+                <label>
+                  <span>Month scope</span>
+                  <select
+                    aria-label="Category month scope"
+                    value={newCategory.month_numbers.length === 12 ? 'all' : 'selected'}
+                    onChange={(event) => onNewCategoryChange({
+                      ...newCategory,
+                      month_numbers: event.target.value === 'all'
+                        ? [...allBudgetMonthNumbers]
+                        : [currentMonthIndex + 1],
+                    })}
+                    disabled={action === 'create-category'}
+                  >
+                    <option value="all">All year</option>
+                    <option value="selected">Selected months</option>
+                  </select>
+                </label>
+                {newCategory.month_numbers.length < 12 && (
+                  <fieldset className="annual-category-months">
+                    <legend>Choose months</legend>
+                    <div>
+                      {plan.months.map((month, index) => {
+                        const monthNumber = index + 1
+                        return (
+                          <label key={month.id}>
+                            <input
+                              type="checkbox"
+                              aria-label={`Fund new category in ${month.label}`}
+                              checked={newCategory.month_numbers.includes(monthNumber)}
+                              onChange={(event) => {
+                                const monthNumbers = event.target.checked
+                                  ? [...newCategory.month_numbers, monthNumber]
+                                  : newCategory.month_numbers.filter((candidate) => candidate !== monthNumber)
+                                onNewCategoryChange({ ...newCategory, month_numbers: [...new Set(monthNumbers)].sort((left, right) => left - right) })
+                              }}
+                              disabled={action === 'create-category'}
+                            />
+                            <span>{month.label}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </fieldset>
+                )}
                 <button type="submit" disabled={action === 'create-category'}>{action === 'create-category' ? 'Adding' : 'Add category'}</button>
               </form>
             </div>
@@ -9024,6 +9584,8 @@ function AnnualBudgetPlanner({
                 action={action}
                 onSave={onSaveIncomeScheduleEntry}
                 onDelete={onDeleteIncomeScheduleEntry}
+                focusRequest={focusRequest?.operationKey.startsWith('income.schedule.') ? focusRequest : null}
+                onFocusRequestHandled={onFocusRequestHandled}
               />
             </div>
           )}
@@ -9059,7 +9621,7 @@ function AnnualBudgetPlanner({
                     {plan.rows.length === 0 ? (
                       <tr><td colSpan={14}>Add a category to start building the annual plan.</td></tr>
                     ) : plan.rows.map((row) => (
-                      <tr key={row.id}>
+                      <tr data-budget-category-id={row.id} key={row.id}>
                         <th scope="row">
                           <CategoryEditCell
                             row={row}
@@ -9085,6 +9647,7 @@ function AnnualBudgetPlanner({
                                   min="0"
                                   step="1"
                                   value={draftValue}
+                                  data-budget-month={index + 1}
                                   data-dirty={hasDraftChange ? 'true' : undefined}
                                   onChange={(event) => updateAllocationDraft(month, event.currentTarget.value)}
                                 />
@@ -9108,7 +9671,7 @@ function AnnualBudgetPlanner({
                   <p>Archived categories leave active planning. Confirmed history stays visible in reports so past actuals do not disappear.</p>
                   <div className="archived-category-list">
                     {archivedCategories.map((category) => (
-                      <div className="archived-category-row" key={category.id}>
+                      <div className="archived-category-row" data-archived-budget-category-id={category.id} key={category.id}>
                         <div><strong>{category.name}</strong><span>{category.stack_label}</span></div>
                         <button type="button" className="secondary-button" disabled={action === `restore-category:${category.id}`} onClick={() => onRestoreCategory(category.id)}>
                           {action === `restore-category:${category.id}` ? 'Restoring' : 'Restore'}

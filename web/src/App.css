@@ -7747,6 +7747,107 @@ h3 {
   background: #fbf8f2;
 }
 
+.mia-action-item.is-applied {
+  border-color: rgba(23, 96, 87, 0.2);
+  background: rgba(23, 96, 87, 0.05);
+}
+
+.mia-action-item.is-canceled {
+  border-color: rgba(143, 74, 95, 0.2);
+  background: rgba(143, 74, 95, 0.04);
+}
+
+.mia-action-item-heading {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  align-items: center;
+}
+
+.mia-action-item-heading strong,
+.mia-action-selection-row strong {
+  flex: 1 1 180px;
+  min-width: 0;
+}
+
+.mia-action-selection-row {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  gap: 9px;
+  margin: -8px -6px 0;
+  padding: 8px 6px;
+  border-radius: 10px;
+  cursor: pointer;
+}
+
+.mia-action-selection-row:hover {
+  background: rgba(23, 96, 87, 0.05);
+}
+
+.mia-action-item-list.ordered-plan {
+  counter-reset: mia-plan-step;
+}
+
+.mia-action-step-number {
+  display: inline-grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(23, 96, 87, 0.1);
+  color: var(--emerald);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
+.mia-action-plan-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: white;
+}
+
+.mia-action-plan-toolbar button {
+  min-height: 44px;
+  flex: 0 0 auto;
+}
+
+.mia-action-selection-note {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: rgba(23, 96, 87, 0.07);
+}
+
+.mia-action-selection-row input {
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--emerald);
+}
+
+.mia-action-source {
+  padding-left: 10px;
+  border-left: 3px solid rgba(143, 74, 95, 0.22);
+  overflow-wrap: anywhere;
+}
+
+.mia-item-manual-link {
+  justify-self: start;
+  min-height: 36px;
+  padding: 7px 11px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: white;
+  color: var(--emerald);
+  font-size: 0.75rem;
+  font-weight: 900;
+}
+
 .mia-action-item span,
 .mia-action-item small,
 .mia-action-safety-copy {
@@ -8464,6 +8565,50 @@ h3 {
 .annual-category-form label {
   display: grid;
   gap: 7px;
+}
+
+.annual-category-months {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+
+.annual-category-months legend {
+  padding: 0 4px;
+  color: var(--muted);
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.annual-category-months > div {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.annual-category-months label {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: white;
+  cursor: pointer;
+}
+
+.annual-category-form .annual-category-months input[type="checkbox"] {
+  width: 18px;
+  min-height: 18px;
+  padding: 0;
+  margin: 0;
 }
 
 .annual-category-form input,
@@ -9394,6 +9539,10 @@ h3 {
     grid-template-columns: 1fr;
   }
 
+  .annual-category-months > div {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
   .transaction-draft-stack,
   .mia-action-draft-stack,
   .document-transaction-drafts {
@@ -9480,6 +9629,22 @@ h3 {
 
   .transaction-draft-impact-row dl {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 420px) {
+  .mia-action-plan-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .mia-action-plan-toolbar button {
+    width: 100%;
+  }
+
+  .mia-action-before-after > div,
+  .mia-action-before-after dd {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

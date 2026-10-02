@@ -108,6 +108,8 @@ class ApiV1AuthControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "first-user bootstrap only grants the first empty-database sign in" do
+    User.delete_all
+
     with_auth_env("ALLOW_FIRST_USER_BOOTSTRAP" => "true") do
       get "/api/v1/auth/me", headers: auth_headers("clerk_first_123", "first@example.com", "First", "Admin")
       assert_response :success

@@ -10,14 +10,14 @@ module HouseholdFinance
         private
 
         def normalize(input)
-          starts_on = parse_month(input[:starts_on].presence || Date.current.iso8601, label: "Income start date")
+          starts_on = input[:historical_baseline] == true ? nil : parse_month(input[:starts_on].presence || Date.current.iso8601, label: "Income start date")
           {
             label: normalized_label(input[:label]),
             source_type: normalized_type(input[:source_type].presence || "other"),
             amount_cents: normalized_amount(input),
             cadence: normalized_cadence(input[:cadence]),
-            starts_on: starts_on.iso8601,
-            year: (input[:year].presence || starts_on.year).to_i
+            starts_on: starts_on&.iso8601,
+            year: (input[:year].presence || starts_on&.year || Date.current.year).to_i
           }
         end
 
@@ -48,7 +48,7 @@ module HouseholdFinance
 
           household.income_sources.create!(
             label: input.fetch(:label), source_type: input.fetch(:source_type), amount_cents: input.fetch(:amount_cents),
-            cadence: input.fetch(:cadence), active: true, starts_on: Date.iso8601(input.fetch(:starts_on))
+            cadence: input.fetch(:cadence), active: true, starts_on: input[:starts_on] && Date.iso8601(input.fetch(:starts_on))
           )
         end
 

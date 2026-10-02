@@ -46,7 +46,7 @@ module HouseholdFinance
           raise ArgumentError, "An active account already uses that name and type. Nothing changed." if prepared.before_snapshot.fetch("conflicting_account_ids").any?
           validate_balance_type!(prepared.predicted_after_snapshot.fetch("account").deep_symbolize_keys)
           predicted_account = prepared.predicted_after_snapshot.fetch("account")
-          if input.key?(:balance_as_of_on) && !predicted_account.fetch("balance_known")
+          if input[:balance_as_of_on].present? && !predicted_account.fetch("balance_known")
             raise ArgumentError, "Enter the account balance before adding a balance date"
           end
           if account.plaid_account && input[:account_type] && !PlaidIntegration::AccountEligibility.new(account.plaid_account).allowed_account_types.include?(input[:account_type])
