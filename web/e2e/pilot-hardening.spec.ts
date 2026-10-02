@@ -4753,7 +4753,7 @@ test('Coach Studio keeps private source candidates reviewable and mobile-safe be
   await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
   await expect(page.getByRole('button', { name: /One calm next step/ })).toHaveAttribute('aria-current', 'true')
   await page.getByRole('button', { name: /Protect the baseline/ }).click()
-  await expect(page.getByRole('alert')).toContainText('unsaved candidate edits')
+  await expect(page.getByRole('alert')).toContainText('unsaved source review edits')
   await page.getByRole('button', { name: 'Keep editing' }).click()
   await expect(editor.getByLabel('Draft wording')).toHaveValue('Choose one calm, practical next step and review it together.')
 
