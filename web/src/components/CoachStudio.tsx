@@ -40,6 +40,7 @@ import {
 import { Button } from './Button'
 import { CohortExperienceStudio } from './CohortExperienceStudio'
 import { CoachContentLibrary, PersonaContentPacksPanel } from './CoachContentLibrary'
+import { PersonaSetupChat } from './PersonaSetupChat'
 import { useCoachWorkspaceMutationLifecycle, type CoachWorkspaceMutationTicket } from './coachWorkspaceMutationLifecycle'
 import './CoachStudio.css'
 
@@ -52,7 +53,7 @@ const guidedSteps = [
 ] as const
 
 type GuidedStep = (typeof guidedSteps)[number]['id']
-type EditorMode = 'guided' | 'advanced'
+type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
 type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | null
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
@@ -87,6 +88,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [studioSection, setStudioSection] = useState<StudioSection>('assistants')
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
+  const [setupDirty, setSetupDirty] = useState(false)
   const workspaceMutations = useCoachWorkspaceMutationLifecycle(activeWorkspaceId)
   const selectedIdRef = useRef<number | null>(null)
   const activeWorkspaceIdRef = useRef(activeWorkspaceId)
@@ -104,7 +106,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     if (!selectedPersona?.draft || !draft) return false
     return description !== selectedPersona.description || isPersonaDraftDirty(draft, selectedPersona.draft)
   }, [description, draft, selectedPersona])
-  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty
+  const studioDirty = dirty || experienceDirty || libraryDirty || personaSourcesDirty || setupDirty
 
   const filteredPersonas = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -134,6 +136,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setPendingSelectionId(null)
       setPendingLibraryReturn(false)
       setPersonaSourcesDirty(false)
+      setSetupDirty(false)
       setPersonas((current) => replacePersonaSummary(current, persona))
       if (focusEditorAfterLoadRef.current) {
         focusEditorAfterLoadRef.current = false
@@ -235,6 +238,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setExperienceDirty(false)
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
+    setSetupDirty(false)
     setStudioSection(next)
     return true
   }
@@ -260,6 +264,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setExperienceDirty(false)
     setLibraryDirty(false)
     setPersonaSourcesDirty(false)
+    setSetupDirty(false)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -292,7 +297,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
   function requestSelection(personaId: number) {
     if (personaId === selectedPersona?.id) return
-    if (dirty || personaSourcesDirty) {
+    if (dirty || personaSourcesDirty || setupDirty) {
       setPendingSelectionId(personaId)
       setConflict('You have unsaved changes. Save this draft or discard the changes before opening another assistant.')
       return
@@ -302,7 +307,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }
 
   function requestLibraryReturn() {
-    if (dirty || personaSourcesDirty) {
+    if (dirty || personaSourcesDirty || setupDirty) {
       setPendingLibraryReturn(true)
       setConflict('You have unsaved changes. Save this draft or discard the changes before returning to the assistant library.')
       return
@@ -346,6 +351,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setCreateName('')
       setCreateDescription('')
       setNotice(`${persona.name} is ready to shape.`)
+      setMode('setup')
       await loadPersonas(persona.id)
     } catch (caught) {
       if (mutationIsCurrent(mutation)) setError(errorMessage(caught, 'The assistant draft could not be created.'))
@@ -577,6 +583,28 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonas((current) => replacePersonaSummary(current, persona))
   }
 
+  function chooseEditorMode(nextMode: EditorMode) {
+    if (nextMode === mode) return
+    if (mode === 'setup' && setupDirty && !window.confirm('Discard the message you have not sent and switch editing modes?')) return
+    setSetupDirty(false)
+    setMode(nextMode)
+  }
+
+  function reviewProposalInForm(state: { description: string; draft_config: PersonaConfiguration }, firstPath: string | null) {
+    setDescription(state.description)
+    setDraft(state.draft_config)
+    setMode('guided')
+    const firstSegment = firstPath?.split('.')[0]
+    const step = guidedSteps.some((candidate) => candidate.id === firstSegment) ? firstSegment as GuidedStep : 'identity'
+    setGuidedStep(step)
+    setNotice('Proposal copied into the form for manual review. Save the draft when you are ready.')
+    window.requestAnimationFrame(() => {
+      const panel = document.querySelector<HTMLElement>(`[data-persona-step="${step}"]`)
+      panel?.scrollIntoView({ block: 'start' })
+      panel?.focus({ preventScroll: true })
+    })
+  }
+
   function handleMutationError(caught: unknown, fallback: string) {
     const message = errorMessage(caught, fallback)
     if (caught instanceof ApiRequestError && caught.status === 409) {
@@ -754,15 +782,32 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 {draft ? (
                   <>
                     <div className="coach-mode-switch" role="group" aria-label="Editing mode">
-                      <button type="button" aria-pressed={mode === 'guided'} className={mode === 'guided' ? 'is-active' : ''} onClick={() => setMode('guided')}>
+                      <button type="button" aria-pressed={mode === 'setup'} className={mode === 'setup' ? 'is-active' : ''} onClick={() => chooseEditorMode('setup')}>
+                        <strong>Setup chat</strong><small>Describe the coach and review Mia’s proposal</small>
+                      </button>
+                      <button type="button" aria-pressed={mode === 'guided'} className={mode === 'guided' ? 'is-active' : ''} onClick={() => chooseEditorMode('guided')}>
                         <strong>Guided setup</strong><small>Short steps with plain-language prompts</small>
                       </button>
-                      <button type="button" aria-pressed={mode === 'advanced'} className={mode === 'advanced' ? 'is-active' : ''} onClick={() => setMode('advanced')}>
+                      <button type="button" aria-pressed={mode === 'advanced'} className={mode === 'advanced' ? 'is-active' : ''} onClick={() => chooseEditorMode('advanced')}>
                         <strong>Advanced settings</strong><small>Every structured field in one view</small>
                       </button>
                     </div>
 
-                    {selectedPersona.permissions.edit ? (
+                    {selectedPersona.permissions.edit && mode === 'setup' ? (
+                      <PersonaSetupChat
+                        key={selectedPersona.id}
+                        persona={selectedPersona}
+                        manualDirty={dirty}
+                        mutationLifecycle={workspaceMutations}
+                        onDirtyChange={setSetupDirty}
+                        onPersonaChange={(persona) => {
+                          setSetupDirty(false)
+                          acceptPersona(persona)
+                          setNotice('Mia’s reviewed proposal was applied to the saved draft. Run a fresh preview before publishing.')
+                        }}
+                        onReviewInForm={reviewProposalInForm}
+                      />
+                    ) : selectedPersona.permissions.edit ? (
                       <PersonaEditor
                         draft={draft}
                         phraseArtifactAccess={selectedPersona.phrase_artifact_access}
@@ -778,13 +823,13 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                       <p className="coach-read-only" role="note">This assistant is read-only for your account or while archived. You can review its published history and assignments below.</p>
                     )}
 
-                    <div className="coach-save-bar">
+                    {mode !== 'setup' && <div className="coach-save-bar">
                       <div>
                         <strong>{dirty ? 'Draft changes are local to this browser.' : 'Draft matches the latest server revision.'}</strong>
                         <small>{dirty ? 'Save before previewing so the exact revision is checked.' : `Draft revision ${selectedPersona.draft_revision ?? 'read-only'}`}</small>
                       </div>
                       {selectedPersona.permissions.edit && <Button onClick={() => void saveDraft()} disabled={!dirty || pendingAction !== null}>{pendingAction === 'save' ? 'Saving draft' : 'Save draft'}</Button>}
-                    </div>
+                    </div>}
                   </>
                 ) : (
                   <p className="coach-read-only">Private draft settings are visible only to the owning coach and administrators. The published identity and assignment history remain available.</p>
@@ -901,7 +946,7 @@ function PersonaEditor({
               </button>
             ))}
           </div>
-          <div role="tabpanel" className="coach-step-panel" id={`coach-step-panel-${guidedStep}`} aria-labelledby={`coach-step-tab-${guidedStep}`}>
+          <div role="tabpanel" className="coach-step-panel" id={`coach-step-panel-${guidedStep}`} aria-labelledby={`coach-step-tab-${guidedStep}`} data-persona-step={guidedStep} tabIndex={-1}>
             {renderEditorSection(guidedStep, draft, onChange, mutate, description, onDescriptionChange, phraseArtifactAccess)}
           </div>
           <div className="coach-step-actions">

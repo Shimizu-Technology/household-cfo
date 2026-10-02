@@ -52,28 +52,18 @@ module Api
               status: :unprocessable_entity
             )
           end
-          persona.with_lock do
-            if persona.archived?
-              return render_api_error(
-                "Archived personas are read-only. Restore this persona before editing it.",
-                code: "persona_archived",
-                status: :unprocessable_entity
-              )
-            end
-            return render_revision_conflict unless expected_draft_revision == persona.draft_revision
-
-            attributes = update_persona_params
-            if attributes[:draft_config]
-              attributes[:draft_config] = Mia::PersonaSchema.prepare_draft_artifacts(
-                attributes[:draft_config],
-                source_user_id: current_user.id,
-                source_role_at_capture: current_user.role,
-                existing_configuration: persona.draft_config,
-                allow_coach_artifact_edits: policy.can_manage_phrase_artifacts?(persona)
-              )
-            end
-            persona.update!(attributes)
-          end
+          attributes = update_persona_params
+          persona = Mia::PersonaDraftUpdater.new(
+            persona:,
+            actor: current_user,
+            workspace: coach_workspace_for_policy || persona.coach_workspace,
+            allow_phrase_artifact_edits: policy.can_manage_phrase_artifacts?(persona)
+          ).call!(
+            expected_draft_revision:,
+            description: attributes.key?(:description) ? attributes[:description] : persona.description,
+            draft_config: attributes[:draft_config] || persona.draft_config,
+            reject_noop: false
+          )
           render json: { persona: serializer(persona.reload).detail }
         rescue ActiveRecord::StaleObjectError
           render_revision_conflict
@@ -81,6 +71,14 @@ module Api
           render_validation_error(error.record, code: "persona_invalid")
         rescue Mia::PersonaSchema::InvalidConfiguration => error
           render_schema_error(error)
+        rescue Mia::PersonaDraftUpdater::Error => error
+          if error.code == "persona_draft_conflict"
+            render_revision_conflict
+          else
+            message = present_persona_errors([ error.message ]).first
+            status = error.code.in?(%w[persona_not_found]) ? :not_found : :unprocessable_entity
+            render_api_error(message, code: error.code, status:)
+          end
         end
 
         def destroy

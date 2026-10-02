@@ -1147,6 +1147,54 @@ export type AdminPersonaDetail = AdminPersonaSummary & {
   content_packs?: AdminContentPackVersion[]
 }
 
+export type AdminPersonaSetupChange = {
+  group: string
+  path: string
+  label: string
+  before: unknown
+  after: unknown
+  source_basis: 'coach_quote' | 'mia_drafted'
+  evidence_quote: string
+}
+
+export type AdminPersonaSetupProposal = {
+  id: number
+  status: 'pending' | 'applied' | 'rejected' | 'superseded' | 'stale'
+  base_draft_revision: number
+  base_config_digest: string
+  proposal_digest: string
+  operations: Array<Record<string, unknown>>
+  before_state: { description: string; draft_config: PersonaConfiguration }
+  after_state: { description: string; draft_config: PersonaConfiguration }
+  grouped_changes: Array<{ group: string; changes: AdminPersonaSetupChange[] }>
+  created_at: string
+  resolved_at: string | null
+}
+
+export type AdminPersonaSetupTurn = {
+  id: number
+  position: number
+  status: 'processing' | 'ready' | 'failed' | 'stale'
+  user_message: string
+  assistant_message: string
+  error_code: string | null
+  created_at: string
+}
+
+export type AdminPersonaSetupSession = {
+  id: number
+  persona_id: number
+  workspace_id: number
+  status: 'active' | 'completed' | 'abandoned'
+  base_draft_revision: number
+  base_config_digest: string
+  last_activity_at: string
+  stale: boolean
+  turns_truncated?: boolean
+  turns: AdminPersonaSetupTurn[]
+  proposal: AdminPersonaSetupProposal | null
+}
+
 export type AdminPersonaBehavioralPreviewStatus = 'not_requested' | 'ready' | 'safety_only' | 'unavailable'
 export type AdminPersonaBehavioralPreviewSource =
   | 'not_requested'
@@ -2096,6 +2144,54 @@ export async function updateAdminPersona(id: number, values: AdminPersonaUpdateI
     body: JSON.stringify({ persona: values }),
   })
   return payload.persona
+}
+
+export async function createAdminPersonaSetupSession(personaId: number): Promise<AdminPersonaSetupSession> {
+  const payload = await postJson<{ session: AdminPersonaSetupSession }>(`/api/v1/admin/personas/${personaId}/setup_sessions`, {})
+  return payload.session
+}
+
+export async function fetchAdminPersonaSetupSession(personaId: number, sessionId: number): Promise<AdminPersonaSetupSession> {
+  const payload = await fetchJson<{ session: AdminPersonaSetupSession }>(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}`)
+  return payload.session
+}
+
+export async function rebaseAdminPersonaSetupSession(personaId: number, sessionId: number): Promise<AdminPersonaSetupSession> {
+  const payload = await postJson<{ session: AdminPersonaSetupSession }>(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/rebase`, {})
+  return payload.session
+}
+
+export async function abandonAdminPersonaSetupSession(personaId: number, sessionId: number): Promise<AdminPersonaSetupSession> {
+  const payload = await fetchJson<{ session: AdminPersonaSetupSession }>(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}`, { method: 'DELETE' })
+  return payload.session
+}
+
+export async function createAdminPersonaSetupTurn(
+  personaId: number,
+  sessionId: number,
+  message: string,
+  idempotencyKey: string,
+): Promise<AdminPersonaSetupSession> {
+  const payload = await fetchJson<{ session: AdminPersonaSetupSession }>(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/turns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({ turn: { message } }),
+  }, { timeoutMs: 60_000, timeoutMessage: 'Mia took too long to prepare this proposal. Your message is ready to retry.' })
+  return payload.session
+}
+
+export async function resolveAdminPersonaSetupProposal(
+  personaId: number,
+  sessionId: number,
+  proposalId: number,
+  action: 'apply' | 'reject',
+  idempotencyKey: string,
+): Promise<{ session: AdminPersonaSetupSession; persona?: AdminPersonaDetail }> {
+  return fetchJson(`/api/v1/admin/personas/${personaId}/setup_sessions/${sessionId}/proposals/${proposalId}/${action}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': idempotencyKey },
+    body: JSON.stringify({}),
+  })
 }
 
 export async function archiveAdminPersona(id: number): Promise<AdminPersonaDetail> {

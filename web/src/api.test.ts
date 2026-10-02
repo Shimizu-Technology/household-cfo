@@ -6,6 +6,7 @@ import {
   createAdminContentItem,
   createAdminContentPack,
   createAdminPersona,
+  createAdminPersonaSetupTurn,
   createBudgetCategory,
   createIncomeScheduleEntry,
   createIncomeSource,
@@ -26,6 +27,7 @@ import {
   publishAdminPersona,
   publishAdminContentPack,
   restoreAdminPersona,
+  resolveAdminPersonaSetupProposal,
   rejectAdminContentSourceCandidate,
   reprocessAdminContentSource,
   retryAdminContentSourceCleanups,
@@ -83,6 +85,28 @@ describe('coach workspace request boundary', () => {
     for (const call of fetchMock.mock.calls) {
       expect((call[1] as RequestInit).headers).toMatchObject({ 'X-Coach-Workspace-Id': '42' })
     }
+  })
+})
+
+describe('persona setup idempotency contract', () => {
+  it('sends caller-owned keys for turns and both proposal resolutions', async () => {
+    const session = { id: 8, turns: [], proposal: null }
+    const fetchMock = vi.fn().mockImplementation(async () => jsonResponse({ session }))
+    vi.stubGlobal('fetch', fetchMock)
+    setActiveCoachWorkspaceId(42)
+
+    await createAdminPersonaSetupTurn(7, 8, 'Use my exact words.', 'setup-turn-attempt')
+    await resolveAdminPersonaSetupProposal(7, 8, 9, 'apply', 'setup-apply-attempt')
+    await resolveAdminPersonaSetupProposal(7, 8, 9, 'reject', 'setup-reject-attempt')
+
+    expect(fetchMock.mock.calls.map((call) => ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'setup-turn-attempt', 'setup-apply-attempt', 'setup-reject-attempt',
+    ])
+    expect(fetchMock.mock.calls.map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/personas/7/setup_sessions/8/turns',
+      '/api/v1/admin/personas/7/setup_sessions/8/proposals/9/apply',
+      '/api/v1/admin/personas/7/setup_sessions/8/proposals/9/reject',
+    ])
   })
 })
 

@@ -561,6 +561,11 @@ type MockContentPack = {
 async function mockDemoApi(page: Page) {
   let pilotFeedbackStatus = 'submitted'
   let persona = personaDetailFixture()
+  let setupSession: Record<string, unknown> = {
+    id: 601, persona_id: 81, workspace_id: 1, status: 'active', base_draft_revision: 1,
+    base_config_digest: 'setup-base', last_activity_at: '2026-10-02T00:00:00Z', stale: false,
+    turns: [], proposal: null,
+  }
   let personaAssignment: null | Record<string, unknown> = null
   let experienceDraft = { schema_version: 1 as const, optional_modules: { cfo_filter: true, optionality: true } }
   let experienceDraftRevision = 1
@@ -670,6 +675,57 @@ async function mockDemoApi(page: Page) {
     }
     if (path === '/api/v1/admin/personas' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { personas: [persona] } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions' && route.request().method() === 'POST') {
+      return route.fulfill({ status: 201, json: { session: setupSession } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions/601' && route.request().method() === 'GET') {
+      return route.fulfill({ status: 200, json: { session: setupSession } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions/601/turns' && route.request().method() === 'POST') {
+      const message = route.request().postDataJSON().turn.message
+      const beforeState = { description: persona.description, draft_config: structuredClone(persona.draft) }
+      const afterState = {
+        description: persona.description,
+        draft_config: { ...structuredClone(persona.draft), identity: { ...persona.draft.identity, human_coach_name: 'Mrs. Mel' } },
+      }
+      setupSession = {
+        ...setupSession,
+        turns: [{ id: 611, position: 1, status: 'ready', user_message: message, assistant_message: 'I prepared one exact name change for review.', error_code: null, created_at: '2026-10-02T00:01:00Z' }],
+        proposal: {
+          id: 621, status: 'pending', base_draft_revision: persona.draft_revision, base_config_digest: 'setup-base', proposal_digest: 'setup-proposal',
+          operations: [{ op: 'set', path: 'identity.human_coach_name', value: 'Mrs. Mel', source_basis: 'coach_quote', evidence_quote: 'Mrs. Mel' }],
+          before_state: beforeState, after_state: afterState,
+          grouped_changes: [{ group: 'Identity', changes: [{ group: 'Identity', path: 'identity.human_coach_name', label: 'Human coach name', before: persona.draft.identity.human_coach_name, after: 'Mrs. Mel', source_basis: 'coach_quote', evidence_quote: 'Mrs. Mel' }] }],
+          created_at: '2026-10-02T00:01:00Z', resolved_at: null,
+        },
+      }
+      return route.fulfill({ status: 201, json: { session: setupSession } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions/601/proposals/621/apply' && route.request().method() === 'POST') {
+      const proposal = setupSession.proposal as { after_state: { description: string; draft_config: typeof personaConfiguration } }
+      persona = {
+        ...persona,
+        description: proposal.after_state.description,
+        draft: proposal.after_state.draft_config,
+        draft_revision: persona.draft_revision + 1,
+        preview: null,
+        preview_required: true,
+      }
+      setupSession = { ...setupSession, base_draft_revision: persona.draft_revision, proposal: null }
+      return route.fulfill({ status: 200, json: { persona, session: setupSession } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions/601/proposals/621/reject' && route.request().method() === 'POST') {
+      setupSession = { ...setupSession, proposal: null }
+      return route.fulfill({ status: 200, json: { session: setupSession } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions/601/rebase' && route.request().method() === 'POST') {
+      setupSession = { ...setupSession, stale: false, proposal: null, base_draft_revision: persona.draft_revision }
+      return route.fulfill({ status: 200, json: { session: setupSession } })
+    }
+    if (path === '/api/v1/admin/personas/81/setup_sessions/601' && route.request().method() === 'DELETE') {
+      setupSession = { ...setupSession, status: 'abandoned', proposal: null }
+      return route.fulfill({ status: 200, json: { session: setupSession } })
     }
     if (path === '/api/v1/admin/cohorts/41/experience_configuration' && route.request().method() === 'GET') {
       return route.fulfill({ status: 200, json: { experience_configuration: experienceConfiguration() } })
@@ -792,7 +848,7 @@ async function mockDemoApi(page: Page) {
     }
     if (path === '/api/v1/admin/personas' && route.request().method() === 'POST') {
       const body = route.request().postDataJSON().persona
-      persona = { ...personaDetailFixture(), name: body.name, description: body.description ?? '', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: body.name } } }
+      persona = { ...personaDetailFixture(), name: body.name, description: body.description ?? '', draft: { ...structuredClone(personaConfiguration), identity: { ...personaConfiguration.identity, assistant_name: body.name, human_coach_name: 'Pilot Admin' } } }
       return route.fulfill({ status: 201, json: { persona } })
     }
     if (path === '/api/v1/admin/personas/assignable_cohorts') {
@@ -3822,6 +3878,41 @@ test('admin cohort rows show only safe pilot progress signals', async ({ page })
   await expect(participantRow.getByText(/profile completeness/i)).toHaveCount(0)
   await expect(participantRow.getByText(/readiness/i)).toHaveCount(0)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
+})
+
+test('Coach Studio creates a persona through private setup chat and reviewed changes', async ({ page }) => {
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true')
+  await openSection(page, 'Coach Studio')
+
+  const createButton = page.getByRole('button', { name: 'Create', exact: true })
+  if (!(await createButton.isVisible())) await page.getByRole('button', { name: 'All assistants' }).click()
+  await createButton.click()
+  const createForm = page.locator('.coach-create-form')
+  await createForm.getByLabel('Assistant name').fill('Mel coaching assistant')
+  await createForm.getByLabel('Internal description').fill('Mrs. Mel pilot voice')
+  await createForm.getByRole('button', { name: 'Create safe draft' }).click()
+
+  await expect(page.getByRole('button', { name: /Setup chat/ })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByText(/Participant household and financial data are excluded/)).toBeVisible()
+  const composer = page.getByLabel('Message Mia')
+  await composer.fill('The human coach name is Mrs. Mel.')
+  await page.getByRole('button', { name: 'Send to Mia' }).click()
+
+  await expect(page.getByRole('heading', { name: 'Proposed draft changes' })).toBeFocused()
+  const proposalReview = page.locator('.persona-setup-review')
+  await expect(proposalReview.getByText('Human coach name', { exact: true })).toBeVisible()
+  await expect(proposalReview.getByText('Coach said')).toBeVisible()
+  await expect(proposalReview.getByText('Pilot Admin')).toBeVisible()
+  await expect(proposalReview.getByText('Mrs. Mel', { exact: true }).first()).toBeVisible()
+  await page.getByRole('button', { name: 'Keep chatting' }).click()
+  await expect(composer).toBeFocused()
+  await page.getByRole('button', { name: 'Apply to saved draft' }).click()
+  await expect(page.getByRole('status')).toContainText('reviewed proposal was applied')
+
+  await page.getByRole('button', { name: /Guided setup/ }).click()
+  await expect(page.getByLabel('Human coach name')).toHaveValue('Mrs. Mel')
+  await expect(page.getByText('Draft matches the latest server revision.')).toBeVisible()
+  expect(await page.evaluate(() => ({ scrollX: window.scrollX, fits: document.documentElement.scrollWidth <= window.innerWidth }))).toEqual({ scrollX: 0, fits: true })
 })
 
 test('Coach Studio preserves coach-authored community context through preview, publish, and assignment', async ({ page }) => {

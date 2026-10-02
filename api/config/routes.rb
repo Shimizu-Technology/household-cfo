@@ -104,6 +104,14 @@ Rails.application.routes.draw do
       namespace :admin do
         get "plaid_health", to: "plaid_health#index"
         resources :personas, controller: "mia_personas", only: %i[index show create update destroy] do
+          resources :setup_sessions, controller: "persona_setup_sessions", only: %i[create show destroy] do
+            post :rebase, on: :member
+            resources :turns, controller: "persona_setup_turns", only: :create
+            resources :proposals, controller: "persona_setup_proposals", only: [] do
+              post :apply, on: :member
+              post :reject, on: :member
+            end
+          end
           get :assignable_cohorts, on: :collection
           post :preview, on: :member
           post :publish, on: :member
