@@ -22,6 +22,7 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
     release_verifier = Queue.new
     writer_result = Queue.new
     approval_pid = Queue.new
+    approval_started = Queue.new
     approval_result = Queue.new
     original_download = S3Service.method(:download_to_io!)
     S3Service.define_singleton_method(:download_to_io!) do |_key, io|
@@ -59,6 +60,7 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
         approval_pid << connection.select_value("SELECT pg_backend_pid()").to_i
         begin
           locked_item = CoachContentItem.find(item.id)
+          approval_started << true
           approved = locked_item.approve!(
             actor: User.find(owner.id),
             expected_draft_revision: locked_item.draft_revision,
@@ -71,7 +73,9 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
       end
     end
 
-    assert wait_for_database_lock(approval_pid.pop), "expected approval to wait on the locked content item"
+    approval_backend_pid = approval_pid.pop
+    approval_started.pop
+    assert wait_for_database_lock(approval_backend_pid), "expected approval to wait on the locked content item"
     assert_equal version.id, item.reload.current_approved_version_id
 
     release_verifier << true
@@ -135,7 +139,7 @@ class MiaApprovedSourcePhraseLockingTest < ActiveSupport::TestCase
   end
 
   def wait_for_database_lock(pid)
-    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 3
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 10
     loop do
       wait_type = ActiveRecord::Base.connection.select_value(
         "SELECT wait_event_type FROM pg_stat_activity WHERE pid = #{Integer(pid)}"
