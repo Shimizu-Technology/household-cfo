@@ -5,7 +5,9 @@ module Api
       ATTACHMENT_ACTION_NOUN_SOURCE = "budget|category|allocation|income|goal|household|runway|expense|spending|debt|asset|account|bank".freeze
       ATTACHMENT_ACTION_VERB_PATTERN = /\b(?:#{ATTACHMENT_ACTION_VERB_SOURCE})\b/i.freeze
       ATTACHMENT_ACTION_NOUN_PATTERN = /\b(?:#{ATTACHMENT_ACTION_NOUN_SOURCE})\b/i.freeze
-      ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE = "(?:(?:and|also|then|and\\s+then)\\s*[,;:]?\\s*)?(?:please\\s+)?(?:(?:(?:can|could|would|will)\\s+you|i\\s+(?:want|need)\\s+to|i(?:'d|\\s+would)\\s+like\\s+to|help\\s+me)\\s+)?".freeze
+      ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE = "(?:(?:and|also|then|and\\s+then)\\s*[,;:]?\\s*)?(?:please\\s+)?(?:(?:(?:can|could|would|will)\\s+you(?:\\s+please)?|i\\s+(?:want|need)(?:\\s+you)?\\s+to|i(?:'d|\\s+would)\\s+like\\s+to|help\\s+me)\\s+)?".freeze
+      ATTACHMENT_INFORMATIONAL_FRAME_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:update\s+me\b|tell\s+me\b|explain\b|increase\s+(?:my|our)\s+understanding\b)/i.freeze
+      ATTACHMENT_NAMED_AMOUNT_PATTERN = /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}(?:set|change|update|increase|decrease|lower|raise)\s+[^?!.;,\r\n]{1,60}?\s+(?:to|at|by)\s+\$?\d[\d,]*(?:\.\d{1,2})?(?:\s*(?:dollars?|monthly|per\s+month))?\s*[?!.;]*\z/i.freeze
 
       before_action :authenticate_user!
       before_action :require_writable_household!, only: %i[create destroy]
@@ -629,13 +631,15 @@ module Api
       end
 
       def attachment_mutation_segment?(segment)
+        return false if segment.match?(ATTACHMENT_INFORMATIONAL_FRAME_PATTERN)
+
         direct_request = segment.match?(
           /\A\s*#{ATTACHMENT_ACTION_REQUEST_PREFIX_SOURCE}#{ATTACHMENT_ACTION_VERB_PATTERN.source}.{0,100}#{ATTACHMENT_ACTION_NOUN_PATTERN.source}/i
         )
         evidence_directed_request = segment.match?(
           /\A\s*(?:please\s+)?(?:use|import)\b.{0,100}\bto\s+#{ATTACHMENT_ACTION_VERB_PATTERN.source}.{0,100}#{ATTACHMENT_ACTION_NOUN_PATTERN.source}/i
         )
-        direct_request || evidence_directed_request
+        direct_request || evidence_directed_request || segment.match?(ATTACHMENT_NAMED_AMOUNT_PATTERN)
       end
 
       def attachment_request_segments(message)

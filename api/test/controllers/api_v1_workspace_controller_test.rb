@@ -1666,6 +1666,69 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     refute controller.send(:attachment_action_request?, "Review this bank statement")
   end
 
+  test "attachment action detection covers polite imperatives and named category amounts" do
+    controller = Api::V1::MiaMessagesController.new
+
+    [
+      "Review this statement and can you please update my budget",
+      "Review this statement. Would you please update my bank account?",
+      "Review this statement. I want you to update my budget",
+      "Review this statement. I need you to set up my household",
+      "Review this statement and set Groceries to $900"
+    ].each do |message|
+      assert controller.send(:attachment_action_request?, message), "did not detect #{message.inspect}"
+      refute controller.send(:pure_attachment_review_request?, message), "incorrectly treated #{message.inspect} as evidence-only"
+      assert_equal "Review this statement", controller.send(:attached_document_evidence_prompt, message, nil)
+    end
+  end
+
+  test "attachment action detection excludes informational frames" do
+    controller = Api::V1::MiaMessagesController.new
+
+    [
+      "Review this statement. Could you update me on which spending category increased?",
+      "Review this statement. Can you increase my understanding of this budget?",
+      "Review this statement. Tell me what category increased.",
+      "Review this statement. Explain why my spending increased.",
+      "Review this statement and add up my spending"
+    ].each do |message|
+      assert controller.send(:pure_attachment_review_request?, message), "did not keep #{message.inspect} evidence-only"
+      refute controller.send(:attachment_action_request?, message), "incorrectly detected a household mutation in #{message.inspect}"
+      assert_equal message, controller.send(:attached_document_evidence_prompt, message, nil)
+    end
+  end
+
+  test "unresolved attached polite and named amount commands fail closed after preserving evidence" do
+    cases = [
+      [ "Review this statement and can you please update my budget", nil ],
+      [ "Review this statement. Would you please update my bank account?", :action_none ],
+      [ "Review this statement. I want you to update my budget", nil ],
+      [ "Review this statement. I need you to set up my household", :action_none ],
+      [ "Review this statement and set Groceries to $900", nil ]
+    ]
+
+    cases.each do |message, resolver_result|
+      assert_unresolved_attached_account_action(
+        needs_clarification: false,
+        message: message,
+        expected_evidence_prompt: "Review this statement",
+        resolver_result: resolver_result
+      )
+    end
+  end
+
+  test "informational attachment questions retain their full prompt without a write boundary" do
+    [
+      "Review this statement. Could you update me on which spending category increased?",
+      "Review this statement. Can you increase my understanding of this budget?",
+      "Review this statement. Why did spending increase?",
+      "Review this statement. What category increased?",
+      "Review this statement and add up my spending"
+    ].each do |message|
+      assert_attached_evidence_only(message)
+    end
+  end
+
   test "attachment evidence math does not become a household mutation request" do
     user = create_user(email: "mia-attachment-evidence-math@example.com")
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -2846,7 +2909,7 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
 
   private
 
-  def assert_unresolved_attached_account_action(needs_clarification:, message: "Review this statement and update my checking account", expected_evidence_prompt: "Review this statement")
+  def assert_unresolved_attached_account_action(needs_clarification:, message: "Review this statement and update my checking account", expected_evidence_prompt: "Review this statement", resolver_result: :action_none)
     user = create_user(email: "mia-attached-account-#{needs_clarification ? 'clarification' : 'unresolved'}-#{SecureRandom.hex(4)}@example.com")
     confirm_setup_for_test(user)
     household = HouseholdFinance::WorkspaceResolver.new(user).household
@@ -2870,18 +2933,20 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       status: "pending",
       raw_input: "statement row"
     )
-    intent_result = HouseholdFinance::MiaIntentResolver::Result.new(
-      intent: "asset_action",
-      confidence: 0.99,
-      continuation: false,
-      resolved_message: "Update my checking account",
-      needs_clarification: needs_clarification,
-      clarification: needs_clarification ? "Which checking account should I update?" : "",
-      topic: { type: "asset_edit", title: "Checking account update", subject: "checking account" },
-      action: { type: "none" },
-      read_only_plan: {},
-      source: "model"
-    )
+    intent_result = if resolver_result == :action_none
+      HouseholdFinance::MiaIntentResolver::Result.new(
+        intent: "asset_action",
+        confidence: 0.99,
+        continuation: false,
+        resolved_message: "Update my checking account",
+        needs_clarification: needs_clarification,
+        clarification: needs_clarification ? "Which checking account should I update?" : "",
+        topic: { type: "asset_edit", title: "Checking account update", subject: "checking account" },
+        action: { type: "none" },
+        read_only_plan: {},
+        source: "model"
+      )
+    end
     fake_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { intent_result } } }
     controller = Api::V1::MiaMessagesController
     original_evidence_prompt = controller.instance_method(:attached_document_evidence_prompt)
@@ -2912,6 +2977,65 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
     assert_equal message, body.dig("user_message", "content")
     assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
     assert_equal [ expected_evidence_prompt ], captured_evidence_prompts
+
+    session = household.chat_sessions.find_by!(user: user)
+    evidence = session.reload.active_topic.fetch("document_evidence")
+    assert_equal [ document_import.id ], evidence.fetch("financial_document_import_ids")
+  ensure
+    controller&.define_method(:attached_document_evidence_prompt, original_evidence_prompt) if original_evidence_prompt
+  end
+
+  def assert_attached_evidence_only(message)
+    user = create_user(email: "mia-attached-evidence-only-#{SecureRandom.hex(4)}@example.com")
+    household = HouseholdFinance::WorkspaceResolver.new(user).household
+    category = household.budget_categories.create!(name: "Groceries", stack_key: "discretionary", sort_order: 1)
+    document_import = household.financial_document_imports.create!(
+      uploaded_by_user: user,
+      document_kind: "statement",
+      status: "needs_review",
+      filename: "evidence-only-statement.pdf",
+      content_type: "application/pdf",
+      byte_size: 128,
+      s3_key: "household-cfo/test/evidence-only-statement-#{SecureRandom.hex(4)}.pdf"
+    )
+    document_import.transaction_drafts.create!(
+      household: household,
+      occurred_on: Date.current,
+      merchant: "Pay-Less",
+      total_amount_cents: 87_45,
+      budget_category: category,
+      source_type: "statement",
+      status: "pending",
+      raw_input: "statement row"
+    )
+    nil_resolver = ->(**_kwargs) { Object.new.tap { |object| object.define_singleton_method(:call) { nil } } }
+    controller = Api::V1::MiaMessagesController
+    original_evidence_prompt = controller.instance_method(:attached_document_evidence_prompt)
+    captured_evidence_prompts = []
+    controller.define_method(:attached_document_evidence_prompt) do |content, result|
+      prompt = original_evidence_prompt.bind_call(self, content, result)
+      captured_evidence_prompts << prompt
+      prompt
+    end
+
+    assert_no_difference([ "MiaActionDraft.count", "HouseholdTransaction.count", "BudgetYear.count", "BudgetAllocation.count" ]) do
+      with_singleton_stub(HouseholdFinance::MiaIntentResolver, :new, nil_resolver) do
+        post "/api/v1/mia/messages",
+             params: { message: message, document_import_ids: [ document_import.id ] },
+             headers: auth_headers(user),
+             as: :json
+      end
+    end
+
+    assert_response :created
+    body = response.parsed_body
+    assert_equal [ message ], captured_evidence_prompts
+    assert_not_includes body.dig("assistant_message", "content"), "could not safely prepare"
+    assert_not_includes body.dig("assistant_message", "content"), "Send the change as a new message"
+    assert_nil body.fetch("mia_action_draft")
+    assert_nil body.fetch("budget")
+    assert_equal message, body.dig("user_message", "content")
+    assert_equal document_import.id, body.dig("user_message", "attachments", 0, "document_import_id")
 
     session = household.chat_sessions.find_by!(user: user)
     evidence = session.reload.active_topic.fetch("document_evidence")
