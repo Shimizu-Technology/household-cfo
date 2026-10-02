@@ -8,7 +8,7 @@ module Api
         rescue_from Mia::PersonaAssignmentCompatibility::Conflict, with: :render_persona_assignment_conflict
 
         def index
-          cohorts = Cohort.includes(cohort_list_includes).order(created_at: :desc).to_a
+          cohorts = workspace_cohorts.includes(cohort_list_includes).order(created_at: :desc).to_a
           setup_counts = setup_complete_counts_for_cohorts(cohorts)
           render json: { cohorts: cohorts.map { |cohort| serialize_cohort(cohort, setup_complete_count: setup_counts.fetch(cohort.id, 0)) } }
         end
@@ -19,14 +19,14 @@ module Api
         end
 
         def create
-          cohort = Cohort.create!(cohort_params.merge(created_by_user: current_user))
+          cohort = Cohort.create!(cohort_params.merge(created_by_user: current_user, coach_workspace: current_coach_workspace))
           render json: { cohort: serialize_cohort(cohort) }, status: :created
         rescue ActiveRecord::RecordInvalid => e
           render json: { errors: e.record.errors.full_messages }, status: :unprocessable_entity
         end
 
         def update
-          cohort = Cohort.find(params[:id])
+          cohort = workspace_cohorts.find(params[:id])
           Cohort.transaction do
             cohort.lock!
             if activating_persona_assignment?(cohort)
@@ -55,7 +55,11 @@ module Api
         end
 
         def find_cohort(id)
-          Cohort.includes(cohort_includes).find(id)
+          workspace_cohorts.includes(cohort_includes).find(id)
+        end
+
+        def workspace_cohorts
+          @workspace_cohorts ||= coach_workspace_for_policy ? Cohort.where(coach_workspace: coach_workspace_for_policy) : Cohort.all
         end
 
         def cohort_list_includes

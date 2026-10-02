@@ -2,32 +2,51 @@
 
 module Mia
   class PersonaStudioPolicy
-    def initialize(user)
+    def initialize(user, workspace: nil)
       @user = user
+      @workspace = workspace
     end
 
     def visible_personas
-      return CoachPersona.all if user.admin?
+      return CoachPersona.all if global_admin?
+      return CoachPersona.none unless workspace&.allows?(user, :view)
 
-      owned = CoachPersona.where(created_by_user_id: user.id)
-      assigned = CoachPersona.where(
-        id: CohortPersonaAssignment.where(cohort_id: manageable_cohorts.select(:id)).select(:coach_persona_id)
-      )
-      owned.or(assigned).distinct
+      CoachPersona.where(coach_workspace: workspace)
     end
 
     def editable_personas
-      return CoachPersona.all if user.admin?
+      return CoachPersona.all if global_admin?
+      return CoachPersona.none unless workspace&.allows?(user, :edit)
 
-      CoachPersona.where(created_by_user_id: user.id).where.not(id: personas_assigned_outside_scope)
+      visible_personas
+    end
+
+    def publishable_personas
+      return CoachPersona.all if global_admin?
+      return CoachPersona.none unless workspace&.allows?(user, :publish)
+
+      visible_personas
+    end
+
+    def assignable_personas
+      return CoachPersona.all if global_admin?
+      return CoachPersona.none unless workspace&.allows?(user, :assign)
+
+      visible_personas
     end
 
     def manageable_cohorts
-      return Cohort.all if user.admin?
+      return Cohort.all if global_admin?
+      return Cohort.none unless workspace&.allows?(user, :view)
 
-      Cohort.joins(:cohort_memberships)
-        .where(cohort_memberships: { user_id: user.id, role: "coach" })
-        .distinct
+      Cohort.where(coach_workspace: workspace)
+    end
+
+    def assignment_manageable_cohorts
+      return Cohort.all if global_admin?
+      return Cohort.none unless workspace&.allows?(user, :assign)
+
+      manageable_cohorts
     end
 
     def can_edit?(persona)
@@ -35,25 +54,32 @@ module Mia
     end
 
     def can_view_private_configuration?(persona)
-      user.admin? || persona.created_by_user_id == user.id
+      global_admin? || (workspace.present? && persona.coach_workspace_id == workspace.id && workspace.allows?(user, :view))
     end
 
     def can_assign?(persona)
-      can_edit?(persona) && persona.published? && !persona.archived?
+      assignable_personas.where(id: persona.id).exists? && persona.published? && !persona.archived?
     end
 
     def can_manage_phrase_artifacts?(persona)
-      persona.created_by_user_id == user.id && !persona.archived?
+      # A platform administrator must select the workspace explicitly before
+      # changing its sealed coach-authored language. Editors and owners in that
+      # workspace may collaborate while every edit keeps its actor provenance.
+      return false if global_admin?
+
+      can_edit?(persona) && !persona.archived?
+    end
+
+    def can_publish?(persona)
+      publishable_personas.where(id: persona.id).exists?
     end
 
     private
 
-    attr_reader :user
+    attr_reader :user, :workspace
 
-    def personas_assigned_outside_scope
-      CohortPersonaAssignment
-        .where.not(cohort_id: manageable_cohorts.select(:id))
-        .select(:coach_persona_id)
+    def global_admin?
+      user.admin? && workspace.nil?
     end
   end
 end

@@ -218,13 +218,17 @@ module Api
         end
 
         def cohort_assignment_permitted?(cohort_ids)
-          return true if current_user.admin?
+          return (cohort_ids - current_workspace_cohort_ids).empty? if current_user.admin?
 
           cohort_ids.present? && (cohort_ids - coach_cohort_ids).empty?
         end
 
         def coach_cohort_ids
-          @coach_cohort_ids ||= current_user.cohort_memberships.where(role: "coach").pluck(:cohort_id)
+          @coach_cohort_ids ||= current_user.cohort_memberships.where(role: "coach", cohort_id: current_workspace_cohort_ids).pluck(:cohort_id)
+        end
+
+        def current_workspace_cohort_ids
+          @current_workspace_cohort_ids ||= coach_workspace_for_policy ? Cohort.where(coach_workspace: coach_workspace_for_policy).pluck(:id) : Cohort.pluck(:id)
         end
 
         def requested_admin_access_removal?(attributes)

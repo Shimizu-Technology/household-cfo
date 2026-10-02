@@ -115,7 +115,9 @@ module Mia
     end
 
     def ensure_staff!
-      raise PublicationError, "Only a coach or admin can publish a persona" unless actor&.staff?
+      unless persona.coach_workspace&.allows?(actor, :publish)
+        raise PublicationError, "Only a workspace owner or reviewer can publish a persona"
+      end
     end
 
     def advance_publication!(version)

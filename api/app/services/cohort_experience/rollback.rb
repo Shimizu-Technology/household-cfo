@@ -52,7 +52,9 @@ module CohortExperience
     end
 
     def ensure_editable!(cohort)
-      raise RollbackError, "Only a coach or admin can manage participant tools" unless actor&.staff?
+      unless configuration.coach_workspace&.allows?(actor, :publish)
+        raise RollbackError, "Only a workspace owner or reviewer can publish participant tools"
+      end
       raise ReadOnlyError, "Completed and archived cohorts are read-only" unless cohort.status.in?(%w[draft enrolling active])
       raise RollbackError, "Version does not belong to this cohort" unless target_version.cohort_experience_configuration_id == configuration.id
     end

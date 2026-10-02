@@ -142,7 +142,7 @@ module Mia
           end
           unless submitted_ids == existing_artifacts.keys
             raise InvalidConfiguration,
-              [ "$.phrases artifact collection can be changed only by the persona owner" ]
+              [ "$.phrases artifact collection can be changed only by a coach workspace editor" ]
           end
         end
         config["phrases"] = Array(config["phrases"]).each_with_index.map do |phrase, index|
@@ -167,7 +167,7 @@ module Mia
 
             unless allow_coach_artifact_edits
               raise InvalidConfiguration,
-                [ "$.phrases[#{index}] coach-authored artifact can be edited only by the persona owner" ]
+                [ "$.phrases[#{index}] coach-authored artifact can be edited only by a coach workspace editor" ]
             end
 
             next build_phrase_artifact(
@@ -185,7 +185,7 @@ module Mia
           end
           unless allow_coach_artifact_edits
             raise InvalidConfiguration,
-              [ "$.phrases[#{index}] coach-authored artifact can be added only by the persona owner" ]
+              [ "$.phrases[#{index}] coach-authored artifact can be added only by a coach workspace editor" ]
           end
 
           build_phrase_artifact(

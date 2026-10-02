@@ -71,17 +71,31 @@ module Api
         private
 
         def policy
-          @policy ||= CohortExperience::Policy.new(current_user)
+          @policy ||= CohortExperience::Policy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def cohort
-          @cohort ||= policy.manageable_cohorts.find(params[:cohort_id])
+          @cohort ||= cohort_scope.find(params[:cohort_id])
+        end
+
+        def cohort_scope
+          case action_name
+          when "update"
+            policy.editable_cohorts
+          when "preview"
+            policy.reviewable_cohorts
+          when "publish"
+            policy.publishable_cohorts
+          else
+            policy.visible_cohorts
+          end
         end
 
         def editable_configuration
           @editable_configuration ||= cohort.cohort_experience_configuration || cohort.create_cohort_experience_configuration!(
             draft_config: CohortExperience::Schema::DEFAULT_CONFIG,
-            last_edited_by_user: current_user
+            last_edited_by_user: current_user,
+            coach_workspace: current_coach_workspace
           )
         rescue ActiveRecord::RecordNotUnique
           cohort.reload.cohort_experience_configuration

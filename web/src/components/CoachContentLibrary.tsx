@@ -193,7 +193,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     lastSelectedId.current = selected.id
     setCreating(false)
     setTitle(selected.title)
-    setContent(selected.editable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
+    setContent(selected.editable || selected.approvable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
     setKind(selected.kind)
     setScope(selected.scope)
     setAlwaysOn(selected.always_on)
@@ -205,7 +205,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     queueMicrotask(() => {
       setCreating(false)
       setTitle(selected.title)
-      setContent(selected.editable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
+      setContent(selected.editable || selected.approvable ? selected.draft_content ?? '' : selected.current_approved_version?.content ?? '')
       setKind(selected.kind)
       setScope(selected.scope)
       setAlwaysOn(selected.always_on)
@@ -235,7 +235,7 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
     lastSelectedId.current = item.id
     setCreating(false)
     setTitle(item.title)
-    setContent(item.editable ? item.draft_content ?? '' : item.current_approved_version?.content ?? '')
+    setContent(item.editable || item.approvable ? item.draft_content ?? '' : item.current_approved_version?.content ?? '')
     setKind(item.kind)
     setScope(item.scope)
     setAlwaysOn(item.always_on)
@@ -279,9 +279,9 @@ function ContentItemsPanel({ currentUser, items, selected, reviewRequest, focusR
           <label className="coach-content-always-on"><input type="checkbox" disabled={busy || Boolean(selected && !selected.editable)} checked={alwaysOn} onChange={(event) => setAlwaysOn(event.target.checked)} /><span><strong>Supply for every question</strong><small>Use sparingly for foundational guidance that is relevant in every conversation.</small></span></label>
           <div className="coach-content-actions">
             {(!selected || selected.editable) && <Button type="submit" disabled={busy || !title.trim() || !content.trim() || Boolean(selected && !itemDirty)}>{selected ? 'Save draft' : 'Create draft'}</Button>}
-            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
+            {selected?.approvable && <Button type="button" variant="secondary" disabled={busy || itemDirty || !selected.has_unapproved_changes} onClick={() => void onApprove(selected)}>{itemDirty ? 'Save draft before approving' : selected.has_unapproved_changes ? 'Approve new version' : `Approved v${selected.current_approved_version?.version}`}</Button>}
           </div>
-          {selected && !selected.editable && <p className="coach-content-note">Platform content is visible for use and can be changed only by an administrator.</p>}
+          {selected && !selected.editable && <p className="coach-content-note">{selected.approvable ? 'This draft is read-only while you review and approve it.' : 'This content is visible for use and read-only for your workspace role.'}</p>}
         </form>
       )}
     </article>
@@ -400,7 +400,7 @@ function ContentPacksPanel({ currentUser, packs, items, selected, busy, onDirtyC
           </fieldset>
           <div className="coach-content-actions">
             {(!selected || selected.editable) && <Button type="submit" disabled={busy || !name.trim() || selectedVersions.length === 0 || Boolean(selected && !packDirty)}>{selected ? 'Save pack' : 'Create pack draft'}</Button>}
-            {selected?.editable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
+            {selected?.publishable && <Button type="button" variant="secondary" disabled={busy || packDirty || !selected.has_unpublished_changes || selected.draft_items.length === 0} onClick={() => void onPublish(selected)}>{packDirty ? 'Save pack before publishing' : selected.has_unpublished_changes ? 'Publish exact version' : `Published v${selected.current_published_version?.version}`}</Button>}
           </div>
           <p className="coach-content-note">Publishing creates a fixed snapshot. Later item edits never change a published pack or an assigned assistant automatically.</p>
         </form>

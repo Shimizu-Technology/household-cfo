@@ -121,7 +121,7 @@ class CoachContentItemDraftProvenance < ApplicationRecord
     item = coach_content_item
     return false unless source && attempt && candidate && item
 
-    item.created_by_user_id == source.created_by_user_id && item.scope == source.scope &&
+    item.created_by_user_id == source.created_by_user_id && item.coach_workspace_id == source.coach_workspace_id && item.scope == source.scope &&
       source_filename == self.class.provenance_filename_for(source.filename) &&
       source_content_type == source.content_type && source_byte_size == source.byte_size && source_checksum_sha256 == source.checksum_sha256 &&
       attempt.coach_content_source_id == source.id && attempt_provider == attempt.provider && attempt_model == attempt.model &&
@@ -148,7 +148,8 @@ class CoachContentItemDraftProvenance < ApplicationRecord
     errors.add(:base, "source attempt does not belong to the source") unless coach_content_source_attempt.coach_content_source_id == coach_content_source_id
     errors.add(:base, "candidate does not belong to the source attempt") unless coach_content_source_candidate.coach_content_source_attempt_id == coach_content_source_attempt_id
     errors.add(:base, "candidate does not belong to the source") unless coach_content_source_candidate.coach_content_source_id == coach_content_source_id
-    allowed_owner = coach_content_source.created_by_user_id == coach_content_item.created_by_user_id
+    allowed_owner = coach_content_source.created_by_user_id == coach_content_item.created_by_user_id &&
+      coach_content_source.coach_workspace_id == coach_content_item.coach_workspace_id
     errors.add(:base, "content item owner does not match the source") unless allowed_owner && coach_content_source.scope == coach_content_item.scope
   end
 

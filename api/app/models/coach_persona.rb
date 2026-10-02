@@ -10,6 +10,7 @@ class CoachPersona < ApplicationRecord
   scope :archived, -> { where.not(archived_at: nil) }
 
   belongs_to :created_by_user, class_name: "User", inverse_of: :created_coach_personas
+  belongs_to :coach_workspace
   belongs_to :current_published_version, class_name: "CoachPersonaVersion", optional: true
 
   has_many :versions,
@@ -29,7 +30,7 @@ class CoachPersona < ApplicationRecord
 
   normalizes :name, with: ->(name) { name.to_s.strip }
 
-  validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :created_by_user_id }
+  validates :name, presence: true, length: { maximum: 120 }, uniqueness: { case_sensitive: false, scope: :coach_workspace_id }
   validates :description, length: { maximum: 2_000 }, allow_blank: true
   validates :preview_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
@@ -40,6 +41,7 @@ class CoachPersona < ApplicationRecord
   validate :current_version_belongs_to_persona
   validate :archived_persona_is_read_only, on: :update
 
+  before_validation :assign_default_coach_workspace, on: :create
   before_validation :normalize_draft_config
   before_validation :synchronize_name_from_draft
   before_update :track_draft_revision_and_preview
@@ -74,7 +76,7 @@ class CoachPersona < ApplicationRecord
   end
 
   def replace_draft_content_pack_versions!(versions, actor:, expected_draft_revision: draft_revision)
-    raise ContentPackSelectionError, "Not authorized to edit this persona" unless actor&.admin? || created_by_user_id == actor&.id
+    raise ContentPackSelectionError, "Not authorized to edit this persona" unless coach_workspace&.allows?(actor, :edit)
     raise ContentPackSelectionError, "Archived personas are read-only" if archived?
 
     normalized = Array(versions).uniq(&:id)
@@ -83,7 +85,7 @@ class CoachPersona < ApplicationRecord
       raise ContentPackSelectionError, "Content pack version is not a valid sealed publication" unless version.manifest_valid?
 
       pack = version.coach_content_pack
-      next if pack.scope == "platform" || pack.created_by_user_id == created_by_user_id
+      next if pack.scope == "platform" || pack.coach_workspace_id == coach_workspace_id
 
       raise ContentPackSelectionError, "Content packs from another coach cannot be attached"
     end
@@ -127,13 +129,21 @@ class CoachPersona < ApplicationRecord
     self.draft_config = Mia::PersonaSchema.normalize(draft_config) if draft_config.is_a?(Hash)
   end
 
+  def assign_default_coach_workspace
+    self.coach_workspace ||= CoachWorkspaces::Provisioner.ensure_for!(created_by_user) if created_by_user&.staff?
+  end
+
   def synchronize_name_from_draft
     configured_name = draft_config.to_h.dig("identity", "assistant_name").to_s.squish
     self.name = configured_name if configured_name.present?
   end
 
   def creator_is_staff
-    errors.add(:created_by_user, "must be a coach or admin") unless created_by_user&.staff?
+    unless created_by_user&.staff?
+      errors.add(:created_by_user, "must be a coach or admin")
+      return
+    end
+    errors.add(:created_by_user, "must be able to edit this coach workspace") unless coach_workspace&.allows?(created_by_user, :edit)
   end
 
   def draft_config_matches_schema
@@ -147,7 +157,8 @@ class CoachPersona < ApplicationRecord
       source_user_id = Integer(phrase["source_user_id"], exception: false)
       captured_role = phrase["source_role_at_capture"]
       valid = if phrase["provenance"] == "coach_authored"
-        source_user_id == created_by_user_id && captured_role.in?(%w[admin coach])
+        source_user_id.present? && captured_role.in?(%w[admin coach]) &&
+          (User.find_by(id: source_user_id)&.admin? || coach_workspace&.coach_workspace_memberships&.exists?(user_id: source_user_id))
       elsif phrase["provenance"] == "participant_supplied"
         source_user_id.present? && captured_role == "participant"
       end

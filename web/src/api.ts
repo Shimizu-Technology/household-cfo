@@ -1002,6 +1002,7 @@ export type AdminContentItem = {
   draft_digest: string | null
   archived: boolean
   editable: boolean
+  approvable: boolean
   current_approved_version: AdminContentItemVersion | null
   versions: AdminContentItemVersion[]
   has_unapproved_changes: boolean
@@ -1031,6 +1032,7 @@ export type AdminContentPack = {
   draft_manifest_digest: string | null
   archived: boolean
   editable: boolean
+  publishable: boolean
   draft_items: AdminContentItemVersion[]
   current_published_version: AdminContentPackVersion | null
   versions: AdminContentPackVersion[]
@@ -1264,6 +1266,20 @@ export type CurrentUser = {
   is_coach: boolean
   is_participant: boolean
   is_staff: boolean
+  coach_workspaces?: CoachWorkspaceSummary[]
+  active_coach_workspace?: CoachWorkspaceSummary | null
+}
+
+export type CoachWorkspaceSummary = {
+  id: number
+  name: string
+  slug: string
+  membership_role: 'owner' | 'editor' | 'reviewer' | 'viewer' | 'platform_admin' | null
+  coach_profile: {
+    display_name: string
+    title: string
+    bio: string
+  } | null
 }
 
 export type AdminCohort = {
@@ -1473,6 +1489,7 @@ const MIA_REQUEST_TIMEOUT_MS = 90_000
 const FILE_UPLOAD_TIMEOUT_MS = 180_000
 const EXTRACTION_REQUEST_TIMEOUT_MS = 300_000
 let authTokenGetter: AuthTokenGetter | null = null
+let activeCoachWorkspaceId = readStoredCoachWorkspaceId()
 
 type ApiFetchSettings = {
   timeoutMs?: number
@@ -1537,6 +1554,21 @@ export function setAuthTokenGetter(getter: AuthTokenGetter | null) {
   authTokenGetter = getter
 }
 
+export function setActiveCoachWorkspaceId(workspaceId: number | null) {
+  activeCoachWorkspaceId = workspaceId
+  if (typeof window === 'undefined') return
+
+  if (workspaceId) window.localStorage.setItem('household-cfo:coach-workspace-id', String(workspaceId))
+  else window.localStorage.removeItem('household-cfo:coach-workspace-id')
+}
+
+function readStoredCoachWorkspaceId() {
+  if (typeof window === 'undefined') return null
+
+  const parsed = Number.parseInt(window.localStorage.getItem('household-cfo:coach-workspace-id') ?? '', 10)
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null
+}
+
 async function authHeaders(): Promise<Record<string, string>> {
   if (!authTokenGetter) return {}
 
@@ -1598,6 +1630,7 @@ async function apiFetch(path: string, options: RequestInit = {}, signal?: AbortS
   try {
     const headers = {
       ...(await authHeaders()),
+      ...(activeCoachWorkspaceId ? { 'X-Coach-Workspace-Id': String(activeCoachWorkspaceId) } : {}),
       ...(options.headers as Record<string, string> | undefined),
     }
     return fetch(`${API_BASE}${path}`, {
@@ -1732,8 +1765,16 @@ async function apiRequestError(response: Response, fallback: string) {
 }
 
 export async function fetchCurrentUser(): Promise<CurrentUser> {
-  const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
-  return payload.user
+  try {
+    const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
+    return payload.user
+  } catch (error) {
+    if (!(error instanceof ApiRequestError) || error.status !== 404 || !activeCoachWorkspaceId) throw error
+
+    setActiveCoachWorkspaceId(null)
+    const payload = await fetchJson<{ user: CurrentUser }>('/api/v1/auth/me')
+    return payload.user
+  }
 }
 
 export async function submitPilotFeedback(values: PilotFeedbackInput): Promise<PilotFeedbackReceipt> {

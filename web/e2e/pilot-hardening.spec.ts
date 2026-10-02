@@ -3882,6 +3882,77 @@ test('Coach Studio preserves coach-authored community context through preview, p
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 
+test('Coach Studio switches tenant context safely across responsive layouts', async ({ page }) => {
+  const firstPersona = personaDetailFixture()
+  const secondPersona = {
+    ...personaDetailFixture(),
+    id: 82,
+    name: 'Coach Ana',
+    description: 'Partner workspace assistant',
+    draft: {
+      ...structuredClone(personaConfiguration),
+      identity: { ...personaConfiguration.identity, assistant_name: 'Coach Ana' },
+    },
+    permissions: { read: true, edit: false, publish: true, assign: false, archive: false, restore: false },
+  }
+  const requestedWorkspaceIds: string[] = []
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem('household-cfo:coach-workspace-id', '1')
+  })
+  await page.route('http://api.test/api/v1/admin/personas', (route) => {
+    const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
+    requestedWorkspaceIds.push(workspaceId)
+    return route.fulfill({
+      status: 200,
+      json: { personas: workspaceId === '2' ? [secondPersona] : [firstPersona] },
+    })
+  })
+  await page.route(/http:\/\/api\.test\/api\/v1\/admin\/personas\/(81|82)$/, (route) => {
+    const workspaceId = route.request().headers()['x-coach-workspace-id'] ?? ''
+    requestedWorkspaceIds.push(workspaceId)
+    return route.fulfill({ status: 200, json: { persona: workspaceId === '2' ? secondPersona : firstPersona } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/assignable_cohorts', (route) => {
+    requestedWorkspaceIds.push(route.request().headers()['x-coach-workspace-id'] ?? '')
+    return route.fulfill({ status: 200, json: { cohorts: [] } })
+  })
+
+  await page.goto('/?pilot_e2e_role=coach&pilot_e2e_coach_workspaces=true#Coach%20Studio')
+
+  const workspacePicker = page.getByLabel('Coach workspace')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await expect(page.getByText('Mrs. Mel · owner')).toBeVisible()
+  expect(requestedWorkspaceIds).toContain('1')
+
+  await page.getByLabel('Internal description').fill('Unsaved workspace-specific note')
+  page.once('dialog', async (dialog) => dialog.dismiss())
+  await workspacePicker.selectOption('2')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByLabel('Internal description')).toHaveValue('Unsaved workspace-specific note')
+
+  page.once('dialog', async (dialog) => dialog.accept())
+  await workspacePicker.selectOption('2')
+  await expect(workspacePicker).toHaveValue('2')
+  await expect(page.getByRole('heading', { name: 'Coach Ana' })).toBeVisible()
+  await expect(page.getByText('Coach Ana · reviewer')).toBeVisible()
+  await expect.poll(() => requestedWorkspaceIds.includes('2')).toBe(true)
+  expect(await page.evaluate(() => ({
+    scrollX: window.scrollX,
+    fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
+  }))).toEqual({ scrollX: 0, fitsViewport: true })
+
+  await workspacePicker.selectOption('1')
+  await expect(workspacePicker).toHaveValue('1')
+  await expect(page.getByRole('heading', { name: 'Coach Lani' })).toBeVisible()
+  await expect(page.getByText('Mrs. Mel · owner')).toBeVisible()
+  expect(await page.evaluate(() => ({
+    scrollX: window.scrollX,
+    fitsViewport: document.documentElement.scrollWidth <= window.innerWidth,
+  }))).toEqual({ scrollX: 0, fitsViewport: true })
+})
+
 test('Coach Studio participant tools preview publish and restore the exact cohort navigation', async ({ page }) => {
   await page.goto('/?pilot_e2e_role=admin#Coach%20Studio')
   await page.getByRole('tab', { name: /Participant tools/ }).click()

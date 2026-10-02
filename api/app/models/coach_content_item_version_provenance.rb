@@ -73,7 +73,7 @@ class CoachContentItemVersionProvenance < ApplicationRecord
     item = content_item || coach_content_item_version&.coach_content_item
     return false unless source && attempt && candidate && item
 
-    item.created_by_user_id == source.created_by_user_id && item.scope == source.scope &&
+    item.created_by_user_id == source.created_by_user_id && item.coach_workspace_id == source.coach_workspace_id && item.scope == source.scope &&
       candidate.status == candidate_review_action && candidate_review_action == "accepted" && candidate.accepted_content_item_id == item.id &&
       source_filename == CoachContentItemDraftProvenance.provenance_filename_for(source.filename) &&
       source_content_type == source.content_type && source_byte_size == source.byte_size && source_checksum_sha256 == source.checksum_sha256 &&
@@ -93,7 +93,9 @@ class CoachContentItemVersionProvenance < ApplicationRecord
     errors.add(:base, "candidate does not belong to the source attempt") unless coach_content_source_candidate.coach_content_source_attempt_id == coach_content_source_attempt_id
     errors.add(:base, "candidate does not belong to the source") unless coach_content_source_candidate.coach_content_source_id == coach_content_source_id
     item = coach_content_item_version.coach_content_item
-    errors.add(:base, "approved content owner does not match the source") unless item.created_by_user_id == coach_content_source.created_by_user_id && item.scope == coach_content_source.scope
+    valid_owner = item.created_by_user_id == coach_content_source.created_by_user_id &&
+      item.coach_workspace_id == coach_content_source.coach_workspace_id
+    errors.add(:base, "approved content owner does not match the source") unless valid_owner && item.scope == coach_content_source.scope
   end
 
   def digest_matches_snapshot

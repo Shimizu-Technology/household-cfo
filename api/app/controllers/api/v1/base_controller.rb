@@ -33,6 +33,19 @@ module Api
         ).call
       end
 
+      def current_coach_workspace
+        @current_coach_workspace ||= CoachWorkspaces::Resolver.new(
+          user: current_user,
+          requested_id: request.headers["X-Coach-Workspace-Id"]
+        ).call
+      end
+
+      def coach_workspace_for_policy
+        return nil if current_user.admin? && request.headers["X-Coach-Workspace-Id"].blank?
+
+        current_coach_workspace
+      end
+
       def require_experience_module!(module_id)
         item = current_experience_capabilities.fetch(:modules).find { |candidate| candidate.fetch(:id) == module_id.to_s }
         return if item&.fetch(:enabled, false)

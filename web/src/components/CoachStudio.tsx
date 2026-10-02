@@ -11,6 +11,7 @@ import {
   publishAdminPersona,
   restoreAdminPersona,
   rollbackAdminPersonaVersion,
+  setActiveCoachWorkspaceId,
   updateAdminCohortPersonaAssignment,
   updateAdminPersona,
 } from '../api'
@@ -56,6 +57,10 @@ type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 're
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
+  const workspaceOptions = currentUser.coach_workspaces ?? []
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState(
+    currentUser.active_coach_workspace?.id ?? workspaceOptions[0]?.id ?? null,
+  )
   const [personas, setPersonas] = useState<AdminPersonaSummary[]>([])
   const [selectedPersona, setSelectedPersona] = useState<AdminPersonaDetail | null>(null)
   const [draft, setDraft] = useState<PersonaConfiguration | null>(null)
@@ -83,6 +88,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [libraryDirty, setLibraryDirty] = useState(false)
   const [personaSourcesDirty, setPersonaSourcesDirty] = useState(false)
   const selectedIdRef = useRef<number | null>(null)
+  const activeWorkspaceIdRef = useRef(activeWorkspaceId)
+  activeWorkspaceIdRef.current = activeWorkspaceId
   const loadPersonaRequestRef = useRef(0)
   const focusEditorAfterLoadRef = useRef(false)
   const createNameRef = useRef<HTMLInputElement | null>(null)
@@ -141,6 +148,8 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   }, [])
 
   const loadPersonas = useCallback(async (preferredId?: number | null) => {
+    // Workspace selection changes the request header and invalidates every result in this view.
+    const requestedWorkspaceId = activeWorkspaceId
     setLoading(true)
     setError(null)
     try {
@@ -148,6 +157,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
         fetchAdminPersonas(),
         fetchAdminPersonaAssignableCohorts(),
       ])
+      if (requestedWorkspaceId !== activeWorkspaceIdRef.current) return
       setPersonas(nextPersonas)
       setCohorts(nextCohorts)
       const candidateId = preferredId
@@ -167,11 +177,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     } finally {
       setLoading(false)
     }
-  }, [loadPersona])
+  }, [activeWorkspaceId, loadPersona])
 
   useEffect(() => {
     queueMicrotask(() => void loadPersonas())
   }, [loadPersonas])
+
+  useEffect(() => {
+    // Mobile browsers can preserve a temporary horizontal focus offset after
+    // the native workspace picker closes and the narrower result view renders.
+    window.scrollTo(0, window.scrollY)
+  }, [activeWorkspaceId])
 
   useEffect(() => {
     if (createOpen) window.requestAnimationFrame(() => createNameRef.current?.focus())
@@ -215,6 +231,29 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setPersonaSourcesDirty(false)
     setStudioSection(next)
     return true
+  }
+
+  function chooseWorkspace(nextId: number) {
+    if (nextId === activeWorkspaceId) return
+    if (studioDirty && !window.confirm('Discard unsaved Coach Studio changes and switch workspaces?')) return
+
+    setActiveCoachWorkspaceId(nextId)
+    // Ignore an assistant detail response that began in the workspace we are leaving.
+    loadPersonaRequestRef.current += 1
+    selectedIdRef.current = null
+    setPersonas([])
+    setCohorts([])
+    setSelectedPersona(null)
+    setDraft(null)
+    setPreview(null)
+    setDescription('')
+    setError(null)
+    setConflict(null)
+    setNotice(null)
+    setExperienceDirty(false)
+    setLibraryDirty(false)
+    setPersonaSourcesDirty(false)
+    setActiveWorkspaceId(nextId)
   }
 
   function handleStudioSectionKeyDown(event: KeyboardEvent<HTMLButtonElement>) {
@@ -520,7 +559,20 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
           <p className="eyebrow">Coach Studio</p>
           <h2 data-page-heading tabIndex={-1}>Shape a coaching assistant people can trust.</h2>
         </div>
-        <p>Build the voice from the coach's own teaching, preview the exact draft, then publish and assign it to a cohort. Location provides context only; the system never invents an accent, slang, or cultural assumptions.</p>
+        <div className="coach-workspace-heading-tools">
+          <p>Build the voice from the coach's own teaching, preview the exact draft, then publish and assign it to a cohort. Location provides context only; the system never invents an accent, slang, or cultural assumptions.</p>
+          {workspaceOptions.length > 0 && (
+            <label className="coach-workspace-picker">
+              <span>Coach workspace</span>
+              <select value={activeWorkspaceId ?? ''} onChange={(event) => chooseWorkspace(Number(event.target.value))}>
+                {workspaceOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+                ))}
+              </select>
+              <small>{workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.coach_profile?.display_name ?? 'Coach identity'} · {workspaceOptions.find((workspace) => workspace.id === activeWorkspaceId)?.membership_role?.replace('_', ' ')}</small>
+            </label>
+          )}
+        </div>
       </header>
 
       <div className="coach-studio-trust-strip" role="note">
@@ -543,11 +595,11 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
 
       {studioSection === 'library' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-library" aria-labelledby="coach-studio-tab-library" tabIndex={0}>
-          <CoachContentLibrary currentUser={currentUser} onDirtyChange={setLibraryDirty} />
+          <CoachContentLibrary key={activeWorkspaceId ?? 'legacy'} currentUser={currentUser} onDirtyChange={setLibraryDirty} />
         </div>
       ) : studioSection === 'participant_tools' ? (
         <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-participant-tools" aria-labelledby="coach-studio-tab-participant-tools" tabIndex={0}>
-          <CohortExperienceStudio cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
+          <CohortExperienceStudio key={activeWorkspaceId ?? 'legacy'} cohorts={cohorts} cohortsLoading={loading} onDirtyChange={setExperienceDirty} />
         </div>
       ) : <div className="coach-studio-tab-panel" role="tabpanel" id="coach-studio-panel-assistants" aria-labelledby="coach-studio-tab-assistants" tabIndex={0}>
 

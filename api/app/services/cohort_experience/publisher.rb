@@ -18,8 +18,7 @@ module CohortExperience
         configuration.update!(
           preview_digest: digest,
           previewed_draft_revision: configuration.draft_revision,
-          previewed_at: Time.current,
-          last_edited_by_user: actor
+          previewed_at: Time.current
         )
         digest
       end
@@ -45,7 +44,7 @@ module CohortExperience
           config_digest: CohortExperience::Schema.digest(configuration.draft_config),
           published_by_user: actor
         )
-        configuration.update!(current_published_version: version, last_edited_by_user: actor)
+        configuration.update!(current_published_version: version)
         configuration.publication_events.create!(
           cohort_experience_version: version,
           actor_user: actor,
@@ -69,7 +68,9 @@ module CohortExperience
     end
 
     def ensure_editable!(cohort)
-      raise PublicationError, "Only a coach or admin can manage participant tools" unless actor&.staff?
+      unless configuration.coach_workspace&.allows?(actor, :publish)
+        raise PublicationError, "Only a workspace owner or reviewer can publish participant tools"
+      end
       raise ReadOnlyError, "Completed and archived cohorts are read-only" unless cohort.status.in?(%w[draft enrolling active])
     end
 

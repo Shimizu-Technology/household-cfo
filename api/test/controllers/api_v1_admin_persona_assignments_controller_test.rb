@@ -32,8 +32,11 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     coach = persona_user(role: "coach")
     cohort = cohort_for(admin, name: "Assignment lifecycle")
     coach.cohort_memberships.create!(cohort: cohort, role: "coach")
-    first = published_persona(coach, assistant_name: "First assistant")
-    second = published_persona(coach, assistant_name: "Second assistant")
+    first = persona_for(coach, assistant_name: "First assistant", workspace: cohort.coach_workspace)
+    second = persona_for(coach, assistant_name: "Second assistant", workspace: cohort.coach_workspace)
+    grant_workspace_role(cohort.coach_workspace, coach, "reviewer")
+    publish_persona_record(first, coach)
+    publish_persona_record(second, coach)
 
     patch_assignment(cohort, coach, persona_id: first.id, expected_persona_id: nil)
 
@@ -72,7 +75,8 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     cohort = cohort_for(admin, name: "Ownership boundary")
     coach.cohort_memberships.create!(cohort: cohort, role: "coach")
     other_persona = published_persona(other_coach, assistant_name: "Other coach assistant")
-    draft = persona_for(coach, assistant_name: "Draft assistant")
+    draft = persona_for(coach, assistant_name: "Draft assistant", workspace: cohort.coach_workspace)
+    grant_workspace_role(cohort.coach_workspace, coach, "reviewer")
 
     patch_assignment(cohort, coach, persona_id: other_persona.id, expected_persona_id: nil)
     assert_response :not_found
@@ -82,7 +86,8 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     assert_includes response.parsed_body.fetch("errors"), "Publish this persona before assigning it."
 
     patch_assignment(cohort, admin, persona_id: other_persona.id, expected_persona_id: nil)
-    assert_response :success
+    assert_response :unprocessable_entity
+    assert_includes response.parsed_body.fetch("errors"), "Coach persona must belong to the same coach workspace"
   end
 
   test "not found responses do not expose internal lookup details" do
@@ -143,8 +148,11 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
       coach.cohort_memberships.create!(cohort: cohort, role: "coach")
       participant.cohort_memberships.create!(cohort: cohort, role: "participant")
     end
-    target_persona = published_persona(coach, assistant_name: "Target assistant")
-    other_persona = published_persona(coach, assistant_name: "Other assistant")
+    target_persona = persona_for(coach, assistant_name: "Target assistant", workspace: target.coach_workspace)
+    other_persona = persona_for(coach, assistant_name: "Other assistant", workspace: other.coach_workspace)
+    grant_workspace_role(target.coach_workspace, coach, "reviewer")
+    publish_persona_record(target_persona, coach)
+    publish_persona_record(other_persona, coach)
     CohortPersonaAssignment.create!(cohort: other, coach_persona: other_persona, assigned_by_user: coach)
     household = Household.create!(name: "Private household name", created_by_user: participant)
     household.household_memberships.create!(user: participant, role: "owner")
@@ -164,25 +172,29 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     assert_nil target.reload.cohort_persona_assignment
   end
 
-  test "assignable cohort list is scoped and marks completed cohorts read only" do
+  test "assignable cohort list is workspace scoped and marks completed cohorts read only" do
     admin = persona_user(role: "admin")
     coach = persona_user(role: "coach")
+    outsider = persona_user(role: "coach")
     active = cohort_for(admin, name: "Assignable active", status: "active")
     completed = cohort_for(admin, name: "Assignable completed", status: "completed")
-    hidden = cohort_for(admin, name: "Hidden cohort", status: "active")
+    workspace_visible = cohort_for(admin, name: "Workspace visible", status: "active")
+    outside_workspace = cohort_for(outsider, name: "Outside workspace", status: "active")
     coach.cohort_memberships.create!(cohort: active, role: "coach")
     coach.cohort_memberships.create!(cohort: completed, role: "coach")
-    coach.cohort_memberships.create!(cohort: hidden, role: "participant")
+    coach.cohort_memberships.create!(cohort: workspace_visible, role: "participant")
+    grant_workspace_role(active.coach_workspace, coach, "reviewer")
 
     get "/api/v1/admin/personas/assignable_cohorts", headers: auth_headers(coach)
 
     assert_response :success
     rows = response.parsed_body.fetch("cohorts").index_by { |row| row.fetch("id") }
-    assert_equal [ active.id, completed.id ].sort, rows.keys.sort
+    assert_equal [ active.id, completed.id, workspace_visible.id ].sort, rows.keys.sort
     assert rows.fetch(active.id).fetch("assignable")
+    assert rows.fetch(workspace_visible.id).fetch("assignable")
     refute rows.fetch(completed.id).fetch("assignable")
     assert_equal "Completed and archived cohorts are read-only.", rows.fetch(completed.id).fetch("blocked_reason")
-    refute rows.key?(hidden.id)
+    refute rows.key?(outside_workspace.id)
   end
 
   private
@@ -195,18 +207,23 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     Cohort.create!(name: name, status: status, created_by_user: creator)
   end
 
-  def persona_for(creator, assistant_name:)
+  def persona_for(creator, assistant_name:, workspace: nil)
     CoachPersona.create!(
       name: assistant_name,
       description: "A coach-approved participant experience.",
       draft_config: persona_configuration(assistant_name: assistant_name, coach_name: creator.full_name),
-      created_by_user: creator
+      created_by_user: creator,
+      coach_workspace: workspace
     )
   end
 
-  def published_persona(creator, assistant_name:)
-    persona = persona_for(creator, assistant_name: assistant_name)
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: creator)
+  def published_persona(creator, assistant_name:, workspace: nil)
+    persona = persona_for(creator, assistant_name: assistant_name, workspace: workspace)
+    publish_persona_record(persona, creator)
+  end
+
+  def publish_persona_record(persona, actor)
+    publisher = Mia::PersonaPublisher.new(persona: persona, actor: actor)
     preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
     publisher.publish!(
       expected_preview_digest: preview.fetch(:digest),
@@ -214,6 +231,11 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
       expected_current_version_id: nil
     )
     persona.reload
+  end
+
+  def grant_workspace_role(workspace, user, role)
+    membership = workspace.coach_workspace_memberships.find_by!(user: user)
+    membership.update!(role: role)
   end
 
   def patch_assignment(cohort, user, persona_id:, expected_persona_id:)

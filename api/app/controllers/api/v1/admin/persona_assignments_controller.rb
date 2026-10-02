@@ -20,7 +20,7 @@ module Api
           cohort = manageable_cohort
           return render_read_only_cohort(cohort) unless cohort.status.in?(MUTABLE_COHORT_STATUSES)
 
-          persona = policy.editable_personas.find(assignment_params[:persona_id])
+          persona = policy.assignable_personas.find(assignment_params[:persona_id])
           assignment = nil
           CohortPersonaAssignment.transaction do
             persona.lock!
@@ -71,7 +71,7 @@ module Api
         class PersonaUnavailable < StandardError; end
 
         def policy
-          @policy ||= Mia::PersonaStudioPolicy.new(current_user)
+          @policy ||= Mia::PersonaStudioPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer(persona)
@@ -79,7 +79,8 @@ module Api
         end
 
         def manageable_cohort
-          @manageable_cohort ||= policy.manageable_cohorts.find(params[:cohort_id])
+          scope = action_name == "show" ? policy.manageable_cohorts : policy.assignment_manageable_cohorts
+          @manageable_cohort ||= scope.find(params[:cohort_id])
         end
 
         def assignment_params

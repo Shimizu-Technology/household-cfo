@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { useAuth, useUser } from '@clerk/clerk-react'
-import { fetchCurrentUser, setAuthTokenGetter } from '../api'
+import { fetchCurrentUser, setActiveCoachWorkspaceId, setAuthTokenGetter } from '../api'
 import type { CurrentUser } from '../api'
 import { AuthContext } from './authContextValue'
 import type { AuthContextValue } from './authContextValue'
@@ -39,6 +39,7 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
     setIsVerifyingApi(true)
     try {
       const user = await fetchCurrentUser()
+      if (user.active_coach_workspace?.id) setActiveCoachWorkspaceId(user.active_coach_workspace.id)
       setCurrentUser(user)
       setAuthError(null)
     } catch (error) {
@@ -77,17 +78,22 @@ function ClerkAuthBridge({ children }: { children: ReactNode }) {
 
 function NoAuthBridge({ children }: { children: ReactNode }) {
   const pilotE2ERole = e2eAuthRole()
+  const includeCoachWorkspaces = e2eCoachWorkspacesEnabled()
   const currentUser = useMemo(
     () => pilotE2ERole === 'admin' || pilotE2ERole === 'coach' || pilotE2ERole === 'participant'
-      ? e2eCurrentUser(pilotE2ERole)
+      ? e2eCurrentUser(pilotE2ERole, includeCoachWorkspaces)
       : null,
-    [pilotE2ERole],
+    [includeCoachWorkspaces, pilotE2ERole],
   )
 
   const pilotE2EToken = currentUser && pilotE2ERole
     ? `test_token:${currentUser.clerk_id}:${currentUser.email}:${currentUser.first_name ?? ''}:${currentUser.last_name ?? ''}`
     : null
   const [isTokenReady, setIsTokenReady] = useState(!pilotE2EToken)
+
+  useLayoutEffect(() => {
+    if (includeCoachWorkspaces) setActiveCoachWorkspaceId(currentUser?.active_coach_workspace?.id ?? null)
+  }, [currentUser, includeCoachWorkspaces])
 
   useEffect(() => {
     let cancelled = false
@@ -142,12 +148,18 @@ function e2eAuthRole() {
     : null
 }
 
-function e2eCurrentUser(role: 'admin' | 'coach' | 'participant'): CurrentUser {
+function e2eCoachWorkspacesEnabled() {
+  return import.meta.env.DEV
+    && import.meta.env.VITE_E2E_AUTH === 'true'
+    && new URLSearchParams(window.location.search).get('pilot_e2e_coach_workspaces') === 'true'
+}
+
+function e2eCurrentUser(role: 'admin' | 'coach' | 'participant', includeCoachWorkspaces = false): CurrentUser {
   const isAdmin = role === 'admin'
   const isCoach = role === 'coach'
   const firstName = isAdmin ? 'Pilot' : isCoach ? 'Coach' : 'Test'
   const lastName = isAdmin ? 'Admin' : isCoach ? 'Mendiola' : 'Participant'
-  return {
+  const user: CurrentUser = {
     id: isAdmin ? 900 : isCoach ? 902 : 901,
     clerk_id: `e2e_${role}`,
     email: `${role}@pilot.test`,
@@ -165,6 +177,26 @@ function e2eCurrentUser(role: 'admin' | 'coach' | 'participant'): CurrentUser {
     is_participant: role === 'participant',
     is_staff: isAdmin || isCoach,
   }
+  if (includeCoachWorkspaces && user.is_staff) {
+    user.coach_workspaces = [
+      {
+        id: 1,
+        name: 'Mrs. Mel coaching workspace',
+        slug: 'mrs-mel-coaching-workspace',
+        membership_role: isAdmin ? 'platform_admin' : 'owner',
+        coach_profile: { display_name: 'Mrs. Mel', title: 'Financial coach', bio: '' },
+      },
+      {
+        id: 2,
+        name: 'Partner coaching workspace',
+        slug: 'partner-coaching-workspace',
+        membership_role: isAdmin ? 'platform_admin' : 'reviewer',
+        coach_profile: { display_name: 'Coach Ana', title: 'Financial coach', bio: '' },
+      },
+    ]
+    user.active_coach_workspace = user.coach_workspaces[0]
+  }
+  return user
 }
 
 export function AuthProvider({ children, isClerkEnabled }: { children: ReactNode; isClerkEnabled: boolean }) {

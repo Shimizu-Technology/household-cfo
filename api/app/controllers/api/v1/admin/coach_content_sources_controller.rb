@@ -44,7 +44,12 @@ module Api
             return storage_unavailable
           end
 
-          token = upload_verifier.generate(metadata.merge(s3_key: key, source_id: source.id, user_id: current_user.id), expires_in: 15.minutes)
+          token = upload_verifier.generate(metadata.merge(
+            s3_key: key,
+            source_id: source.id,
+            user_id: current_user.id,
+            coach_workspace_id: current_coach_workspace.id
+          ), expires_in: 15.minutes)
           render json: {
             upload_url: grant.fetch(:url),
             upload_headers: grant.fetch(:headers),
@@ -63,6 +68,9 @@ module Api
 
           metadata = upload_verifier.verify(params.require(:upload_token)).deep_symbolize_keys
           return forbidden_upload unless metadata[:user_id].to_i == current_user.id
+          if metadata[:coach_workspace_id].present? && metadata[:coach_workspace_id].to_i != current_coach_workspace.id
+            return forbidden_upload
+          end
           existing = completed_upload_source(metadata)
           if existing
             claim_upload_cleanup!(upload_intent_source(metadata)) if existing.s3_key != metadata.fetch(:s3_key)
@@ -105,7 +113,7 @@ module Api
           end
 
           retried_count = 0
-          CoachContentSource.where(status: "upload_cleanup_failed").order(:id).limit(100).find_each do |source|
+          policy.visible_sources.where(status: "upload_cleanup_failed").order(:id).limit(100).find_each do |source|
             source.with_lock do
               next unless source.status == "upload_cleanup_failed"
 
@@ -175,7 +183,7 @@ module Api
         private
 
         def policy
-          @policy ||= Mia::ContentLibraryPolicy.new(current_user)
+          @policy ||= Mia::ContentLibraryPolicy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def serializer
@@ -218,7 +226,7 @@ module Api
         end
 
         def register_source!(metadata)
-          with_advisory_lock("checksum:#{current_user.id}:#{metadata.fetch(:scope)}:#{metadata.fetch(:checksum_sha256)}") do
+          with_advisory_lock("checksum:#{upload_owner_key(metadata)}:#{metadata.fetch(:scope)}:#{metadata.fetch(:checksum_sha256)}") do
             existing = completed_upload_source(metadata)
             if existing
               claim_upload_cleanup!(upload_intent_source(metadata)) if existing.s3_key != metadata.fetch(:s3_key)
@@ -236,18 +244,20 @@ module Api
         end
 
         def completed_upload_source(metadata)
-          policy.visible_sources.find_by(created_by_user_id: current_user.id, upload_request_id: metadata.fetch(:upload_request_id)) ||
+          completed = source_owner_scope(metadata).where.not(
+            status: %w[uploading verifying upload_cleanup upload_cleanup_failed deletion_pending deletion_failed source_deleted]
+          )
+          completed.find_by(upload_request_id: metadata.fetch(:upload_request_id)) ||
             policy.visible_sources.find_by(s3_key: metadata.fetch(:s3_key)) ||
-            policy.visible_sources.where(
-              created_by_user_id: current_user.id,
+            completed.where(
               scope: metadata.fetch(:scope),
               checksum_sha256: metadata.fetch(:checksum_sha256)
-            ).where.not(status: %w[uploading verifying upload_cleanup deletion_pending deletion_failed source_deleted]).recent_first.first
+            ).recent_first.first
         end
 
         def create_upload_intent!(metadata)
-          with_advisory_lock("upload-quota:#{current_user.id}") do
-            existing = CoachContentSource.find_by(created_by_user_id: current_user.id, upload_request_id: metadata.fetch(:upload_request_id))
+          with_advisory_lock("upload-quota:#{upload_owner_key(metadata)}") do
+            existing = source_owner_scope(metadata).find_by(upload_request_id: metadata.fetch(:upload_request_id))
             if existing
               same_identity = metadata.slice(:scope, :filename, :content_type, :byte_size, :checksum_sha256).all? { |key, value| existing.public_send(key) == value }
               raise ContentSources::Error, "upload_conflict" unless existing.status == "uploading" && same_identity
@@ -258,14 +268,17 @@ module Api
             key = S3Service.namespaced_key("coach_content_sources", current_user.id, SecureRandom.uuid, "source")
             CoachContentSource.create!(
               metadata.slice(:scope, :filename, :content_type, :byte_size, :checksum_sha256, :upload_request_id).merge(
-                created_by_user: current_user, status: "uploading", s3_key: key
+                created_by_user: current_user,
+                coach_workspace: metadata.fetch(:scope) == "coach" ? current_coach_workspace : nil,
+                status: "uploading",
+                s3_key: key
               )
             )
           end
         end
 
         def enforce_upload_quota!(metadata)
-          owned = CoachContentSource.where(created_by_user_id: current_user.id)
+          owned = source_owner_scope(metadata)
           active = owned.where.not(status: "source_deleted")
           if active.count >= CoachContentSource::MAX_ACTIVE_SOURCES_PER_OWNER ||
               active.sum(:byte_size) + metadata.fetch(:byte_size) > CoachContentSource::MAX_ACTIVE_BYTES_PER_OWNER
@@ -280,10 +293,24 @@ module Api
         end
 
         def upload_intent_source(metadata)
-          CoachContentSource.find_by(
-            id: metadata[:source_id], created_by_user_id: current_user.id,
+          source_owner_scope(metadata).find_by(
+            id: metadata[:source_id],
             upload_request_id: metadata[:upload_request_id], s3_key: metadata[:s3_key]
           )
+        end
+
+        def source_owner_scope(metadata)
+          if metadata.fetch(:scope).to_s == "coach"
+            CoachContentSource.where(scope: "coach", coach_workspace: current_coach_workspace)
+          else
+            CoachContentSource.where(scope: "platform", created_by_user: current_user, coach_workspace_id: nil)
+          end
+        end
+
+        def upload_owner_key(metadata)
+          return "workspace-#{current_coach_workspace.id}" if metadata.fetch(:scope).to_s == "coach"
+
+          "platform-user-#{current_user.id}"
         end
 
         def claim_upload_verification!(metadata)

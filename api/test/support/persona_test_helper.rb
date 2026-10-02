@@ -34,12 +34,13 @@ module PersonaTestHelper
     )
   end
 
-  def create_persona(creator: persona_user, name: "Household CFO")
+  def create_persona(creator: persona_user, name: "Household CFO", config: nil, workspace: nil)
     CoachPersona.create!(
       name: name,
       description: "A coach-approved participant experience.",
-      draft_config: persona_configuration,
-      created_by_user: creator
+      draft_config: config || persona_configuration,
+      created_by_user: creator,
+      coach_workspace: workspace
     )
   end
 

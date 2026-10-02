@@ -2,6 +2,7 @@
 
 class CohortExperienceConfiguration < ApplicationRecord
   belongs_to :cohort, inverse_of: :cohort_experience_configuration
+  belongs_to :coach_workspace
   belongs_to :last_edited_by_user, class_name: "User", inverse_of: :edited_cohort_experience_configurations
   belongs_to :current_published_version, class_name: "CohortExperienceVersion", optional: true
 
@@ -18,11 +19,13 @@ class CohortExperienceConfiguration < ApplicationRecord
   validates :cohort_id, uniqueness: true
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
   validates :preview_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
-  validate :editor_is_staff
+  validate :editor_is_staff, if: :will_save_change_to_last_edited_by_user_id?
   validate :draft_matches_schema
   validate :preview_fields_are_complete
   validate :current_version_belongs_to_configuration
+  validate :workspace_matches_cohort
 
+  before_validation :assign_coach_workspace
   before_validation :normalize_draft
   before_update :track_draft_revision_and_preview
 
@@ -33,8 +36,18 @@ class CohortExperienceConfiguration < ApplicationRecord
     self.draft_config = CohortExperience::Schema.normalize(draft_config) if @draft_schema_errors.empty?
   end
 
+  def assign_coach_workspace
+    self.coach_workspace ||= cohort&.coach_workspace
+  end
+
+  def workspace_matches_cohort
+    return if cohort.nil? || coach_workspace_id == cohort.coach_workspace_id
+
+    errors.add(:coach_workspace, "must match the cohort")
+  end
+
   def editor_is_staff
-    errors.add(:last_edited_by_user, "must be a coach or admin") unless last_edited_by_user&.staff?
+    errors.add(:last_edited_by_user, "cannot edit this coach workspace") unless coach_workspace&.allows?(last_edited_by_user, :edit)
   end
 
   def draft_matches_schema

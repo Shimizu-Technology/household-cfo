@@ -37,7 +37,7 @@ module Api
         private
 
         def policy
-          @policy ||= CohortExperience::Policy.new(current_user)
+          @policy ||= CohortExperience::Policy.new(current_user, workspace: coach_workspace_for_policy)
         end
 
         def cohort

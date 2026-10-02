@@ -19,7 +19,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Staff access required", response.parsed_body.fetch("error")
   end
 
-  test "admin sees every persona while coach visibility is owned or assigned and assignment details stay scoped" do
+  test "workspace members see workspace personas and assignments while platform admins see every workspace" do
     admin = persona_user(role: "admin", email: "private-admin@example.com")
     admin.update!(first_name: "Ari", last_name: "Administrator")
     coach = persona_user(role: "coach", email: "coach-viewer@example.com")
@@ -45,39 +45,39 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     coach_ids = response.parsed_body.fetch("personas").pluck("id")
-    assert_equal [ owned.id, assigned.id ].sort, coach_ids.sort
-    refute_includes coach_ids, hidden.id
+    assert_equal [ owned.id, assigned.id, hidden.id ].sort, coach_ids.sort
     assigned_summary = response.parsed_body.fetch("personas").find { |item| item.fetch("id") == assigned.id }
-    assert_equal({ "full_name" => "Ari Administrator" }, assigned_summary.fetch("owner"))
-    assert_equal({ "full_name" => "Ari Administrator" }, assigned_summary.dig("published_version", "published_by"))
-    refute_includes response.body, admin.email
+    admin_identity = { "id" => admin.id, "email" => admin.email, "full_name" => "Ari Administrator" }
+    assert_equal admin_identity, assigned_summary.fetch("owner")
+    assert_equal admin_identity, assigned_summary.dig("published_version", "published_by")
 
     get "/api/v1/admin/personas/#{assigned.id}", headers: auth_headers(coach)
 
     assert_response :success
     detail = response.parsed_body.fetch("persona")
-    assert_equal false, detail.dig("permissions", "edit")
-    assert_equal "Assigned assistant", detail.fetch("name")
-    refute detail.key?("draft")
-    refute detail.key?("preview")
-    refute detail.key?("draft_revision")
-    assert_equal [ coach_cohort.id ], detail.fetch("assignments").map { |item| item.dig("cohort", "id") }
-    assert_equal({ "full_name" => "Ari Administrator" }, detail.fetch("owner"))
-    assert detail.fetch("versions").all? { |version| version.fetch("published_by") == { "full_name" => "Ari Administrator" } }
-    assert detail.fetch("assignments").all? { |assignment| assignment.fetch("assigned_by") == { "full_name" => "Ari Administrator" } }
-    refute_includes response.body, outside_cohort.name
-    refute_includes response.body, admin.email
-    refute_includes response.body, "Private future assistant"
-    refute_includes response.body, "Private unpublished coaching method."
+    assert_equal true, detail.dig("permissions", "edit")
+    assert_equal "Private future assistant", detail.fetch("name")
+    assert detail.key?("draft")
+    assert detail.key?("preview")
+    assert detail.key?("draft_revision")
+    assert_equal [ coach_cohort.id, outside_cohort.id ].sort,
+      detail.fetch("assignments").map { |item| item.dig("cohort", "id") }.sort
+    assert_equal admin_identity, detail.fetch("owner")
+    assert detail.fetch("versions").all? { |version| version.fetch("published_by") == admin_identity }
+    assert detail.fetch("assignments").all? { |assignment| assignment.fetch("assigned_by") == admin_identity }
+    assert_includes response.body, outside_cohort.name
+    assert_includes response.body, admin.email
+    assert_includes response.body, "Private future assistant"
+    assert_includes response.body, "Private unpublished coaching method."
 
     get "/api/v1/admin/personas/#{assigned.id}/versions/#{published_assignment_version.id}", headers: auth_headers(coach)
 
     assert_response :success
     public_version = response.parsed_body.fetch("version")
-    refute public_version.key?("config")
-    assert_equal({ "full_name" => "Ari Administrator" }, public_version.fetch("published_by"))
-    assert_equal({ "full_name" => "Ari Administrator" }, response.parsed_body.dig("persona", "owner"))
-    refute_includes response.body, admin.email
+    assert_equal published_assignment_version.config, public_version.fetch("config")
+    assert_equal admin_identity, public_version.fetch("published_by")
+    assert_equal admin_identity, response.parsed_body.dig("persona", "owner")
+    assert_includes response.body, admin.email
 
     get "/api/v1/admin/personas/#{assigned.id}/versions/#{published_assignment_version.id}", headers: auth_headers(admin)
 
@@ -88,12 +88,8 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     get "/api/v1/admin/personas/#{hidden.id}", headers: auth_headers(coach)
 
-    assert_response :not_found
-    assert_equal "Persona not found.", response.parsed_body.fetch("error")
-    assert_equal [ "Persona not found." ], response.parsed_body.fetch("errors")
-    assert_equal "persona_not_found", response.parsed_body.fetch("code")
-    assert_not_includes response.body, hidden.id.to_s
-    assert_not_includes response.body, "Couldn't find"
+    assert_response :success
+    assert_equal hidden.id, response.parsed_body.dig("persona", "id")
 
     get "/api/v1/admin/personas", headers: auth_headers(admin)
 
@@ -326,7 +322,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :unprocessable_entity
-    assert_includes response.parsed_body.fetch("errors").first, "only by the persona owner"
+    assert_includes response.parsed_body.fetch("errors").first, "only by a coach workspace editor"
     assert_equal original, persona.reload.draft_config.fetch("phrases").first
 
     removed_phrase = persona.draft_config.deep_dup
@@ -337,7 +333,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :unprocessable_entity
-    assert_includes response.parsed_body.fetch("errors").first, "collection can be changed only by the persona owner"
+    assert_includes response.parsed_body.fetch("errors").first, "collection can be changed only by a coach workspace editor"
     assert_equal original, persona.reload.draft_config.fetch("phrases").first
   end
 

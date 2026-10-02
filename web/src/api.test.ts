@@ -31,6 +31,7 @@ import {
   retryAdminContentSourceCleanups,
   rollbackAdminPersonaVersion,
   sendMiaMessage,
+  setActiveCoachWorkspaceId,
   setAuthTokenGetter,
   updateAdminCohortPersonaAssignment,
   updateAdminPersona,
@@ -61,7 +62,27 @@ const completedPayload = {
 afterEach(() => {
   vi.useRealTimers()
   vi.unstubAllGlobals()
+  setActiveCoachWorkspaceId(null)
   setAuthTokenGetter(null)
+})
+
+describe('coach workspace request boundary', () => {
+  it('sends the selected workspace on reads and writes', async () => {
+    const fetchMock = vi.fn().mockImplementation(async (_url, options?: RequestInit) => (
+      options?.method === 'POST'
+        ? jsonResponse({ persona: { id: 7 } }, 201)
+        : jsonResponse({ personas: [] })
+    ))
+    vi.stubGlobal('fetch', fetchMock)
+    setActiveCoachWorkspaceId(42)
+
+    await fetchAdminPersonas()
+    await createAdminPersona({ name: 'Workspace assistant', description: '' })
+
+    for (const call of fetchMock.mock.calls) {
+      expect((call[1] as RequestInit).headers).toMatchObject({ 'X-Coach-Workspace-Id': '42' })
+    }
+  })
 })
 
 function jsonResponse(payload: unknown, status = 200) {

@@ -6,18 +6,20 @@ require_relative "../support/persona_test_helper"
 class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::IntegrationTest
   include PersonaTestHelper
 
-  test "assigned coach can save preview and publish while participants cannot manage" do
+  test "workspace editor can save and reviewer can preview and publish while participants cannot manage" do
     admin = create_user("admin")
     coach = create_user("coach")
     participant = create_user("participant")
     cohort = Cohort.create!(name: "Coach tools #{SecureRandom.hex(3)}", status: "active", created_by_user: admin)
     cohort.cohort_memberships.create!(user: coach, role: "coach")
     cohort.cohort_memberships.create!(user: participant, role: "participant")
+    workspace_membership = cohort.coach_workspace.coach_workspace_memberships.find_by!(user: coach)
+    coach_headers = workspace_headers(coach, cohort.coach_workspace)
 
     get endpoint(cohort), headers: auth_headers(participant)
     assert_response :forbidden
 
-    get endpoint(cohort), headers: auth_headers(coach)
+    get endpoint(cohort), headers: coach_headers
     assert_response :success
     assert_equal false, response.parsed_body.dig("experience_configuration", "draft", "optional_modules", "cfo_filter")
 
@@ -26,13 +28,23 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
         draft_revision: 1,
         draft_config: { schema_version: 1, optional_modules: { cfo_filter: true, optionality: false } }
       }
-    }, headers: auth_headers(coach), as: :json
+    }, headers: coach_headers, as: :json
     assert_response :success
     assert_equal 2, response.parsed_body.dig("experience_configuration", "draft_revision")
 
+    workspace_membership.update!(role: "reviewer")
+
+    patch endpoint(cohort), params: {
+      experience_configuration: {
+        draft_revision: 2,
+        draft_config: { schema_version: 1, optional_modules: { cfo_filter: false, optionality: true } }
+      }
+    }, headers: coach_headers, as: :json
+    assert_response :not_found
+
     post "#{endpoint(cohort)}/preview", params: {
       experience_configuration: { draft_revision: 2 }
-    }, headers: auth_headers(coach), as: :json
+    }, headers: coach_headers, as: :json
     assert_response :success
     digest = response.parsed_body.dig("preview", "digest")
 
@@ -42,7 +54,7 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
         preview_digest: digest,
         expected_published_version_id: nil
       }
-    }, headers: auth_headers(coach), as: :json
+    }, headers: coach_headers, as: :json
     assert_response :success
     assert_equal true, response.parsed_body.dig("published_version", "config", "optional_modules", "cfo_filter")
   end
@@ -279,6 +291,10 @@ class ApiV1CohortExperienceConfigurationsControllerTest < ActionDispatch::Integr
 
   def auth_headers(user)
     { "Authorization" => "Bearer test_token_#{user.id}" }
+  end
+
+  def workspace_headers(user, workspace)
+    auth_headers(user).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
   end
 
   def publish_configuration(configuration, actor, cfo_filter:, optionality:)
