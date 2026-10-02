@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_202000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -407,6 +407,14 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_202000) do
     t.check_constraint "original_proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_content_source_candidates_original_digest_sha256"
     t.check_constraint "revision > 0", name: "coach_content_source_candidates_revision_positive"
     t.check_constraint "status::text = ANY (ARRAY['proposed'::character varying, 'accepted'::character varying, 'rejected'::character varying, 'superseded'::character varying]::text[])", name: "coach_content_source_candidates_status_valid"
+  end
+
+  create_table "coach_content_source_url_intake_attempts", force: :cascade do |t|
+    t.bigint "coach_content_source_url_intake_id", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_content_source_url_intake_id"], name: "idx_url_intake_attempts_intake"
+    t.index ["created_at"], name: "idx_url_intake_attempts_created_at"
   end
 
   create_table "coach_content_source_url_intakes", force: :cascade do |t|
@@ -1807,6 +1815,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_202000) do
   add_foreign_key "coach_content_pack_versions", "users", column: "published_by_user_id"
   add_foreign_key "coach_content_packs", "coach_content_pack_versions", column: "current_published_version_id"
   add_foreign_key "coach_content_packs", "users", column: "created_by_user_id"
+  add_foreign_key "coach_content_source_url_intake_attempts", "coach_content_source_url_intakes", on_delete: :cascade
   add_foreign_key "coach_content_source_url_intakes", "coach_content_sources"
   add_foreign_key "coach_content_source_url_intakes", "coach_workspaces"
   add_foreign_key "coach_content_source_url_intakes", "users", column: "created_by_user_id"

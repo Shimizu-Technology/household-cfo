@@ -8,7 +8,7 @@ require "timeout"
 module ContentSources
   class FetchSandbox
     MAX_RUNTIME = 20.seconds
-    MAX_RSS_BYTES = 192 * 1024 * 1024
+    MAX_RSS_GROWTH_BYTES = 192 * 1024 * 1024
     Result = Data.define(:tempfile, :filename, :content_type, :byte_size, :checksum_sha256, :redirect_count) do
       def path
         tempfile.path
@@ -79,10 +79,12 @@ module ContentSources
 
     def supervise(pid, reader)
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + MAX_RUNTIME
+      baseline_rss = resident_bytes(pid)
       loop do
         waited = Process.waitpid(pid, Process::WNOHANG)
         break if waited
-        if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline || resident_bytes(pid) > MAX_RSS_BYTES
+        if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline ||
+            rss_limit_exceeded?(baseline_rss, resident_bytes(pid))
           terminate(pid)
           Process.wait(pid)
           raise Error, "url_fetch_failed"
@@ -103,9 +105,13 @@ module ContentSources
       limit = current_address_space_bytes
       return unless limit
 
-      Process.setrlimit(:AS, limit + MAX_RSS_BYTES, limit + MAX_RSS_BYTES)
+      Process.setrlimit(:AS, limit + MAX_RSS_GROWTH_BYTES, limit + MAX_RSS_GROWTH_BYTES)
     rescue ArgumentError, Errno::EINVAL, NotImplementedError
       nil
+    end
+
+    def rss_limit_exceeded?(baseline_rss, current_rss)
+      current_rss > baseline_rss + MAX_RSS_GROWTH_BYTES
     end
 
     def resident_bytes(pid)

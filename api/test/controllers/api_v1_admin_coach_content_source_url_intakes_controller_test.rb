@@ -28,6 +28,7 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     intake = CoachContentSourceUrlIntake.find(response.parsed_body.dig("intake", "id"))
     assert_equal workspace, intake.coach_workspace
     assert_equal "queued", intake.status
+    assert_equal 1, intake.attempts.count
     assert_nil intake.coach_content_source
     refute_includes intake.attributes.values.compact.join(" "), "Mrs-Mel"
     refute_includes response.body, "private=canary"
@@ -39,13 +40,15 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     refute_includes response.body, "Mrs-Mel"
     refute_includes response.body, "private=canary"
 
-    assert_no_difference -> { CoachContentSourceUrlIntake.count } do
-      with_storage_configured do
-        post endpoint, params: {
-          url: "https://example.com/Mrs-Mel-guide?private=canary",
-          request_id: request_id,
-          scope: "coach"
-        }, headers: workspace_auth_headers(coach, workspace), as: :json
+    assert_no_difference [ -> { CoachContentSourceUrlIntake.count }, -> { intake.attempts.count } ] do
+      assert_no_enqueued_jobs only: CoachContentSourceUrlIntakeJob do
+        with_storage_configured do
+          post endpoint, params: {
+            url: "https://example.com/Mrs-Mel-guide?private=canary",
+            request_id: request_id,
+            scope: "coach"
+          }, headers: workspace_auth_headers(coach, workspace), as: :json
+        end
       end
     end
     assert_response :success
@@ -189,18 +192,28 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_empty CoachContentSourceUrlIntake.all
   end
 
-  test "retrying a failed intake counts against the shared rate window" do
+  test "each retry has a durable rate attempt even when the intake is older than the window" do
     coach = persona_user
     workspace = CoachWorkspaces::Resolver.new(user: coach).call
     current = terminal_intake(coach: coach, workspace: workspace, status: "failed")
-    (CoachContentSource::MAX_NEW_UPLOADS_PER_WINDOW - 1).times do
-      terminal_intake(coach: coach, workspace: workspace, status: "failed")
-    end
+    current.update_columns(created_at: 1.day.ago, updated_at: 1.day.ago)
+    current.attempts.update_all(created_at: 1.day.ago, updated_at: 1.day.ago)
+    url = ContentSources::UrlCipher.decrypt(current.encrypted_url_payload)
 
     with_storage_configured do
-      assert_no_enqueued_jobs only: CoachContentSourceUrlIntakeJob do
+      assert_difference -> { current.attempts.count }, CoachContentSource::MAX_NEW_UPLOADS_PER_WINDOW do
+        CoachContentSource::MAX_NEW_UPLOADS_PER_WINDOW.times do
+          post endpoint, params: { url: url, request_id: current.request_id },
+            headers: workspace_auth_headers(coach, workspace), as: :json
+          assert_response :success
+          assert_equal "queued", current.reload.status
+          current.update!(status: "failed", error_code: "url_fetch_failed", completed_at: Time.current)
+        end
+      end
+
+      assert_no_difference -> { current.attempts.count } do
         post endpoint, params: {
-          url: ContentSources::UrlCipher.decrypt(current.encrypted_url_payload), request_id: current.request_id
+          url: url, request_id: current.request_id
         }, headers: workspace_auth_headers(coach, workspace), as: :json
       end
     end
@@ -208,6 +221,25 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_response :unprocessable_entity
     assert_equal "upload_rate_limited", response.parsed_body.fetch("code")
     assert_equal "failed", current.reload.status
+  end
+
+  test "failed retry restores a retryable state when job enqueue is uncertain" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    intake = terminal_intake(coach: coach, workspace: workspace, status: "failed")
+    url = ContentSources::UrlCipher.decrypt(intake.encrypted_url_payload)
+
+    with_storage_configured do
+      with_singleton_method(CoachContentSourceUrlIntakeJob, :perform_later, ->(_id) { nil }) do
+        post endpoint, params: { url: url, request_id: intake.request_id },
+          headers: workspace_auth_headers(coach, workspace), as: :json
+      end
+    end
+
+    assert_response :service_unavailable
+    assert_equal "failed", intake.reload.status
+    assert_equal "url_intake_unavailable", intake.error_code
+    assert_equal 2, intake.attempts.count
   end
 
   test "only an administrator can retry terminal URL object cleanup" do
@@ -337,7 +369,7 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
   def terminal_intake(coach:, workspace:, status:, staging_s3_key: nil)
     url = "https://example.com/private/#{SecureRandom.hex(4)}"
     encrypted = ContentSources::UrlCipher.encrypt(url)
-    CoachContentSourceUrlIntake.create!(
+    intake = CoachContentSourceUrlIntake.create!(
       scope: "coach", coach_workspace: workspace, created_by_user: coach, request_id: SecureRandom.uuid,
       encrypted_url_ciphertext: encrypted.fetch(:ciphertext), encrypted_url_iv: encrypted.fetch(:iv),
       encrypted_url_auth_tag: encrypted.fetch(:auth_tag), encryption_key_version: 1,
@@ -345,6 +377,8 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
       status: status, reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES,
       staging_s3_key: staging_s3_key, completed_at: Time.current
     )
+    intake.attempts.create!
+    intake
   end
 
   def with_singleton_method(target, name, implementation)

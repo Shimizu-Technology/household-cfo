@@ -35,6 +35,8 @@ module Api
           identity = ContentSources::UrlCipher.identity(normalized_url)
           intake = nil
           created = false
+          retried = false
+          enqueue = false
           ContentSources::OwnerLock.call("upload-quota:#{quota.owner_key}") do
             if quota.source_scope.where.not(status: "source_deleted").exists?(upload_request_id: request_id)
               raise ContentSources::Error, "url_intake_conflict"
@@ -49,6 +51,9 @@ module Api
                   status: "queued", reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES,
                   error_code: nil, completed_at: nil
                 )
+                intake.attempts.create!
+                retried = true
+                enqueue = true
               end
             else
               quota.enforce!(requested_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES)
@@ -67,11 +72,13 @@ module Api
                 status: "queued",
                 reserved_bytes: CoachContentSourceUrlIntakeJob::RESERVATION_BYTES
               )
+              intake.attempts.create!
               created = true
+              enqueue = true
             end
           end
-          job = CoachContentSourceUrlIntakeJob.perform_later(intake.id) if intake.status == "queued"
-          raise ActiveJob::EnqueueError, "Secure URL intake could not be queued" if intake.status == "queued" && !job
+          job = CoachContentSourceUrlIntakeJob.perform_later(intake.id) if enqueue
+          raise ActiveJob::EnqueueError, "Secure URL intake could not be queued" if enqueue && !job
 
           render json: feature_payload.merge(intake: serialize(intake.reload)), status: created ? :accepted : :ok
         rescue ActionController::ParameterMissing
@@ -82,6 +89,9 @@ module Api
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         rescue ActiveJob::EnqueueError
           intake&.destroy! if created && intake&.status == "queued"
+          if retried && intake&.status == "queued"
+            intake.update_columns(status: "failed", error_code: "url_intake_unavailable", completed_at: Time.current)
+          end
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         rescue ActiveRecord::RecordNotUnique
           render_concurrent_create(normalized_url)

@@ -152,7 +152,7 @@ class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
         sandbox.send(:apply_resource_limit)
       end
 
-      expected = (100 * 4096) + ContentSources::FetchSandbox::MAX_RSS_BYTES
+      expected = (100 * 4096) + ContentSources::FetchSandbox::MAX_RSS_GROWTH_BYTES
       assert_equal [ :AS, expected, expected ], captured
     end
   end
@@ -172,6 +172,16 @@ class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
     sandbox.define_singleton_method(:process_alive?) { |_pid| true }
 
     assert_equal 0, sandbox.send(:resident_bytes, 4321)
+  end
+
+  test "fetch sandbox limits RSS growth above an inherited worker baseline" do
+    sandbox = ContentSources::FetchSandbox.new
+    baseline = 250 * 1024 * 1024
+    headroom = ContentSources::FetchSandbox::MAX_RSS_GROWTH_BYTES
+
+    assert_not sandbox.send(:rss_limit_exceeded?, baseline, baseline)
+    assert_not sandbox.send(:rss_limit_exceeded?, baseline, baseline + headroom)
+    assert sandbox.send(:rss_limit_exceeded?, baseline, baseline + headroom + 1)
   end
 
   test "fetch sandbox converts a child memory exhaustion into a safe fetch error" do

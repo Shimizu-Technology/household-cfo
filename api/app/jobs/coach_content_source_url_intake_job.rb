@@ -125,7 +125,7 @@ class CoachContentSourceUrlIntakeJob < ApplicationJob
       quota.enforce!(
         requested_bytes: intake.fetched_byte_size,
         exclude_intake: intake,
-        exclude_intake_from_rate: true
+        enforce_rate: false
       )
       source = CoachContentSource.create!(
         scope: intake.scope,

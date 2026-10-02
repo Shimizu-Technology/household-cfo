@@ -7,6 +7,10 @@ class CoachContentSourceUrlIntake < ApplicationRecord
   belongs_to :created_by_user, class_name: "User"
   belongs_to :coach_workspace, optional: true
   belongs_to :coach_content_source, optional: true
+  has_many :attempts,
+    class_name: "CoachContentSourceUrlIntakeAttempt",
+    dependent: :delete_all,
+    inverse_of: :coach_content_source_url_intake
 
   validates :scope, inclusion: { in: CoachContentSource::SCOPES }
   validates :status, inclusion: { in: STATUSES }
