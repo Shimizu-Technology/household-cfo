@@ -213,25 +213,32 @@ module Mia
       GENERIC_PASSIVE_MUTATION_CLAIM_PATTERN = /\b(?:
         it|that|this|the\s+name|the\s+phrase|the\s+changes?
       )\s+(?:has|have|is|are|was|were)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*(?:been\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
+      CONCRETE_PASSIVE_MUTATION_CLAIM_PATTERN = /\A\s*[^.!?\n]{1,120}?(?:\s+(?:has|have|is|are|was|were)|['’]s)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*(?:been\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
+      CONCRETE_READINESS_CLAIM_PATTERN = /\A\s*[^.!?\n]{1,120}?(?:\s+(?:is|are|was|were)|['’]s)\s+(?:now\s+)?ready\s+(?:to|for)\s+(?:use|publish(?:ing)?|assign(?:ment)?|deploy(?:ment)?|activat(?:e|ion)|launch(?:ing)?|go\s+live)\b/ix
+      CONFIGURATION_FRAGMENT_CLAIM_PATTERN = /\A\s*(?:the\s+)?(?:assistant\s+)?(?:name|phrase|persona|setup|changes?|update|everything)\s+(?:just\s+|already\s+|now\s+|successfully\s+)*#{PERSONA_MUTATION_CLAIM_PATTERN}\b/ix
       SAFE_NON_WRITE_SENTENCE_PATTERNS = [
         /\A\s*(?:I|we)\s+changed\s+(?:my|our)\s+mind\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:I|we)\s+changed\s+the\s+tone\s+of\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
         /\A\s*(?:I|we)\s+(?:updated|edited|revised)\s+(?:this|the|my|our)\s+(?:explanation|message|reply|wording)\b[^.!?]*[.!]?\s*\z/i,
-        /\A\s*(?:I|we)\s+added\s+(?:some\s+)?(?:context|detail|an\s+explanation)\s+(?:below|here)\b[^.!?]*[.!]?\s*\z/i
+        /\A\s*(?:I|we)\s+added\s+(?:some\s+)?(?:context|detail|an\s+explanation)\s+(?:below|here)\b[^.!?]*[.!]?\s*\z/i,
+        /\A\s*(?:nothing|no\s+[^.!?]{1,80})(?:\s+(?:has|have|is|are|was|were)|['’]s)\s+(?:been\s+)?#{PERSONA_MUTATION_CLAIM_PATTERN}\b[^.!?]*[.!]?\s*\z/ix,
+        /\A\s*(?:the|this|that|your)\s+(?:proposal|proposed\s+change|review\s+draft|(?:persona\s+)?draft)\s+(?:has|have|is|are|was|were)\s+(?:been\s+)?(?:updated|revised|prepared|complete)\b[^.!?]*\bfor\s+review\b[^.!?]*[.!]?\s*\z/i,
+        /\A\s*(?:the|this|that|my|our)\s+(?:explanation|message|reply|wording)\s+(?:has|have|is|are|was|were)\s+(?:now\s+)?(?:been\s+)?(?:updated|revised|edited|changed|complete|made\s+clearer|ready\s+to\s+use)\b[^.!?]*[.!]?\s*\z/i
       ].freeze
 
       def assistant_message_claims_completion?(message)
-        COMPLETION_CLAIM_PATTERNS.any? { |pattern| message.match?(pattern) } ||
-          generic_mutation_claim?(message)
+        message.split(/(?<=[.!?])\s+/).any? { |sentence| mutation_claim_sentence?(sentence) }
       end
 
-      def generic_mutation_claim?(message)
-        message.split(/(?<=[.!?])\s+/).any? do |sentence|
-          next false if SAFE_NON_WRITE_SENTENCE_PATTERNS.any? { |pattern| sentence.match?(pattern) }
+      def mutation_claim_sentence?(sentence)
+        return false if SAFE_NON_WRITE_SENTENCE_PATTERNS.any? { |pattern| sentence.match?(pattern) }
 
+        COMPLETION_CLAIM_PATTERNS.any? { |pattern| sentence.match?(pattern) } ||
           sentence.match?(GENERIC_FIRST_PERSON_MUTATION_CLAIM_PATTERN) ||
-            sentence.match?(GENERIC_PASSIVE_MUTATION_CLAIM_PATTERN)
-        end
+          sentence.match?(GENERIC_PASSIVE_MUTATION_CLAIM_PATTERN) ||
+          sentence.match?(CONCRETE_PASSIVE_MUTATION_CLAIM_PATTERN) ||
+          sentence.match?(CONCRETE_READINESS_CLAIM_PATTERN) ||
+          sentence.match?(CONFIGURATION_FRAGMENT_CLAIM_PATTERN)
       end
 
       def response_schema
