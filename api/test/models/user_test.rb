@@ -27,6 +27,8 @@ class UserTest < ActiveSupport::TestCase
   end
 
   test "db seed does not undo explicit default admin role or status changes" do
+    User.where(email: "shimizutechnology@gmail.com").delete_all
+
     user = User.create!(
       clerk_id: "pending_seeded_owner",
       email: "shimizutechnology@gmail.com",
