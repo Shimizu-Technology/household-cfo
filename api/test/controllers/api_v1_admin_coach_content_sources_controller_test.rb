@@ -398,6 +398,101 @@ class ApiV1AdminCoachContentSourcesControllerTest < ActionDispatch::IntegrationT
     assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
   end
 
+  test "coach upload completion fails closed and cleans the intent after upload permission is removed" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    membership = workspace.coach_workspace_memberships.find_by!(user: coach)
+    headers = workspace_auth_headers(coach, workspace)
+    checksum = Digest::SHA256.hexdigest("guide")
+
+    token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "coach-guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "coach"
+      }, headers: headers, as: :json
+      token = response.parsed_body.fetch("upload_token")
+    end
+    assert_response :success
+    intent = CoachContentSource.find(
+      Rails.application.message_verifier(:coach_content_source_direct_upload).verify(token).deep_symbolize_keys.fetch(:source_id)
+    )
+    membership.update!(role: "viewer")
+    clear_enqueued_jobs
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ intent.id ]) do
+        post "/api/v1/admin/content_sources/complete", params: { upload_token: token }, headers: headers, as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
+    assert_equal "upload_cleanup", intent.reload.status
+    assert_no_enqueued_jobs only: CoachContentSourceProcessingJob
+  end
+
+  test "coach upload completion cleans its bound intent after workspace membership is removed" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    headers = workspace_auth_headers(coach, workspace)
+    checksum = Digest::SHA256.hexdigest("guide")
+
+    token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "coach-guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "coach"
+      }, headers: headers, as: :json
+      token = response.parsed_body.fetch("upload_token")
+    end
+    intent = CoachContentSource.find(
+      Rails.application.message_verifier(:coach_content_source_direct_upload).verify(token).deep_symbolize_keys.fetch(:source_id)
+    )
+    workspace.coach_workspace_memberships.find_by!(user: coach).destroy!
+    clear_enqueued_jobs
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ intent.id ]) do
+        post "/api/v1/admin/content_sources/complete", params: { upload_token: token }, headers: headers, as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "upload_cleanup", intent.reload.status
+  end
+
+  test "platform upload completion fails closed and cleans the intent after an admin is demoted" do
+    admin = persona_user(role: "admin")
+    checksum = Digest::SHA256.hexdigest("guide")
+
+    token = nil
+    with_presign_grant do
+      post "/api/v1/admin/content_sources/presign", params: {
+        filename: "platform-guide.txt", content_type: "text/plain", byte_size: 5,
+        checksum_sha256: checksum, upload_request_id: SecureRandom.uuid, scope: "platform"
+      }, headers: auth_headers(admin), as: :json
+      token = response.parsed_body.fetch("upload_token")
+    end
+    assert_response :success
+    intent = CoachContentSource.find(
+      Rails.application.message_verifier(:coach_content_source_direct_upload).verify(token).deep_symbolize_keys.fetch(:source_id)
+    )
+    admin.update!(role: "coach")
+    clear_enqueued_jobs
+
+    with_singleton_method(S3Service, :configured?, -> { true }) do
+      assert_enqueued_with(job: CoachContentSourceUploadExpiryJob, args: [ intent.id ]) do
+        post "/api/v1/admin/content_sources/complete", params: { upload_token: token }, headers: auth_headers(admin), as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "content_source_forbidden", response.parsed_body.fetch("code")
+    assert_equal "upload_cleanup", intent.reload.status
+    assert_no_enqueued_jobs only: CoachContentSourceProcessingJob
+  end
+
   test "candidate edit safety failures return the persisted candidate for correction" do
     coach = persona_user
     source, candidate = reviewable_candidate(owner: coach)

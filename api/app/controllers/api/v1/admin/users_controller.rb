@@ -205,16 +205,22 @@ module Api
               return render_forbidden("Switch to All workspaces / Platform to reactivate or change this shared user")
             end
 
+            workspace_guard_error = nil
             with_stable_invitation_membership_locks(
               user,
               requested_cohort_ids: cohort_ids,
               replace_memberships: false
             ) do |compatibility_cohort_ids|
+              workspace_guard_error = shared_user_attach_guard_error(user, attributes:, role:)
+              raise ActiveRecord::Rollback if workspace_guard_error
+
               if cohort_role_for(role) == "participant"
                 Mia::PersonaAssignmentCompatibility.ensure_participant_can_join!(cohort_ids: compatibility_cohort_ids)
               end
               add_cohort_memberships(user, cohort_ids, role: cohort_role_for(role))
             end
+            return render_forbidden(workspace_guard_error) if workspace_guard_error
+
             return render json: invite_response_payload(
               user.reload,
               { sent: false, status: "skipped", error: "Existing shared user attached without changing the global account" },
@@ -258,6 +264,20 @@ module Api
 
           invitation_result = send_invitation_email(user, requested: invitation_email_requested?(attributes))
           render json: invite_response_payload(user.reload, invitation_result, created: false, reactivated: was_revoked), status: :ok
+        end
+
+        def shared_user_attach_guard_error(user, attributes:, role:)
+          unless user_update_permitted_by_current_user?(user, role)
+            return "User update not permitted"
+          end
+          unless user_shared_outside_active_workspace?(user)
+            return "This shared user changed while the request was waiting. Reload and try again."
+          end
+          if user.revoked? || global_user_change_requested?(user, attributes, role: role)
+            return "Switch to All workspaces / Platform to reactivate or change this shared user"
+          end
+
+          nil
         end
 
         def users_scope

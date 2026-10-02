@@ -290,6 +290,60 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
     assert_equal [ first_cohort.id, second_cohort.id ].sort, existing.cohort_memberships.pluck(:cohort_id).sort
   end
 
+  test "shared-user attachment rechecks revocation after acquiring the stable user lock" do
+    admin = create_user(email: "shared-revocation-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-revocation-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-revocation-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    existing_cohort = Cohort.create!(name: "Shared revocation existing", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    requested_cohort = Cohort.create!(name: "Shared revocation requested", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    outside_cohort = Cohort.create!(name: "Shared revocation outside", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = create_user(email: "shared-revocation-participant@example.com", role: "participant")
+    existing.cohort_memberships.create!(cohort: existing_cohort, role: "participant")
+    existing.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+    invitation_snapshot = existing.attributes.slice("invited_at", "invited_by_user_id", "invitation_email_status")
+
+    assert_no_difference -> { existing.invitation_email_attempts.count } do
+      with_shared_user_change_after_first_check(existing, invitation_status: "revoked") do
+        post "/api/v1/admin/users", params: {
+          user: { email: existing.email, role: "participant", cohort_id: requested_cohort.id }
+        }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "revoked", existing.reload.invitation_status
+    assert_equal invitation_snapshot, existing.attributes.slice(*invitation_snapshot.keys)
+    refute existing.cohort_memberships.exists?(cohort: requested_cohort)
+  end
+
+  test "shared-user attachment rechecks global role drift after acquiring the stable user lock" do
+    admin = create_user(email: "shared-role-admin@example.com", role: "admin")
+    first_owner = create_user(email: "shared-role-first@example.com", role: "coach")
+    second_owner = create_user(email: "shared-role-second@example.com", role: "coach")
+    first_workspace = CoachWorkspaces::Provisioner.ensure_for!(first_owner)
+    second_workspace = CoachWorkspaces::Provisioner.ensure_for!(second_owner)
+    existing_cohort = Cohort.create!(name: "Shared role existing", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    requested_cohort = Cohort.create!(name: "Shared role requested", status: "active", created_by_user: first_owner, coach_workspace: first_workspace)
+    outside_cohort = Cohort.create!(name: "Shared role outside", status: "active", created_by_user: second_owner, coach_workspace: second_workspace)
+    existing = create_user(email: "shared-role-participant@example.com", role: "participant")
+    existing.cohort_memberships.create!(cohort: existing_cohort, role: "participant")
+    existing.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+
+    assert_no_difference -> { existing.invitation_email_attempts.count } do
+      with_shared_user_change_after_first_check(existing, role: "coach") do
+        post "/api/v1/admin/users", params: {
+          user: { email: existing.email, role: "participant", cohort_id: requested_cohort.id }
+        }, headers: workspace_auth_headers(admin, first_workspace), as: :json
+      end
+    end
+
+    assert_response :forbidden
+    assert_equal "coach", existing.reload.role
+    refute existing.cohort_memberships.exists?(cohort: requested_cohort)
+  end
+
   test "coach cannot assign users to unassigned cohorts" do
     admin = create_user(email: "coach-scope-admin@example.com", role: "admin")
     coach = create_user(email: "coach-scope@example.com", role: "coach")
@@ -1017,6 +1071,25 @@ class ApiV1AdminUsersControllerTest < ActionDispatch::IntegrationTest
       if first_check
         first_check = false
         user.cohort_memberships.create!(cohort: outside_cohort, role: "participant")
+      end
+      shared
+    end
+    controller.send(:private, :user_shared_outside_active_workspace?)
+    yield
+  ensure
+    controller.define_method(:user_shared_outside_active_workspace?, original_method)
+    controller.send(:private, :user_shared_outside_active_workspace?)
+  end
+
+  def with_shared_user_change_after_first_check(user, attributes)
+    controller = Api::V1::Admin::UsersController
+    original_method = controller.instance_method(:user_shared_outside_active_workspace?)
+    first_check = true
+    controller.define_method(:user_shared_outside_active_workspace?) do |candidate|
+      shared = original_method.bind_call(self, candidate)
+      if first_check && candidate.id == user.id
+        first_check = false
+        User.where(id: user.id).update_all(attributes.merge(updated_at: Time.current))
       end
       shared
     end

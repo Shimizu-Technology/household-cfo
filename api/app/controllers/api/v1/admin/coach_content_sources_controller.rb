@@ -8,6 +8,8 @@ module Api
   module V1
     module Admin
       class CoachContentSourcesController < BaseController
+        UploadPermissionRevoked = Class.new(StandardError)
+
         before_action :authenticate_user!
         before_action :require_staff!
         before_action :set_source, only: %i[show reprocess source_url destroy_source]
@@ -30,6 +32,7 @@ module Api
           metadata = upload_metadata
           return require_selected_coach_workspace! if metadata.fetch(:scope) == "coach" && coach_workspace_for_policy.nil?
           return render_forbidden("Private source upload not permitted") unless policy.can_upload_source?(metadata.fetch(:scope))
+          metadata[:coach_workspace_id] = coach_workspace_for_policy.id if metadata.fetch(:scope) == "coach"
           return storage_unavailable unless S3Service.configured?
 
           ContentSources::UploadValidator.validate_metadata!(**metadata.slice(:filename, :content_type, :byte_size, :checksum_sha256))
@@ -54,7 +57,6 @@ module Api
             source_id: source.id,
             user_id: current_user.id
           )
-          token_metadata[:coach_workspace_id] = current_coach_workspace.id if metadata.fetch(:scope) == "coach"
           token = upload_verifier.generate(token_metadata, expires_in: 15.minutes)
           render json: {
             upload_url: grant.fetch(:url),
@@ -74,6 +76,8 @@ module Api
 
           metadata = upload_verifier.verify(params.require(:upload_token)).deep_symbolize_keys
           return forbidden_upload unless metadata[:user_id].to_i == current_user.id
+          metadata[:coach_workspace_id] ||= upload_intent_source(metadata)&.coach_workspace_id if metadata[:scope].to_s == "coach"
+          return deny_upload_and_cleanup(metadata) unless current_upload_permission?(metadata)
           if metadata[:coach_workspace_id].present?
             selected_workspace = coach_workspace_for_policy
             return forbidden_upload unless selected_workspace && metadata[:coach_workspace_id].to_i == selected_workspace.id
@@ -95,6 +99,8 @@ module Api
           render json: { source: serialize_source(source.reload) }, status: created ? :created : :ok
         rescue ActiveSupport::MessageVerifier::InvalidSignature, ActionController::ParameterMissing
           render json: { error: "The private upload expired. Choose the file and try again.", code: "upload_expired" }, status: :unprocessable_entity
+        rescue UploadPermissionRevoked
+          deny_upload_and_cleanup(metadata)
         rescue ContentSources::Error => error
           claim_upload_cleanup!(upload_intent_source(metadata)) if defined?(metadata) && metadata
           render_source_error(error)
@@ -239,6 +245,8 @@ module Api
 
         def register_source!(metadata)
           with_advisory_lock("checksum:#{upload_owner_key(metadata)}:#{metadata.fetch(:scope)}:#{metadata.fetch(:checksum_sha256)}") do
+            raise UploadPermissionRevoked unless current_upload_permission_under_lock?(metadata)
+
             existing = completed_upload_source(metadata)
             if existing
               claim_upload_cleanup!(upload_intent_source(metadata)) if existing.s3_key != metadata.fetch(:s3_key)
@@ -305,22 +313,31 @@ module Api
         end
 
         def upload_intent_source(metadata)
-          source_owner_scope(metadata).find_by(
+          scope = CoachContentSource.where(
             id: metadata[:source_id],
-            upload_request_id: metadata[:upload_request_id], s3_key: metadata[:s3_key]
+            created_by_user_id: metadata[:user_id],
+            scope: metadata[:scope],
+            upload_request_id: metadata[:upload_request_id],
+            s3_key: metadata[:s3_key]
           )
+          if metadata[:scope].to_s == "coach" && metadata[:coach_workspace_id].present?
+            scope = scope.where(coach_workspace_id: metadata[:coach_workspace_id])
+          elsif metadata[:scope].to_s == "platform"
+            scope = scope.where(coach_workspace_id: nil)
+          end
+          scope.first
         end
 
         def source_owner_scope(metadata)
           if metadata.fetch(:scope).to_s == "coach"
-            CoachContentSource.where(scope: "coach", coach_workspace: current_coach_workspace)
+            CoachContentSource.where(scope: "coach", coach_workspace_id: upload_workspace_id(metadata))
           else
             CoachContentSource.where(scope: "platform", created_by_user: current_user, coach_workspace_id: nil)
           end
         end
 
         def upload_owner_key(metadata)
-          return "workspace-#{current_coach_workspace.id}" if metadata.fetch(:scope).to_s == "coach"
+          return "workspace-#{upload_workspace_id(metadata)}" if metadata.fetch(:scope).to_s == "coach"
 
           "platform-user-#{current_user.id}"
         end
@@ -344,6 +361,38 @@ module Api
             source.update!(status: "upload_cleanup") unless source.status == "upload_cleanup"
           end
           CoachContentSourceUploadExpiryJob.perform_later(source.id)
+        end
+
+        def upload_workspace_id(metadata)
+          metadata[:coach_workspace_id].presence&.to_i || upload_intent_source(metadata)&.coach_workspace_id
+        end
+
+        def current_upload_permission?(metadata)
+          ApplicationRecord.transaction(requires_new: true) do
+            current_upload_permission_under_lock?(metadata)
+          end
+        end
+
+        def current_upload_permission_under_lock?(metadata)
+          user = User.lock.find_by(id: metadata[:user_id])
+          return false unless user && user.id == current_user.id
+
+          workspace = nil
+          if metadata[:scope].to_s == "coach"
+            workspace_id = upload_workspace_id(metadata)
+            return false unless workspace_id
+
+            workspace = CoachWorkspace.find_by(id: workspace_id)
+            return false unless workspace
+
+            CoachWorkspaceMembership.where(coach_workspace_id: workspace.id, user_id: user.id).lock.load
+          end
+          Mia::ContentLibraryPolicy.new(user, workspace: workspace).can_upload_source?(metadata[:scope])
+        end
+
+        def deny_upload_and_cleanup(metadata)
+          claim_upload_cleanup!(upload_intent_source(metadata))
+          forbidden_upload
         end
 
         def with_advisory_lock(value, &block)
