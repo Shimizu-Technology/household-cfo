@@ -184,6 +184,78 @@ class ContentSourcesSecureUrlIntakeTest < ActiveSupport::TestCase
     assert sandbox.send(:rss_limit_exceeded?, baseline, baseline + headroom + 1)
   end
 
+  test "fetch sandbox captures its RSS baseline before forking" do
+    sandbox = ContentSources::FetchSandbox.new(kernel_address_space_limit: false)
+    result = nil
+    measured_pids = []
+    original = sandbox.method(:resident_bytes)
+    sandbox.define_singleton_method(:resident_bytes) do |pid|
+      measured_pids << pid
+      original.call(pid)
+    end
+    fake = Object.new
+    fake.define_singleton_method(:call) do |_url, output_path:|
+      body = "Safe source snapshot.\n"
+      File.binwrite(output_path, body)
+      ContentSources::PinnedHttpsFetcher::Result.new(
+        path: output_path, filename: "source.txt", content_type: "text/plain", byte_size: body.bytesize,
+        checksum_sha256: Digest::SHA256.hexdigest(body), redirect_count: 0
+      )
+    end
+
+    with_singleton_method(ContentSources::PinnedHttpsFetcher, :new, -> { fake }) do
+      result = sandbox.call("https://example.com/guide")
+    end
+
+    assert_equal Process.pid, measured_pids.first
+  ensure
+    result&.close!
+  end
+
+  test "fetch sandbox reaps a child when RSS measurement is malformed" do
+    reader, writer = IO.pipe
+    pid = Process.fork do
+      reader.close
+      Process.setpgrp
+      sleep 5
+    ensure
+      writer.close
+      exit! 0
+    end
+    writer.close
+    sandbox = ContentSources::FetchSandbox.new
+    sandbox.define_singleton_method(:resident_bytes) do |_pid|
+      raise ContentSources::FetchSandbox::RssMeasurementError, "malformed statm"
+    end
+
+    error = assert_raises(ContentSources::FetchSandbox::RssMeasurementError) do
+      sandbox.send(:supervise, pid, reader, 250 * 1024 * 1024)
+    end
+    assert_equal "malformed statm", error.message
+    assert_raises(Errno::ECHILD) { Process.waitpid(pid, Process::WNOHANG) }
+  ensure
+    reader&.close unless reader&.closed?
+    writer&.close unless writer&.closed?
+    begin
+      Process.kill("KILL", pid) if pid
+      Process.waitpid(pid) if pid
+    rescue Errno::ESRCH, Errno::ECHILD
+      nil
+    end
+  end
+
+  test "fetch sandbox raises a typed error for malformed proc RSS" do
+    Dir.mktmpdir("fetch-sandbox-proc") do |root|
+      FileUtils.mkdir_p(File.join(root, "4321"))
+      File.write(File.join(root, "4321", "statm"), "malformed\n")
+      sandbox = ContentSources::FetchSandbox.new(proc_root: root)
+
+      assert_raises(ContentSources::FetchSandbox::RssMeasurementError) do
+        sandbox.send(:resident_bytes, 4321)
+      end
+    end
+  end
+
   test "fetch sandbox converts a child memory exhaustion into a safe fetch error" do
     fetcher = Object.new
     fetcher.define_singleton_method(:call) { |*_args, **_kwargs| raise NoMemoryError }

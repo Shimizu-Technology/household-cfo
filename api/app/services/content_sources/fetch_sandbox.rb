@@ -7,6 +7,8 @@ require "timeout"
 
 module ContentSources
   class FetchSandbox
+    class RssMeasurementError < StandardError; end
+
     MAX_RUNTIME = 20.seconds
     MAX_RSS_GROWTH_BYTES = 192 * 1024 * 1024
     Result = Data.define(:tempfile, :filename, :content_type, :byte_size, :checksum_sha256, :redirect_count) do
@@ -34,9 +36,10 @@ module ContentSources
       output.binmode
       output.close
       reader, writer = IO.pipe
+      baseline_rss = resident_bytes(Process.pid)
       pid = fork_child(url, output.path, reader, writer)
       writer.close
-      metadata = supervise(pid, reader)
+      metadata = supervise(pid, reader, baseline_rss)
       Result.new(**metadata.transform_keys(&:to_sym).merge(tempfile: output))
     rescue ContentSources::Error
       output&.close!
@@ -77,9 +80,8 @@ module ContentSources
       end
     end
 
-    def supervise(pid, reader)
+    def supervise(pid, reader, baseline_rss)
       deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + MAX_RUNTIME
-      baseline_rss = resident_bytes(pid)
       loop do
         waited = Process.waitpid(pid, Process::WNOHANG)
         break if waited
@@ -97,6 +99,8 @@ module ContentSources
       payload.fetch("result")
     rescue JSON::ParserError, EOFError, TypeError, ArgumentError
       raise Error, "url_fetch_failed"
+    ensure
+      cleanup_child(pid) if $!
     end
 
     def apply_resource_limit
@@ -124,8 +128,8 @@ module ContentSources
       return 0 unless process_alive?(pid)
 
       ps_resident_bytes(pid)
-    rescue ArgumentError, IndexError
-      MAX_RSS_BYTES + 1
+    rescue ArgumentError, IndexError => error
+      raise RssMeasurementError, error.message
     rescue SystemCallError
       process_alive?(pid) ? ps_resident_bytes(pid) : 0
     end
@@ -137,8 +141,8 @@ module ContentSources
       Integer(output.strip, 10) * 1024
     rescue Errno::ENOENT, Errno::ESRCH
       0
-    rescue ArgumentError, SystemCallError
-      MAX_RSS_BYTES + 1
+    rescue ArgumentError, SystemCallError => error
+      raise RssMeasurementError, error.message
     end
 
     def current_address_space_bytes
@@ -168,7 +172,22 @@ module ContentSources
 
     def terminate(pid)
       Process.kill("KILL", -pid)
-    rescue Errno::ESRCH, Errno::EPERM
+    rescue Errno::ESRCH
+      begin
+        Process.kill("KILL", pid)
+      rescue Errno::ESRCH, Errno::EPERM
+        nil
+      end
+    rescue Errno::EPERM
+      nil
+    end
+
+    def cleanup_child(pid)
+      return if Process.waitpid(pid, Process::WNOHANG)
+
+      terminate(pid)
+      Process.waitpid(pid)
+    rescue Errno::ECHILD, Errno::ESRCH
       nil
     end
   end

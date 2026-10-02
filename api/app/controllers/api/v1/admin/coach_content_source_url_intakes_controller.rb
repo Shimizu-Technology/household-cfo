@@ -88,9 +88,12 @@ module Api
         rescue ContentSources::UrlCipher::ConfigurationError
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         rescue ActiveJob::EnqueueError
-          intake&.destroy! if created && intake&.status == "queued"
-          if retried && intake&.status == "queued"
-            intake.update_columns(status: "failed", error_code: "url_intake_unavailable", completed_at: Time.current)
+          if created
+            CoachContentSourceUrlIntake.where(id: intake&.id, status: "queued").delete_all
+          elsif retried
+            CoachContentSourceUrlIntake.where(id: intake&.id, status: "queued").update_all(
+              status: "failed", error_code: "url_intake_unavailable", completed_at: Time.current, updated_at: Time.current
+            )
           end
           render json: { error: ContentSources::Error::SAFE_MESSAGES.fetch("url_intake_unavailable"), code: "url_intake_unavailable" }, status: :service_unavailable
         rescue ActiveRecord::RecordNotUnique

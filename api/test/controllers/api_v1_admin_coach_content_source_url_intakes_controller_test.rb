@@ -242,6 +242,49 @@ class ApiV1AdminCoachContentSourceUrlIntakesControllerTest < ActionDispatch::Int
     assert_equal 2, intake.attempts.count
   end
 
+  test "enqueue compensation preserves a retried intake already claimed by a worker" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    intake = terminal_intake(coach: coach, workspace: workspace, status: "failed")
+    url = ContentSources::UrlCipher.decrypt(intake.encrypted_url_payload)
+
+    with_storage_configured do
+      with_singleton_method(CoachContentSourceUrlIntakeJob, :perform_later, lambda { |id|
+        CoachContentSourceUrlIntake.where(id: id, status: "queued").update_all(status: "fetching")
+        nil
+      }) do
+        post endpoint, params: { url: url, request_id: intake.request_id },
+          headers: workspace_auth_headers(coach, workspace), as: :json
+      end
+    end
+
+    assert_response :service_unavailable
+    assert_equal "fetching", intake.reload.status
+    assert_nil intake.error_code
+    assert_equal 2, intake.attempts.count
+  end
+
+  test "enqueue compensation preserves a new intake already claimed by a worker" do
+    coach = persona_user
+    workspace = CoachWorkspaces::Resolver.new(user: coach).call
+    request_id = SecureRandom.uuid
+
+    with_storage_configured do
+      with_singleton_method(CoachContentSourceUrlIntakeJob, :perform_later, lambda { |id|
+        CoachContentSourceUrlIntake.where(id: id, status: "queued").update_all(status: "fetching")
+        nil
+      }) do
+        post endpoint, params: { url: "https://example.com/claimed", request_id: request_id },
+          headers: workspace_auth_headers(coach, workspace), as: :json
+      end
+    end
+
+    assert_response :service_unavailable
+    intake = CoachContentSourceUrlIntake.find_by!(request_id: request_id)
+    assert_equal "fetching", intake.status
+    assert_equal 1, intake.attempts.count
+  end
+
   test "only an administrator can retry terminal URL object cleanup" do
     admin = persona_user(role: "admin")
     coach = persona_user
