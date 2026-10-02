@@ -1126,6 +1126,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_150000) do
     t.index ["canceled_by_user_id"], name: "index_mia_action_drafts_on_canceled_by_user_id"
     t.index ["household_id", "status", "year", "created_at"], name: "index_mia_action_drafts_on_household_status_year_created"
     t.index ["household_id"], name: "index_mia_action_drafts_on_household_id"
+    t.index ["id", "household_id"], name: "index_mia_action_drafts_on_id_and_household", unique: true
     t.index ["requested_by_user_id"], name: "index_mia_action_drafts_on_requested_by_user_id"
     t.index ["source_chat_message_id"], name: "index_mia_action_drafts_on_source_chat_message_id"
     t.check_constraint "draft_type::text = ANY (ARRAY['budget_edit'::character varying, 'household_setup'::character varying, 'income_schedule'::character varying, 'debt_plan'::character varying, 'asset_plan'::character varying, 'goal_plan'::character varying, 'action_plan'::character varying]::text[])", name: "mia_action_drafts_type_valid"
@@ -1628,6 +1629,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_150000) do
   add_foreign_key "merchant_category_rules", "households"
   add_foreign_key "mia_action_draft_applications", "households"
   add_foreign_key "mia_action_draft_applications", "mia_action_drafts"
+  add_foreign_key "mia_action_draft_applications", "mia_action_drafts", column: ["mia_action_draft_id", "household_id"], primary_key: ["id", "household_id"], name: "fk_mia_plan_applications_draft_household"
   add_foreign_key "mia_action_draft_applications", "users"
   add_foreign_key "mia_action_drafts", "chat_messages", column: "assistant_chat_message_id"
   add_foreign_key "mia_action_drafts", "chat_messages", column: "source_chat_message_id"

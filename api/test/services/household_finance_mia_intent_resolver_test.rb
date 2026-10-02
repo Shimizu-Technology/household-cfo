@@ -70,6 +70,49 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal [ "update_account", "update_goal" ], result.write_plan.fetch(:actions).map { |entry| entry.dig(:action, :type) }
   end
 
+  test "preserves exact raw spans when a long compound request contains repeated whitespace and newlines" do
+    context = intent_context.deep_merge(
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],
+      archived_accounts: [],
+      active_goals: [ { id: 99, label: "Family trip", goal_type: "travel", current_amount: 500 } ],
+      archived_goals: []
+    )
+    tail = "Set Everyday   Checking\n to $250\n\nand set Family trip  progress to $900"
+    message = ("x" * (ChatMessage::MAX_CONTENT_LENGTH - tail.length)) + tail
+    captured_payload = nil
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(payload) do
+        captured_payload = payload
+        resolution_json(
+          intent: "action_plan", continuation: false, resolved_message: "Prepare both requested updates",
+          topic: { type: "action_plan", title: "Two household changes", subject: "Checking and trip" },
+          action: default_action,
+          write_plan: {
+            title: "Checking and trip",
+            actions: [
+              { source_text: "Set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "250") },
+              { source_text: "and set Family trip progress to $900", depends_on: [], action: default_action.merge(type: "update_goal", goal_id: 99, goal_name: "Family trip", current_amount: "900") }
+            ]
+          }
+        )
+      end
+    )
+
+    result = resolver.call
+
+    assert_equal ChatMessage::MAX_CONTENT_LENGTH, message.length
+    assert result.action_plan?, result.to_h.inspect
+    expected_sources = [ "Set Everyday   Checking\n to $250", "and set Family trip  progress to $900" ]
+    assert_equal expected_sources, result.write_plan.fetch(:actions).map { |entry| entry.fetch(:source_text) }
+    result.write_plan.fetch(:actions).each do |entry|
+      assert_equal entry.fetch(:source_text), message[entry.fetch(:source_start)...entry.fetch(:source_end)]
+    end
+    assert_includes captured_payload.fetch(:messages).last.fetch(:content), message.to_json
+  end
+
   test "resolves a grounded negative checking balance as an actionable asset review" do
     resolver = HouseholdFinance::MiaIntentResolver.new(
       user_message: "Add Everyday Checking with a -$125.50 balance",

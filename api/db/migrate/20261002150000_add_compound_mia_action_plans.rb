@@ -35,6 +35,8 @@ class AddCompoundMiaActionPlans < ActiveRecord::Migration[8.0]
       "source_start IS NULL AND source_end IS NULL OR source_start >= 0 AND source_end > source_start",
       name: "mia_action_items_source_span_valid"
 
+    backfill_terminal_item_states!
+
     create_table :mia_action_draft_applications do |t|
       t.references :mia_action_draft, null: false, foreign_key: true
       t.references :household, null: false, foreign_key: true
@@ -50,6 +52,11 @@ class AddCompoundMiaActionPlans < ActiveRecord::Migration[8.0]
     end
     add_index :mia_action_draft_applications, [ :household_id, :user_id, :idempotency_key ], unique: true,
       name: "index_mia_plan_applications_on_actor_and_key"
+    add_index :mia_action_drafts, [ :id, :household_id ], unique: true,
+      name: "index_mia_action_drafts_on_id_and_household"
+    add_foreign_key :mia_action_draft_applications, :mia_action_drafts,
+      column: [ :mia_action_draft_id, :household_id ], primary_key: [ :id, :household_id ],
+      name: "fk_mia_plan_applications_draft_household"
     add_check_constraint :mia_action_draft_applications,
       "char_length(idempotency_key) BETWEEN 1 AND 200",
       name: "mia_plan_applications_key_length"
@@ -65,21 +72,29 @@ class AddCompoundMiaActionPlans < ActiveRecord::Migration[8.0]
   end
 
   def down
-    drop_table :mia_action_draft_applications
-    remove_check_constraint :mia_action_items, name: "mia_action_items_source_span_valid"
-    remove_check_constraint :mia_action_items, name: "mia_action_items_dependencies_array"
-    remove_columns :mia_action_items, :source_text, :source_start, :source_end, :dependencies, :applied_at,
-      :canceled_at, :canceled_by_user_id
+    raise ActiveRecord::IrreversibleMigration,
+      "Compound Mia plan applications and per-item terminal state cannot be safely discarded once feature rows exist."
+  end
 
-    remove_check_constraint :mia_action_drafts, name: "mia_action_drafts_status_valid"
-    remove_check_constraint :mia_action_drafts, name: "mia_action_drafts_type_valid"
-    remove_check_constraint :mia_action_items, name: "mia_action_items_action_type_valid"
-    add_check_constraint :mia_action_drafts, "status IN ('pending', 'applied', 'canceled')", name: "mia_action_drafts_status_valid"
-    add_check_constraint :mia_action_drafts,
-      "draft_type IN ('budget_edit', 'household_setup', 'income_schedule', 'debt_plan', 'asset_plan', 'goal_plan')",
-      name: "mia_action_drafts_type_valid"
-    add_check_constraint :mia_action_items,
-      "action_type IN (#{(ACTION_TYPES - %w[update_runway_policy update_transition_policy update_household_profile confirm_household_setup]).map { |value| connection.quote(value) }.join(', ')})",
-      name: "mia_action_items_action_type_valid"
+  def backfill_terminal_item_states!
+    execute <<~SQL.squish
+      UPDATE mia_action_items AS items
+      SET applied_at = COALESCE(drafts.applied_at, drafts.updated_at, items.updated_at)
+      FROM mia_action_drafts AS drafts
+      WHERE items.mia_action_draft_id = drafts.id
+        AND drafts.status = 'applied'
+        AND items.applied_at IS NULL
+    SQL
+
+    execute <<~SQL.squish
+      UPDATE mia_action_items AS items
+      SET canceled_at = COALESCE(drafts.canceled_at, drafts.updated_at, items.updated_at),
+          canceled_by_user_id = drafts.canceled_by_user_id
+      FROM mia_action_drafts AS drafts
+      WHERE items.mia_action_draft_id = drafts.id
+        AND drafts.status = 'canceled'
+        AND drafts.canceled_by_user_id IS NOT NULL
+        AND items.canceled_at IS NULL
+    SQL
   end
 end

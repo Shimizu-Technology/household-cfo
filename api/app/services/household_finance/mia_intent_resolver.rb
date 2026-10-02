@@ -153,7 +153,8 @@ module HouseholdFinance
     end
 
     def initialize(user_message:, context:, api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MIA_INTENT_MODEL", ENV.fetch("OPENROUTER_MIA_MODEL", ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL))), transport: nil)
-      @user_message = user_message.to_s.squish
+      @raw_user_message = user_message.to_s
+      @user_message = @raw_user_message.squish
       @context = context.deep_symbolize_keys
       @api_key = api_key.to_s.strip
       @model = model.to_s.strip.presence || DEFAULT_MODEL
@@ -182,7 +183,7 @@ module HouseholdFinance
 
     private
 
-    attr_reader :user_message, :context, :api_key, :model, :transport
+    attr_reader :raw_user_message, :user_message, :context, :api_key, :model, :transport
 
     def deterministic_setup_result
       return @deterministic_setup_result if defined?(@deterministic_setup_result)
@@ -477,7 +478,7 @@ module HouseholdFinance
     def resolver_request
       <<~PROMPT
         REQUEST_JSON:
-        #{JSON.generate({ current_user_message: user_message, context: context })}
+        #{JSON.generate({ current_user_message: raw_user_message, context: context })}
       PROMPT
     end
 
@@ -744,12 +745,13 @@ module HouseholdFinance
         entry = raw_entry.to_h.deep_symbolize_keys
         source_text = entry.fetch(:source_text).to_s
         raise ArgumentError, "Write-plan source is missing" if source_text.blank?
-        start = user_message.index(source_text, cursor)
+        start, finish = raw_source_span(source_text, cursor)
         raise ArgumentError, "Write-plan source was not participant-authored" unless start
-        normalized_source = normalized_text(source_text)
+        exact_source = raw_user_message[start...finish]
+        normalized_source = normalized_text(exact_source)
         raise ArgumentError, "Duplicate write-plan source" if seen_sources[normalized_source]
         seen_sources[normalized_source] = true
-        cursor = start + source_text.length
+        cursor = finish
 
         dependencies = Array(entry.fetch(:depends_on, [])).map { |value| Integer(value) }.uniq.sort
         raise ArgumentError, "Write-plan dependency must point backward" unless dependencies.all? { |dependency| dependency >= 0 && dependency < index }
@@ -762,12 +764,24 @@ module HouseholdFinance
           action_amounts_grounded?(action, history_scope: :none, prior_action: nil) &&
           goal_date_grounded?(action, history_scope: :none, prior_action: nil)
 
-        { source_text: source_text, source_start: start, source_end: start + source_text.length, depends_on: dependencies, action: action }
+        { source_text: exact_source, source_start: start, source_end: finish, depends_on: dependencies, action: action }
       end
       { title: bounded(plan[:title], 160).presence || "Household action plan", actions: actions }
     rescue KeyError, TypeError, ArgumentError => e
       Rails.logger.warn("[HouseholdFinance::MiaIntentResolver] invalid write plan: #{e.message}")
       {}
+    end
+
+    def raw_source_span(source_text, cursor)
+      exact_start = raw_user_message.index(source_text, cursor)
+      return [ exact_start, exact_start + source_text.length ] if exact_start
+
+      tokens = source_text.unicode_normalize(:nfkc).strip.split(/[[:space:]]+/)
+      return [ nil, nil ] if tokens.empty?
+
+      pattern = Regexp.new(tokens.map { |token| Regexp.escape(token) }.join("[[:space:]]+"))
+      match = pattern.match(raw_user_message, cursor)
+      match ? [ match.begin(0), match.end(0) ] : [ nil, nil ]
     end
 
     def normalize_read_only_plan(value, action:, intent:, continuation:)

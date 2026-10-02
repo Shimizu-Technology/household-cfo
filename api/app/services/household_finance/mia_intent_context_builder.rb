@@ -116,33 +116,51 @@ module HouseholdFinance
 
     def pending_budget_reviews
       presented = Array(annual_plan[:pending_mia_action_drafts]).first(MAX_PENDING_DRAFTS)
+      presented_by_id = presented.index_by { |draft| draft[:id].to_i }
+      ordered_ids = (presented_by_id.keys + referenced_action_plan_ids).uniq
       drafts_by_id = household.mia_action_drafts
-        .where(id: presented.filter_map { |draft| draft[:id] }, status: %w[pending partially_applied])
+        .where(id: ordered_ids, status: %w[pending partially_applied])
         .includes(:mia_action_items)
         .index_by(&:id)
-      presented.map do |draft|
-        persisted = drafts_by_id[draft[:id].to_i]
+      ordered_ids.filter_map do |draft_id|
+        persisted = drafts_by_id[draft_id]
+        next unless persisted
+
+        all_items = persisted.mia_action_items.to_a
+        items = all_items.first(MiaActionPlanBuilder::MAX_ACTIONS)
+        item_ids_by_position = items.index_by(&:position).transform_values(&:id)
         {
-          id: draft[:id],
-          title: bounded(draft[:title], 120),
-          summary: bounded(draft[:summary], 240),
-          status: draft[:status],
-          year: draft[:year],
-          draft_type: draft[:draft_type],
-          remaining_item_count: draft[:remaining_item_count],
-          items: persisted&.draft_type == "action_plan" ? persisted.mia_action_items.first(12).map { |item| pending_plan_item(item) } : []
+          id: persisted.id,
+          title: bounded(persisted.title, 120),
+          summary: bounded(persisted.summary, 240),
+          status: persisted.status,
+          year: persisted.year,
+          draft_type: persisted.draft_type,
+          remaining_item_count: all_items.count { |item| item.applied_at.blank? && item.canceled_at.blank? },
+          items: persisted.draft_type == "action_plan" ? items.map { |item| pending_plan_item(item, item_ids_by_position) } : []
         }
       end
     end
 
-    def pending_plan_item(item)
+    def referenced_action_plan_ids
+      topics = [ conversation_context[:active_topic], *Array(conversation_context[:open_topics]).first(8) ]
+      topics.filter_map do |raw_topic|
+        topic = raw_topic.to_h.deep_symbolize_keys
+        next unless topic[:schema_version].to_i >= 5
+
+        topic.dig(:action_plan, :draft_id).presence || topic[:mia_action_draft_id].presence
+      end.map(&:to_i).select(&:positive?).uniq
+    end
+
+    def pending_plan_item(item, item_ids_by_position)
       {
         id: item.id,
         position: item.position,
         domain: item.operation_key.to_s.split(".").first.presence || "plan",
         label: bounded(item.label, 120),
         operation_type: bounded(item.operation_key, 120),
-        status: item.applied_at.present? ? "applied" : item.canceled_at.present? ? "canceled" : "pending"
+        status: item.applied_at.present? ? "applied" : item.canceled_at.present? ? "canceled" : "pending",
+        dependency_item_ids: Array(item.dependencies).filter_map { |position| item_ids_by_position[position.to_i] }
       }
     end
 

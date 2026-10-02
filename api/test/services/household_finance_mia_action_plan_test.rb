@@ -242,8 +242,78 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
     assert_includes missing.response, "exact message text"
   end
 
-  test "database plan reference survives more than thirty two transcript messages" do
-    draft = persist(build_plan.proposal)
+  test "rejects a current nonbudget change mixed with a future budget change without persisting a draft" do
+    category = @manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    prompt = "Set checking to $250 and set #{category.name} to $700 next year"
+
+    assert_no_difference("MiaActionDraft.count") do
+      result = HouseholdFinance::MiaActionPlanBuilder.new(
+        @household,
+        user: @user,
+        annual_budget_manager: @manager,
+        selected_month: Date.current.month,
+        raw_input: prompt,
+        actions: [
+          {
+            source_text: "Set checking to $250", depends_on: [],
+            action: { type: "update_account", account_id: @account.id, account_name: @account.label, amount: "250" }
+          },
+          {
+            source_text: "set #{category.name} to $700 next year", depends_on: [],
+            action: {
+              type: "set_allocation", category_id: category.id, category_name: category.name,
+              amount: "700", months: [ Date.current.month ], year: Date.current.year + 1
+            }
+          }
+        ]
+      ).call
+
+      assert_nil result.proposal
+      assert_includes result.response, "only the budget year you are viewing"
+      assert_includes result.response, "Nothing changed"
+    end
+  end
+
+  test "rejects one compound plan that targets multiple budget years" do
+    category = @manager.create_category!(name: "Groceries", stack_key: "discretionary", monthly_amount: 500)
+    prompt = "Set #{category.name} to $700 next year and to $800 the year after"
+
+    result = HouseholdFinance::MiaActionPlanBuilder.new(
+      @household,
+      user: @user,
+      annual_budget_manager: @manager,
+      selected_month: Date.current.month,
+      raw_input: prompt,
+      actions: [
+        {
+          source_text: "Set #{category.name} to $700 next year", depends_on: [],
+          action: {
+            type: "set_allocation", category_id: category.id, category_name: category.name,
+            amount: "700", months: [ Date.current.month ], year: Date.current.year + 1
+          }
+        },
+        {
+          source_text: "to $800 the year after", depends_on: [],
+          action: {
+            type: "set_allocation", category_id: category.id, category_name: category.name,
+            amount: "800", months: [ Date.current.month ], year: Date.current.year + 2
+          }
+        }
+      ]
+    ).call
+
+    assert_nil result.proposal
+    assert_includes result.response, (Date.current.year + 1).to_s
+    assert_includes result.response, (Date.current.year + 2).to_s
+    assert_includes result.response, "Nothing changed"
+  end
+
+  test "database plan reference survives old transcript newer reviews and a changed budget year" do
+    draft = persist(build_plan(dependencies: [ [], [ 0 ] ]).proposal)
+    open_draft = persist(build_plan.proposal)
+    first_item, second_item = draft.mia_action_items.to_a
+    first_item.update!(applied_at: Time.current)
+    draft.update!(status: "partially_applied")
     session = @household.chat_sessions.find_by!(user: @user)
     34.times do |index|
       session.chat_messages.create!(role: index.even? ? "user" : "assistant", content: "Unrelated context #{index}")
@@ -252,26 +322,50 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
       active_topic: {
         schema_version: 5, id: SecureRandom.uuid, type: "action_plan", title: draft.title,
         subject: "Household action plan", status: "pending_review", mia_action_draft_id: draft.id
-      }
+      },
+      open_topics: [ {
+        schema_version: 5, id: SecureRandom.uuid, type: "action_plan", title: open_draft.title,
+        subject: "Another household action plan", status: "pending_review", mia_action_draft_id: open_draft.id
+      } ]
     )
 
     context = HouseholdFinance::ConversationContextBuilder.new(session, household: @household).call
 
     assert_equal 5, context.dig(:active_topic, :schema_version)
     assert_equal draft.id, context.dig(:active_topic, :action_plan, :draft_id)
-    assert_equal draft.mia_action_items.pluck(:id), context.dig(:active_topic, :action_plan, :remaining_item_ids)
+    assert_equal [ second_item.id ], context.dig(:active_topic, :action_plan, :remaining_item_ids)
+    assert_equal open_draft.id, context.dig(:open_topics, 0, :action_plan, :draft_id)
+
+    viewed_year = Date.current.year + 1
+    12.times do |index|
+      @household.mia_action_drafts.create!(
+        requested_by_user: @user, status: "pending", draft_type: "goal_plan", year: viewed_year,
+        title: "Newer review #{index}", summary: "A newer pending review", source_prompt: "Newer request #{index}"
+      )
+    end
+    viewed_manager = HouseholdFinance::AnnualBudgetManager.new(@household, year: viewed_year)
+    viewed_manager.ensure_plan!
+    viewed_plan = viewed_manager.plan_data
+    refute_includes viewed_plan.fetch(:pending_mia_action_drafts).map { |review| review.fetch(:id) }, draft.id
 
     durable_context = HouseholdFinance::MiaIntentContextBuilder.new(
       @household,
-      annual_plan: @manager.plan_data,
-      conversation_context: { active_topic: {}, open_topics: [], rolling_summary: nil },
+      annual_plan: viewed_plan,
+      conversation_context: context,
       transcript: session.chat_messages.order(id: :desc).limit(32).reverse.map { |message| { role: message.role, content: message.content } },
       selected_month: Date.current.month
     ).call
     pending_plan = durable_context.fetch(:pending_budget_reviews).find { |review| review.fetch(:id) == draft.id }
+    open_pending_plan = durable_context.fetch(:pending_budget_reviews).find { |review| review.fetch(:id) == open_draft.id }
     assert pending_plan
-    assert_equal draft.mia_action_items.pluck(:id), pending_plan.fetch(:items).map { |item| item.fetch(:id) }
+    assert open_pending_plan
+    assert_equal open_draft.mia_action_items.pluck(:id), open_pending_plan.fetch(:items).map { |item| item.fetch(:id) }
+    assert_equal [ first_item.id, second_item.id ], pending_plan.fetch(:items).map { |item| item.fetch(:id) }
     assert_equal %w[account goal], pending_plan.fetch(:items).map { |item| item.fetch(:domain) }
+    assert_equal %w[applied pending], pending_plan.fetch(:items).map { |item| item.fetch(:status) }
+    assert_equal [ [], [ first_item.id ] ], pending_plan.fetch(:items).map { |item| item.fetch(:dependency_item_ids) }
+    assert_equal "partially_applied", pending_plan.fetch(:status)
+    assert_equal 1, pending_plan.fetch(:remaining_item_count)
     refute durable_context.to_json.include?(draft.source_prompt)
     refute durable_context.to_json.include?("prepared_operation")
 
@@ -281,10 +375,10 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
       annual_budget_manager: @manager,
       selected_month: Date.current.month,
       raw_input: "Bring back only the goal part",
-      command: { type: "review_pending_action", draft_id: draft.id, selected_item_ids: [ draft.mia_action_items.second.id ] }
+      command: { type: "review_pending_action", draft_id: draft.id, selected_item_ids: [ second_item.id ] }
     ).call
     assert_equal draft, selected.existing_draft
-    assert_equal [ draft.mia_action_items.second.id ], selected.selected_item_ids
+    assert_equal [ second_item.id ], selected.selected_item_ids
     assert_includes selected.response, "selected the requested steps"
   end
 

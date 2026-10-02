@@ -1,6 +1,10 @@
 module HouseholdFinance
   class MiaActionPlanBuilder
     MAX_ACTIONS = 12
+    BUDGET_ACTION_TYPES = %w[
+      set_allocation increase_allocation decrease_allocation move_allocation
+      create_category rename_category reclassify_category archive_category restore_category
+    ].freeze
 
     def initialize(household, user:, annual_budget_manager:, selected_month:, raw_input:, actions:)
       @household = household
@@ -17,6 +21,19 @@ module HouseholdFinance
 
       normalized = normalize_actions
       return normalized if normalized.is_a?(MiaActionDraftBuilder::Result)
+      incompatible_budget_years = normalized.filter_map do |entry|
+        action = entry.fetch(:action)
+        next unless action[:type].to_s.in?(BUDGET_ACTION_TYPES)
+
+        year = action[:year].to_i
+        year.positive? ? year : annual_budget_manager.year
+      end.uniq - [ annual_budget_manager.year ]
+      if incompatible_budget_years.any?
+        return validation(
+          "One ordered plan can change only the budget year you are viewing (#{annual_budget_manager.year}). " \
+          "Review changes for #{incompatible_budget_years.sort.to_sentence} separately. Nothing changed."
+        )
+      end
 
       results = normalized.map do |entry|
         action = entry.fetch(:action)
