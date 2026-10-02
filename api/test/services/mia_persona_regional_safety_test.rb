@@ -235,16 +235,15 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     original_version = publish_persona(persona, actor: owner)
 
     membership.update!(role: "viewer")
-    persona.update!(description: "The source editor became a viewer after capture.")
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     assert persona.valid?
-    error = assert_raises(Mia::PersonaPublisher::PublicationError) { publish_persona(persona, actor: owner) }
-    assert_equal "There are no persona changes to publish", error.message
-    assert_equal original_version, persona.reload.current_published_version
+    viewer_version = publish_persona(persona, actor: owner)
+    assert_equal "coach", viewer_version.config.dig("phrases", 0, "source_role_at_capture")
 
     membership.destroy!
-    persona.update!(description: "The source editor left after capture.")
-    error = assert_raises(Mia::PersonaPublisher::PublicationError) { publish_persona(persona, actor: owner) }
-    assert_equal "There are no persona changes to publish", error.message
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Warm and encouraging." }))
+    removed_version = publish_persona(persona, actor: owner)
+    assert_equal "coach", removed_version.config.dig("phrases", 0, "source_role_at_capture")
 
     persona.restore_version_to_draft!(original_version)
     assert persona.reload.valid?
@@ -279,13 +278,16 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     original_version = publish_persona(persona, actor: coach)
 
     participant.update!(role: "coach", invitation_status: "revoked")
-    persona.update!(description: "The participant source was promoted and revoked after capture.")
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     assert persona.valid?
-    error = assert_raises(Mia::PersonaPublisher::PublicationError) { publish_persona(persona, actor: coach) }
-    assert_equal "There are no persona changes to publish", error.message
-    assert_equal original_version, persona.reload.current_published_version
+    revoked_version = publish_persona(persona, actor: coach)
+    assert_equal "participant", revoked_version.config.dig("phrases", 0, "source_role_at_capture")
 
     participant.destroy!
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Warm and encouraging." }))
+    deleted_version = publish_persona(persona, actor: coach)
+    assert_equal "participant", deleted_version.config.dig("phrases", 0, "source_role_at_capture")
+
     persona.restore_version_to_draft!(original_version)
     assert persona.reload.valid?
     assert_equal "participant", persona.draft_config.dig("phrases", 0, "source_role_at_capture")

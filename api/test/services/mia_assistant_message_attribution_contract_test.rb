@@ -9,7 +9,7 @@ class MiaAssistantMessageAttributionContractTest < ActiveSupport::TestCase
   setup do
     @coach = persona_user
     @participant = persona_user(role: "participant")
-    @persona, @version = publish_persona
+    @persona, @version = create_and_publish_persona
     @runtime = Mia::RuntimePersona.new(@version)
     @cohort = Cohort.create!(
       name: "Attribution cohort #{SecureRandom.hex(6)}",
@@ -85,7 +85,7 @@ class MiaAssistantMessageAttributionContractTest < ActiveSupport::TestCase
 
   private
 
-  def publish_persona
+  def create_and_publish_persona
     config = persona_configuration(assistant_name: "Coach Lila", coach_name: "Coach June")
     persona = CoachPersona.create!(
       name: "Coach Lila",
@@ -98,6 +98,6 @@ class MiaAssistantMessageAttributionContractTest < ActiveSupport::TestCase
   end
 
   def publish_current
-    PersonaTestHelper.instance_method(:publish_persona).bind_call(self, @persona, actor: @coach)
+    publish_persona(@persona, actor: @coach)
   end
 end

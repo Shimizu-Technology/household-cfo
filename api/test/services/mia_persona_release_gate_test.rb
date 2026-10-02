@@ -502,6 +502,60 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     refute version.reload.release_evidence_valid?
   end
 
+  test "historical behavioral preview evidence survives preview context changes while new evidence requires the current context" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    version = publish_persona(persona, actor: owner)
+    evidence = version.behavioral_preview_evidence
+    old_context_digest = evidence.context_digest
+    new_context_digest = "f" * 64
+
+    original_context_digest = Mia::PersonaPreviewer.method(:context_digest)
+    Mia::PersonaPreviewer.define_singleton_method(:context_digest) { new_context_digest }
+    begin
+      assert evidence.reload.integrity_valid?
+      assert version.reload.release_evidence_valid?
+
+      duplicate = evidence.release_candidate.behavioral_preview_evidences.new(
+        prompt: evidence.prompt,
+        output: evidence.output,
+        response_source: evidence.response_source,
+        model_identifier: evidence.model_identifier,
+        provider_request_id: "gen-new-context-test",
+        privacy_scope: evidence.privacy_scope,
+        context_digest: old_context_digest,
+        candidate_digest: evidence.candidate_digest,
+        config_digest: evidence.config_digest,
+        content_manifest_digest: evidence.content_manifest_digest,
+        phrase_manifest_digest: evidence.phrase_manifest_digest,
+        generated_by_user: owner,
+        generated_at: Time.current
+      )
+      duplicate.evidence_digest = CoachPersonaBehavioralPreviewEvidence.digest_for(duplicate)
+
+      refute duplicate.valid?
+      assert_includes duplicate.errors[:context_digest], "must match the current preview context"
+    ensure
+      Mia::PersonaPreviewer.define_singleton_method(:context_digest, original_context_digest)
+    end
+  end
+
+  test "release candidate currency fails closed when the draft cannot be snapshotted" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: owner).call!
+
+    original_snapshot = Mia::PersonaRelease::CandidateBuilder.method(:snapshot)
+    Mia::PersonaRelease::CandidateBuilder.define_singleton_method(:snapshot) do |_persona|
+      raise Mia::PersonaRelease::CandidateBuilder::Error, "invalid draft"
+    end
+    begin
+      refute candidate.current_for?(persona)
+    ensure
+      Mia::PersonaRelease::CandidateBuilder.define_singleton_method(:snapshot, original_snapshot)
+    end
+  end
+
   test "provider request identity is part of immutable behavioral preview evidence" do
     owner = persona_user
     persona = create_persona(creator: owner)

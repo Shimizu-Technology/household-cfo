@@ -54,8 +54,7 @@ module Mia
         payload.merge!(
           draft_revision: persona.draft_revision,
           has_unpublished_changes: unpublished_changes?,
-          preview_required: preview_required?,
-          release_readiness: Mia::PersonaRelease::Readiness.new(persona: persona, actor: policy.user).call
+          preview_required: preview_required?
         )
       end
       payload
@@ -72,6 +71,7 @@ module Mia
         assignments: visible_assignments.includes(:cohort, :assigned_by_user, :coach_persona_version).order(created_at: :desc).map { |assignment| serialize_assignment(assignment) }
       )
       if private_configuration_visible?
+        payload[:release_readiness] = Mia::PersonaRelease::Readiness.new(persona: persona, actor: policy.user).call
         payload[:draft] = persona.draft_config
         payload[:phrase_artifact_access] = phrase_artifact_access
         payload[:approved_phrase_promotions] = approved_phrase_promotions
@@ -192,13 +192,25 @@ module Mia
 
     def restore_blocked_reason(version)
       return "current_version" if version.id == persona.current_published_version_id
-      return "draft_already_matches" if version.config_digest == PersonaSchema.digest(persona.draft_config) &&
-        version.content_manifest_digest == persona.draft_content_manifest_digest &&
-        version.phrase_manifest_digest == persona.draft_phrase_manifest_digest
+      digests = draft_digests
+      return "draft_unavailable" unless digests
+      return "draft_already_matches" if version.config_digest == digests.fetch(:config) &&
+        version.content_manifest_digest == digests.fetch(:content) &&
+        version.phrase_manifest_digest == digests.fetch(:phrases)
 
       nil
+    end
+
+    def draft_digests
+      return @draft_digests if defined?(@draft_digests)
+
+      @draft_digests = {
+        config: PersonaSchema.digest(persona.draft_config),
+        content: persona.draft_content_manifest_digest,
+        phrases: persona.draft_phrase_manifest_digest
+      }
     rescue ArgumentError
-      nil
+      @draft_digests = nil
     end
 
     def serialize_preview

@@ -94,7 +94,10 @@ module Mia
       attr_reader :persona, :actor
 
       def authorize!
-        raise Error, "Only a workspace editor can prepare a release candidate" unless persona.coach_workspace&.allows?(actor, :edit)
+        workspace = persona.coach_workspace
+        return if workspace&.allows?(actor, :edit) || workspace&.allows?(actor, :publish)
+
+        raise Error, "Only a workspace editor or publisher can prepare a release candidate"
       end
     end
   end

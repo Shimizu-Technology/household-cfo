@@ -144,6 +144,33 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     assert_nil responder.provider_request_id
   end
 
+  test "ordinary chat accepts live responses without a bounded concrete model identifier" do
+    [ nil, "m" * 201 ].each do |model|
+      response = Net::HTTPOK.new("1.1", "200", "OK")
+      response.instance_variable_set(:@read, true)
+      response.body = JSON.generate(
+        id: "gen-test-ordinary-chat",
+        model: model,
+        choices: [ { message: { content: "Review the exact facts, then choose one next step." } } ]
+      )
+      start = lambda do |*_args, **_options, &block|
+        http = Object.new
+        http.define_singleton_method(:request) { |_request| response }
+        block.call(http)
+      end
+      responder = Demo::MiaResponder.new(api_key: "test-key")
+
+      result = with_net_http_start(start) do
+        responder.call("What should I review?", context: { metrics: {} }.to_json)
+      end
+
+      assert_equal "Review the exact facts, then choose one next step.", result
+      assert_equal "live_model", responder.response_source
+      assert_nil responder.model_identifier
+      assert_equal "gen-test-ordinary-chat", responder.provider_request_id
+    end
+  end
+
   test "fallback discretionary purchase response preserves local demo line when api key is missing" do
     response = Demo::MiaResponder.new(api_key: nil).call("Can I buy the purse?")
 

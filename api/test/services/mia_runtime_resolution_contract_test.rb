@@ -46,7 +46,7 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
   end
 
   test "persona resolver returns the effective cohort published runtime persona" do
-    persona, version = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
+    persona, version = create_and_publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
     cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
     membership = add_participant(cohort)
     CohortPersonaAssignment.create!(
@@ -81,8 +81,8 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
   end
 
   test "persona resolver falls back when active cohort assignments conflict" do
-    first_persona, = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
-    second_persona, = publish_persona(assistant_name: "Coach Nia", coach_name: "Coach Ana")
+    first_persona, = create_and_publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
+    second_persona, = create_and_publish_persona(assistant_name: "Coach Nia", coach_name: "Coach Ana")
     active = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
     enrolling = create_cohort(status: "enrolling", starts_on: Date.new(2026, 9, 1))
     active_membership = add_participant(active)
@@ -97,7 +97,7 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
   end
 
   test "persona resolver never serves an assignment pinned to a superseded version" do
-    persona, first = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
+    persona, first = create_and_publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
     cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
     membership = add_participant(cohort)
     assignment = CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: @coach)
@@ -130,7 +130,7 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
   end
 
   test "persona resolver uses neutral fallback for an invalid current custom version" do
-    persona, version = publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
+    persona, version = create_and_publish_persona(assistant_name: "Coach Lila", coach_name: "Coach June")
     cohort = create_cohort(status: "active", starts_on: Date.new(2026, 8, 1))
     membership = add_participant(cohort)
     CohortPersonaAssignment.create!(cohort: cohort, coach_persona: persona, assigned_by_user: @coach)
@@ -166,7 +166,7 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
     )
   end
 
-  def publish_persona(assistant_name:, coach_name:)
+  def create_and_publish_persona(assistant_name:, coach_name:)
     config = persona_configuration(assistant_name: assistant_name, coach_name: coach_name)
     persona = CoachPersona.create!(
       name: assistant_name,
@@ -178,6 +178,6 @@ class MiaRuntimeResolutionContractTest < ActiveSupport::TestCase
   end
 
   def publish_current(persona)
-    PersonaTestHelper.instance_method(:publish_persona).bind_call(self, persona, actor: @coach)
+    publish_persona(persona, actor: @coach)
   end
 end

@@ -1178,6 +1178,8 @@ function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft
                 ? <StatusBadge status="current" />
                 : version.restore_blocked_reason === 'draft_already_matches'
                   ? <StatusBadge status="matches draft" />
+                  : version.restore_blocked_reason === 'draft_unavailable'
+                    ? <StatusBadge status="draft unavailable" />
                   : version.restore_to_draft_allowed && persona.permissions.edit
                     ? <Button size="compact" variant="ghost" disabled={dirty || pendingAction !== null} onClick={() => onRestoreVersionToDraft(version.id, version.number)}>{pendingAction === 'draft_restore' ? 'Restoring…' : 'Restore to draft'}</Button>
                     : null}

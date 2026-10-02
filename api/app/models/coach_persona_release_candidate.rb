@@ -16,7 +16,7 @@ class CoachPersonaReleaseCandidate < ApplicationRecord
     :manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :sealed_at, presence: true
   validate :snapshots_are_bounded
-  validate :creator_can_edit_persona
+  validate :creator_can_prepare_persona
   validate :manifest_matches_snapshot
   validate :immutable_record, on: :update
   before_destroy :prevent_destroy
@@ -31,7 +31,7 @@ class CoachPersonaReleaseCandidate < ApplicationRecord
     expected = Mia::PersonaRelease::CandidateBuilder.snapshot(persona)
     manifest_digest.bytesize == expected.fetch(:manifest_digest).bytesize &&
       ActiveSupport::SecurityUtils.secure_compare(manifest_digest, expected.fetch(:manifest_digest))
-  rescue ArgumentError, KeyError
+  rescue ArgumentError, KeyError, Mia::PersonaRelease::CandidateBuilder::Error
     false
   end
 
@@ -77,10 +77,11 @@ class CoachPersonaReleaseCandidate < ApplicationRecord
     errors.add(:phrase_artifacts_snapshot, "is too large") if JSON.generate(phrase_artifacts_snapshot).bytesize > 40.kilobytes
   end
 
-  def creator_can_edit_persona
-    return if coach_persona&.coach_workspace&.allows?(created_by_user, :edit)
+  def creator_can_prepare_persona
+    workspace = coach_persona&.coach_workspace
+    return if workspace&.allows?(created_by_user, :edit) || workspace&.allows?(created_by_user, :publish)
 
-    errors.add(:created_by_user, "must be able to edit the persona workspace")
+    errors.add(:created_by_user, "must be able to edit or publish the persona workspace")
   end
 
   def immutable_record

@@ -47,6 +47,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     coach_ids = response.parsed_body.fetch("personas").pluck("id")
     assert_equal [ owned.id, assigned.id, hidden.id ].sort, coach_ids.sort
     assigned_summary = response.parsed_body.fetch("personas").find { |item| item.fetch("id") == assigned.id }
+    refute assigned_summary.key?("release_readiness")
     admin_identity = { "id" => admin.id, "email" => admin.email, "full_name" => "Ari Administrator" }
     assert_equal admin_identity, assigned_summary.fetch("owner")
     assert_equal admin_identity, assigned_summary.dig("published_version", "published_by")
@@ -59,6 +60,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Private future assistant", detail.fetch("name")
     assert detail.key?("draft")
     assert detail.key?("preview")
+    assert detail.key?("release_readiness")
     assert detail.key?("draft_revision")
     assert_equal [ coach_cohort.id, outside_cohort.id ].sort,
       detail.fetch("assignments").map { |item| item.dig("cohort", "id") }.sort
@@ -98,6 +100,48 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_includes admin_ids, owned.id
     assert_includes admin_ids, assigned.id
     assert_includes admin_ids, hidden.id
+  end
+
+  test "reviewer-only workspace members can seal and preview an exact release candidate" do
+    owner = persona_user(role: "coach")
+    reviewer = persona_user(role: "coach")
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    persona = create_persona(creator: owner, workspace: workspace)
+    headers = auth_headers(reviewer).merge("X-Coach-Workspace-Id" => workspace.id.to_s)
+
+    with_ready_preview do
+      post "/api/v1/admin/personas/#{persona.id}/preview",
+        params: { preview: { draft_revision: persona.draft_revision, sample_prompt: "Help me plan this month." } },
+        headers: headers,
+        as: :json
+    end
+
+    assert_response :success
+    candidate = persona.release_candidates.sole
+    evidence = candidate.behavioral_preview_evidences.sole
+    assert_equal reviewer, candidate.created_by_user
+    assert_equal reviewer, evidence.generated_by_user
+    assert evidence.integrity_valid?
+  end
+
+  test "invalid drafts mark historical versions unavailable for restore" do
+    owner = persona_user(role: "coach")
+    persona = persona_for(owner, assistant_name: "Invalid draft restore assistant")
+    first = publish_persona(persona, actor: owner)
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
+    second = publish_persona(persona, actor: owner)
+    invalid_draft = persona.draft_config.deep_merge("voice" => { "energy" => "Unsupported voice" })
+    persona.update_column(:draft_config, invalid_draft)
+
+    get "/api/v1/admin/personas/#{persona.id}", headers: auth_headers(owner)
+
+    assert_response :success
+    versions = response.parsed_body.dig("persona", "versions").index_by { |version| version.fetch("id") }
+    assert_equal false, versions.fetch(first.id).fetch("restore_to_draft_allowed")
+    assert_equal "draft_unavailable", versions.fetch(first.id).fetch("restore_blocked_reason")
+    assert_equal false, versions.fetch(second.id).fetch("restore_to_draft_allowed")
+    assert_equal "current_version", versions.fetch(second.id).fetch("restore_blocked_reason")
   end
 
   test "version not found responses do not expose internal lookup details" do

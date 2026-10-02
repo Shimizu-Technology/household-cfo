@@ -21,6 +21,7 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
     :phrase_manifest_digest, :evidence_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :generated_at, presence: true
   validate :candidate_snapshot_matches
+  validate :context_matches_current_preview, on: :create
   validate :generator_can_publish
   validate :digest_matches_snapshot
   validate :immutable_record, on: :update
@@ -64,12 +65,17 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
     release_candidate && candidate_digest == release_candidate.manifest_digest &&
       config_digest == release_candidate.config_digest &&
       content_manifest_digest == release_candidate.content_manifest_digest &&
-      phrase_manifest_digest == release_candidate.phrase_manifest_digest &&
-      context_digest == Mia::PersonaPreviewer.context_digest
+      phrase_manifest_digest == release_candidate.phrase_manifest_digest
   end
 
   def candidate_snapshot_matches
     errors.add(:base, "behavioral preview does not match the sealed release candidate") unless candidate_snapshot_matches?
+  end
+
+  def context_matches_current_preview
+    return if context_digest == Mia::PersonaPreviewer.context_digest
+
+    errors.add(:context_digest, "must match the current preview context")
   end
 
   def generator_can_publish

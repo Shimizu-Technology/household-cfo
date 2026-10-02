@@ -166,7 +166,8 @@ module Demo
 
       parsed = JSON.parse(response.body)
       concrete_model = parsed["model"].to_s.squish
-      return fallback_response(message, context: context) unless concrete_model.present? && concrete_model.length <= 200
+      concrete_model_valid = concrete_model.present? && concrete_model.length <= 200
+      return fallback_response(message, context: context) if @strict_privacy && !concrete_model_valid
 
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message, context: context) unless content
@@ -184,7 +185,7 @@ module Demo
       end
       return fallback_response(message, context: context) if sanitized.blank?
 
-      @concrete_model_identifier = concrete_model
+      @concrete_model_identifier = concrete_model if concrete_model_valid
       request_id = parsed["id"].to_s.squish
       @provider_request_id = request_id if request_id.present? && request_id.length <= 200
       @response_source = "live_model"
