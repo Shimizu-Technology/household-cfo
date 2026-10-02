@@ -89,6 +89,14 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
     assert_response :created
     approval = response.parsed_body.fetch("approval")
     assert_equal true, approval.fetch("self_review")
+    behavioral = Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: persona, actor: owner).call!(
+      candidate: CoachPersonaEvaluationRun.find(run_payload.fetch("id")).release_candidate,
+      preview: {
+        status: "ready", source: "live_model", sample_prompt: "Test the exact candidate.",
+        sample_reply: "Review the exact candidate facts.", model_identifier: "test-model",
+        context_digest: Mia::PersonaPreviewer.context_digest
+      }
+    )
 
     get "/api/v1/admin/personas/#{persona.id}/release_readiness", headers: headers
     assert_response :success
@@ -106,7 +114,8 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
           expected_published_version_id: nil,
           release_candidate_digest: readiness.dig("candidate", "manifest_digest"),
           evaluation_run_digest: run_payload.fetch("run_digest"),
-          evaluation_approval_digest: approval.fetch("approval_digest")
+          evaluation_approval_digest: approval.fetch("approval_digest"),
+          behavioral_preview_digest: behavioral.evidence_digest
         }
       }, headers: headers, as: :json
     assert_response :success
@@ -198,7 +207,7 @@ class ApiV1AdminPersonaReleaseGatesControllerTest < ActionDispatch::IntegrationT
       }, headers: headers, as: :json
     assert_response :conflict
     assert_equal "persona_publish_conflict", response.parsed_body.fetch("code")
-    assert_includes response.parsed_body.fetch("error"), "passed and approved gate_v2 evaluation"
+    assert_includes response.parsed_body.fetch("error"), "Complete release evidence"
     assert_nil persona.reload.current_published_version_id
   end
 

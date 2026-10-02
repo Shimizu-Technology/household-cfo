@@ -2387,22 +2387,11 @@ class ApiV1WorkspaceControllerTest < ActionDispatch::IntegrationTest
       ),
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    retired_version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    retired_version = publish_persona(persona, actor: coach)
     persona.update!(
       draft_config: persona.draft_config.deep_merge("identity" => { "assistant_name" => "Coach Lani" })
     )
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    current_version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: retired_version.id
-    )
+    current_version = publish_persona(persona, actor: coach)
     topic = {
       schema_version: 3,
       id: SecureRandom.uuid,

@@ -128,12 +128,20 @@ module Api
           result = publisher.compile_preview!(
             expected_draft_revision: preview_params[:draft_revision]
           )
+          candidate_digest = Mia::PersonaRelease::CandidateBuilder.snapshot(persona).fetch(:manifest_digest)
+          candidate = persona.release_candidates.find_by(manifest_digest: candidate_digest)
+          candidate ||= Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: current_user).call!
           behavioral_preview = Mia::PersonaPreviewer.new(
             persona: persona,
+            candidate: candidate,
             sample_prompt: preview_params[:sample_prompt]
           ).call
+          preview_evidence = nil
           if behavioral_preview.fetch(:status) == "ready"
             result = publisher.preview!(expected_draft_revision: preview_params[:draft_revision])
+            preview_evidence = Mia::PersonaRelease::BehavioralPreviewRecorder.new(
+              persona: persona, actor: current_user
+            ).call!(candidate: candidate, preview: behavioral_preview)
           end
           render json: {
             preview: {
@@ -146,9 +154,11 @@ module Api
               guardrails_applied: true,
               generated_at: Time.current
             },
+            behavioral_preview_evidence: Mia::PersonaRelease::Serializer.behavioral_preview(preview_evidence),
             persona: serializer(persona).detail
           }
-        rescue Mia::PersonaPublisher::PublicationError => error
+        rescue Mia::PersonaPublisher::PublicationError, Mia::PersonaRelease::CandidateBuilder::Error,
+          Mia::PersonaRelease::BehavioralPreviewRecorder::Error => error
           render_studio_conflict(error.message, code: "persona_preview_conflict")
         end
 
@@ -160,7 +170,8 @@ module Api
             expected_current_version_id: publish_params[:expected_published_version_id],
             expected_release_candidate_digest: publish_params[:release_candidate_digest],
             expected_evaluation_run_digest: publish_params[:evaluation_run_digest],
-            expected_evaluation_approval_digest: publish_params[:evaluation_approval_digest]
+            expected_evaluation_approval_digest: publish_params[:evaluation_approval_digest],
+            expected_behavioral_preview_digest: publish_params[:behavioral_preview_digest]
           )
           render json: {
             persona: serializer(persona.reload).detail,
@@ -214,7 +225,7 @@ module Api
         def publish_params
           @publish_params ||= params.require(:publish).permit(
             :draft_revision, :preview_digest, :expected_published_version_id,
-            :release_candidate_digest, :evaluation_run_digest, :evaluation_approval_digest
+            :release_candidate_digest, :evaluation_run_digest, :evaluation_approval_digest, :behavioral_preview_digest
           )
         end
 

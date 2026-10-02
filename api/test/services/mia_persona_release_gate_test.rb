@@ -35,18 +35,27 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     owner = persona_user
     persona = create_persona(creator: owner)
 
-    legacy = publish_persona(persona, actor: owner)
+    legacy = persona.versions.create!(
+      version_number: 1, config: persona.draft_config.deep_dup,
+      config_digest: Mia::PersonaSchema.digest(persona.draft_config),
+      content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
+      phrase_manifest_digest: Mia::PhraseManifest.digest_for([]), published_by_user: owner,
+      release_gate_version: "gate_v1"
+    )
+    legacy.seal_manifests!
+    persona.update!(current_published_version: legacy)
     assert_equal "gate_v1", legacy.release_gate_version
     assert legacy.release_evidence_valid?
     assert_nil legacy.release_evidence_digest
 
-    persona.update!(description: "Prepare the exact next release.")
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
       .preview!(expected_draft_revision: persona.draft_revision)
     run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
     assert_equal "passed", run.status
     assert run.passed_and_valid?
     approval = approve(run, owner)
+    behavioral = behavioral_preview_for(run.release_candidate, owner)
 
     version = Mia::PersonaPublisher.new(persona: persona, actor: owner).publish!(
       expected_preview_digest: preview.fetch(:digest),
@@ -54,7 +63,8 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       expected_current_version_id: legacy.id,
       expected_release_candidate_digest: run.release_candidate.manifest_digest,
       expected_evaluation_run_digest: run.run_digest,
-      expected_evaluation_approval_digest: approval.approval_digest
+      expected_evaluation_approval_digest: approval.approval_digest,
+      expected_behavioral_preview_digest: behavioral.evidence_digest
     )
 
     assert_equal "gate_v2", version.release_gate_version
@@ -64,9 +74,17 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     assert_equal "gate_v2", persona.reload.release_gate_version
     assert_equal "gate_v2", persona.publication_events.order(:id).last.release_gate_version
 
-    persona.update!(description: "Evidence is required after adoption.")
-    error = assert_raises(Mia::PersonaPublisher::PublicationError) { publish_persona(persona, actor: owner) }
-    assert_equal "This persona requires a passed and approved gate_v2 evaluation before publishing", error.message
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Calm and focused." }))
+    missing_evidence_preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
+      .preview!(expected_draft_revision: persona.draft_revision)
+    error = assert_raises(Mia::PersonaPublisher::PublicationError) do
+      Mia::PersonaPublisher.new(persona: persona, actor: owner).publish!(
+        expected_preview_digest: missing_evidence_preview.fetch(:digest),
+        expected_draft_revision: persona.draft_revision,
+        expected_current_version_id: version.id
+      )
+    end
+    assert_equal "Complete release evidence is required for every publication", error.message
     refute persona.update(release_gate_version: "gate_v1")
     assert_includes persona.errors[:release_gate_version], "cannot be downgraded after gate_v2 adoption"
     assert_equal "gate_v2", persona.reload.release_gate_version
@@ -76,7 +94,7 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
         expected_draft_revision: persona.draft_revision
       )
     end
-    assert_equal "A gate_v2 persona cannot roll back to legacy release evidence", rollback_error.message
+    assert_equal "Historical gate_v1 versions remain readable but cannot be republished", rollback_error.message
   end
 
   test "fallback-only behavioral output can never pass or be approved" do
@@ -213,7 +231,8 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       Mia::PersonaRelease::Evidence.new(persona: persona).verify_current!(
         candidate_digest: replacement.release_candidate.manifest_digest,
         run_digest: replacement.run_digest,
-        approval_digest: replacement_approval.approval_digest
+        approval_digest: replacement_approval.approval_digest,
+        behavioral_preview_digest: behavioral_preview_for(replacement.release_candidate, owner).evidence_digest
       )
     end
     assert_equal "A newer evaluation run exists for this release candidate", error.message
@@ -261,7 +280,7 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
     approval = approve(run, owner)
     v2 = publish_v2(persona, owner, preview, run, approval)
 
-    persona.update!(description: "A later evaluated release.")
+    persona.update!(draft_config: persona.draft_config.deep_merge("voice" => { "energy" => "Warm and encouraging." }))
     later_preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
       .preview!(expected_draft_revision: persona.draft_revision)
     later_run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).call!
@@ -295,11 +314,92 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
       .enqueue!(request_key: SecureRandom.uuid)
 
     membership.update!(role: "viewer")
-    run = Mia::PersonaRelease::Runner.execute_pending!(queued.run.id)
+    run = Mia::PersonaRelease::Runner.execute_pending!(queued.run.id, lease_token: queued.run.lease_token)
 
     assert_equal "error", run.reload.status
     assert run.run_digest.present?
     assert_empty run.results
+  end
+
+  test "active leases reconcile without duplicate jobs and expired leases recover with a new owner token" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    request_id = SecureRandom.uuid
+    first = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).enqueue!(request_key: request_id)
+    old_token = first.run.lease_token
+
+    replay = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).enqueue!(request_key: request_id)
+    assert replay.replayed
+    refute replay.enqueued
+    assert_equal old_token, replay.run.lease_token
+
+    first.run.update_columns(lease_expires_at: 1.minute.ago)
+    recovery = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner).enqueue!(request_key: request_id)
+    assert recovery.enqueued
+    refute_equal old_token, recovery.run.lease_token
+    assert_equal "pending", Mia::PersonaRelease::Runner.execute_pending!(
+      recovery.run.id, lease_token: old_token
+    ).status
+    completed = Mia::PersonaRelease::Runner.execute_pending!(
+      recovery.run.id, lease_token: recovery.run.lease_token
+    )
+    assert_equal "passed", completed.status
+  end
+
+  test "revoked reviewer authority blocks unconsumed evidence while historical evidence remains valid" do
+    owner = persona_user
+    editor = persona_user
+    reviewer = persona_user
+    workspace = CoachWorkspaces::Provisioner.ensure_for!(owner)
+    workspace.coach_workspace_memberships.create!(user: editor, role: "editor")
+    membership = workspace.coach_workspace_memberships.create!(user: reviewer, role: "reviewer")
+    persona = create_persona(creator: owner, workspace: workspace)
+    preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
+      .preview!(expected_draft_revision: persona.draft_revision)
+    run = Mia::PersonaRelease::Runner.new(persona: persona, actor: editor).call!
+    approval = approve(run, reviewer)
+    behavioral = behavioral_preview_for(run.release_candidate, owner)
+    membership.update!(role: "viewer")
+
+    error = assert_raises(Mia::PersonaPublisher::PublicationError) do
+      Mia::PersonaPublisher.new(persona: persona, actor: owner).publish!(
+        expected_preview_digest: preview.fetch(:digest), expected_draft_revision: persona.draft_revision,
+        expected_current_version_id: nil, expected_release_candidate_digest: run.release_candidate.manifest_digest,
+        expected_evaluation_run_digest: run.run_digest, expected_evaluation_approval_digest: approval.approval_digest,
+        expected_behavioral_preview_digest: behavioral.evidence_digest
+      )
+    end
+    assert_includes error.message, "reviewer no longer has workspace review access"
+  end
+
+  test "behavioral preview evidence is immutable bounded and sealed into publication evidence" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    version = publish_persona(persona, actor: owner)
+    evidence = version.behavioral_preview_evidence
+
+    assert evidence.integrity_valid?
+    assert_equal evidence.evidence_digest, version.behavioral_preview_digest
+    refute evidence.update(output: "forged")
+    evidence.update_column(:output, "forged")
+    refute evidence.reload.integrity_valid?
+    refute version.reload.release_evidence_valid?
+  end
+
+  test "publishing identical manifests is rejected as a no-op" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    version = publish_persona(persona, actor: owner)
+    preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
+      .preview!(expected_draft_revision: persona.draft_revision)
+
+    error = assert_raises(Mia::PersonaPublisher::PublicationError) do
+      Mia::PersonaPublisher.new(persona: persona, actor: owner).publish!(
+        expected_preview_digest: preview.fetch(:digest), expected_draft_revision: persona.draft_revision,
+        expected_current_version_id: version.id
+      )
+    end
+    assert_equal "There are no persona changes to publish", error.message
   end
 
   private
@@ -312,13 +412,26 @@ class MiaPersonaReleaseGateTest < ActiveSupport::TestCase
   end
 
   def publish_v2(persona, owner, preview, run, approval)
+    behavioral = behavioral_preview_for(run.release_candidate, owner)
     Mia::PersonaPublisher.new(persona: persona, actor: owner).publish!(
       expected_preview_digest: preview.fetch(:digest),
       expected_draft_revision: persona.draft_revision,
       expected_current_version_id: persona.current_published_version_id,
       expected_release_candidate_digest: run.release_candidate.manifest_digest,
       expected_evaluation_run_digest: run.run_digest,
-      expected_evaluation_approval_digest: approval.approval_digest
+      expected_evaluation_approval_digest: approval.approval_digest,
+      expected_behavioral_preview_digest: behavioral.evidence_digest
+    )
+  end
+
+  def behavioral_preview_for(candidate, actor)
+    Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: candidate.coach_persona, actor: actor).call!(
+      candidate: candidate,
+      preview: {
+        status: "ready", source: "live_model", sample_prompt: "Test the exact candidate.",
+        sample_reply: "Review the exact facts and choose one step.", model_identifier: "test-model",
+        context_digest: Mia::PersonaPreviewer.context_digest
+      }
     )
   end
 end

@@ -44,13 +44,7 @@ class MiaPersonaAssignmentCompatibilityTest < ActiveSupport::TestCase
     current_persona = CoachPersona.find(persona.id)
     revised = current_persona.draft_config.deep_merge("identity" => { "assistant_name" => "Version two assistant" })
     current_persona.update!(draft_config: revised)
-    publisher = Mia::PersonaPublisher.new(persona: current_persona, actor: admin)
-    preview = publisher.preview!(expected_draft_revision: current_persona.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: current_persona.draft_revision,
-      expected_current_version_id: stale_version.id
-    )
+    publish_persona(current_persona, actor: admin)
 
     cohort = cohort_for(admin, name: "Stale version cohort")
     assignment = CohortPersonaAssignment.new(
@@ -98,13 +92,7 @@ class MiaPersonaAssignmentCompatibilityTest < ActiveSupport::TestCase
 
   def published_persona(creator, assistant_name:)
     persona = persona_for(creator, assistant_name: assistant_name)
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: creator)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    publish_persona(persona, actor: creator)
     persona.reload
   end
 end

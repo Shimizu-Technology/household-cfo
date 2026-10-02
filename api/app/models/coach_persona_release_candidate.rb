@@ -8,6 +8,7 @@ class CoachPersonaReleaseCandidate < ApplicationRecord
   belongs_to :created_by_user, class_name: "User"
   has_many :evaluation_runs, class_name: "CoachPersonaEvaluationRun", dependent: :restrict_with_exception
   has_many :phrase_audience_attestations, class_name: "CoachPhraseAudienceAttestation", dependent: :restrict_with_exception
+  has_many :behavioral_preview_evidences, class_name: "CoachPersonaBehavioralPreviewEvidence", dependent: :restrict_with_exception
   has_many :persona_versions, class_name: "CoachPersonaVersion", dependent: :restrict_with_exception
 
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }

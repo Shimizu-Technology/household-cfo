@@ -68,6 +68,14 @@ class CoachPersonaEvaluationRun < ApplicationRecord
     status.in?(%w[passed failed error])
   end
 
+  def execution_lease_active?
+    lease_token.present? && lease_expires_at.present? && lease_expires_at > Time.current
+  end
+
+  def recoverable?
+    !terminal? && !execution_lease_active?
+  end
+
   private
 
   def lifecycle_is_coherent
@@ -75,6 +83,9 @@ class CoachPersonaEvaluationRun < ApplicationRecord
     errors.add(:completed_at, "must match run status") unless terminal == completed_at.present?
     errors.add(:run_digest, "must be present only for a completed run") unless terminal == run_digest.present?
     errors.add(:started_at, "is required after a run starts") if status != "pending" && started_at.blank?
+    if terminal? && [ lease_token, lease_expires_at, heartbeat_at, lease_claimed_at ].any?(&:present?)
+      errors.add(:base, "completed evaluation runs cannot retain an execution lease")
+    end
   end
 
   def requester_can_edit_persona

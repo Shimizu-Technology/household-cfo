@@ -35,8 +35,8 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     first = persona_for(coach, assistant_name: "First assistant", workspace: cohort.coach_workspace)
     second = persona_for(coach, assistant_name: "Second assistant", workspace: cohort.coach_workspace)
     grant_workspace_role(cohort.coach_workspace, coach, "reviewer")
-    publish_persona_record(first, coach)
-    publish_persona_record(second, coach)
+    publish_persona_record(first, admin)
+    publish_persona_record(second, admin)
 
     patch_assignment(cohort, coach, persona_id: first.id, expected_persona_id: nil)
 
@@ -151,8 +151,8 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
     target_persona = persona_for(coach, assistant_name: "Target assistant", workspace: target.coach_workspace)
     other_persona = persona_for(coach, assistant_name: "Other assistant", workspace: other.coach_workspace)
     grant_workspace_role(target.coach_workspace, coach, "reviewer")
-    publish_persona_record(target_persona, coach)
-    publish_persona_record(other_persona, coach)
+    publish_persona_record(target_persona, admin)
+    publish_persona_record(other_persona, admin)
     CohortPersonaAssignment.create!(cohort: other, coach_persona: other_persona, assigned_by_user: coach)
     household = Household.create!(name: "Private household name", created_by_user: participant)
     household.household_memberships.create!(user: participant, role: "owner")
@@ -223,13 +223,7 @@ class ApiV1AdminPersonaAssignmentsControllerTest < ActionDispatch::IntegrationTe
   end
 
   def publish_persona_record(persona, actor)
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: actor)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    PersonaTestHelper.instance_method(:publish_persona).bind_call(self, persona, actor: actor)
     persona.reload
   end
 

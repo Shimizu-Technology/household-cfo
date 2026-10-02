@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "digest"
 
 module Mia
   class PersonaPreviewer
@@ -12,21 +13,31 @@ module Mia
       pending_review: []
     }.freeze
 
-    def initialize(persona:, sample_prompt:, responder: nil)
+    def self.context_digest
+      Digest::SHA256.hexdigest(JSON.generate(PREVIEW_CONTEXT).b)
+    end
+
+    def initialize(persona:, sample_prompt:, candidate: nil, responder: nil)
       @persona = persona
       @sample_prompt = sample_prompt.to_s.squish
+      @candidate = candidate
       @responder = responder
     end
 
     def call
       return result(status: "not_requested", source: "not_requested", reply: nil, notice: "Enter a test message to run a behavioral preview.") if sample_prompt.blank?
 
-      active_responder = responder || Demo::MiaResponder.new(persona: preview_persona, approved_content: approved_content)
+      active_responder = responder || Demo::MiaResponder.new(
+        persona: preview_persona, approved_content: approved_content, strict_privacy: true
+      )
       reply = active_responder.call(sample_prompt, context: JSON.generate(PREVIEW_CONTEXT), draft_capable: false)
       source = active_responder.response_source.to_s
 
       if source == "live_model"
-        result(status: "ready", source: source, reply: reply, notice: preview_notice(source))
+        result(
+          status: "ready", source: source, reply: reply, notice: preview_notice(source),
+          model_identifier: active_responder.model_identifier
+        )
       elsif source == "deterministic_safety"
         result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
       else
@@ -49,11 +60,11 @@ module Mia
 
     private
 
-    attr_reader :persona, :sample_prompt, :responder
+    attr_reader :persona, :sample_prompt, :candidate, :responder
 
     def preview_persona
       RuntimePersona.for_preview(
-        config: persona.draft_config,
+        config: candidate ? candidate.config_snapshot : persona.draft_config,
         persona_id: persona.id,
         draft_revision: persona.draft_revision
       )
@@ -73,10 +84,12 @@ module Mia
       "Generated from this exact draft in a no-write preview."
     end
 
-    def result(status:, source:, reply:, notice:)
+    def result(status:, source:, reply:, notice:, model_identifier: nil)
       {
         status: status,
         source: source,
+        model_identifier: model_identifier,
+        context_digest: self.class.context_digest,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,
         notice: "#{notice} Saved participant and household data is not loaded. The coach-authored sample prompt is sent to the configured model when a model preview runs; use fictional details."

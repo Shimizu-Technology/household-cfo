@@ -21,8 +21,8 @@ module Mia
           raise RollbackError, "The published persona changed; reload it before rolling back"
         end
         raise RollbackError, "Rollback target must belong to this persona" unless target_version.coach_persona_id == persona.id
-        if persona.release_gate_version == "gate_v2" && target_version.release_gate_version != "gate_v2"
-          raise RollbackError, "A gate_v2 persona cannot roll back to legacy release evidence"
+        if target_version.release_gate_version != "gate_v2"
+          raise RollbackError, "Historical gate_v1 versions remain readable but cannot be republished"
         end
         ensure_target_is_safe!
         raise RollbackError, "Rollback target content manifest is invalid" unless target_version.content_manifest_valid?
@@ -41,6 +41,9 @@ module Mia
           release_candidate: target_version.release_candidate,
           evaluation_run: target_version.evaluation_run,
           evaluation_approval: target_version.evaluation_approval,
+          behavioral_preview_evidence: target_version.behavioral_preview_evidence,
+          behavioral_preview_digest: target_version.behavioral_preview_digest,
+          release_evidence_schema: target_version.release_evidence_schema,
           release_manifest_digest: target_version.release_manifest_digest,
           audience_digest: target_version.audience_digest,
           release_evidence_digest: target_version.release_evidence_digest

@@ -30,19 +30,25 @@ module Mia
             self_review: run.requested_by_user_id == actor.id
           )
           reviewed_at = Time.current
+          authority_snapshot, authority_digest = ReviewAuthority.snapshot(workspace: workspace, actor: actor)
           approval = run.build_approval(
             reviewed_by_user: actor,
             decision: decision,
             self_review: self_review,
             run_digest: run.run_digest,
-            reviewed_at: reviewed_at
+            reviewed_at: reviewed_at,
+            reviewer_role_snapshot: authority_snapshot.fetch("role"),
+            reviewer_authority_snapshot: authority_snapshot,
+            reviewer_authority_digest: authority_digest
           )
           approval.approval_digest = CoachPersonaEvaluationApproval.digest_for(
             run: run,
             reviewer_id: actor.id,
             decision: decision,
             self_review: self_review,
-            reviewed_at: reviewed_at
+            reviewed_at: reviewed_at,
+            reviewer_authority_snapshot: authority_snapshot,
+            reviewer_authority_digest: authority_digest
           )
           approval.save!
           approval

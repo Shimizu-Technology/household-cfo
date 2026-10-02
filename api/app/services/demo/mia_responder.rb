@@ -66,6 +66,10 @@ module Demo
 
     attr_reader :response_source, :supplied_content_context
 
+    def model_identifier
+      @model
+    end
+
     def initialize(api_key: ENV["OPENROUTER_API_KEY"], model: ENV.fetch("OPENROUTER_MODEL", DEFAULT_MODEL), persona: ::Mia::Persona.default,
       approved_content: [], strict_privacy: false)
       @api_key = api_key

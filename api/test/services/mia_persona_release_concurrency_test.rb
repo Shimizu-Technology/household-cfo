@@ -81,6 +81,15 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
     evaluation_case.save!
     preview = Mia::PersonaPublisher.new(persona: persona, actor: owner)
       .preview!(expected_draft_revision: persona.draft_revision)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: owner).call!
+    behavioral = Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: persona, actor: owner).call!(
+      candidate: candidate,
+      preview: {
+        status: "ready", source: "live_model", sample_prompt: "Review this fictional household.",
+        sample_reply: "Review the exact candidate.", model_identifier: "test-model",
+        context_digest: Mia::PersonaPreviewer.context_digest
+      }
+    )
     hybrid = Mia::PersonaRelease::HybridBehavioralAdapter.new(live: LiveTestAdapter.new)
     run = Mia::PersonaRelease::Runner.new(persona: persona, actor: owner, adapter: hybrid).call!
     approval = Mia::PersonaRelease::RunApprover.new(run: run, actor: owner).call!(
@@ -109,7 +118,8 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
             expected_current_version_id: nil,
             expected_release_candidate_digest: run.release_candidate.manifest_digest,
             expected_evaluation_run_digest: run.run_digest,
-            expected_evaluation_approval_digest: approval.approval_digest
+            expected_evaluation_approval_digest: approval.approval_digest,
+            expected_behavioral_preview_digest: behavioral.evidence_digest
           )
           publish_result << version.id
         rescue StandardError => error
@@ -172,6 +182,7 @@ class MiaPersonaReleaseConcurrencyTest < ActiveSupport::TestCase
     CoachPersonaEvaluationResult.where(coach_persona_evaluation_run_id: run_ids).delete_all
     CoachPersonaEvaluationRun.where(id: run_ids).delete_all
     CoachPhraseAudienceAttestation.where(coach_persona_release_candidate_id: candidate_ids).delete_all
+    CoachPersonaBehavioralPreviewEvidence.where(coach_persona_release_candidate_id: candidate_ids).delete_all
     CoachPersonaReleaseCandidate.where(id: candidate_ids).delete_all
     CoachPersonaEvaluationCase.where(coach_persona_id: @record_ids[:persona]).delete_all
     CoachPersona.where(id: @record_ids[:persona]).delete_all

@@ -46,11 +46,7 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
       )
     end
 
-    version = @publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: 1,
-      expected_current_version_id: nil
-    )
+    version = publish_with_evidence(preview: preview, expected_version_id: nil)
 
     assert_equal 1, version.version_number
     assert_equal Mia::PersonaSchema.digest(@persona.draft_config), version.config_digest
@@ -90,11 +86,7 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
 
     @persona.update!(draft_config: @persona.draft_config.deep_merge("voice" => { "energy" => "Steady and reassuring." }))
     preview = @publisher.preview!(expected_draft_revision: 2)
-    second = @publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: 2,
-      expected_current_version_id: first.id
-    )
+    second = publish_with_evidence(preview: preview, expected_version_id: first.id)
 
     assert_equal second, assignment.reload.coach_persona_version
     assert_equal first, message.reload.coach_persona_version
@@ -124,11 +116,7 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
       )
     )
     preview = @publisher.preview!(expected_draft_revision: 2)
-    second = @publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: 2,
-      expected_current_version_id: first.id
-    )
+    second = publish_with_evidence(preview: preview, expected_version_id: first.id)
 
     rolled_back = Mia::PersonaRollback.new(persona: @persona, target_version: first, actor: @coach).call(
       expected_current_version_id: second.id,
@@ -180,10 +168,15 @@ class MiaPersonaPublicationTest < ActiveSupport::TestCase
 
   def publish_current
     preview = @publisher.preview!(expected_draft_revision: @persona.reload.draft_revision)
+    publish_with_evidence(preview: preview, expected_version_id: @persona.current_published_version_id)
+  end
+
+  def publish_with_evidence(preview:, expected_version_id:)
     @publisher.publish!(
       expected_preview_digest: preview.fetch(:digest),
       expected_draft_revision: @persona.draft_revision,
-      expected_current_version_id: @persona.current_published_version_id
+      expected_current_version_id: expected_version_id,
+      **persona_release_evidence(@persona, actor: @coach)
     )
   end
 end

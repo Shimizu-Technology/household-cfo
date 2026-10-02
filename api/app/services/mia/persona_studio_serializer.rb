@@ -114,6 +114,8 @@ module Mia
         release_manifest_digest: version.release_manifest_digest,
         audience_digest: version.audience_digest,
         release_evidence_digest: version.release_evidence_digest,
+        release_evidence_schema: version.release_evidence_schema,
+        behavioral_preview_digest: version.behavioral_preview_digest,
         published_at: version.created_at,
         published_by: serialize_user(version.published_by_user)
       }

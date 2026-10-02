@@ -690,7 +690,11 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     original = Mia::PersonaPreviewer.instance_method(:call)
     Mia::PersonaPreviewer.define_method(:call) do
       before_reply&.call
-      { status: "ready", source: "live_model", sample_reply: "Review your confirmed plan first.", notice: "Test model response." }
+      {
+        status: "ready", source: "live_model", sample_prompt: "Help me plan this month.",
+        sample_reply: "Review your confirmed plan first.", model_identifier: "test-model",
+        context_digest: Mia::PersonaPreviewer.context_digest, notice: "Test model response."
+      }
     end
     yield
   ensure
@@ -717,13 +721,20 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
     assert_equal "ready", response.parsed_body.dig("preview", "status")
     preview_digest = response.parsed_body.dig("preview", "digest")
+    readiness = response.parsed_body.fetch("behavioral_preview_evidence")
+    persona.reload
+    release = persona_release_evidence(persona, actor: user)
 
     post "/api/v1/admin/personas/#{persona.id}/publish",
       params: {
         publish: {
           draft_revision: persona.reload.draft_revision,
           preview_digest: preview_digest,
-          expected_published_version_id: expected_version_id
+          expected_published_version_id: expected_version_id,
+          release_candidate_digest: release.fetch(:expected_release_candidate_digest),
+          evaluation_run_digest: release.fetch(:expected_evaluation_run_digest),
+          evaluation_approval_digest: release.fetch(:expected_evaluation_approval_digest),
+          behavioral_preview_digest: readiness.fetch("digest")
         }
       },
       headers: auth_headers(user),

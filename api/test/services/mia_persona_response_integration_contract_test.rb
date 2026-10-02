@@ -29,13 +29,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       draft_config: config,
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    version = publish_persona(persona, actor: coach)
     @runtime = Mia::RuntimePersona.new(version)
   end
 
@@ -265,13 +259,7 @@ class MiaPersonaResponseIntegrationContractTest < ActiveSupport::TestCase
       draft_config: config,
       created_by_user: coach
     )
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.draft_revision)
-    version = publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: nil
-    )
+    version = publish_persona(persona, actor: coach)
     Mia::RuntimePersona.new(version)
   end
 

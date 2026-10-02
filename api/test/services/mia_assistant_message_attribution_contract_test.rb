@@ -98,12 +98,6 @@ class MiaAssistantMessageAttributionContractTest < ActiveSupport::TestCase
   end
 
   def publish_current
-    publisher = Mia::PersonaPublisher.new(persona: @persona, actor: @coach)
-    preview = publisher.preview!(expected_draft_revision: @persona.reload.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: @persona.draft_revision,
-      expected_current_version_id: @persona.current_published_version_id
-    )
+    PersonaTestHelper.instance_method(:publish_persona).bind_call(self, @persona, actor: @coach)
   end
 end

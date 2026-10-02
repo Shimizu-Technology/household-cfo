@@ -12,6 +12,8 @@ class CoachPersonaVersion < ApplicationRecord
     foreign_key: :coach_persona_evaluation_run_id, optional: true
   belongs_to :evaluation_approval, class_name: "CoachPersonaEvaluationApproval",
     foreign_key: :coach_persona_evaluation_approval_id, optional: true
+  belongs_to :behavioral_preview_evidence, class_name: "CoachPersonaBehavioralPreviewEvidence",
+    foreign_key: :coach_persona_behavioral_preview_evidence_id, optional: true
 
   has_many :derived_versions,
     class_name: "CoachPersonaVersion",
@@ -43,6 +45,8 @@ class CoachPersonaVersion < ApplicationRecord
   validates :release_gate_version, inclusion: { in: %w[gate_v1 gate_v2] }
   validates :release_manifest_digest, :audience_digest, :release_evidence_digest,
     format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
+  validates :behavioral_preview_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
+  validates :release_evidence_schema, inclusion: { in: %w[persona_release_evidence_v2 persona_release_evidence_v3] }, allow_nil: true
   validate :publisher_is_staff
   validate :config_matches_schema_and_digest
   validate :phrase_artifact_provenance
@@ -145,7 +149,8 @@ class CoachPersonaVersion < ApplicationRecord
       payload[:release] = {
         candidate: release_manifest_digest,
         audience: audience_digest,
-        evidence: release_evidence_digest
+        evidence: release_evidence_digest,
+        behavioral_preview: behavioral_preview_digest
       }
     end
     Digest::SHA256.hexdigest(JSON.generate(payload).b)
@@ -168,11 +173,15 @@ class CoachPersonaVersion < ApplicationRecord
     return false unless release_manifest_digest == release_candidate.manifest_digest
 
     attestations = release_candidate.phrase_audience_attestations.to_a
+    preview = release_evidence_schema == "persona_release_evidence_v3" ? behavioral_preview_evidence : nil
+    return false if release_evidence_schema == "persona_release_evidence_v3" &&
+      (!preview&.integrity_valid? || behavioral_preview_digest != preview.evidence_digest || preview.release_candidate != release_candidate)
     expected = Mia::PersonaRelease::Evidence.digest_for(
       candidate: release_candidate,
       run: evaluation_run,
       approval: evaluation_approval,
-      attestations: attestations
+      attestations: attestations,
+      behavioral_preview: preview
     )
     release_evidence_digest == expected && Array(release_candidate.phrase_artifacts_snapshot).all? do |artifact|
       attestations.any? do |attestation|
@@ -229,11 +238,17 @@ class CoachPersonaVersion < ApplicationRecord
   def release_gate_shape
     evidence_fields = [ release_candidate, evaluation_run, evaluation_approval, release_manifest_digest, audience_digest, release_evidence_digest ]
     if release_gate_version == "gate_v1"
-      errors.add(:base, "legacy gate_v1 versions cannot claim v2 release evidence") if evidence_fields.any?(&:present?)
+      legacy_fields = evidence_fields + [ behavioral_preview_evidence, behavioral_preview_digest, release_evidence_schema ]
+      errors.add(:base, "legacy gate_v1 versions cannot claim v2 release evidence") if legacy_fields.any?(&:present?)
       return
     end
 
     errors.add(:base, "gate_v2 versions require complete release evidence") unless evidence_fields.all?(&:present?)
+    if release_evidence_schema == "persona_release_evidence_v3"
+      errors.add(:base, "gate_v2 v3 versions require behavioral preview evidence") unless behavioral_preview_evidence && behavioral_preview_digest.present?
+    elsif release_evidence_schema != "persona_release_evidence_v2"
+      errors.add(:release_evidence_schema, "must identify the sealed evidence format")
+    end
     errors.add(:release_candidate, "must belong to this persona") if release_candidate && release_candidate.coach_persona_id != coach_persona_id
     if evaluation_run && release_candidate && evaluation_run.coach_persona_release_candidate_id != release_candidate.id
       errors.add(:evaluation_run, "must belong to the release candidate")

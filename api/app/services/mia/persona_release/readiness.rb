@@ -14,6 +14,7 @@ module Mia
 
         run = candidate.evaluation_runs.order(id: :desc).first
         approval = run&.approval
+        behavioral_preview = candidate.behavioral_preview_evidences.order(id: :desc).first
         attestations = candidate.phrase_audience_attestations.index_by { |item| item.artifact_id.to_s }
         phrase_reviews = Array(candidate.phrase_artifacts_snapshot).map do |artifact|
           attestation = attestations[artifact.fetch("artifact_id").to_s]
@@ -30,22 +31,28 @@ module Mia
             reviewed: attestation&.integrity_valid? == true,
             self_review: attestation&.self_review? == true,
             reviewer: Serializer.user(attestation&.reviewed_by_user),
+            reviewer_role: attestation&.reviewer_role_snapshot,
+            reviewer_authority_digest: attestation&.reviewer_authority_digest,
             reviewed_at: attestation&.reviewed_at,
             attestation_digest: attestation&.attestation_digest
           }
         end
-        ready = run&.current_suite_pass? == true && approval&.decision == "approved" && approval.integrity_valid? &&
+        authority_current = review_authority_current?(approval, attestations.values.compact)
+        ready = publication_needed? && authority_current && behavioral_preview&.integrity_valid? == true && run&.current_suite_pass? == true &&
+          approval&.decision == "approved" && approval.integrity_valid? &&
           phrase_reviews.all? { |review| review.fetch(:reviewed) && review.fetch(:decision) == "approved" }
         {
           gate_version: "gate_v2",
           ready: ready,
           permissions: permissions,
           required_evaluation_cases: SystemCases.catalog.map { |definition| Serializer.system_case_definition(definition) },
+          evaluation_case_contract: Serializer.evaluation_case_contract,
           candidate: serialize_candidate(candidate),
+          behavioral_preview_evidence: Serializer.behavioral_preview(behavioral_preview),
           evaluation_run: serialize_run(run),
           approval: serialize_approval(approval),
           phrase_audience_reviews: phrase_reviews,
-          blockers: blockers(run, approval, phrase_reviews)
+          blockers: blockers(run, approval, behavioral_preview, phrase_reviews, authority_current)
         }
       rescue CandidateBuilder::Error, ArgumentError
         empty_readiness
@@ -74,15 +81,8 @@ module Mia
 
       def serialize_run(run)
         return nil unless run
-        {
-          id: run.id,
-          status: run.status,
-          adapter_kind: run.adapter_kind,
-          run_digest: run.run_digest,
-          passed: run.current_suite_pass?,
-          requested_by: Serializer.user(run.requested_by_user),
-          completed_at: run.completed_at
-        }
+
+        Serializer.run(run)
       end
 
       def serialize_approval(approval)
@@ -95,17 +95,27 @@ module Mia
           valid: approval.integrity_valid?,
           self_review: approval.self_review?,
           reviewer: Serializer.user(approval.reviewed_by_user),
+          reviewer_role: approval.reviewer_role_snapshot,
+          reviewer_authority_digest: approval.reviewer_authority_digest,
           reviewed_at: approval.reviewed_at
         }
       end
 
-      def blockers(run, approval, phrase_reviews)
+      def blockers(run, approval, behavioral_preview, phrase_reviews, authority_current)
         values = []
+        values << "Change the persona draft before publishing another version." unless publication_needed?
+        values << "Run and save a live behavioral preview for this exact release candidate." unless behavioral_preview&.integrity_valid?
         values << "Run the required persona evaluation." unless run
         values << "The latest evaluation must pass the current case suite without fallback output." if run && !run.current_suite_pass?
         values << "Approve the exact passed evaluation." unless approval&.decision == "approved" && approval&.integrity_valid?
         values << "Review every phrase for this exact audience and culture." unless phrase_reviews.all? { |item| item.fetch(:reviewed) && item.fetch(:decision) == "approved" }
+        values << "A reviewer lost workspace review access; collect fresh review evidence." unless authority_current
         values
+      end
+
+      def review_authority_current?(approval, attestations)
+        reviews = [ approval, *attestations ].compact
+        reviews.all? { |review| persona.coach_workspace.allows?(review.reviewed_by_user, :review) }
       end
 
       def empty_readiness
@@ -114,7 +124,9 @@ module Mia
           ready: false,
           permissions: permissions,
           required_evaluation_cases: SystemCases.catalog.map { |definition| Serializer.system_case_definition(definition) },
+          evaluation_case_contract: Serializer.evaluation_case_contract,
           candidate: nil,
+          behavioral_preview_evidence: nil,
           evaluation_run: nil,
           approval: nil,
           phrase_audience_reviews: [],
@@ -133,10 +145,22 @@ module Mia
           run_evaluation: can_edit,
           review_evaluations: can_review,
           review_phrase_audiences: can_review,
-          publish: active && workspace&.allows?(actor, :publish) == true,
+          publish: active && publication_needed? && workspace&.allows?(actor, :publish) == true,
+          publication_needed: publication_needed?,
           sole_owner_self_review: membership&.role == "owner" &&
             workspace.coach_workspace_memberships.where(role: "owner").count == 1
         }
+      end
+
+      def publication_needed?
+        version = persona.current_published_version
+        return true unless version
+
+        version.config_digest != PersonaSchema.digest(persona.draft_config) ||
+          version.content_manifest_digest != persona.draft_content_manifest_digest ||
+          version.phrase_manifest_digest != persona.draft_phrase_manifest_digest
+      rescue ArgumentError
+        true
       end
     end
   end

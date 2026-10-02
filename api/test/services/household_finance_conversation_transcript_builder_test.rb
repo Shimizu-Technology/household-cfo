@@ -103,12 +103,6 @@ class HouseholdFinanceConversationTranscriptBuilderTest < ActiveSupport::TestCas
   private
 
   def publish_persona(persona, coach)
-    publisher = Mia::PersonaPublisher.new(persona: persona, actor: coach)
-    preview = publisher.preview!(expected_draft_revision: persona.reload.draft_revision)
-    publisher.publish!(
-      expected_preview_digest: preview.fetch(:digest),
-      expected_draft_revision: persona.draft_revision,
-      expected_current_version_id: persona.current_published_version_id
-    )
+    super(persona, actor: coach)
   end
 end

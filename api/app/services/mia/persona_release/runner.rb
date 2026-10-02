@@ -8,45 +8,61 @@ module Mia
   module PersonaRelease
     class Runner
       class Error < StandardError; end
+      class LeaseLost < Error; end
       MAX_CASES = 24
-      RUN_LEASE_TIMEOUT = 2.minutes
-      EnqueueResult = Data.define(:run, :replayed)
+      LEASE_DURATION = 90.seconds
+      EnqueueResult = Data.define(:run, :replayed, :enqueued)
 
       class << self
-        def execute_pending!(run_id, adapter: HybridBehavioralAdapter.new)
+        def execute_pending!(run_id, lease_token:, adapter: HybridBehavioralAdapter.new)
           run = CoachPersonaEvaluationRun.find(run_id)
-          cases = claim!(run)
+          cases = claim!(run, lease_token)
           return run unless cases
 
           new(persona: run.release_candidate.coach_persona, actor: run.requested_by_user, adapter: adapter)
-            .send(:execute!, run, cases)
+            .send(:execute!, run, cases, lease_token)
+        end
+
+        def reserve_lease!(run)
+          run.with_lock do
+            return [ nil, false ] if run.terminal?
+            return [ run.lease_token, false ] if run.execution_lease_active?
+
+            token = SecureRandom.uuid
+            now = Time.current
+            run.update!(lease_token: token, heartbeat_at: now, lease_expires_at: now + LEASE_DURATION,
+              lease_claimed_at: nil, enqueued_at: run.enqueued_at || now)
+            [ token, true ]
+          end
         end
 
         private
 
-        def claim!(run)
+        def claim!(run, token)
           run.with_lock do
-            return if run.terminal?
-            if run.status == "running"
-              return complete_error!(run) if run.updated_at < RUN_LEASE_TIMEOUT.ago
-
-              return
-            end
+            return if run.terminal? || !secure_match?(run.lease_token, token)
+            return if run.lease_claimed_at.present? && run.execution_lease_active?
 
             persona = run.release_candidate.coach_persona
-            return complete_error!(run) unless persona.coach_workspace&.allows?(run.requested_by_user, :edit)
-            return complete_error!(run) unless run.release_candidate.current_for?(persona)
+            return complete_error!(run, token) unless persona.coach_workspace&.allows?(run.requested_by_user, :edit)
+            return complete_error!(run, token) unless run.release_candidate.current_for?(persona)
 
             cases = persona.evaluation_cases.where(active: true).order(required: :desc, id: :asc).to_a
-            return complete_error!(run) unless cases.length <= MAX_CASES && secure_match?(run.cases_digest, digest_cases(cases))
+            return complete_error!(run, token) unless cases.length <= MAX_CASES && secure_match?(run.cases_digest, digest_cases(cases))
 
-            run.update!(status: "running", started_at: Time.current, execution_attempts: run.execution_attempts + 1)
+            now = Time.current
+            run.update!(status: "running", started_at: run.started_at || now, execution_attempts: run.execution_attempts + 1,
+              heartbeat_at: now, lease_expires_at: now + LEASE_DURATION)
+            run.update!(lease_claimed_at: now)
             cases
           end
         end
 
-        def complete_error!(run)
-          run.assign_attributes(status: "error", started_at: run.started_at || Time.current, completed_at: Time.current)
+        def complete_error!(run, token)
+          return unless secure_match?(run.lease_token, token)
+
+          run.assign_attributes(status: "error", started_at: run.started_at || Time.current, completed_at: Time.current,
+            lease_token: nil, heartbeat_at: nil, lease_expires_at: nil, lease_claimed_at: nil)
           run.run_digest = CoachPersonaEvaluationRun.digest_for(run: run, results: run.results.to_a)
           run.save!
           nil
@@ -69,14 +85,15 @@ module Mia
 
       def enqueue!(request_key:)
         run, replayed = prepare_run!(request_key: request_key)
-        enqueue_job!(run) unless run.terminal?
-        EnqueueResult.new(run: run.reload, replayed: replayed)
+        token, should_enqueue = self.class.reserve_lease!(run)
+        enqueue_job!(run, token) if should_enqueue
+        EnqueueResult.new(run: run.reload, replayed: replayed, enqueued: should_enqueue)
       end
 
-      # HTTP callers use enqueue!. This synchronous entry point supports deterministic service checks.
       def call!(request_key: "service:#{SecureRandom.uuid}")
         run, = prepare_run!(request_key: request_key)
-        self.class.execute_pending!(run.id, adapter: adapter)
+        token, = self.class.reserve_lease!(run)
+        self.class.execute_pending!(run.id, lease_token: token, adapter: adapter)
       end
 
       private
@@ -100,13 +117,8 @@ module Mia
           return [ reconcile!(existing, candidate, fingerprint), true ] if existing
 
           created_run = CoachPersonaEvaluationRun.create!(
-            release_candidate: candidate,
-            requested_by_user: actor,
-            status: "pending",
-            adapter_kind: adapter.kind,
-            cases_digest: cases_digest(sealed_cases),
-            request_key: key,
-            request_fingerprint: fingerprint
+            release_candidate: candidate, requested_by_user: actor, status: "pending", adapter_kind: adapter.kind,
+            cases_digest: cases_digest(sealed_cases), request_key: key, request_fingerprint: fingerprint
           )
           [ created_run, false ]
         end
@@ -126,10 +138,14 @@ module Mia
         existing
       end
 
-      def enqueue_job!(run)
-        run.update!(enqueued_at: Time.current) if run.enqueued_at.nil?
-        PersonaEvaluationRunJob.perform_later(run.id)
+      def enqueue_job!(run, token)
+        PersonaEvaluationRunJob.perform_later(run.id, token)
       rescue ActiveJob::EnqueueError
+        run.with_lock do
+          if secure_match?(run.lease_token, token) && run.status == "pending"
+            run.update!(lease_token: nil, heartbeat_at: nil, lease_expires_at: nil, lease_claimed_at: nil)
+          end
+        end
         raise Error, "The evaluation could not be queued. Retry with the same request_id."
       end
 
@@ -147,57 +163,67 @@ module Mia
       end
 
       def request_fingerprint(key, candidate, cases)
-        RequestIdentity.fingerprint(
-          schema: "persona_evaluation_request_v1",
-          request_key: key,
-          persona_id: persona.id,
-          actor_id: actor.id,
-          candidate_digest: candidate.manifest_digest,
-          cases_digest: cases_digest(cases),
-          adapter_kind: adapter.kind
-        )
+        RequestIdentity.fingerprint(schema: "persona_evaluation_request_v1", request_key: key, persona_id: persona.id,
+          actor_id: actor.id, candidate_digest: candidate.manifest_digest, cases_digest: cases_digest(cases), adapter_kind: adapter.kind)
       end
 
-      def execute!(run, cases)
-        ApplicationRecord.transaction do
-          cases.each { |evaluation_case| execute_case!(run, evaluation_case) }
-          terminal_status = run.results.reload.all? { |result| result.status == "passed" && !result.fallback_only? } ? "passed" : "failed"
-          run.assign_attributes(status: terminal_status, completed_at: Time.current)
-          run.run_digest = CoachPersonaEvaluationRun.digest_for(run: run, results: run.results.to_a)
-          run.save!
+      def execute!(run, cases, token)
+        cases.each do |evaluation_case|
+          next if run.results.exists?(coach_persona_evaluation_case_id: evaluation_case.id)
+
+          heartbeat!(run, token)
+          execute_case!(run, evaluation_case, token)
         end
-        run
+        complete!(run, cases, token)
+      rescue LeaseLost
+        run.reload
       rescue StandardError => error
-        if run.persisted? && !run.reload.terminal?
-          run.assign_attributes(status: "error", started_at: run.started_at || Time.current, completed_at: Time.current)
-          run.run_digest = CoachPersonaEvaluationRun.digest_for(run: run, results: run.results.to_a)
-          run.save!
-        end
+        terminalize_error!(run, token)
         raise Error, "The persona evaluation could not complete: #{error.message}"
       end
 
-      def execute_case!(run, evaluation_case)
+      def execute_case!(run, evaluation_case, token)
         response = adapter.call(evaluation_case: evaluation_case, persona: persona, candidate: run.release_candidate)
         raise Error, "The behavioral adapter returned an invalid response" unless response.is_a?(BehavioralAdapter::Response)
 
-        assertion_results = AssertionEvaluator.evaluate(
-          evaluation_case.assertions,
-          output: response.output,
-          fallback_only: response.fallback_only,
-          phrase_artifacts: run.release_candidate.config_snapshot["phrases"]
-        )
+        heartbeat!(run, token)
+        assertion_results = AssertionEvaluator.evaluate(evaluation_case.assertions, output: response.output,
+          fallback_only: response.fallback_only, phrase_artifacts: run.release_candidate.config_snapshot["phrases"])
         status = !response.fallback_only && assertion_results.all? { |assertion| assertion.fetch("passed") } ? "passed" : "failed"
-        result = run.results.new(
-          evaluation_case: evaluation_case,
-          status: status,
-          case_snapshot: evaluation_case.snapshot,
-          output: response.output.to_s.first(LiveBehavioralAdapter::MAX_OUTPUT_CHARS),
-          adapter_metadata: response.metadata,
-          assertion_results: assertion_results,
-          fallback_only: response.fallback_only
-        )
+        result = run.results.new(evaluation_case: evaluation_case, status: status, case_snapshot: evaluation_case.snapshot,
+          output: response.output.to_s.first(LiveBehavioralAdapter::MAX_OUTPUT_CHARS), adapter_metadata: response.metadata,
+          assertion_results: assertion_results, fallback_only: response.fallback_only)
         result.result_digest = CoachPersonaEvaluationResult.digest_for(result)
         result.save!
+      end
+
+      def heartbeat!(run, token)
+        now = Time.current
+        updated = CoachPersonaEvaluationRun.where(id: run.id, status: "running", lease_token: token)
+          .update_all(heartbeat_at: now, lease_expires_at: now + LEASE_DURATION, updated_at: now)
+        raise LeaseLost, "Evaluation lease was lost" unless updated == 1
+      end
+
+      def complete!(run, cases, token)
+        run.with_lock do
+          raise LeaseLost, "Evaluation lease was lost" unless secure_match?(run.lease_token, token)
+          results = run.results.reload.to_a
+          expected_ids = cases.map(&:id).sort
+          raise Error, "Evaluation results are incomplete" unless results.map(&:coach_persona_evaluation_case_id).sort == expected_ids
+
+          terminal_status = results.all? { |result| result.status == "passed" && !result.fallback_only? } ? "passed" : "failed"
+          run.assign_attributes(status: terminal_status, completed_at: Time.current, lease_token: nil, heartbeat_at: nil,
+            lease_expires_at: nil, lease_claimed_at: nil)
+          run.run_digest = CoachPersonaEvaluationRun.digest_for(run: run, results: results)
+          run.save!
+        end
+        run
+      end
+
+      def terminalize_error!(run, token)
+        run.with_lock { self.class.send(:complete_error!, run, token) } if run.persisted? && !run.reload.terminal?
+      rescue ActiveRecord::RecordInvalid
+        nil
       end
 
       def secure_match?(left, right)

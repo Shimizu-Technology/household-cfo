@@ -3,7 +3,7 @@
 class PersonaEvaluationRunJob < ApplicationJob
   queue_as :default
 
-  def perform(run_id)
-    Mia::PersonaRelease::Runner.execute_pending!(run_id)
+  def perform(run_id, lease_token)
+    Mia::PersonaRelease::Runner.execute_pending!(run_id, lease_token: lease_token)
   end
 end

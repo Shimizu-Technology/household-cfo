@@ -20,7 +20,10 @@ module Api
           end
           custom = records.select { |record| record.case_kind == "custom" }
             .map { |record| Mia::PersonaRelease::Serializer.evaluation_case(record) }
-          render json: { evaluation_cases: required + custom }
+          render json: {
+            evaluation_cases: required + custom,
+            evaluation_case_contract: Mia::PersonaRelease::Serializer.evaluation_case_contract
+          }
         end
 
         def create

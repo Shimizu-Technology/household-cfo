@@ -45,6 +45,20 @@ module Mia
         }
       end
 
+      def self.evaluation_case_contract
+        {
+          name_max_chars: 120,
+          prompt_max_chars: 2_000,
+          max_active_custom_cases: Runner::MAX_CASES - SystemCases::DEFINITIONS.length,
+          assertion_types: AssertionEvaluator::TYPES,
+          assertions_min: 1,
+          assertions_max: AssertionEvaluator::MAX_ASSERTIONS,
+          assertion_value_max_chars: AssertionEvaluator::MAX_VALUE_LENGTH,
+          assertion_values_max: AssertionEvaluator::MAX_VALUES,
+          max_chars_range: { min: 1, max: 20_000 }
+        }
+      end
+
       def self.run(record, include_results: false)
         payload = {
           id: record.id,
@@ -59,6 +73,14 @@ module Mia
           started_at: record.started_at,
           completed_at: record.completed_at,
           enqueued_at: record.enqueued_at,
+          execution: {
+            active_lease: record.execution_lease_active?,
+            recoverable: record.recoverable?,
+            heartbeat_at: record.heartbeat_at,
+            lease_expires_at: record.lease_expires_at,
+            poll_after_ms: record.terminal? ? nil : 2_000,
+            retry_action: record.recoverable? ? "replay_same_request" : nil
+          },
           requested_by: user(record.requested_by_user),
           approval: approval(record.approval)
         }
@@ -88,6 +110,8 @@ module Mia
           approval_digest: record.approval_digest,
           self_review: record.self_review?,
           reviewer: { id: record.reviewed_by_user_id, full_name: record.reviewed_by_user.full_name },
+          reviewer_role: record.reviewer_role_snapshot,
+          reviewer_authority_digest: record.reviewer_authority_digest,
           reviewed_at: record.reviewed_at
         }
       end
@@ -102,8 +126,33 @@ module Mia
           decision: record.decision,
           self_review: record.self_review?,
           reviewer: user(record.reviewed_by_user),
+          reviewer_role: record.reviewer_role_snapshot,
+          reviewer_authority_digest: record.reviewer_authority_digest,
           attestation_digest: record.attestation_digest,
           reviewed_at: record.reviewed_at
+        }
+      end
+
+      def self.behavioral_preview(record)
+        return nil unless record
+
+        {
+          id: record.id,
+          candidate_id: record.release_candidate.id,
+          candidate_digest: record.candidate_digest,
+          config_digest: record.config_digest,
+          content_manifest_digest: record.content_manifest_digest,
+          phrase_manifest_digest: record.phrase_manifest_digest,
+          prompt: record.prompt,
+          output: record.output,
+          source: record.response_source,
+          model: record.model_identifier,
+          privacy_scope: record.privacy_scope,
+          context_digest: record.context_digest,
+          generated_by: user(record.generated_by_user),
+          generated_at: record.generated_at,
+          digest: record.evidence_digest,
+          valid: record.integrity_valid?
         }
       end
 

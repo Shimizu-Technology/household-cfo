@@ -28,7 +28,7 @@ module Api
             .enqueue!(request_key: run_params[:request_id])
           render json: {
             evaluation_run: Mia::PersonaRelease::Serializer.run(result.run, include_results: true),
-            reconciliation: { request_id: result.run.request_key, replayed: result.replayed }
+            reconciliation: { request_id: result.run.request_key, replayed: result.replayed, enqueued: result.enqueued }
           }, status: :accepted
         rescue Mia::PersonaRelease::Runner::Error => error
           render json: { error: error.message, code: "persona_evaluation_failed" }, status: :unprocessable_entity

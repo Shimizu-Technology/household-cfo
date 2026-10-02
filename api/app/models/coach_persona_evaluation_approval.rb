@@ -14,21 +14,29 @@ class CoachPersonaEvaluationApproval < ApplicationRecord
   validates :decision, inclusion: { in: DECISIONS }
   validates :run_digest, :approval_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :reviewed_at, presence: true
+  validates :reviewer_role_snapshot, presence: true, on: :create
+  validates :reviewer_authority_digest, format: { with: /\A[0-9a-f]{64}\z/ }, on: :create
   validate :run_snapshot_matches
   validate :reviewer_is_authorized
   validate :digest_matches_snapshot
   validate :immutable_record, on: :update
   before_destroy :prevent_destroy
 
-  def self.digest_for(run:, reviewer_id:, decision:, self_review:, reviewed_at:)
-    Digest::SHA256.hexdigest(JSON.generate(Mia::PhraseManifest.canonicalize({
+  def self.digest_for(run:, reviewer_id:, decision:, self_review:, reviewed_at:, reviewer_authority_snapshot: nil,
+    reviewer_authority_digest: nil)
+    payload = {
       run_id: run.id,
       run_digest: run.run_digest,
       reviewer_id: reviewer_id,
       decision: decision,
       self_review: self_review == true,
       reviewed_at: reviewed_at.in_time_zone("UTC").iso8601(6)
-    })).b)
+    }
+    if reviewer_authority_snapshot.present?
+      payload[:reviewer_authority_snapshot] = reviewer_authority_snapshot
+      payload[:reviewer_authority_digest] = reviewer_authority_digest
+    end
+    Digest::SHA256.hexdigest(JSON.generate(Mia::PhraseManifest.canonicalize(payload)).b)
   end
 
   def integrity_valid?
@@ -44,7 +52,9 @@ class CoachPersonaEvaluationApproval < ApplicationRecord
       reviewer_id: reviewed_by_user_id,
       decision: decision,
       self_review: self_review,
-      reviewed_at: reviewed_at
+      reviewed_at: reviewed_at,
+      reviewer_authority_snapshot: reviewer_authority_snapshot,
+      reviewer_authority_digest: reviewer_authority_digest
     )
   end
 
@@ -71,6 +81,12 @@ class CoachPersonaEvaluationApproval < ApplicationRecord
     errors.add(:approval_digest, "must match the approval") unless approval_digest.present? &&
       ActiveSupport::SecurityUtils.secure_compare(approval_digest, expected_digest)
   end
+
+  def authority_snapshot_valid?
+    Mia::PersonaRelease::ReviewAuthority.valid?(reviewer_authority_snapshot, reviewer_authority_digest) &&
+      reviewer_role_snapshot == reviewer_authority_snapshot["role"]
+  end
+  public :authority_snapshot_valid?
 
   def immutable_record
     errors.add(:base, "evaluation approvals are immutable") if has_changes_to_save?

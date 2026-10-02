@@ -33,6 +33,7 @@ module Mia
             self_review: artifact["source_user_id"].to_i == actor.id
           )
           reviewed_at = Time.current
+          authority_snapshot, authority_digest = ReviewAuthority.snapshot(workspace: workspace, actor: actor)
           attestation = candidate.phrase_audience_attestations.new(
             artifact_id: artifact.fetch("artifact_id"),
             artifact_fingerprint: artifact.fetch("fingerprint"),
@@ -40,7 +41,10 @@ module Mia
             reviewed_by_user: actor,
             decision: decision,
             self_review: self_review,
-            reviewed_at: reviewed_at
+            reviewed_at: reviewed_at,
+            reviewer_role_snapshot: authority_snapshot.fetch("role"),
+            reviewer_authority_snapshot: authority_snapshot,
+            reviewer_authority_digest: authority_digest
           )
           attestation.attestation_digest = CoachPhraseAudienceAttestation.digest_for(
             candidate: candidate,
@@ -49,7 +53,9 @@ module Mia
             reviewer_id: actor.id,
             decision: decision,
             self_review: self_review,
-            reviewed_at: reviewed_at
+            reviewed_at: reviewed_at,
+            reviewer_authority_snapshot: authority_snapshot,
+            reviewer_authority_digest: authority_digest
           )
           attestation.save!
           attestation
