@@ -587,6 +587,129 @@
   color: var(--muted);
 }
 
+.persona-setup-loading {
+  padding: 2rem 0;
+  color: var(--muted);
+}
+
+.persona-setup-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.persona-setup-chat,
+.persona-setup-review {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--surface-raised, #fff);
+  padding: 1rem;
+}
+
+.persona-setup-chat h4,
+.persona-setup-review h4 {
+  margin: 0.2rem 0 0.45rem;
+}
+
+.persona-setup-chat header > p:last-child {
+  color: var(--muted);
+  margin-bottom: 0;
+}
+
+.persona-setup-privacy,
+.persona-setup-stale,
+.persona-setup-apply-blocked {
+  margin: 0.85rem 0;
+  padding: 0.75rem;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--brand-soft, #edf7f2) 72%, white);
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
+
+.persona-setup-stale {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.persona-setup-transcript {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 28rem;
+  overflow-y: auto;
+  padding: 0.5rem 0.15rem 0.5rem 0;
+  overscroll-behavior: contain;
+}
+
+.persona-setup-empty,
+.persona-setup-no-proposal {
+  color: var(--muted);
+  padding: 1rem;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+}
+
+.persona-setup-turn {
+  display: grid;
+  gap: 0.55rem;
+}
+
+.persona-setup-turn > div {
+  max-width: 92%;
+  border-radius: 14px;
+  padding: 0.7rem 0.8rem;
+  overflow-wrap: anywhere;
+}
+
+.persona-setup-turn p { margin: 0.25rem 0 0; white-space: pre-wrap; }
+.persona-setup-turn .is-coach { justify-self: end; background: var(--brand, #145c46); color: #fff; }
+.persona-setup-turn .is-mia { justify-self: start; background: var(--surface-muted, #f4f5f2); }
+
+.persona-setup-composer {
+  display: grid;
+  gap: 0.45rem;
+  margin-top: 0.75rem;
+}
+
+.persona-setup-composer textarea {
+  width: 100%;
+  min-width: 0;
+  resize: vertical;
+}
+
+.persona-setup-composer > div,
+.persona-setup-review-actions,
+.persona-proposal-change header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.persona-setup-start-over,
+.persona-setup-reject {
+  min-height: 44px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.persona-proposal-groups { display: grid; gap: 1rem; }
+.persona-proposal-groups h5 { margin: 0 0 0.5rem; }
+.persona-proposal-change { border-top: 1px solid var(--border); padding: 0.75rem 0; min-width: 0; }
+.persona-proposal-change header span { font-size: 0.75rem; color: var(--muted); }
+.persona-proposal-change dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.6rem; margin: 0.6rem 0; }
+.persona-proposal-change dl > div { min-width: 0; background: var(--surface-muted, #f6f6f4); border-radius: 10px; padding: 0.6rem; }
+.persona-proposal-change dt { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+.persona-proposal-change dd { margin: 0.25rem 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.persona-proposal-change blockquote { margin: 0.5rem 0 0; padding-left: 0.65rem; border-left: 3px solid var(--brand, #145c46); color: var(--muted); overflow-wrap: anywhere; }
+.persona-setup-review-actions { justify-content: flex-start; margin-top: 1rem; }
+
 .coach-step-tabs {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -1043,6 +1166,8 @@
 }
 
 @media (max-width: 900px) {
+  .persona-setup-layout { grid-template-columns: minmax(0, 1fr); }
+  .persona-setup-transcript { max-height: none; }
   .coach-studio-layout {
     grid-template-columns: minmax(0, 1fr);
   }

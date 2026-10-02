@@ -21,6 +21,7 @@ class CoachPersona < ApplicationRecord
   has_many :publication_events, class_name: "CoachPersonaPublicationEvent", dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohort_persona_assignments, dependent: :restrict_with_exception, inverse_of: :coach_persona
   has_many :cohorts, through: :cohort_persona_assignments
+  has_many :setup_sessions, class_name: "CoachPersonaSetupSession", dependent: :restrict_with_exception
   has_many :draft_content_pack_links,
     -> { order(:position) },
     class_name: "CoachPersonaDraftContentPack",
@@ -121,6 +122,13 @@ class CoachPersona < ApplicationRecord
     draft_content_pack_versions_ordered.each_with_index.map do |version, position|
       CoachPersonaVersion.content_manifest_entry(version, position: position)
     end
+  end
+
+  def apply_authoring_state!(description:, draft_config:)
+    @force_draft_revision_and_preview_reset = true
+    update!(description: description, draft_config: draft_config)
+  ensure
+    @force_draft_revision_and_preview_reset = false
   end
 
   private

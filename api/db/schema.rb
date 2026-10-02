@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_02_150000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_02_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -477,6 +477,93 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_150000) do
     t.index ["coach_persona_version_id", "coach_content_pack_version_id"], name: "idx_persona_version_packs_version", unique: true
     t.index ["coach_persona_version_id", "position"], name: "idx_persona_version_packs_position", unique: true
     t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_08a3a5cabb"
+  end
+
+  create_table "coach_persona_setup_proposals", force: :cascade do |t|
+    t.jsonb "after_state", default: {}, null: false
+    t.string "base_config_digest", null: false
+    t.integer "base_draft_revision", null: false
+    t.jsonb "before_state", default: {}, null: false
+    t.bigint "coach_persona_setup_session_id", null: false
+    t.bigint "coach_persona_setup_turn_id", null: false
+    t.datetime "created_at", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.jsonb "operations", default: [], null: false
+    t.string "prompt_version", null: false
+    t.string "proposal_digest", null: false
+    t.string "resolution_idempotency_key", limit: 200
+    t.datetime "resolved_at"
+    t.bigint "resolved_by_user_id"
+    t.string "schema_version", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_setup_session_id", "resolution_idempotency_key"], name: "idx_persona_setup_proposals_resolution_key", unique: true, where: "(resolution_idempotency_key IS NOT NULL)"
+    t.index ["coach_persona_setup_session_id"], name: "idx_persona_setup_proposals_one_pending", unique: true, where: "((status)::text = 'pending'::text)"
+    t.index ["coach_persona_setup_session_id"], name: "idx_persona_setup_proposals_session"
+    t.index ["coach_persona_setup_turn_id"], name: "idx_persona_setup_proposals_one_per_turn", unique: true
+    t.index ["coach_persona_setup_turn_id"], name: "idx_persona_setup_proposals_turn"
+    t.index ["resolved_by_user_id"], name: "index_coach_persona_setup_proposals_on_resolved_by_user_id"
+    t.check_constraint "(status::text = ANY (ARRAY['pending'::character varying::text, 'superseded'::character varying::text, 'stale'::character varying::text])) OR resolution_idempotency_key IS NOT NULL", name: "persona_setup_proposals_user_resolution_key_present"
+    t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_proposals_base_digest_sha256"
+    t.check_constraint "base_draft_revision > 0", name: "persona_setup_proposals_revision_positive"
+    t.check_constraint "jsonb_typeof(before_state) = 'object'::text AND jsonb_typeof(after_state) = 'object'::text", name: "persona_setup_proposals_states_objects"
+    t.check_constraint "jsonb_typeof(operations) = 'array'::text AND jsonb_array_length(operations) <= 24", name: "persona_setup_proposals_operations_array"
+    t.check_constraint "octet_length(operations::text) <= 32768 AND octet_length(before_state::text) <= 65536 AND octet_length(after_state::text) <= 65536", name: "persona_setup_proposals_payload_sizes"
+    t.check_constraint "proposal_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_proposals_digest_sha256"
+    t.check_constraint "status::text = 'pending'::text AND resolved_by_user_id IS NULL AND resolved_at IS NULL OR status::text <> 'pending'::text AND resolved_by_user_id IS NOT NULL AND resolved_at IS NOT NULL", name: "persona_setup_proposals_resolution_complete"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'applied'::character varying::text, 'rejected'::character varying::text, 'superseded'::character varying::text, 'stale'::character varying::text])", name: "persona_setup_proposals_status_valid"
+  end
+  create_table "coach_persona_setup_sessions", force: :cascade do |t|
+    t.string "base_config_digest", null: false
+    t.integer "base_draft_revision", null: false
+    t.bigint "coach_persona_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.datetime "last_activity_at", null: false
+    t.integer "lock_version", default: 0, null: false
+    t.string "status", default: "active", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_id", "created_by_user_id"], name: "idx_persona_setup_sessions_one_active", unique: true, where: "((status)::text = 'active'::text)"
+    t.index ["coach_persona_id"], name: "index_coach_persona_setup_sessions_on_coach_persona_id"
+    t.index ["coach_workspace_id"], name: "index_coach_persona_setup_sessions_on_coach_workspace_id"
+    t.index ["created_by_user_id"], name: "index_coach_persona_setup_sessions_on_created_by_user_id"
+    t.index ["id", "coach_workspace_id"], name: "idx_persona_setup_sessions_id_workspace", unique: true
+    t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_sessions_digest_sha256"
+    t.check_constraint "base_draft_revision > 0", name: "persona_setup_sessions_revision_positive"
+    t.check_constraint "status::text = ANY (ARRAY['active'::character varying::text, 'completed'::character varying::text, 'abandoned'::character varying::text])", name: "persona_setup_sessions_status_valid"
+  end
+  create_table "coach_persona_setup_turns", force: :cascade do |t|
+    t.text "assistant_message"
+    t.string "base_config_digest", null: false
+    t.integer "base_draft_revision", null: false
+    t.bigint "coach_persona_setup_session_id", null: false
+    t.datetime "created_at", null: false
+    t.string "error_code"
+    t.string "idempotency_key", limit: 200, null: false
+    t.string "model"
+    t.integer "position", null: false
+    t.string "prompt_version"
+    t.string "provider"
+    t.string "schema_version"
+    t.string "status", default: "processing", null: false
+    t.datetime "updated_at", null: false
+    t.jsonb "usage", default: {}, null: false
+    t.text "user_message", null: false
+    t.index ["coach_persona_setup_session_id", "idempotency_key"], name: "idx_persona_setup_turns_idempotency", unique: true
+    t.index ["coach_persona_setup_session_id", "position"], name: "idx_persona_setup_turns_position", unique: true
+    t.index ["coach_persona_setup_session_id"], name: "idx_persona_setup_turns_one_processing", unique: true, where: "((status)::text = 'processing'::text)"
+    t.index ["coach_persona_setup_session_id"], name: "idx_persona_setup_turns_session"
+    t.index ["id", "coach_persona_setup_session_id"], name: "idx_persona_setup_turns_id_session", unique: true
+    t.check_constraint "(status::text <> 'processing'::text OR assistant_message IS NULL AND error_code IS NULL) AND (status::text <> 'ready'::text OR assistant_message IS NOT NULL AND error_code IS NULL) AND (status::text <> 'failed'::text OR error_code IS NOT NULL)", name: "persona_setup_turns_state_coherent"
+    t.check_constraint "base_config_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_setup_turns_digest_sha256"
+    t.check_constraint "base_draft_revision > 0", name: "persona_setup_turns_revision_positive"
+    t.check_constraint "\"position\" > 0", name: "persona_setup_turns_position_positive"
+    t.check_constraint "assistant_message IS NULL OR char_length(assistant_message) <= 2000", name: "persona_setup_turns_assistant_message_length"
+    t.check_constraint "char_length(user_message) >= 1 AND char_length(user_message) <= 4000", name: "persona_setup_turns_user_message_length"
+    t.check_constraint "error_code IS NULL OR char_length(error_code::text) >= 1 AND char_length(error_code::text) <= 80", name: "persona_setup_turns_error_code_length"
+    t.check_constraint "jsonb_typeof(usage) = 'object'::text", name: "persona_setup_turns_usage_object"
+    t.check_constraint "status::text = ANY (ARRAY['processing'::character varying::text, 'ready'::character varying::text, 'failed'::character varying::text, 'stale'::character varying::text])", name: "persona_setup_turns_status_valid"
   end
 
   create_table "coach_persona_versions", force: :cascade do |t|
@@ -1572,6 +1659,15 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_150000) do
   add_foreign_key "coach_persona_publication_events", "coach_persona_versions", column: "source_version_id"
   add_foreign_key "coach_persona_publication_events", "coach_personas"
   add_foreign_key "coach_persona_publication_events", "users", column: "actor_user_id"
+  add_foreign_key "coach_persona_setup_proposals", "coach_persona_setup_sessions"
+  add_foreign_key "coach_persona_setup_proposals", "coach_persona_setup_turns"
+  add_foreign_key "coach_persona_setup_proposals", "coach_persona_setup_turns", column: ["coach_persona_setup_turn_id", "coach_persona_setup_session_id"], primary_key: ["id", "coach_persona_setup_session_id"], name: "fk_persona_setup_proposal_turn_session"
+  add_foreign_key "coach_persona_setup_proposals", "users", column: "resolved_by_user_id"
+  add_foreign_key "coach_persona_setup_sessions", "coach_personas"
+  add_foreign_key "coach_persona_setup_sessions", "coach_personas", column: ["coach_persona_id", "coach_workspace_id"], primary_key: ["id", "coach_workspace_id"], name: "fk_persona_setup_session_persona_workspace"
+  add_foreign_key "coach_persona_setup_sessions", "coach_workspaces"
+  add_foreign_key "coach_persona_setup_sessions", "users", column: "created_by_user_id"
+  add_foreign_key "coach_persona_setup_turns", "coach_persona_setup_sessions"
   add_foreign_key "coach_persona_version_content_packs", "coach_content_pack_versions"
   add_foreign_key "coach_persona_version_content_packs", "coach_persona_versions"
   add_foreign_key "coach_persona_versions", "coach_persona_versions", column: "source_version_id"
