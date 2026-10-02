@@ -4831,12 +4831,42 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
     { id: 962, title: 'Legacy phrase', scope: 'coach', kind: 'phrase', always_on: false, draft_content: legacyPhraseVersion.content, draft_revision: 1, draft_digest: legacyPhraseVersion.digest, archived: false, editable: true, approvable: true, current_approved_version: legacyPhraseVersion, versions: [legacyPhraseVersion], has_unapproved_changes: false, updated_at: '2026-10-02T00:00:00Z' },
   ]
   const legacyPack = { id: 970, name: 'Legacy voice pack', description: '', scope: 'coach', pack_kind: 'voice_culture', draft_revision: 1, draft_manifest_digest: 'pack-digest', archived: false, editable: true, publishable: true, draft_items: [guidanceVersion, legacyPhraseVersion], current_published_version: null, versions: [], has_unpublished_changes: true, item_updates_available: false, update_available: false, updated_at: '2026-10-02T00:00:00Z' }
+  const publishedPackVersion = { id: 972, pack_id: 971, name: 'Approved decision pack', description: 'Reviewed guidance.', scope: 'coach', pack_kind: 'coaching_method', version: 1, digest: 'published-pack-digest', published_at: '2026-10-02T00:00:00Z', items: [guidanceVersion] }
+  const attachPack = { id: 971, name: 'Approved decision pack', description: 'Reviewed guidance.', scope: 'coach', pack_kind: 'coaching_method', draft_revision: 1, draft_manifest_digest: 'attach-pack-digest', archived: false, editable: true, publishable: true, draft_items: [guidanceVersion], current_published_version: publishedPackVersion, versions: [publishedPackVersion], has_unpublished_changes: false, item_updates_available: false, update_available: false, updated_at: '2026-10-02T00:00:00Z' }
+  let studioPersona = structuredClone(personaDetailFixture())
+  let contentPackWriteCount = 0
+  let signalRestoreStarted: (() => void) | undefined
+  let releaseRestore: (() => void) | undefined
+  const restoreStarted = new Promise<void>((resolve) => { signalRestoreStarted = resolve })
+  const restoreGate = new Promise<void>((resolve) => { releaseRestore = resolve })
 
   await page.route('http://api.test/api/v1/admin/content_sources', (route) => route.fulfill({ status: 200, json: { sources: [source], permissions: sourceCollectionPermissions } }))
   await page.route('http://api.test/api/v1/admin/content_sources/740', (route) => route.fulfill({ status: 200, json: { source } }))
   await page.route('http://api.test/api/v1/admin/content_sources/740/phrase_proposals', (route) => route.fulfill({ status: 200, json: { phrase_proposals: [proposal], permissions: { view: true, propose: true, review: true, promote: true } } }))
   await page.route('http://api.test/api/v1/admin/content_items', (route) => route.fulfill({ status: 200, json: { items: contentItems } }))
-  await page.route('http://api.test/api/v1/admin/content_packs', (route) => route.fulfill({ status: 200, json: { packs: [legacyPack] } }))
+  await page.route('http://api.test/api/v1/admin/content_packs', (route) => route.fulfill({ status: 200, json: { packs: [legacyPack, attachPack] } }))
+  await page.route('http://api.test/api/v1/admin/personas/81', async (route) => {
+    if (route.request().method() === 'GET') return route.fulfill({ status: 200, json: { persona: studioPersona } })
+    const body = route.request().postDataJSON().persona
+    const promotions = (studioPersona.approved_phrase_promotions ?? []).map((promotion) => ({ ...promotion, active: false, can_restore: true }))
+    studioPersona = {
+      ...studioPersona,
+      name: body.draft_config.identity.assistant_name,
+      description: body.description,
+      draft_revision: (studioPersona.draft_revision ?? 0) + 1,
+      draft: body.draft_config,
+      phrase_artifact_access: { can_add: true, artifacts: [] },
+      approved_phrase_promotions: promotions,
+      preview: null,
+      preview_required: true,
+      has_unpublished_changes: true,
+    }
+    return route.fulfill({ status: 200, json: { persona: studioPersona } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81/content_packs', (route) => {
+    contentPackWriteCount += 1
+    return route.fulfill({ status: 409, json: { error: 'Content pack mutation must stay locked during restore.' } })
+  })
   await page.route('http://api.test/api/v1/admin/personas/81/phrase_promotions', async (route) => {
     const body = route.request().postDataJSON().phrase_promotion
     expect(body).toEqual({ proposal_id: 951, draft_revision: 1 })
@@ -4846,7 +4876,21 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
       phrase_artifact_access: { can_add: true, artifacts: [{ artifact_id: 'approved-source-951', provenance: 'approved_source', source_role_at_capture: null, source_label: 'Approved private source', can_edit: false, can_move: true, can_remove: true, locked: true, locked_reason: 'Approved-source wording is sealed to its review record. Remove it or restore the reviewed artifact.' }] },
       approved_phrase_promotions: [{ id: 980, artifact_id: 'approved-source-951', phrase: reviewedPhrase, source_label: 'Approved private source', active: true, can_restore: false, promoted_at: '2026-10-02T00:20:00Z' }],
     }
+    studioPersona = promotedPersona
     return route.fulfill({ status: 201, json: { persona: promotedPersona, phrase_promotion: { id: 980, persona_id: 81, proposal_id: 951, artifact_id: 'approved-source-951', phrase: reviewedPhrase, source_label: 'Approved private source', promoted_at: '2026-10-02T00:20:00Z', promoted_by: { id: 900, full_name: 'Pilot Admin' } } } })
+  })
+  await page.route('http://api.test/api/v1/admin/personas/81/phrase_promotions/980/restore', async (route) => {
+    expect(route.request().postDataJSON().phrase_promotion).toEqual({ draft_revision: 3 })
+    signalRestoreStarted?.()
+    await restoreGate
+    studioPersona = {
+      ...studioPersona,
+      draft_revision: 4,
+      draft: { ...structuredClone(studioPersona.draft!), phrases: [{ ...reviewedPhrase, artifact_id: 'approved-source-951', provenance: 'approved_source' }] },
+      phrase_artifact_access: { can_add: true, artifacts: [{ artifact_id: 'approved-source-951', provenance: 'approved_source', source_role_at_capture: null, source_label: 'Approved private source', can_edit: false, can_move: true, can_remove: true, locked: true, locked_reason: 'Approved-source wording is sealed to its review record. Remove it or restore the reviewed artifact.' }] },
+      approved_phrase_promotions: (studioPersona.approved_phrase_promotions ?? []).map((promotion) => ({ ...promotion, active: true, can_restore: false })),
+    }
+    return route.fulfill({ status: 200, json: { persona: studioPersona, phrase_promotion: { id: 980 } } })
   })
   await page.route('http://api.test/api/v1/admin/phrase_proposals/951', (route) => route.fulfill({ status: 200, json: { phrase_proposal: { ...proposal, promotion_count: 1 } } }))
 
@@ -4876,6 +4920,27 @@ test('Coach Studio promotes only an attested source phrase and keeps it locked a
   if ((page.viewportSize()?.width ?? 1_000) <= 390) {
     expect(await page.getByRole('button', { name: 'Remove phrase 1' }).evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThanOrEqual(44)
   }
+
+  await page.getByRole('button', { name: 'Remove phrase 1' }).click()
+  await page.getByRole('button', { name: 'Save draft', exact: true }).click()
+  await expect(page.getByRole('button', { name: 'Restore reviewed phrase' })).toBeVisible()
+  await page.getByRole('button', { name: 'Restore reviewed phrase' }).click()
+  await restoreStarted
+
+  const setupMode = page.getByRole('button', { name: /Setup chat/ })
+  const packCheckbox = page.getByRole('checkbox', { name: /Approved decision pack/ })
+  await expect(setupMode).toBeDisabled()
+  await expect(packCheckbox).toBeDisabled()
+  await setupMode.evaluate((element) => (element as HTMLButtonElement).click())
+  await packCheckbox.evaluate((element) => (element as HTMLInputElement).click())
+  await expect(setupMode).toHaveAttribute('aria-pressed', 'false')
+  await expect(packCheckbox).not.toBeChecked()
+  expect(contentPackWriteCount).toBe(0)
+
+  releaseRestore?.()
+  await expect(page.getByRole('status')).toContainText('Reviewed phrase restored to the assistant draft')
+  await expect(setupMode).toBeEnabled()
+  await expect(packCheckbox).toBeEnabled()
 })
 
 test('Coach Studio preserves candidate edits through conflicts and server safety rechecks', async ({ page }, testInfo) => {

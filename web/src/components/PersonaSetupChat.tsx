@@ -18,6 +18,7 @@ type AuthoringState = { description: string; draft_config: PersonaConfiguration 
 
 export function PersonaSetupChat({
   persona,
+  disabled = false,
   manualDirty,
   mutationLifecycle,
   onPersonaChange,
@@ -25,6 +26,7 @@ export function PersonaSetupChat({
   onDirtyChange,
 }: {
   persona: AdminPersonaDetail
+  disabled?: boolean
   manualDirty: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onPersonaChange: (persona: AdminPersonaDetail) => void
@@ -100,7 +102,7 @@ export function PersonaSetupChat({
   async function sendMessage(event: FormEvent) {
     event.preventDefault()
     const trimmed = message.trim()
-    if (!session || !trimmed || pending || session.stale) return
+    if (disabled || !session || !trimmed || pending || session.stale) return
     const key = retryKey ?? requestKey()
     const ticket = beginMutation()
     const sequence = ++requestSequence.current
@@ -142,7 +144,7 @@ export function PersonaSetupChat({
 
   async function resolveProposal(action: 'apply' | 'reject') {
     const proposal = session?.proposal
-    if (!session || !proposal || pending || (action === 'apply' && manualDirty)) return
+    if (disabled || !session || !proposal || pending || (action === 'apply' && manualDirty)) return
     const ticket = beginMutation()
     const sequence = ++requestSequence.current
     const personaId = persona.id
@@ -174,14 +176,14 @@ export function PersonaSetupChat({
   }
 
   function retryOpenSession() {
-    if (loading || pending) return
+    if (disabled || loading || pending) return
     setError(null)
     setLoading(true)
     setLoadAttempt((attempt) => attempt + 1)
   }
 
   async function updateSession(action: 'rebase' | 'abandon') {
-    if (!session || pending) return
+    if (disabled || !session || pending) return
     const ticket = beginMutation()
     const sequence = ++requestSequence.current
     const personaId = persona.id
@@ -221,7 +223,8 @@ export function PersonaSetupChat({
   if (loading) return <div className="persona-setup-loading" role="status">Opening your private setup chat…</div>
 
   return (
-    <div className="persona-setup-layout">
+    <fieldset className="persona-setup-layout coach-persona-mutation-lock" disabled={disabled} aria-busy={disabled}>
+      <legend className="sr-only">Setup chat controls</legend>
       <section className="persona-setup-chat" aria-labelledby="persona-setup-chat-title">
         <header>
           <p className="eyebrow">Private coach workspace</p>
@@ -312,7 +315,7 @@ export function PersonaSetupChat({
         )}
       </section>
       <p className="sr-only" aria-live="assertive">{announcement}</p>
-    </div>
+    </fieldset>
   )
 }
 

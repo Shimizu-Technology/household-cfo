@@ -479,9 +479,10 @@ export function ContentPacksPanel({ currentUser, platformMode, packs, items, sel
   )
 }
 
-export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, onDirtyChange, onPersonaChange }: {
+export function PersonaContentPacksPanel({ persona, dirty, disabled = false, mutationLifecycle, onDirtyChange, onPersonaChange }: {
   persona: AdminPersonaDetail
   dirty: boolean
+  disabled?: boolean
   mutationLifecycle: CoachWorkspaceMutationLifecycle
   onDirtyChange: (dirty: boolean) => void
   onPersonaChange: (persona: AdminPersonaDetail) => void
@@ -498,11 +499,13 @@ export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, on
   const published = useMemo(() => packs.filter((pack) => pack.current_published_version && !pack.archived), [packs])
 
   function updateSelection(next: number[]) {
+    if (disabled) return
     setSelectedIds(next)
     onDirtyChange(next.join(',') !== (persona.content_packs?.map((pack) => pack.id) ?? []).join(','))
   }
 
   function toggle(pack: AdminContentPack) {
+    if (disabled) return
     const version = pack.current_published_version
     if (!version) return
     const linkedForPack = persona.content_packs?.filter((candidate) => candidate.pack_id === pack.id).map((candidate) => candidate.id) ?? []
@@ -512,6 +515,7 @@ export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, on
   }
 
   function chooseCurrentVersion(pack: AdminContentPack) {
+    if (disabled) return
     const version = pack.current_published_version
     if (!version) return
     const linkedForPack = persona.content_packs?.filter((candidate) => candidate.pack_id === pack.id).map((candidate) => candidate.id) ?? []
@@ -524,6 +528,7 @@ export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, on
   useEffect(() => () => onDirtyChange(false), [onDirtyChange])
 
   async function save() {
+    if (disabled) return
     const ticket = mutationLifecycle.begin()
     setBusy(true)
     setError(null)
@@ -549,11 +554,11 @@ export function PersonaContentPacksPanel({ persona, dirty, mutationLifecycle, on
             const attached = persona.content_packs?.find((candidate) => candidate.pack_id === pack.id)
             const included = selectedIds.includes(current.id) || Boolean(attached && selectedIds.includes(attached.id))
             const updateAvailable = Boolean(attached && attached.id !== current.id && !selectedIds.includes(current.id))
-            return <div className="persona-pack-option" key={pack.id}><label><input type="checkbox" disabled={!persona.permissions.edit || dirty || busy} checked={included} onChange={() => toggle(pack)} /><span><strong>{pack.name}</strong><small>{label(pack.pack_kind)} · {updateAvailable ? `assistant uses v${attached?.version}, current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && persona.permissions.edit && <button type="button" className="coach-content-upgrade" disabled={dirty || busy} onClick={() => chooseCurrentVersion(pack)}>Use v{current.version}</button>}</div>
+            return <div className="persona-pack-option" key={pack.id}><label><input type="checkbox" disabled={disabled || !persona.permissions.edit || dirty || busy} checked={included} onChange={() => toggle(pack)} /><span><strong>{pack.name}</strong><small>{label(pack.pack_kind)} · {updateAvailable ? `assistant uses v${attached?.version}, current v${current.version}` : `v${current.version}`}</small></span></label>{updateAvailable && persona.permissions.edit && <button type="button" className="coach-content-upgrade" disabled={disabled || dirty || busy} onClick={() => chooseCurrentVersion(pack)}>Use v{current.version}</button>}</div>
           })}
         </div>
       )}
-      <div className="coach-content-actions"><Button disabled={!changed || dirty || busy || !persona.permissions.edit} onClick={() => void save()}>{busy ? 'Saving sources' : 'Save source selection'}</Button><small>{dirty ? 'Save persona fields before changing sources.' : 'Saving sources creates a new persona draft revision and requires a fresh preview.'}</small></div>
+      <div className="coach-content-actions"><Button disabled={disabled || !changed || dirty || busy || !persona.permissions.edit} onClick={() => void save()}>{busy ? 'Saving sources' : 'Save source selection'}</Button><small>{disabled ? 'Finish restoring the reviewed phrase before changing sources.' : dirty ? 'Save persona fields before changing sources.' : 'Saving sources creates a new persona draft revision and requires a fresh preview.'}</small></div>
     </article>
   )
 }
