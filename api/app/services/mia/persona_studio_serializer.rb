@@ -22,6 +22,7 @@ module Mia
         description: private_configuration_visible? ? persona.description.to_s : "",
         role: display_config.dig("identity", "assistant_relationship"),
         status: status,
+        release_gate_version: persona.release_gate_version,
         owner: serialize_user(persona.created_by_user),
         workspace: {
           id: persona.coach_workspace_id,
@@ -37,7 +38,8 @@ module Mia
         payload.merge!(
           draft_revision: persona.draft_revision,
           has_unpublished_changes: unpublished_changes?,
-          preview_required: preview_required?
+          preview_required: preview_required?,
+          release_readiness: Mia::PersonaRelease::Readiness.new(persona: persona).call
         )
       end
       payload
@@ -108,6 +110,10 @@ module Mia
         content_manifest_digest: version.content_manifest_digest,
         phrase_manifest_digest: version.phrase_manifest_digest,
         publication_digest: version.publication_digest,
+        release_gate_version: version.release_gate_version,
+        release_manifest_digest: version.release_manifest_digest,
+        audience_digest: version.audience_digest,
+        release_evidence_digest: version.release_evidence_digest,
         published_at: version.created_at,
         published_by: serialize_user(version.published_by_user)
       }

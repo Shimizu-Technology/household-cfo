@@ -21,9 +21,13 @@ module Mia
           raise RollbackError, "The published persona changed; reload it before rolling back"
         end
         raise RollbackError, "Rollback target must belong to this persona" unless target_version.coach_persona_id == persona.id
+        if persona.release_gate_version == "gate_v2" && target_version.release_gate_version != "gate_v2"
+          raise RollbackError, "A gate_v2 persona cannot roll back to legacy release evidence"
+        end
         ensure_target_is_safe!
         raise RollbackError, "Rollback target content manifest is invalid" unless target_version.content_manifest_valid?
         raise RollbackError, "Rollback target phrase manifest is invalid" unless target_version.phrase_manifest_valid?
+        raise RollbackError, "Rollback target release evidence is invalid" unless target_version.release_evidence_valid?
 
         version = persona.versions.create!(
           version_number: persona.versions.maximum(:version_number).to_i + 1,
@@ -32,7 +36,14 @@ module Mia
           content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
           phrase_manifest_digest: Mia::PhraseManifest.digest_for([]),
           published_by_user: actor,
-          source_version: target_version
+          source_version: target_version,
+          release_gate_version: target_version.release_gate_version,
+          release_candidate: target_version.release_candidate,
+          evaluation_run: target_version.evaluation_run,
+          evaluation_approval: target_version.evaluation_approval,
+          release_manifest_digest: target_version.release_manifest_digest,
+          audience_digest: target_version.audience_digest,
+          release_evidence_digest: target_version.release_evidence_digest
         )
         target_version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
@@ -47,6 +58,7 @@ module Mia
           )
         end
         version.seal_manifests!
+        raise RollbackError, "Rollback target release evidence no longer matches" unless version.release_evidence_valid?
         persona.draft_content_pack_links.delete_all
         version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           persona.draft_content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
@@ -60,7 +72,9 @@ module Mia
           coach_persona_version: version,
           actor_user: actor,
           event_type: "rollback",
-          source_version: target_version
+          source_version: target_version,
+          release_gate_version: version.release_gate_version,
+          release_evidence_digest: version.release_evidence_digest
         )
         version
       end

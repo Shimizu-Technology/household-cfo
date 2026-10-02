@@ -146,6 +146,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
     assert_equal "Auntie Ava", persona.name
     assert_nil persona.archived_at
     assert_nil persona.current_published_version_id
+    assert_equal "gate_v2", persona.release_gate_version
 
     post "/api/v1/admin/personas/#{persona.id}/preview",
       params: { preview: { draft_revision: 1, sample_prompt: "Can I afford this?" } },

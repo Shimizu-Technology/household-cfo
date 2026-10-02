@@ -123,6 +123,12 @@ Rails.application.routes.draw do
             post :rollback, on: :member
           end
           resource :content_packs, controller: "persona_content_packs", only: :update
+          resource :release_readiness, controller: "persona_release_readiness", only: :show
+          resources :evaluation_cases, controller: "persona_evaluation_cases", only: %i[index create destroy]
+          resources :evaluation_runs, controller: "persona_evaluation_runs", only: %i[index show create] do
+            resource :approval, controller: "persona_evaluation_approvals", only: :create
+          end
+          resources :audience_attestations, controller: "persona_audience_attestations", only: :create
         end
         resources :content_items, controller: "coach_content_items", only: %i[index create update destroy] do
           post :approve, on: :member

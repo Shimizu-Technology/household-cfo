@@ -520,6 +520,120 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.index ["coach_persona_id"], name: "index_coach_persona_draft_content_packs_on_coach_persona_id"
   end
 
+  create_table "coach_persona_evaluation_approvals", force: :cascade do |t|
+    t.string "approval_digest", null: false
+    t.bigint "coach_persona_evaluation_run_id", null: false
+    t.datetime "created_at", null: false
+    t.string "decision", null: false
+    t.datetime "reviewed_at", null: false
+    t.bigint "reviewed_by_user_id", null: false
+    t.string "run_digest", null: false
+    t.boolean "self_review", default: false, null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_evaluation_run_id"], name: "idx_persona_evaluation_approvals_run", unique: true
+    t.index ["reviewed_by_user_id"], name: "idx_on_reviewed_by_user_id_3507893542"
+    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying::text, 'rejected'::character varying::text])", name: "persona_evaluation_approvals_decision_valid"
+    t.check_constraint "run_digest::text ~ '^[0-9a-f]{64}$'::text AND approval_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_evaluation_approvals_digest_shape"
+  end
+  create_table "coach_persona_evaluation_cases", force: :cascade do |t|
+    t.boolean "active", default: true, null: false
+    t.jsonb "assertions", default: [], null: false
+    t.string "case_digest", null: false
+    t.string "case_kind", null: false
+    t.bigint "coach_persona_id", null: false
+    t.bigint "coach_workspace_id", null: false
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.string "name", null: false
+    t.text "prompt", null: false
+    t.boolean "required", default: false, null: false
+    t.datetime "retired_at"
+    t.bigint "retired_by_user_id"
+    t.string "retirement_digest"
+    t.string "system_key"
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_id", "system_key"], name: "idx_persona_evaluation_cases_system_key", unique: true, where: "(system_key IS NOT NULL)"
+    t.index ["coach_persona_id"], name: "index_coach_persona_evaluation_cases_on_coach_persona_id"
+    t.index ["coach_workspace_id"], name: "index_coach_persona_evaluation_cases_on_coach_workspace_id"
+    t.index ["created_by_user_id"], name: "index_coach_persona_evaluation_cases_on_created_by_user_id"
+    t.index ["retired_by_user_id"], name: "index_coach_persona_evaluation_cases_on_retired_by_user_id"
+    t.check_constraint "case_kind::text = ANY (ARRAY['system'::character varying::text, 'custom'::character varying::text])", name: "persona_evaluation_cases_kind_valid"
+    t.check_constraint "jsonb_typeof(assertions) = 'array'::text AND (case_kind::text <> 'system'::text OR required = true AND active = true AND system_key IS NOT NULL) AND (active = true AND retired_by_user_id IS NULL AND retired_at IS NULL AND retirement_digest IS NULL OR active = false AND case_kind::text = 'custom'::text AND retired_by_user_id IS NOT NULL AND retired_at IS NOT NULL AND retirement_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_evaluation_cases_shape"
+  end
+  create_table "coach_persona_evaluation_results", force: :cascade do |t|
+    t.jsonb "adapter_metadata", default: {}, null: false
+    t.jsonb "assertion_results", default: [], null: false
+    t.jsonb "case_snapshot", default: {}, null: false
+    t.bigint "coach_persona_evaluation_case_id", null: false
+    t.bigint "coach_persona_evaluation_run_id", null: false
+    t.datetime "created_at", null: false
+    t.boolean "fallback_only", default: false, null: false
+    t.text "output", default: "", null: false
+    t.string "result_digest", null: false
+    t.string "status", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_evaluation_case_id"], name: "idx_persona_evaluation_results_case"
+    t.index ["coach_persona_evaluation_run_id", "coach_persona_evaluation_case_id"], name: "idx_persona_evaluation_results_unique_case", unique: true
+    t.index ["coach_persona_evaluation_run_id"], name: "idx_persona_evaluation_results_run"
+    t.check_constraint "result_digest::text ~ '^[0-9a-f]{64}$'::text AND jsonb_typeof(case_snapshot) = 'object'::text AND jsonb_typeof(adapter_metadata) = 'object'::text AND jsonb_typeof(assertion_results) = 'array'::text", name: "persona_evaluation_results_shape"
+    t.check_constraint "status::text = ANY (ARRAY['passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])", name: "persona_evaluation_results_status_valid"
+  end
+  create_table "coach_persona_evaluation_runs", force: :cascade do |t|
+    t.string "adapter_kind", null: false
+    t.string "cases_digest", null: false
+    t.bigint "coach_persona_release_candidate_id", null: false
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.bigint "requested_by_user_id", null: false
+    t.string "run_digest"
+    t.datetime "started_at"
+    t.string "status", default: "pending", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_release_candidate_id"], name: "idx_persona_evaluation_runs_candidate"
+    t.index ["requested_by_user_id"], name: "index_coach_persona_evaluation_runs_on_requested_by_user_id"
+    t.check_constraint "cases_digest::text ~ '^[0-9a-f]{64}$'::text AND (run_digest IS NULL OR run_digest::text ~ '^[0-9a-f]{64}$'::text) AND (status::text = 'pending'::text AND started_at IS NULL AND completed_at IS NULL AND run_digest IS NULL OR status::text = 'running'::text AND started_at IS NOT NULL AND completed_at IS NULL AND run_digest IS NULL OR (status::text = ANY (ARRAY['passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])) AND started_at IS NOT NULL AND completed_at IS NOT NULL AND run_digest IS NOT NULL)", name: "persona_evaluation_runs_lifecycle"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'running'::character varying::text, 'passed'::character varying::text, 'failed'::character varying::text, 'error'::character varying::text])", name: "persona_evaluation_runs_status_valid"
+  end
+  create_table "coach_persona_release_candidates", force: :cascade do |t|
+    t.string "audience_digest", null: false
+    t.jsonb "audience_snapshot", default: {}, null: false
+    t.bigint "coach_persona_id", null: false
+    t.string "config_digest", null: false
+    t.string "content_manifest_digest", null: false
+    t.datetime "created_at", null: false
+    t.bigint "created_by_user_id", null: false
+    t.integer "draft_revision", null: false
+    t.jsonb "manifest", default: {}, null: false
+    t.string "manifest_digest", null: false
+    t.jsonb "phrase_artifacts_snapshot", default: [], null: false
+    t.string "phrase_manifest_digest", null: false
+    t.datetime "sealed_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_id", "manifest_digest"], name: "idx_persona_release_candidates_manifest", unique: true
+    t.index ["coach_persona_id"], name: "index_coach_persona_release_candidates_on_coach_persona_id"
+    t.index ["created_by_user_id"], name: "index_coach_persona_release_candidates_on_created_by_user_id"
+    t.check_constraint "draft_revision > 0 AND config_digest::text ~ '^[0-9a-f]{64}$'::text AND content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_release_candidates_digest_shape"
+    t.check_constraint "jsonb_typeof(audience_snapshot) = 'object'::text AND jsonb_typeof(phrase_artifacts_snapshot) = 'array'::text AND jsonb_typeof(manifest) = 'object'::text", name: "persona_release_candidates_json_shape"
+  end
+  create_table "coach_phrase_audience_attestations", force: :cascade do |t|
+    t.string "artifact_fingerprint", null: false
+    t.uuid "artifact_id", null: false
+    t.string "attestation_digest", null: false
+    t.string "audience_digest", null: false
+    t.bigint "coach_persona_release_candidate_id", null: false
+    t.datetime "created_at", null: false
+    t.string "decision", null: false
+    t.datetime "reviewed_at", null: false
+    t.bigint "reviewed_by_user_id", null: false
+    t.boolean "self_review", default: false, null: false
+    t.datetime "updated_at", null: false
+    t.index ["coach_persona_release_candidate_id", "artifact_id"], name: "idx_phrase_audience_attestations_artifact", unique: true
+    t.index ["coach_persona_release_candidate_id"], name: "idx_phrase_audience_attestations_candidate"
+    t.index ["reviewed_by_user_id"], name: "idx_on_reviewed_by_user_id_4e3698fda7"
+    t.check_constraint "artifact_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND attestation_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_audience_attestations_digest_shape"
+    t.check_constraint "decision::text = ANY (ARRAY['approved'::character varying::text, 'rejected'::character varying::text])", name: "phrase_audience_attestations_decision_valid"
+  end
+
   create_table "coach_persona_phrase_promotions", force: :cascade do |t|
     t.jsonb "artifact", default: {}, null: false
     t.string "artifact_fingerprint", null: false
@@ -549,6 +663,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.bigint "coach_persona_version_id", null: false
     t.datetime "created_at", null: false
     t.string "event_type", null: false
+    t.string "release_evidence_digest"
+    t.string "release_gate_version", default: "gate_v1", null: false
     t.bigint "source_version_id"
     t.datetime "updated_at", null: false
     t.index ["actor_user_id"], name: "index_coach_persona_publication_events_on_actor_user_id"
@@ -556,6 +672,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_4ab8b00110"
     t.index ["source_version_id"], name: "index_coach_persona_publication_events_on_source_version_id"
     t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "coach_persona_publication_events_type_valid"
+    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "persona_publication_events_release_gate_valid"
+    t.check_constraint "release_gate_version::text = 'gate_v1'::text AND release_evidence_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND release_evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_publication_events_release_evidence_complete"
   end
 
   create_table "coach_persona_version_content_packs", force: :cascade do |t|
@@ -675,19 +793,29 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
   end
 
   create_table "coach_persona_versions", force: :cascade do |t|
+    t.string "audience_digest"
+    t.bigint "coach_persona_evaluation_approval_id"
+    t.bigint "coach_persona_evaluation_run_id"
     t.bigint "coach_persona_id", null: false
+    t.bigint "coach_persona_release_candidate_id"
     t.jsonb "config", null: false
     t.string "config_digest", null: false
     t.string "content_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
     t.string "phrase_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
     t.datetime "created_at", null: false
     t.bigint "published_by_user_id", null: false
+    t.string "release_evidence_digest"
+    t.string "release_gate_version", default: "gate_v1", null: false
+    t.string "release_manifest_digest"
     t.datetime "sealed_at"
     t.bigint "source_version_id"
     t.datetime "updated_at", null: false
     t.integer "version_number", null: false
+    t.index ["coach_persona_evaluation_approval_id"], name: "idx_persona_versions_evaluation_approval"
+    t.index ["coach_persona_evaluation_run_id"], name: "idx_persona_versions_evaluation_run"
     t.index ["coach_persona_id", "version_number"], name: "index_coach_persona_versions_on_persona_and_number", unique: true
     t.index ["coach_persona_id"], name: "index_coach_persona_versions_on_coach_persona_id"
+    t.index ["coach_persona_release_candidate_id"], name: "idx_persona_versions_release_candidate"
     t.index ["id", "coach_persona_id"], name: "idx_persona_versions_id_persona", unique: true
     t.index ["published_by_user_id"], name: "index_coach_persona_versions_on_published_by_user_id"
     t.index ["source_version_id"], name: "index_coach_persona_versions_on_source_version_id"
@@ -697,6 +825,8 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.check_constraint "phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_phrase_manifest_sha256"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
     t.check_constraint "octet_length(config::text) <= 49152", name: "coach_persona_versions_config_bytes"
+    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "persona_versions_release_gate_valid"
+    t.check_constraint "release_gate_version::text = 'gate_v1'::text AND coach_persona_release_candidate_id IS NULL AND coach_persona_evaluation_run_id IS NULL AND coach_persona_evaluation_approval_id IS NULL AND release_manifest_digest IS NULL AND audience_digest IS NULL AND release_evidence_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND coach_persona_release_candidate_id IS NOT NULL AND coach_persona_evaluation_run_id IS NOT NULL AND coach_persona_evaluation_approval_id IS NOT NULL AND release_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND release_evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_versions_release_evidence_complete"
     t.check_constraint "version_number > 0", name: "coach_persona_versions_positive_number"
   end
 
@@ -714,6 +844,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.string "preview_digest"
     t.datetime "previewed_at"
     t.integer "previewed_draft_revision"
+    t.string "release_gate_version", default: "gate_v1", null: false
     t.datetime "updated_at", null: false
     t.index "coach_workspace_id, lower((name)::text)", name: "index_coach_personas_on_workspace_and_lower_name", unique: true
     t.index ["archived_at"], name: "index_coach_personas_on_archived_at"
@@ -726,6 +857,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
     t.check_constraint "jsonb_typeof(draft_config) = 'object'::text", name: "coach_personas_draft_config_object"
     t.check_constraint "octet_length(draft_config::text) <= 49152", name: "coach_personas_draft_config_bytes"
     t.check_constraint "preview_digest IS NULL AND previewed_at IS NULL AND previewed_draft_revision IS NULL OR preview_digest IS NOT NULL AND previewed_at IS NOT NULL AND previewed_draft_revision IS NOT NULL", name: "coach_personas_preview_fields_complete"
+    t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "coach_personas_release_gate_valid"
     t.check_constraint "preview_digest IS NULL OR preview_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_personas_preview_digest_sha256"
   end
 
@@ -1967,4 +2099,21 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_02_203000) do
   add_foreign_key "coach_phrase_proposals", "coach_content_sources"
   add_foreign_key "coach_phrase_proposals", "coach_workspaces"
   add_foreign_key "coach_phrase_proposals", "users", column: "proposed_by_user_id"
+  add_foreign_key "coach_persona_evaluation_approvals", "coach_persona_evaluation_runs"
+  add_foreign_key "coach_persona_evaluation_approvals", "users", column: "reviewed_by_user_id"
+  add_foreign_key "coach_persona_evaluation_cases", "coach_personas"
+  add_foreign_key "coach_persona_evaluation_cases", "coach_workspaces"
+  add_foreign_key "coach_persona_evaluation_cases", "users", column: "created_by_user_id"
+  add_foreign_key "coach_persona_evaluation_cases", "users", column: "retired_by_user_id"
+  add_foreign_key "coach_persona_evaluation_results", "coach_persona_evaluation_cases"
+  add_foreign_key "coach_persona_evaluation_results", "coach_persona_evaluation_runs"
+  add_foreign_key "coach_persona_evaluation_runs", "coach_persona_release_candidates"
+  add_foreign_key "coach_persona_evaluation_runs", "users", column: "requested_by_user_id"
+  add_foreign_key "coach_persona_release_candidates", "coach_personas"
+  add_foreign_key "coach_persona_release_candidates", "users", column: "created_by_user_id"
+  add_foreign_key "coach_persona_versions", "coach_persona_evaluation_approvals"
+  add_foreign_key "coach_persona_versions", "coach_persona_evaluation_runs"
+  add_foreign_key "coach_persona_versions", "coach_persona_release_candidates"
+  add_foreign_key "coach_phrase_audience_attestations", "coach_persona_release_candidates"
+  add_foreign_key "coach_phrase_audience_attestations", "users", column: "reviewed_by_user_id"
 end

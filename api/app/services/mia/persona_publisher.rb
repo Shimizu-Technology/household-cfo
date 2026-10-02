@@ -37,7 +37,9 @@ module Mia
       end
     end
 
-    def publish!(expected_preview_digest:, expected_draft_revision:, expected_current_version_id:)
+    def publish!(expected_preview_digest:, expected_draft_revision:, expected_current_version_id:,
+      expected_release_candidate_digest: nil, expected_evaluation_run_digest: nil,
+      expected_evaluation_approval_digest: nil)
       ensure_staff!
       persona.with_lock do
         raise PublicationError, "Archived personas cannot be published" if persona.archived?
@@ -60,13 +62,20 @@ module Mia
           raise PublicationError, "Preview this exact draft before publishing"
         end
 
+        release_evidence = release_evidence!(
+          candidate_digest: expected_release_candidate_digest,
+          run_digest: expected_evaluation_run_digest,
+          approval_digest: expected_evaluation_approval_digest
+        )
+
         version = persona.versions.create!(
           version_number: persona.versions.maximum(:version_number).to_i + 1,
           config: persona.draft_config.deep_dup,
           config_digest: current_digest,
           content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
           phrase_manifest_digest: Mia::PhraseManifest.digest_for([]),
-          published_by_user: actor
+          published_by_user: actor,
+          **release_version_attributes(release_evidence)
         )
         persona.draft_content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
           version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
@@ -81,11 +90,16 @@ module Mia
           )
         end
         version.seal_manifests!
+        if release_evidence && !version.release_evidence_valid?
+          raise PublicationError, "The sealed release evidence no longer matches this persona version"
+        end
         advance_publication!(version)
         persona.publication_events.create!(
           coach_persona_version: version,
           actor_user: actor,
-          event_type: "publish"
+          event_type: "publish",
+          release_gate_version: version.release_gate_version,
+          release_evidence_digest: version.release_evidence_digest
         )
         version
       end
@@ -139,8 +153,44 @@ module Mia
       end
     end
 
+    def release_evidence!(candidate_digest:, run_digest:, approval_digest:)
+      values = [ candidate_digest, run_digest, approval_digest ]
+      if values.all?(&:blank?)
+        if persona.release_gate_version == "gate_v2"
+          raise PublicationError, "This persona requires a passed and approved gate_v2 evaluation before publishing"
+        end
+        return nil
+      end
+      raise PublicationError, "Complete release evidence is required for a gate_v2 publication" unless values.all?(&:present?)
+
+      PersonaRelease::Evidence.new(persona: persona).verify_current!(
+        candidate_digest: candidate_digest,
+        run_digest: run_digest,
+        approval_digest: approval_digest
+      )
+    rescue PersonaRelease::Evidence::Error => error
+      raise PublicationError, error.message
+    end
+
+    def release_version_attributes(evidence)
+      return { release_gate_version: "gate_v1" } unless evidence
+
+      {
+        release_gate_version: "gate_v2",
+        release_candidate: evidence.candidate,
+        evaluation_run: evidence.run,
+        evaluation_approval: evidence.approval,
+        release_manifest_digest: evidence.candidate.manifest_digest,
+        audience_digest: evidence.candidate.audience_digest,
+        release_evidence_digest: evidence.digest
+      }
+    end
+
     def advance_publication!(version)
-      persona.update!(current_published_version: version)
+      persona.update!(
+        current_published_version: version,
+        release_gate_version: version.release_gate_version == "gate_v2" ? "gate_v2" : persona.release_gate_version
+      )
       persona.cohort_persona_assignments.update_all(
         coach_persona_version_id: version.id,
         updated_at: Time.current

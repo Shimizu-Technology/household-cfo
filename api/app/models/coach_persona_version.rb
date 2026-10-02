@@ -6,6 +6,12 @@ class CoachPersonaVersion < ApplicationRecord
   belongs_to :coach_persona, inverse_of: :versions
   belongs_to :published_by_user, class_name: "User", inverse_of: :published_coach_persona_versions
   belongs_to :source_version, class_name: "CoachPersonaVersion", optional: true
+  belongs_to :release_candidate, class_name: "CoachPersonaReleaseCandidate",
+    foreign_key: :coach_persona_release_candidate_id, optional: true
+  belongs_to :evaluation_run, class_name: "CoachPersonaEvaluationRun",
+    foreign_key: :coach_persona_evaluation_run_id, optional: true
+  belongs_to :evaluation_approval, class_name: "CoachPersonaEvaluationApproval",
+    foreign_key: :coach_persona_evaluation_approval_id, optional: true
 
   has_many :derived_versions,
     class_name: "CoachPersonaVersion",
@@ -34,10 +40,14 @@ class CoachPersonaVersion < ApplicationRecord
   validates :config_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :content_manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
   validates :phrase_manifest_digest, format: { with: /\A[0-9a-f]{64}\z/ }
+  validates :release_gate_version, inclusion: { in: %w[gate_v1 gate_v2] }
+  validates :release_manifest_digest, :audience_digest, :release_evidence_digest,
+    format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validate :publisher_is_staff
   validate :config_matches_schema_and_digest
   validate :phrase_artifact_provenance
   validate :source_version_belongs_to_persona
+  validate :release_gate_shape
   validate :published_record_is_immutable, on: :update
 
   before_validation :normalize_config, on: :create
@@ -70,6 +80,11 @@ class CoachPersonaVersion < ApplicationRecord
       Mia::PhraseManifest.entry(link, position: link.position)
     end
     phrase_digest = Mia::PhraseManifest.digest_for(phrase_entries)
+    if release_gate_version == "gate_v2" && !release_evidence_valid_for?(
+      content_digest: content_digest, phrase_digest: phrase_digest
+    )
+      raise ArgumentError, "gate_v2 release evidence does not match the sealed manifests"
+    end
     update_columns(
       content_manifest_digest: content_digest,
       phrase_manifest_digest: phrase_digest,
@@ -125,7 +140,48 @@ class CoachPersonaVersion < ApplicationRecord
   end
 
   def publication_digest
-    Digest::SHA256.hexdigest(JSON.generate({ config: config_digest, content: content_manifest_digest, phrases: phrase_manifest_digest }).b)
+    payload = { config: config_digest, content: content_manifest_digest, phrases: phrase_manifest_digest }
+    if release_gate_version == "gate_v2"
+      payload[:release] = {
+        candidate: release_manifest_digest,
+        audience: audience_digest,
+        evidence: release_evidence_digest
+      }
+    end
+    Digest::SHA256.hexdigest(JSON.generate(payload).b)
+  end
+
+  def release_evidence_valid?
+    return true if release_gate_version == "gate_v1"
+    return false unless release_candidate&.integrity_valid? && evaluation_run&.passed_and_valid? && evaluation_approval&.integrity_valid?
+    return false unless evaluation_run.coach_persona_release_candidate_id == release_candidate.id &&
+      evaluation_approval.coach_persona_evaluation_run_id == evaluation_run.id
+    release_evidence_valid_for?(content_digest: content_manifest_digest, phrase_digest: phrase_manifest_digest)
+  end
+
+  def release_evidence_valid_for?(content_digest:, phrase_digest:)
+    return false unless release_candidate&.integrity_valid? && evaluation_run&.passed_and_valid? && evaluation_approval&.integrity_valid?
+    return false unless evaluation_run.coach_persona_release_candidate_id == release_candidate.id &&
+      evaluation_approval.coach_persona_evaluation_run_id == evaluation_run.id
+    return false unless config_digest == release_candidate.config_digest && content_digest == release_candidate.content_manifest_digest
+    return false unless phrase_digest == release_candidate.phrase_manifest_digest && audience_digest == release_candidate.audience_digest
+    return false unless release_manifest_digest == release_candidate.manifest_digest
+
+    attestations = release_candidate.phrase_audience_attestations.to_a
+    expected = Mia::PersonaRelease::Evidence.digest_for(
+      candidate: release_candidate,
+      run: evaluation_run,
+      approval: evaluation_approval,
+      attestations: attestations
+    )
+    release_evidence_digest == expected && Array(release_candidate.phrase_artifacts_snapshot).all? do |artifact|
+      attestations.any? do |attestation|
+        attestation.artifact_id.to_s == artifact.fetch("artifact_id").to_s &&
+          attestation.decision == "approved" && attestation.integrity_valid?
+      end
+    end
+  rescue KeyError
+    false
   end
 
   private
@@ -168,6 +224,23 @@ class CoachPersonaVersion < ApplicationRecord
     return if source_version.nil? || source_version.coach_persona == coach_persona
 
     errors.add(:source_version, "must belong to the same persona")
+  end
+
+  def release_gate_shape
+    evidence_fields = [ release_candidate, evaluation_run, evaluation_approval, release_manifest_digest, audience_digest, release_evidence_digest ]
+    if release_gate_version == "gate_v1"
+      errors.add(:base, "legacy gate_v1 versions cannot claim v2 release evidence") if evidence_fields.any?(&:present?)
+      return
+    end
+
+    errors.add(:base, "gate_v2 versions require complete release evidence") unless evidence_fields.all?(&:present?)
+    errors.add(:release_candidate, "must belong to this persona") if release_candidate && release_candidate.coach_persona_id != coach_persona_id
+    if evaluation_run && release_candidate && evaluation_run.coach_persona_release_candidate_id != release_candidate.id
+      errors.add(:evaluation_run, "must belong to the release candidate")
+    end
+    if evaluation_approval && evaluation_run && evaluation_approval.coach_persona_evaluation_run_id != evaluation_run.id
+      errors.add(:evaluation_approval, "must belong to the evaluation run")
+    end
   end
 
   def published_record_is_immutable

@@ -26,6 +26,8 @@ class CoachPersona < ApplicationRecord
     class_name: "CoachPersonaPhrasePromotion",
     dependent: :restrict_with_exception,
     inverse_of: :coach_persona
+  has_many :release_candidates, class_name: "CoachPersonaReleaseCandidate", dependent: :restrict_with_exception
+  has_many :evaluation_cases, class_name: "CoachPersonaEvaluationCase", dependent: :restrict_with_exception
   has_many :draft_content_pack_links,
     -> { order(:position) },
     class_name: "CoachPersonaDraftContentPack",
@@ -39,11 +41,13 @@ class CoachPersona < ApplicationRecord
   validates :description, length: { maximum: 2_000 }, allow_blank: true
   validates :preview_digest, format: { with: /\A[0-9a-f]{64}\z/ }, allow_nil: true
   validates :draft_revision, numericality: { only_integer: true, greater_than: 0 }
+  validates :release_gate_version, inclusion: { in: %w[gate_v1 gate_v2] }
   validate :creator_is_staff, on: :create
   validate :draft_config_matches_schema
   validate :phrase_artifact_provenance
   validate :preview_fields_are_complete
   validate :current_version_belongs_to_persona
+  validate :release_gate_cannot_downgrade, on: :update
   validate :archived_persona_is_read_only, on: :update
 
   before_validation :assign_default_coach_workspace, on: :create
@@ -206,6 +210,12 @@ class CoachPersona < ApplicationRecord
     return if current_published_version.coach_persona == self
 
     errors.add(:current_published_version, "must belong to this persona")
+  end
+
+  def release_gate_cannot_downgrade
+    if release_gate_version_was == "gate_v2" && release_gate_version == "gate_v1"
+      errors.add(:release_gate_version, "cannot be downgraded after gate_v2 adoption")
+    end
   end
 
   def archived_persona_is_read_only

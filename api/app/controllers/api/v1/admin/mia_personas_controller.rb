@@ -34,7 +34,8 @@ module Api
             description: attributes[:description],
             draft_config: draft,
             created_by_user: current_user,
-            coach_workspace: current_coach_workspace
+            coach_workspace: current_coach_workspace,
+            release_gate_version: "gate_v2"
           )
           render json: { persona: serializer(persona).detail }, status: :created
         rescue ActiveRecord::RecordInvalid => error
@@ -156,7 +157,10 @@ module Api
           version = Mia::PersonaPublisher.new(persona: persona, actor: current_user).publish!(
             expected_preview_digest: publish_params[:preview_digest],
             expected_draft_revision: publish_params[:draft_revision],
-            expected_current_version_id: publish_params[:expected_published_version_id]
+            expected_current_version_id: publish_params[:expected_published_version_id],
+            expected_release_candidate_digest: publish_params[:release_candidate_digest],
+            expected_evaluation_run_digest: publish_params[:evaluation_run_digest],
+            expected_evaluation_approval_digest: publish_params[:evaluation_approval_digest]
           )
           render json: {
             persona: serializer(persona.reload).detail,
@@ -208,7 +212,10 @@ module Api
         end
 
         def publish_params
-          @publish_params ||= params.require(:publish).permit(:draft_revision, :preview_digest, :expected_published_version_id)
+          @publish_params ||= params.require(:publish).permit(
+            :draft_revision, :preview_digest, :expected_published_version_id,
+            :release_candidate_digest, :evaluation_run_digest, :evaluation_approval_digest
+          )
         end
 
         def expected_draft_revision
