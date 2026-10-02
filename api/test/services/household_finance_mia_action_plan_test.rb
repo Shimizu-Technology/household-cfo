@@ -324,17 +324,35 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
         subject: "Household action plan", status: "pending_review", mia_action_draft_id: draft.id
       },
       open_topics: [ {
+        schema_version: 5, id: SecureRandom.uuid, type: "action_plan", title: draft.title,
+        subject: "Household action plan", status: "pending_review", mia_action_draft_id: draft.id
+      }, {
         schema_version: 5, id: SecureRandom.uuid, type: "action_plan", title: open_draft.title,
         subject: "Another household action plan", status: "pending_review", mia_action_draft_id: open_draft.id
       } ]
     )
+
+    recall_user = session.chat_messages.create!(role: "user", content: "What were we discussing?")
+    recall_assistant = session.chat_messages.create!(role: "assistant", content: "The household action plan is still waiting for review.")
+    recall_intent = HouseholdFinance::MiaIntentResolver::Result.new(
+      intent: "recall", confidence: 0.99, continuation: false,
+      resolved_message: "Recall the household action plan", needs_clarification: false, clarification: "",
+      topic: { type: "action_plan", title: draft.title, subject: "Household action plan" },
+      action: { type: "none" }, source: "model"
+    )
+    assert HouseholdFinance::MiaConversationStateUpdater.new(
+      session,
+      intent_result: recall_intent,
+      user_message: recall_user,
+      assistant_message: recall_assistant
+    ).call
 
     context = HouseholdFinance::ConversationContextBuilder.new(session, household: @household).call
 
     assert_equal 5, context.dig(:active_topic, :schema_version)
     assert_equal draft.id, context.dig(:active_topic, :action_plan, :draft_id)
     assert_equal [ second_item.id ], context.dig(:active_topic, :action_plan, :remaining_item_ids)
-    assert_equal open_draft.id, context.dig(:open_topics, 0, :action_plan, :draft_id)
+    assert_equal open_draft.id, context.fetch(:open_topics).find { |topic| topic.dig(:action_plan, :draft_id) == open_draft.id }.dig(:action_plan, :draft_id)
 
     viewed_year = Date.current.year + 1
     12.times do |index|
@@ -369,13 +387,31 @@ class HouseholdFinanceMiaActionPlanTest < ActiveSupport::TestCase
     refute durable_context.to_json.include?(draft.source_prompt)
     refute durable_context.to_json.include?("prepared_operation")
 
+    selection_resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: "Bring back only the goal part",
+      context: durable_context,
+      api_key: "test-key",
+      transport: ->(_payload) { raise "the test builds the parsed provider result directly" }
+    )
+    selected_action = selection_resolver.send(:default_action_payload).merge(
+      type: "review_pending_action", draft_id: draft.id, selected_item_ids: [ second_item.id ]
+    )
+    resolution = selection_resolver.send(:build_result, {
+      intent: "budget_action", confidence: 0.99, continuation: true,
+      resolved_message: "Review only the goal step", needs_clarification: false, clarification: "",
+      topic: { type: "action_plan", title: draft.title, subject: "Household action plan" },
+      action: selected_action, write_plan: { title: "", actions: [] }, read_only_plan: { title: "", items: [] }
+    })
+    assert resolution.actionable?
+    assert_equal [ second_item.id ], resolution.action.fetch(:selected_item_ids)
+
     selected = HouseholdFinance::MiaActionDraftBuilder.new(
       @household,
       user: @user,
       annual_budget_manager: @manager,
       selected_month: Date.current.month,
       raw_input: "Bring back only the goal part",
-      command: { type: "review_pending_action", draft_id: draft.id, selected_item_ids: [ second_item.id ] }
+      command: resolution.action
     ).call
     assert_equal draft, selected.existing_draft
     assert_equal [ second_item.id ], selected.selected_item_ids

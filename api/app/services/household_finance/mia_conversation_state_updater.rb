@@ -155,8 +155,9 @@ module HouseholdFinance
 
     def upgraded_recall_topic(topic)
       read_only_plan = normalized_read_only_plan(topic["read_only_plan"]) if topic["schema_version"].to_i >= 3
+      action_plan = topic["schema_version"].to_i >= 5 && topic["type"].to_s == "action_plan" && topic["mia_action_draft_id"].to_i.positive?
       topic.except("read_only_plan").merge(
-        "schema_version" => read_only_plan ? 3 : 2,
+        "schema_version" => action_plan ? 5 : read_only_plan ? 3 : 2,
         "intent" => "recall",
         "confidence" => intent_result.confidence.to_f.round(3),
         "resolved_message" => bounded(intent_result.resolved_message, MAX_TEXT_LENGTH),

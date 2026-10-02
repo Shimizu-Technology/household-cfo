@@ -70,6 +70,75 @@ class HouseholdFinanceMiaIntentResolverTest < ActiveSupport::TestCase
     assert_equal [ "update_account", "update_goal" ], result.write_plan.fetch(:actions).map { |entry| entry.dig(:action, :type) }
   end
 
+  test "rejects compound actions whose amounts were swapped across exact source spans" do
+    context = intent_context.deep_merge(
+      active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],
+      active_goals: [ { id: 99, label: "Family trip", goal_type: "travel", current_amount: 500 } ]
+    )
+    message = "Set Everyday Checking to $250 and set Family trip progress to $900"
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "action_plan", continuation: false, resolved_message: message,
+          topic: { type: "action_plan", title: "Two household changes", subject: "Checking and trip" },
+          action: default_action,
+          write_plan: {
+            title: "Checking and trip",
+            actions: [
+              { source_text: "Set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "900") },
+              { source_text: "set Family trip progress to $900", depends_on: [], action: default_action.merge(type: "update_goal", goal_id: 99, goal_name: "Family trip", current_amount: "250") }
+            ]
+          }
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.action_plan?
+    assert result.clarification?
+    assert_empty result.write_plan
+  end
+
+  test "rejects same-domain record references swapped across exact source spans" do
+    context = intent_context.deep_merge(
+      active_accounts: [
+        { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true },
+        { id: 89, label: "Rainy Day Savings", account_type: "savings", balance: 500, balance_known: true }
+      ],
+      archived_accounts: []
+    )
+    message = "Set Everyday Checking to $250 and set Rainy Day Savings to $900"
+    resolver = HouseholdFinance::MiaIntentResolver.new(
+      user_message: message,
+      context: context,
+      api_key: "test-key",
+      transport: ->(_payload) do
+        resolution_json(
+          intent: "action_plan", continuation: false, resolved_message: message,
+          topic: { type: "action_plan", title: "Two account changes", subject: "Checking and savings" },
+          action: default_action,
+          write_plan: {
+            title: "Checking and savings",
+            actions: [
+              { source_text: "Set Everyday Checking to $250", depends_on: [], action: default_action.merge(type: "update_account", account_id: 89, account_name: "Rainy Day Savings", amount: "250") },
+              { source_text: "set Rainy Day Savings to $900", depends_on: [], action: default_action.merge(type: "update_account", account_id: 88, account_name: "Everyday Checking", amount: "900") }
+            ]
+          }
+        )
+      end
+    )
+
+    result = resolver.call
+
+    refute result.action_plan?
+    assert result.clarification?
+    assert_empty result.write_plan
+  end
+
   test "preserves exact raw spans when a long compound request contains repeated whitespace and newlines" do
     context = intent_context.deep_merge(
       active_accounts: [ { id: 88, label: "Everyday Checking", account_type: "checking", balance: 100, balance_known: true } ],

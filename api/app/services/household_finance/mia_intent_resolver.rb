@@ -759,10 +759,12 @@ module HouseholdFinance
         action = apply_budget_year_default(normalize_action(entry.fetch(:action)))
         raise ArgumentError, "Unsupported write-plan action" if action[:type] == "none" || action[:type].in?(%w[create_transaction_draft update_transaction_draft ignore_transaction_drafts review_pending_action])
         raise ArgumentError, "Incomplete write-plan action" unless action_complete?(action)
-        raise ArgumentError, "Unverified write-plan reference" unless action_references_valid?(action)
+        raise ArgumentError, "Unverified write-plan reference" unless
+          action_references_valid?(action) && action_references_grounded_in_source?(action, exact_source)
         raise ArgumentError, "Unverified write-plan amount" unless
-          action_amounts_grounded?(action, history_scope: :none, prior_action: nil) &&
-          goal_date_grounded?(action, history_scope: :none, prior_action: nil)
+          action_amounts_grounded?(action, history_scope: :none, prior_action: nil, source_text: exact_source) &&
+          goal_date_grounded?(action, history_scope: :none, prior_action: nil, source_text: exact_source) &&
+          action_dates_grounded_in_source?(action, exact_source)
 
         { source_text: exact_source, source_start: start, source_end: finish, depends_on: dependencies, action: action }
       end
@@ -1440,8 +1442,8 @@ module HouseholdFinance
       end
     end
 
-    def action_amounts_grounded?(action, history_scope: :none, prior_action: nil)
-      return false unless debt_apr_grounded?(action, history_scope: history_scope, prior_action: prior_action)
+    def action_amounts_grounded?(action, history_scope: :none, prior_action: nil, source_text: nil)
+      return false unless debt_apr_grounded?(action, history_scope: history_scope, prior_action: prior_action, source_text: source_text)
 
       if action[:type].in?(%w[create_account update_account])
         value = action[:amount].to_s.strip
@@ -1451,12 +1453,12 @@ module HouseholdFinance
         return false unless proposed
 
         prior = signed_cents_or_nil(prior_action&.dig(:amount))
-        allowed = participant_money_cents(history_scope: history_scope) + participant_negative_money_cents(history_scope: history_scope)
+        allowed = participant_money_cents(history_scope: history_scope, source_text: source_text) + participant_negative_money_cents(history_scope: history_scope, source_text: source_text)
         return allowed.include?(proposed) || prior == proposed
       end
 
       if action[:type] == "update_household_setup"
-        allowed = participant_money_cents(history_scope: history_scope)
+        allowed = participant_money_cents(history_scope: history_scope, source_text: source_text)
         return action[:setup_updates].to_h.symbolize_keys.all? do |key, value|
           next true unless MiaActionDraftHouseholdCommands::SETUP_MONEY_KEYS.include?(key)
           next true if value.to_s.strip.blank?
@@ -1464,7 +1466,7 @@ module HouseholdFinance
           cents = cents_or_nil(value)
           cents && (
             allowed.include?(cents) || prior_setup_value_matches?(prior_action, key, cents) ||
-              (cents.zero? && participant_zero_explicitly_stated_for?(key, history_scope: history_scope))
+              (cents.zero? && participant_zero_explicitly_stated_for?(key, history_scope: history_scope, source_text: source_text))
           )
         end
       end
@@ -1472,15 +1474,15 @@ module HouseholdFinance
       proposed = action_money_entries(action)
       return true if proposed.empty?
 
-      allowed = participant_money_cents(history_scope: history_scope)
+      allowed = participant_money_cents(history_scope: history_scope, source_text: source_text)
       proposed.all? do |entry|
         amount = entry.fetch(:amount_cents)
         allowed.include?(amount) || prior_action_value_matches?(prior_action, entry) ||
-          (amount.zero? && semantic_zero_authorized?(action))
+          (amount.zero? && semantic_zero_authorized?(action, source_text: source_text))
       end
     end
 
-    def debt_apr_grounded?(action, history_scope:, prior_action:)
+    def debt_apr_grounded?(action, history_scope:, prior_action:, source_text: nil)
       return true unless action[:type].in?(%w[create_debt update_debt])
 
       value = action[:interest_rate_percent].to_s.strip
@@ -1488,14 +1490,14 @@ module HouseholdFinance
       if value.casecmp("unknown").zero?
         return true if prior_action&.dig(:interest_rate_percent).to_s.casecmp("unknown").zero?
 
-        return participant_messages(history_scope: history_scope).any? { |text| text.match?(/(?:APR|interest rate).{0,30}(?:unknown|not sure|do not know|don't know)/i) }
+        return participant_messages(history_scope: history_scope, source_text: source_text).any? { |text| text.match?(/(?:APR|interest rate).{0,30}(?:unknown|not sure|do not know|don't know)/i) }
       end
 
       proposed = BigDecimal(value)
       prior = prior_action&.dig(:interest_rate_percent).to_s.strip
       return true if prior.present? && !prior.casecmp("unknown").zero? && BigDecimal(prior) == proposed
 
-      participant_messages(history_scope: history_scope).any? do |text|
+      participant_messages(history_scope: history_scope, source_text: source_text).any? do |text|
         values = text.to_s.scan(/(?:\bAPR\s*(?:is|of|at)?\s*)?(\d{1,3}(?:\.\d{1,2})?)\s*(?:%|percent|\bAPR\b)/i).flatten
         values.any? { |candidate| BigDecimal(candidate) == proposed }
       end
@@ -1568,14 +1570,14 @@ module HouseholdFinance
         normalized.match?(/(?:#{unknown.source}).{0,40}(?:#{field_pattern.source})/i)
     end
 
-    def goal_date_grounded?(action, history_scope:, prior_action:)
+    def goal_date_grounded?(action, history_scope:, prior_action:, source_text: nil)
       return true unless action[:type].in?(%w[create_goal update_goal])
 
       value = action[:target_on].to_s.strip
       return true if value.blank?
       if value.in?(%w[unknown none])
         return true if prior_action&.dig(:target_on).to_s.in?(%w[unknown none])
-        return participant_messages(history_scope: history_scope).any? do |text|
+        return participant_messages(history_scope: history_scope, source_text: source_text).any? do |text|
           text.match?(/(?:target|goal|due)\s+date.{0,30}(?:unknown|not\s+sure|clear|remove|no date)|(?:clear|remove|no)\s+(?:the\s+)?(?:target|goal|due)\s+date/i)
         end
       end
@@ -1583,7 +1585,7 @@ module HouseholdFinance
       target = Date.iso8601(value)
       return true if prior_action&.dig(:target_on).to_s == target.iso8601
 
-      participant_messages(history_scope: history_scope).any? do |text|
+      participant_messages(history_scope: history_scope, source_text: source_text).any? do |text|
         next true if text.include?(target.iso8601)
         parsed = Date.parse(text.to_s, false)
         parsed == target || (target.day == 1 && parsed.year == target.year && parsed.month == target.month)
@@ -1670,22 +1672,22 @@ module HouseholdFinance
       end
     end
 
-    def participant_money_cents(history_scope: :none)
-      participant_messages(history_scope: history_scope).flat_map { |text| money_cents_from_participant_text(text) }.uniq
+    def participant_money_cents(history_scope: :none, source_text: nil)
+      participant_messages(history_scope: history_scope, source_text: source_text).flat_map { |text| money_cents_from_participant_text(text) }.uniq
     end
 
-    def participant_negative_money_cents(history_scope: :none)
-      participant_messages(history_scope: history_scope).flat_map do |text|
+    def participant_negative_money_cents(history_scope: :none, source_text: nil)
+      participant_messages(history_scope: history_scope, source_text: source_text).flat_map do |text|
         normalized = text.to_s.unicode_normalize(:nfkc)
         values = normalized.scan(/(?:-\s*\$\s*|\$\s*-\s*|(?<![[:alnum:]\d])-\s*)((?:\d{1,3}(?:,\d{3})+|\d{1,9})(?:\.\d{1,2})?)(?!\d|,\d)/).flatten
         values.filter_map { |value| signed_cents_or_nil("-#{value.delete(',')}") }
       end.uniq
     end
 
-    def participant_zero_explicitly_stated_for?(key, history_scope: :none)
+    def participant_zero_explicitly_stated_for?(key, history_scope: :none, source_text: nil)
       return false unless SETUP_ZERO_FIELD_PATTERNS.key?(key)
 
-      participant_messages(history_scope: history_scope).any? do |text|
+      participant_messages(history_scope: history_scope, source_text: source_text).any? do |text|
         normalized = text.to_s.squish
         field_mentions = SETUP_ZERO_FIELD_PATTERNS.flat_map do |field_key, pattern|
           normalized.to_enum(:scan, pattern).map { [ field_key, Regexp.last_match.begin(0) ] }
@@ -1700,7 +1702,9 @@ module HouseholdFinance
       end
     end
 
-    def participant_messages(history_scope: :none)
+    def participant_messages(history_scope: :none, source_text: nil)
+      return [ source_text.to_s ] if source_text
+
       messages = [ user_message ]
       recent_participant_messages = Array(context.dig(:conversation, :recent_messages)).filter_map do |message|
         role = message[:role] || message["role"]
@@ -1716,14 +1720,15 @@ module HouseholdFinance
       user_message.match?(AMOUNT_CONTINUATION_PATTERN)
     end
 
-    def semantic_zero_authorized?(action)
+    def semantic_zero_authorized?(action, source_text: nil)
       return false unless action[:type] == "schedule_income_change" && action[:entry_type] == "recurring_change"
-      return false unless user_message.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
+      participant_text = source_text || user_message
+      return false unless participant_text.match?(/\b(?:end|stop|cancel|no\s+more)\b.{0,80}\b(?:income|pay|salary|job|business|source)\b|\b(?:income|pay|salary|job|business|source)\b.{0,80}\b(?:end|stop|cancel|no\s+more)\b/i)
 
       source = matched_income_source(action)
       return false unless source
 
-      named_sources = Array(context[:income_sources]).select { |candidate| source_explicitly_named?(candidate) }
+      named_sources = Array(context[:income_sources]).select { |candidate| source_explicitly_named?(candidate, source_text: participant_text) }
       named_sources.one? && named_sources.first == source
     end
 
@@ -1736,10 +1741,10 @@ module HouseholdFinance
       end
     end
 
-    def source_explicitly_named?(source)
+    def source_explicitly_named?(source, source_text: user_message)
       label = source[:label].to_s.downcase.squish
       candidates = [ label, label.sub(/\s+(?:income|pay|salary)\z/, "") ].reject(&:blank?).uniq
-      candidates.any? { |name| user_message.downcase.match?(/(?<![[:alnum:]])#{Regexp.escape(name)}(?![[:alnum:]])/) }
+      candidates.any? { |name| source_text.to_s.downcase.match?(/(?<![[:alnum:]])#{Regexp.escape(name)}(?![[:alnum:]])/) }
     end
 
     def money_cents_from_participant_text(text)
@@ -1828,6 +1833,156 @@ module HouseholdFinance
     def transaction_update_present?(action)
       action[:occurred_on].present? || action[:merchant].present? || action[:amount].present? ||
         category_reference_present?(action) || action[:splits].any?
+    end
+
+    def action_references_grounded_in_source?(action, source_text)
+      type = action.fetch(:type)
+      case type
+      when "create_category"
+        source_mentions?(source_text, action[:new_name].presence || action[:category_name])
+      when "rename_category"
+        category_reference_grounded?(source_text, action[:category_id], action[:category_name]) &&
+          source_mentions?(source_text, action[:new_name])
+      when "reclassify_category", "archive_category", "restore_category", "set_allocation", "increase_allocation", "decrease_allocation"
+        category_reference_grounded?(source_text, action[:category_id], action[:category_name])
+      when "move_allocation"
+        category_reference_grounded?(source_text, action[:category_id], action[:category_name]) &&
+          category_reference_grounded?(source_text, action[:target_category_id], action[:target_category_name])
+      when "create_income_source"
+        source_mentions?(source_text, action[:income_source_name])
+      when "schedule_income_change", "update_income_source", "archive_income_source", "restore_income_source"
+        record_reference_grounded?(source_text, action[:income_source_id], action[:income_source_name], income_sources_for(type), :label) &&
+          optional_replacement_name_grounded?(source_text, action)
+      when "update_income_schedule_entry", "delete_income_schedule_entry"
+        income_schedule_reference_grounded?(source_text, action[:income_schedule_entry_id])
+      when "create_debt"
+        source_mentions?(source_text, action[:debt_name])
+      when "update_debt", "archive_debt", "restore_debt"
+        sources = type == "restore_debt" ? Array(context[:archived_debts]) : Array(context[:active_debts])
+        record_reference_grounded?(source_text, action[:debt_id], action[:debt_name], sources, :label) &&
+          optional_replacement_name_grounded?(source_text, action)
+      when "create_account"
+        source_mentions?(source_text, action[:account_name])
+      when "update_account", "archive_account", "restore_account", "link_plaid_account", "reconcile_plaid_account", "unlink_plaid_account"
+        sources = type == "restore_account" ? Array(context[:archived_accounts]) : Array(context[:active_accounts])
+        grounded = record_reference_grounded?(source_text, action[:account_id], action[:account_name], sources, :label) &&
+          optional_replacement_name_grounded?(source_text, action)
+        if grounded && type == "link_plaid_account"
+          observation = Array(context[:eligible_plaid_accounts]).find { |candidate| candidate[:id].to_i == action[:plaid_account_id].to_i }
+          grounded = source_mentions_any?(source_text, observation&.values_at(:name, :institution_name))
+        end
+        grounded
+      when "create_goal"
+        source_mentions?(source_text, action[:goal_name])
+      when "update_goal", "archive_goal", "restore_goal"
+        sources = type == "restore_goal" ? Array(context[:archived_goals]) : Array(context[:active_goals])
+        record_reference_grounded?(source_text, action[:goal_id], action[:goal_name], sources, :label) &&
+          optional_replacement_name_grounded?(source_text, action)
+      when "update_household_setup"
+        setup_text_values_grounded?(source_text, action[:setup_updates])
+      else
+        true
+      end
+    end
+
+    def category_reference_grounded?(source_text, id, name)
+      record_reference_grounded?(
+        source_text,
+        id,
+        name,
+        Array(context[:budget_categories]) + Array(context[:archived_categories]),
+        :name
+      )
+    end
+
+    def record_reference_grounded?(source_text, id, name, records, label_key)
+      record = if id.to_i.positive?
+        records.find { |candidate| candidate[:id].to_i == id.to_i }
+      else
+        normalized_name = name.to_s.squish
+        records.find { |candidate| candidate[label_key].to_s.casecmp?(normalized_name) }
+      end
+      label = record&.dig(label_key).presence || name
+      source_mentions?(source_text, label)
+    end
+
+    def income_sources_for(type)
+      type == "restore_income_source" ? Array(context[:archived_income_sources]) : Array(context[:income_sources])
+    end
+
+    def income_schedule_reference_grounded?(source_text, entry_id)
+      (Array(context[:income_sources]) + Array(context[:archived_income_sources])).any? do |source|
+        entry = Array(source[:schedule_entries]).find { |candidate| candidate[:id].to_i == entry_id.to_i }
+        entry && source_mentions_any?(source_text, [ source[:label], entry[:label] ])
+      end
+    end
+
+    def optional_replacement_name_grounded?(source_text, action)
+      action[:new_name].blank? || source_mentions?(source_text, action[:new_name])
+    end
+
+    def setup_text_values_grounded?(source_text, updates)
+      updates.to_h.deep_symbolize_keys.all? do |key, value|
+        next true unless key.in?(%i[household_name primary_goal])
+
+        source_mentions?(source_text, value)
+      end
+    end
+
+    def source_mentions_any?(source_text, values)
+      Array(values).compact_blank.any? { |value| source_mentions?(source_text, value) }
+    end
+
+    def source_mentions?(source_text, value)
+      phrase = value.to_s.unicode_normalize(:nfkc).squish
+      return false if phrase.blank?
+
+      normalized_source = source_text.to_s.unicode_normalize(:nfkc).squish
+      normalized_source.match?(/(?<![[:alnum:]])#{Regexp.escape(phrase)}(?![[:alnum:]])/i)
+    end
+
+    def action_dates_grounded_in_source?(action, source_text)
+      date_values = %i[effective_on balance_as_of_on].filter_map do |field|
+        value = action[field].to_s.strip
+        value if value.present?
+      end
+      return false unless date_values.all? { |value| date_grounded_in_source?(value, source_text) }
+      return true unless action[:type].in?(BUDGET_YEAR_ACTION_TYPES)
+
+      budget_period_grounded_in_source?(action, source_text)
+    end
+
+    def date_grounded_in_source?(value, source_text)
+      target = Date.iso8601(value)
+      text = source_text.to_s
+      return true if text.include?(target.iso8601)
+
+      month_name = Date::MONTHNAMES.fetch(target.month)
+      abbreviated = Date::ABBR_MONTHNAMES.fetch(target.month)
+      return true if text.match?(/\b(?:#{Regexp.escape(month_name)}|#{Regexp.escape(abbreviated)})\b(?:\s+#{target.year})?/i)
+
+      today = Date.iso8601(context.dig(:calendar, :today).to_s)
+      return target == today.beginning_of_month if text.match?(/\b(?:now|this month)\b/i)
+      return target == today.next_month.beginning_of_month if text.match?(/\bnext month\b/i)
+
+      false
+    rescue Date::Error
+      false
+    end
+
+    def budget_period_grounded_in_source?(action, source_text)
+      text = source_text.to_s
+      mentioned_months = Date::MONTHNAMES.each_with_index.filter_map do |name, index|
+        next if name.blank?
+        abbreviation = Date::ABBR_MONTHNAMES.fetch(index)
+        index if text.match?(/\b(?:#{Regexp.escape(name)}|#{Regexp.escape(abbreviation)})\b/i)
+      end
+      return false if mentioned_months.any? && (mentioned_months - Array(action[:months]).map(&:to_i)).any?
+
+      mentioned_years = text.scan(/\b20\d{2}\b/).map(&:to_i).uniq
+      return false if mentioned_years.any? && !mentioned_years.include?(action[:year].to_i)
+
+      true
     end
 
     def action_references_valid?(action)
