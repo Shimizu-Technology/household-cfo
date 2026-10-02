@@ -143,7 +143,7 @@ class CoachContentSourceUrlIntakeJobsTest < ActiveSupport::TestCase
     candidate = source.candidates.create!(
       coach_content_source_attempt: attempt, position: 0, status: "proposed", title: "One step",
       kind: "guidance", content: content, topics: [],
-      evidence_locator: { "type" => "text", "line_start" => 1, "line_end" => 1, "excerpt_digest" => Digest::SHA256.hexdigest(content) },
+      evidence_locator: { "type" => "text", "segment" => 1, "line_start" => 1, "line_end" => 1, "excerpt_digest" => Digest::SHA256.hexdigest(content) },
       evidence_excerpt: content,
       content_digest: CoachContentSourceCandidate.digest_for(title: "One step", kind: "guidance", content: content, topics: [])
     )
