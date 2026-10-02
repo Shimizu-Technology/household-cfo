@@ -36,7 +36,8 @@ module Mia
       if source == "live_model"
         result(
           status: "ready", source: source, reply: reply, notice: preview_notice(source),
-          model_identifier: active_responder.model_identifier
+          model_identifier: active_responder.model_identifier,
+          provider_request_id: active_responder.provider_request_id
         )
       elsif source == "deterministic_safety"
         result(status: "safety_only", source: source, reply: reply, notice: preview_notice(source))
@@ -84,11 +85,12 @@ module Mia
       "Generated from this exact draft in a no-write preview."
     end
 
-    def result(status:, source:, reply:, notice:, model_identifier: nil)
+    def result(status:, source:, reply:, notice:, model_identifier: nil, provider_request_id: nil)
       {
         status: status,
         source: source,
         model_identifier: model_identifier,
+        provider_request_id: provider_request_id,
         context_digest: self.class.context_digest,
         sample_prompt: sample_prompt.presence,
         sample_reply: reply,

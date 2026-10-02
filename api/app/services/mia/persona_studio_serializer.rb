@@ -15,6 +15,22 @@ module Mia
       @policy = policy
     end
 
+    def self.serialize_draft_restore_event(event)
+      {
+        id: event.id,
+        source_version: { id: event.source_version_id, number: event.source_version.version_number },
+        previous_draft_revision: event.previous_draft_revision,
+        restored_draft_revision: event.restored_draft_revision,
+        config_digest: event.config_digest,
+        content_manifest_digest: event.content_manifest_digest,
+        phrase_manifest_digest: event.phrase_manifest_digest,
+        restored_by: { id: event.actor_user_id, full_name: event.actor_user.full_name },
+        restored_at: event.restored_at,
+        digest: event.event_digest,
+        valid: event.integrity_valid?
+      }
+    end
+
     def summary
       payload = {
         id: persona.id,
@@ -116,9 +132,15 @@ module Mia
         release_evidence_digest: version.release_evidence_digest,
         release_evidence_schema: version.release_evidence_schema,
         behavioral_preview_digest: version.behavioral_preview_digest,
+        phrase_audience_attestation_digests: version.phrase_audience_attestation_digests,
         published_at: version.created_at,
         published_by: serialize_user(version.published_by_user)
       }
+      if private_configuration_visible?
+        blocked_reason = restore_blocked_reason(version)
+        payload[:restore_to_draft_allowed] = blocked_reason.nil?
+        payload[:restore_blocked_reason] = blocked_reason
+      end
       payload[:config] = version.config if include_config
       if include_source
         payload[:restored_from_version] = version.source_version && {
@@ -166,6 +188,17 @@ module Mia
       )
     rescue ArgumentError
       true
+    end
+
+    def restore_blocked_reason(version)
+      return "current_version" if version.id == persona.current_published_version_id
+      return "draft_already_matches" if version.config_digest == PersonaSchema.digest(persona.draft_config) &&
+        version.content_manifest_digest == persona.draft_content_manifest_digest &&
+        version.phrase_manifest_digest == persona.draft_phrase_manifest_digest
+
+      nil
+    rescue ArgumentError
+      nil
     end
 
     def serialize_preview

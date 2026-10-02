@@ -43,6 +43,9 @@ class CoachPersonaPublicationEvent < ApplicationRecord
 
     errors.add(:release_gate_version, "must match the published version") unless release_gate_version == coach_persona_version.release_gate_version
     errors.add(:release_evidence_digest, "must match the published version") unless release_evidence_digest == coach_persona_version.release_evidence_digest
+    unless phrase_audience_attestation_digests == coach_persona_version.phrase_audience_attestation_digests
+      errors.add(:phrase_audience_attestation_digests, "must match the published version")
+    end
   end
 
   def persisted_event_is_immutable

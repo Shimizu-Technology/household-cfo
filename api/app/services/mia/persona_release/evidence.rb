@@ -14,6 +14,15 @@ module Mia
         @persona = persona
       end
 
+      def self.effective_attestations(candidate, at: nil)
+        scope = candidate.phrase_audience_attestations
+        scope = scope.where("reviewed_at <= ?", at) if at
+        scope
+          .select("DISTINCT ON (coach_phrase_audience_attestations.artifact_id) coach_phrase_audience_attestations.*")
+          .reorder(Arel.sql("coach_phrase_audience_attestations.artifact_id ASC, coach_phrase_audience_attestations.reviewed_at DESC, coach_phrase_audience_attestations.id DESC"))
+          .to_a
+      end
+
       def verify_current!(candidate_digest:, run_digest:, approval_digest:, behavioral_preview_digest:)
         candidate = persona.release_candidates.find_by!(manifest_digest: candidate_digest)
         raise Error, "The evaluated release candidate is no longer the current draft" unless candidate.current_for?(persona)
@@ -45,7 +54,7 @@ module Mia
           raise Error, "The behavioral preview evidence is invalid"
         end
 
-        attestations = candidate.phrase_audience_attestations.order(:artifact_id).to_a
+        attestations = self.class.effective_attestations(candidate)
         required = Array(candidate.phrase_artifacts_snapshot)
         approved_ids = attestations.filter_map do |attestation|
           attestation.artifact_id.to_s if attestation.decision == "approved" && attestation.integrity_valid?

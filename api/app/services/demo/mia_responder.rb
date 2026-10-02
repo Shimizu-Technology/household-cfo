@@ -64,9 +64,13 @@ module Demo
       Do not add generic praise such as "you're doing great," "great job," "I'm proud of you," or "you've got this." Only acknowledge a specific accomplishment supported by approved context.
     PROMPT
 
-    attr_reader :response_source, :supplied_content_context
+    attr_reader :response_source, :supplied_content_context, :provider_request_id
 
     def model_identifier
+      @concrete_model_identifier
+    end
+
+    def requested_model_identifier
       @model
     end
 
@@ -82,6 +86,8 @@ module Demo
 
     def call(message, history: [], context: nil, draft_capable: false, conversation_resolution: nil)
       @response_source = "deterministic_fallback"
+      @concrete_model_identifier = nil
+      @provider_request_id = nil
       @supplied_content_context = []
       clean_message = message.to_s.strip
       prompt_context = context.presence || default_context
@@ -159,6 +165,9 @@ module Demo
       return fallback_response(message, context: context) unless response.is_a?(Net::HTTPSuccess)
 
       parsed = JSON.parse(response.body)
+      concrete_model = parsed["model"].to_s.squish
+      return fallback_response(message, context: context) unless concrete_model.present? && concrete_model.length <= 200
+
       content = parsed.dig("choices", 0, "message", "content").presence
       return fallback_response(message, context: context) unless content
 
@@ -175,6 +184,9 @@ module Demo
       end
       return fallback_response(message, context: context) if sanitized.blank?
 
+      @concrete_model_identifier = concrete_model
+      request_id = parsed["id"].to_s.squish
+      @provider_request_id = request_id if request_id.present? && request_id.length <= 200
       @response_source = "live_model"
       sanitized
     end

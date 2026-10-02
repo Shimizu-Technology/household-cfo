@@ -37,6 +37,11 @@ class CoachPersonaVersion < ApplicationRecord
     class_name: "CoachPersonaPublicationEvent",
     dependent: :restrict_with_exception,
     inverse_of: :coach_persona_version
+  has_many :draft_restore_events,
+    class_name: "CoachPersonaDraftRestoreEvent",
+    foreign_key: :source_version_id,
+    dependent: :restrict_with_exception,
+    inverse_of: :source_version
 
   validates :version_number, numericality: { only_integer: true, greater_than: 0 }, uniqueness: { scope: :coach_persona_id }
   validates :config_digest, format: { with: /\A[0-9a-f]{64}\z/ }
@@ -172,7 +177,14 @@ class CoachPersonaVersion < ApplicationRecord
     return false unless phrase_digest == release_candidate.phrase_manifest_digest && audience_digest == release_candidate.audience_digest
     return false unless release_manifest_digest == release_candidate.manifest_digest
 
-    attestations = release_candidate.phrase_audience_attestations.to_a
+    attestation_digests = Array(phrase_audience_attestation_digests)
+    return false unless attestation_digests.all? { |digest| digest.to_s.match?(/\A[0-9a-f]{64}\z/) }
+
+    attestations = release_candidate.phrase_audience_attestations
+      .where(attestation_digest: attestation_digests).to_a
+      .sort_by { |attestation| attestation.artifact_id.to_s }
+    return false unless attestations.map(&:attestation_digest) == attestation_digests
+
     preview = release_evidence_schema == "persona_release_evidence_v3" ? behavioral_preview_evidence : nil
     return false if release_evidence_schema == "persona_release_evidence_v3" &&
       (!preview&.integrity_valid? || behavioral_preview_digest != preview.evidence_digest || preview.release_candidate != release_candidate)
@@ -240,10 +252,15 @@ class CoachPersonaVersion < ApplicationRecord
     if release_gate_version == "gate_v1"
       legacy_fields = evidence_fields + [ behavioral_preview_evidence, behavioral_preview_digest, release_evidence_schema ]
       errors.add(:base, "legacy gate_v1 versions cannot claim v2 release evidence") if legacy_fields.any?(&:present?)
+      errors.add(:phrase_audience_attestation_digests, "must be empty for legacy versions") if phrase_audience_attestation_digests.present?
       return
     end
 
     errors.add(:base, "gate_v2 versions require complete release evidence") unless evidence_fields.all?(&:present?)
+    unless phrase_audience_attestation_digests.is_a?(Array) &&
+        phrase_audience_attestation_digests.all? { |digest| digest.to_s.match?(/\A[0-9a-f]{64}\z/) }
+      errors.add(:phrase_audience_attestation_digests, "must contain sealed review digests")
+    end
     if release_evidence_schema == "persona_release_evidence_v3"
       errors.add(:base, "gate_v2 v3 versions require behavioral preview evidence") unless behavioral_preview_evidence && behavioral_preview_digest.present?
     elsif release_evidence_schema != "persona_release_evidence_v2"

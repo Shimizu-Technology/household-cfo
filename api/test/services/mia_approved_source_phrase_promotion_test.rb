@@ -393,15 +393,16 @@ class MiaApprovedSourcePhrasePromotionTest < ActiveSupport::TestCase
     )
     without_phrase = publish_persona(persona.reload, actor: @reviewer, evaluator: @editor, audience_reviewer: @owner)
 
-    rolled_back = Mia::PersonaRollback.new(persona: persona, target_version: source_version, actor: @reviewer).call(
+    restored = Mia::PersonaRollback.new(persona: persona, target_version: source_version, actor: @editor).call(
       expected_current_version_id: without_phrase.id,
       expected_draft_revision: persona.reload.draft_revision
     )
 
-    assert rolled_back.phrase_manifest_valid?
-    assert_equal promotion.id, rolled_back.phrase_artifact_links.sole.coach_persona_phrase_promotion_id
+    assert restored.integrity_valid?
+    assert_equal source_version, restored.source_version
+    assert_equal promotion.id, Mia::PhraseManifest.promotions_for_config(persona.reload).sole.first.id
     assert_equal promotion.artifact, persona.reload.draft_config.fetch("phrases").sole
-    assert_equal rolled_back.id, persona.current_published_version_id
+    assert_equal without_phrase.id, persona.current_published_version_id
   end
 
   test "source deletion supersedes only unattested proposals and keeps approved audit chains" do

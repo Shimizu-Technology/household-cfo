@@ -15,6 +15,7 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
   validates :output, presence: true, length: { maximum: 4_000 }
   validates :response_source, inclusion: { in: [ "live_model" ] }
   validates :model_identifier, presence: true, length: { maximum: 200 }
+  validates :provider_request_id, length: { maximum: 200 }, allow_nil: true
   validates :privacy_scope, inclusion: { in: [ PRIVACY_SCOPE ] }
   validates :context_digest, :candidate_digest, :config_digest, :content_manifest_digest,
     :phrase_manifest_digest, :evidence_digest, format: { with: /\A[0-9a-f]{64}\z/ }
@@ -38,6 +39,7 @@ class CoachPersonaBehavioralPreviewEvidence < ApplicationRecord
       output: record["output"],
       response_source: record["response_source"],
       model_identifier: record["model_identifier"],
+      provider_request_id: record["provider_request_id"],
       privacy_scope: record["privacy_scope"],
       context_digest: record["context_digest"],
       generated_by_user_id: record["generated_by_user_id"],

@@ -90,6 +90,7 @@ class MiaPersonaPreviewerTest < ActiveSupport::TestCase
     Object.new.tap do |responder|
       responder.define_singleton_method(:response_source) { source }
       responder.define_singleton_method(:model_identifier) { "test-model" }
+      responder.define_singleton_method(:provider_request_id) { nil }
       responder.define_singleton_method(:received_prompt) { @received_prompt }
       responder.define_singleton_method(:received_options) { @received_options }
       responder.define_singleton_method(:call) do |prompt, **options|

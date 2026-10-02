@@ -28,6 +28,7 @@ class CoachPersona < ApplicationRecord
     inverse_of: :coach_persona
   has_many :release_candidates, class_name: "CoachPersonaReleaseCandidate", dependent: :restrict_with_exception
   has_many :evaluation_cases, class_name: "CoachPersonaEvaluationCase", dependent: :restrict_with_exception
+  has_many :draft_restore_events, class_name: "CoachPersonaDraftRestoreEvent", dependent: :restrict_with_exception
   has_many :draft_content_pack_links,
     -> { order(:position) },
     class_name: "CoachPersonaDraftContentPack",
@@ -75,11 +76,15 @@ class CoachPersona < ApplicationRecord
     update!(archived_at: nil)
   end
 
-  def apply_rollback_version!(version)
-    raise ArgumentError, "rollback version must belong to this persona" unless version.coach_persona_id == id
+  def restore_version_to_draft!(version)
+    raise ArgumentError, "restore version must belong to this persona" unless version.coach_persona_id == id
 
+    draft_content_pack_links.delete_all
+    version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
+      draft_content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
+    end
     @force_draft_revision_and_preview_reset = true
-    update!(draft_config: version.config.deep_dup, current_published_version: version)
+    update!(draft_config: version.config.deep_dup)
   ensure
     @force_draft_revision_and_preview_reset = false
   end

@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
+ActiveRecord::Schema[8.1].define(version: 2026_10_03_030000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -523,6 +523,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.string "phrase_manifest_digest", null: false
     t.string "privacy_scope", null: false
     t.text "prompt", null: false
+    t.string "provider_request_id"
     t.string "response_source", null: false
     t.datetime "updated_at", null: false
     t.index ["coach_persona_release_candidate_id"], name: "idx_persona_behavioral_previews_candidate"
@@ -530,6 +531,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.index ["generated_by_user_id"], name: "idx_on_generated_by_user_id_90cd84d1a1"
     t.check_constraint "char_length(prompt) >= 1 AND char_length(prompt) <= 2000 AND char_length(output) >= 1 AND char_length(output) <= 4000 AND char_length(model_identifier::text) >= 1 AND char_length(model_identifier::text) <= 200 AND response_source::text = 'live_model'::text AND privacy_scope::text = 'no_saved_participant_or_household_data'::text", name: "persona_behavioral_previews_bounded"
     t.check_constraint "context_digest::text ~ '^[0-9a-f]{64}$'::text AND candidate_digest::text ~ '^[0-9a-f]{64}$'::text AND config_digest::text ~ '^[0-9a-f]{64}$'::text AND content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_behavioral_previews_digest_shape"
+    t.check_constraint "provider_request_id IS NULL OR char_length(provider_request_id::text) >= 1 AND char_length(provider_request_id::text) <= 200", name: "persona_behavioral_previews_request_id_bounded"
   end
 
   create_table "coach_persona_draft_content_packs", force: :cascade do |t|
@@ -542,6 +544,30 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.index ["coach_persona_id", "coach_content_pack_version_id"], name: "idx_persona_draft_packs_version", unique: true
     t.index ["coach_persona_id", "position"], name: "idx_persona_draft_packs_position", unique: true
     t.index ["coach_persona_id"], name: "index_coach_persona_draft_content_packs_on_coach_persona_id"
+  end
+
+  create_table "coach_persona_draft_restore_events", force: :cascade do |t|
+    t.bigint "actor_user_id", null: false
+    t.bigint "coach_persona_id", null: false
+    t.string "config_digest", null: false
+    t.string "content_manifest_digest", null: false
+    t.jsonb "content_pack_version_ids", default: [], null: false
+    t.datetime "created_at", null: false
+    t.string "event_digest", null: false
+    t.jsonb "phrase_artifacts_snapshot", default: [], null: false
+    t.string "phrase_manifest_digest", null: false
+    t.integer "previous_draft_revision", null: false
+    t.datetime "restored_at", null: false
+    t.integer "restored_draft_revision", null: false
+    t.bigint "source_version_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_user_id"], name: "index_coach_persona_draft_restore_events_on_actor_user_id"
+    t.index ["coach_persona_id"], name: "index_coach_persona_draft_restore_events_on_coach_persona_id"
+    t.index ["event_digest"], name: "idx_persona_draft_restore_events_digest", unique: true
+    t.index ["source_version_id"], name: "index_coach_persona_draft_restore_events_on_source_version_id"
+    t.check_constraint "config_digest::text ~ '^[0-9a-f]{64}$'::text AND content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text AND event_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_draft_restore_events_digest_shape"
+    t.check_constraint "jsonb_typeof(content_pack_version_ids) = 'array'::text AND jsonb_typeof(phrase_artifacts_snapshot) = 'array'::text", name: "persona_draft_restore_events_json_shape"
+    t.check_constraint "previous_draft_revision > 0 AND restored_draft_revision = (previous_draft_revision + 1)", name: "persona_draft_restore_events_revision_sequence"
   end
 
   create_table "coach_persona_evaluation_approvals", force: :cascade do |t|
@@ -673,7 +699,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.string "reviewer_role_snapshot"
     t.boolean "self_review", default: false, null: false
     t.datetime "updated_at", null: false
-    t.index ["coach_persona_release_candidate_id", "artifact_id"], name: "idx_phrase_audience_attestations_artifact", unique: true
+    t.index ["coach_persona_release_candidate_id", "artifact_id", "reviewed_at", "id"], name: "idx_phrase_audience_attestations_effective"
     t.index ["coach_persona_release_candidate_id"], name: "idx_phrase_audience_attestations_candidate"
     t.index ["reviewed_by_user_id"], name: "idx_on_reviewed_by_user_id_4e3698fda7"
     t.check_constraint "artifact_fingerprint::text ~ '^[0-9a-f]{64}$'::text AND audience_digest::text ~ '^[0-9a-f]{64}$'::text AND attestation_digest::text ~ '^[0-9a-f]{64}$'::text", name: "phrase_audience_attestations_digest_shape"
@@ -710,6 +736,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.bigint "coach_persona_version_id", null: false
     t.datetime "created_at", null: false
     t.string "event_type", null: false
+    t.jsonb "phrase_audience_attestation_digests", default: [], null: false
     t.string "release_evidence_digest"
     t.string "release_gate_version", default: "gate_v1", null: false
     t.bigint "source_version_id"
@@ -719,6 +746,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.index ["coach_persona_version_id"], name: "idx_on_coach_persona_version_id_4ab8b00110"
     t.index ["source_version_id"], name: "index_coach_persona_publication_events_on_source_version_id"
     t.check_constraint "event_type::text = ANY (ARRAY['publish'::character varying, 'rollback'::character varying]::text[])", name: "coach_persona_publication_events_type_valid"
+    t.check_constraint "jsonb_typeof(phrase_audience_attestation_digests) = 'array'::text", name: "persona_publication_events_audience_attestation_digests_array"
     t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "persona_publication_events_release_gate_valid"
     t.check_constraint "release_gate_version::text = 'gate_v1'::text AND release_evidence_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND release_evidence_digest::text ~ '^[0-9a-f]{64}$'::text", name: "persona_publication_events_release_evidence_complete"
   end
@@ -850,6 +878,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.jsonb "config", null: false
     t.string "config_digest", null: false
     t.string "content_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
+    t.jsonb "phrase_audience_attestation_digests", default: [], null: false
     t.string "phrase_manifest_digest", default: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", null: false
     t.datetime "created_at", null: false
     t.bigint "published_by_user_id", null: false
@@ -875,6 +904,7 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
     t.check_constraint "content_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_content_manifest_sha256"
     t.check_constraint "phrase_manifest_digest::text ~ '^[0-9a-f]{64}$'::text", name: "coach_persona_versions_phrase_manifest_sha256"
     t.check_constraint "jsonb_typeof(config) = 'object'::text", name: "coach_persona_versions_config_object"
+    t.check_constraint "jsonb_typeof(phrase_audience_attestation_digests) = 'array'::text", name: "persona_versions_audience_attestation_digests_array"
     t.check_constraint "octet_length(config::text) <= 49152", name: "coach_persona_versions_config_bytes"
     t.check_constraint "release_gate_version::text = ANY (ARRAY['gate_v1'::character varying, 'gate_v2'::character varying]::text[])", name: "persona_versions_release_gate_valid"
     t.check_constraint "release_gate_version::text = 'gate_v1'::text AND release_evidence_schema IS NULL AND coach_persona_behavioral_preview_evidence_id IS NULL AND behavioral_preview_digest IS NULL OR release_gate_version::text = 'gate_v2'::text AND (release_evidence_schema::text = ANY (ARRAY['persona_release_evidence_v2'::character varying::text, 'persona_release_evidence_v3'::character varying::text])) AND (release_evidence_schema::text = 'persona_release_evidence_v2'::text AND coach_persona_behavioral_preview_evidence_id IS NULL AND behavioral_preview_digest IS NULL OR release_evidence_schema::text = 'persona_release_evidence_v3'::text AND coach_persona_behavioral_preview_evidence_id IS NOT NULL AND behavioral_preview_digest::text ~ '^[0-9a-f]{64}$'::text)", name: "persona_versions_behavioral_preview_shape"
@@ -2153,6 +2183,9 @@ ActiveRecord::Schema[8.1].define(version: 2026_10_03_010000) do
   add_foreign_key "coach_phrase_proposals", "users", column: "proposed_by_user_id"
   add_foreign_key "coach_persona_behavioral_preview_evidences", "coach_persona_release_candidates"
   add_foreign_key "coach_persona_behavioral_preview_evidences", "users", column: "generated_by_user_id"
+  add_foreign_key "coach_persona_draft_restore_events", "coach_persona_versions", column: "source_version_id"
+  add_foreign_key "coach_persona_draft_restore_events", "coach_personas"
+  add_foreign_key "coach_persona_draft_restore_events", "users", column: "actor_user_id"
   add_foreign_key "coach_persona_evaluation_approvals", "coach_persona_evaluation_runs"
   add_foreign_key "coach_persona_evaluation_approvals", "users", column: "reviewed_by_user_id"
   add_foreign_key "coach_persona_evaluation_cases", "coach_personas"

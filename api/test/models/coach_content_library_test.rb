@@ -87,13 +87,17 @@ class CoachContentLibraryTest < ActiveSupport::TestCase
     assert_not_equal first_persona_version.content_manifest_digest, second_persona_version.content_manifest_digest
     assert_not_equal first_persona_version.publication_digest, second_persona_version.publication_digest
 
+    version_count = persona.versions.count
     restored = Mia::PersonaRollback.new(persona: persona, target_version: first_persona_version, actor: coach).call(
       expected_current_version_id: second_persona_version.id,
       expected_draft_revision: persona.reload.draft_revision
     )
-    assert_equal [ first_pack.current_published_version_id ], restored.content_pack_version_ids
+    assert_equal first_persona_version, restored.source_version
+    assert restored.integrity_valid?
+    assert_equal version_count, persona.versions.count
+    assert_equal second_persona_version, persona.reload.current_published_version
     assert_equal [ first_pack.current_published_version_id ], persona.reload.draft_content_pack_version_ids
-    assert restored.content_manifest_valid?
+    assert_equal first_persona_version.content_manifest_digest, persona.draft_content_manifest_digest
   end
 
   test "sealed pack and persona publications reject appended rows and fail closed after manifest tampering" do

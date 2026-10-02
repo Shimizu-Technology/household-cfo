@@ -246,7 +246,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     error = assert_raises(Mia::PersonaPublisher::PublicationError) { publish_persona(persona, actor: owner) }
     assert_equal "There are no persona changes to publish", error.message
 
-    persona.apply_rollback_version!(original_version)
+    persona.restore_version_to_draft!(original_version)
     assert persona.reload.valid?
     assert_equal editor.id, persona.draft_config.dig("phrases", 0, "source_user_id")
     assert_equal "coach", persona.draft_config.dig("phrases", 0, "source_role_at_capture")
@@ -286,7 +286,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
     assert_equal original_version, persona.reload.current_published_version
 
     participant.destroy!
-    persona.apply_rollback_version!(original_version)
+    persona.restore_version_to_draft!(original_version)
     assert persona.reload.valid?
     assert_equal "participant", persona.draft_config.dig("phrases", 0, "source_role_at_capture")
   end
@@ -396,7 +396,7 @@ class MiaPersonaRegionalSafetyTest < ActiveSupport::TestCase
         expected_draft_revision: 3
       )
     end
-    assert_equal "Rollback target no longer meets the current persona safety rules", rollback_error.message
+    assert_equal "Restore target no longer meets the current persona safety rules", rollback_error.message
   end
 
   test "valid participant-led language safeguards and artifact rules resolve as the published runtime persona" do

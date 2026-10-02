@@ -23,9 +23,14 @@ module Mia
           end
           raise Error, "Choose approve or reject" unless decision.to_s.in?(CoachPhraseAudienceAttestation::DECISIONS)
 
-          existing = candidate.phrase_audience_attestations.find_by(artifact_id: artifact_id)
-          return existing if existing&.integrity_valid? && existing.decision == decision.to_s
-          raise Error, "This phrase audience was already reviewed" if existing
+          existing = Evidence.effective_attestations(candidate).find do |attestation|
+            attestation.artifact_id.to_s == artifact_id.to_s
+          end
+          if existing&.integrity_valid? && existing.decision == decision.to_s &&
+              existing.reviewed_by_user_id == actor.id && existing.authority_snapshot_valid? &&
+              ReviewAuthority.currently_authorized?(workspace: workspace, reviewer: actor)
+            return existing
+          end
 
           self_review = ReviewRules.self_review!(
             workspace: workspace,

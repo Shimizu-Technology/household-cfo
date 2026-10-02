@@ -11,92 +11,75 @@ module Mia
     end
 
     def call(expected_current_version_id:, expected_draft_revision:)
-      ensure_staff!
+      ensure_editor!
       persona.with_lock do
-        raise RollbackError, "Archived personas cannot be rolled back" if persona.archived?
-        unless Integer(expected_draft_revision, exception: false) == persona.draft_revision
-          raise RollbackError, "The persona draft changed; reload it before rolling back"
-        end
-        unless normalized_version_id(expected_current_version_id) == persona.current_published_version_id
-          raise RollbackError, "The published persona changed; reload it before rolling back"
-        end
-        raise RollbackError, "Rollback target must belong to this persona" unless target_version.coach_persona_id == persona.id
-        if target_version.release_gate_version != "gate_v2"
-          raise RollbackError, "Historical gate_v1 versions remain readable but cannot be republished"
-        end
-        ensure_target_is_safe!
-        raise RollbackError, "Rollback target content manifest is invalid" unless target_version.content_manifest_valid?
-        raise RollbackError, "Rollback target phrase manifest is invalid" unless target_version.phrase_manifest_valid?
-        raise RollbackError, "Rollback target release evidence is invalid" unless target_version.release_evidence_valid?
+        validate_request!(expected_current_version_id:, expected_draft_revision:)
+        validate_target!
+        reject_noop_restore!
 
-        version = persona.versions.create!(
-          version_number: persona.versions.maximum(:version_number).to_i + 1,
-          config: target_version.config.deep_dup,
-          config_digest: target_version.config_digest,
-          content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
-          phrase_manifest_digest: Mia::PhraseManifest.digest_for([]),
-          published_by_user: actor,
-          source_version: target_version,
-          release_gate_version: target_version.release_gate_version,
-          release_candidate: target_version.release_candidate,
-          evaluation_run: target_version.evaluation_run,
-          evaluation_approval: target_version.evaluation_approval,
-          behavioral_preview_evidence: target_version.behavioral_preview_evidence,
-          behavioral_preview_digest: target_version.behavioral_preview_digest,
-          release_evidence_schema: target_version.release_evidence_schema,
-          release_manifest_digest: target_version.release_manifest_digest,
-          audience_digest: target_version.audience_digest,
-          release_evidence_digest: target_version.release_evidence_digest
-        )
-        target_version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
-          version.content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
-        end
-        target_version.phrase_artifact_links.includes(:coach_persona_phrase_promotion).order(:position).each do |link|
-          version.phrase_artifact_links.create!(
-            coach_persona_phrase_promotion: link.coach_persona_phrase_promotion,
-            position: link.position,
-            artifact_id: link.artifact_id,
-            artifact_fingerprint: link.artifact_fingerprint,
-            promotion_digest: link.promotion_digest
-          )
-        end
-        version.seal_manifests!
-        raise RollbackError, "Rollback target release evidence no longer matches" unless version.release_evidence_valid?
-        persona.draft_content_pack_links.delete_all
-        version.content_pack_links.includes(:coach_content_pack_version).order(:position).each do |link|
-          persona.draft_content_pack_links.create!(coach_content_pack_version: link.coach_content_pack_version, position: link.position)
-        end
-        persona.apply_rollback_version!(version)
-        persona.cohort_persona_assignments.update_all(
-          coach_persona_version_id: version.id,
-          updated_at: Time.current
-        )
-        persona.publication_events.create!(
-          coach_persona_version: version,
-          actor_user: actor,
-          event_type: "rollback",
-          source_version: target_version,
-          release_gate_version: version.release_gate_version,
-          release_evidence_digest: version.release_evidence_digest
-        )
-        version
+        previous_revision = persona.draft_revision
+        persona.restore_version_to_draft!(target_version)
+        restore_event!(previous_revision)
       end
+    rescue ActiveRecord::RecordInvalid, ArgumentError => error
+      raise RollbackError, error.message
     end
 
     private
 
     attr_reader :persona, :target_version, :actor
 
-    def ensure_staff!
-      unless persona.coach_workspace&.allows?(actor, :publish)
-        raise RollbackError, "Only a workspace owner or reviewer can roll back a persona"
+    def ensure_editor!
+      return if persona.coach_workspace&.allows?(actor, :edit)
+
+      raise RollbackError, "Only a workspace owner or editor can restore a persona version to the draft"
+    end
+
+    def validate_request!(expected_current_version_id:, expected_draft_revision:)
+      raise RollbackError, "Archived personas cannot restore a version to the draft" if persona.archived?
+      unless Integer(expected_draft_revision, exception: false) == persona.draft_revision
+        raise RollbackError, "The persona draft changed; reload it before restoring this version"
+      end
+      unless normalized_version_id(expected_current_version_id) == persona.current_published_version_id
+        raise RollbackError, "The published persona changed; reload it before restoring this version"
+      end
+      raise RollbackError, "Restore target must belong to this persona" unless target_version.coach_persona_id == persona.id
+      if target_version.id == persona.current_published_version_id
+        raise RollbackError, "The current published version cannot be restored to the draft"
       end
     end
 
-    def ensure_target_is_safe!
+    def validate_target!
       PersonaSchema.validate!(target_version.config)
+      raise RollbackError, "Restore target content manifest is invalid" unless target_version.content_manifest_valid?
+      raise RollbackError, "Restore target phrase manifest is invalid" unless target_version.phrase_manifest_valid?
     rescue PersonaSchema::InvalidConfiguration
-      raise RollbackError, "Rollback target no longer meets the current persona safety rules"
+      raise RollbackError, "Restore target no longer meets the current persona safety rules"
+    end
+
+    def reject_noop_restore!
+      same = PersonaSchema.digest(persona.draft_config) == target_version.config_digest &&
+        persona.draft_content_manifest_digest == target_version.content_manifest_digest &&
+        persona.draft_phrase_manifest_digest == target_version.phrase_manifest_digest
+      raise RollbackError, "The draft already matches this version" if same
+    end
+
+    def restore_event!(previous_revision)
+      event = persona.draft_restore_events.new(
+        source_version: target_version,
+        actor_user: actor,
+        previous_draft_revision: previous_revision,
+        restored_draft_revision: persona.draft_revision,
+        config_digest: target_version.config_digest,
+        content_manifest_digest: target_version.content_manifest_digest,
+        phrase_manifest_digest: target_version.phrase_manifest_digest,
+        content_pack_version_ids: target_version.content_pack_links.order(:position).pluck(:coach_content_pack_version_id),
+        phrase_artifacts_snapshot: Array(target_version.config["phrases"]),
+        restored_at: Time.current
+      )
+      event.event_digest = CoachPersonaDraftRestoreEvent.digest_for(event)
+      event.save!
+      event
     end
 
     def normalized_version_id(value)

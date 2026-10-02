@@ -147,6 +147,7 @@ module Mia
           output: record.output,
           source: record.response_source,
           model: record.model_identifier,
+          provider_request_id: record.provider_request_id,
           privacy_scope: record.privacy_scope,
           context_digest: record.context_digest,
           generated_by: user(record.generated_by_user),

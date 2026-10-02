@@ -458,6 +458,8 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :success
     assert_equal first_version.config, response.parsed_body.dig("version", "config")
+    assert_equal true, response.parsed_body.dig("version", "restore_to_draft_allowed")
+    assert_nil response.parsed_body.dig("version", "restore_blocked_reason")
 
     post "/api/v1/admin/personas/#{persona.id}/versions/#{first_version.id}/rollback",
       params: {
@@ -470,17 +472,28 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
       as: :json
 
     assert_response :success
-    restored = CoachPersonaVersion.find(response.parsed_body.dig("published_version", "id"))
-    assert_equal 3, restored.version_number
-    assert_equal first_version.config, restored.config
-    assert_equal first_version, restored.source_version
+    restore = response.parsed_body.fetch("draft_restore")
+    assert_equal first_version.id, restore.dig("source_version", "id")
+    assert_equal 2, restore.fetch("previous_draft_revision")
+    assert_equal 3, restore.fetch("restored_draft_revision")
+    assert_equal true, restore.fetch("valid")
+    assert_not response.parsed_body.key?("published_version")
     persona.reload
     assert_equal first_version.config, persona.draft_config
     assert_equal "Versioned assistant", persona.name
     assert_equal 3, persona.draft_revision
     assert_nil persona.preview_digest
-    assert_equal false, response.parsed_body.dig("persona", "has_unpublished_changes")
-    assert_equal %w[publish publish rollback], persona.publication_events.order(:id).pluck(:event_type)
+    assert_equal true, response.parsed_body.dig("persona", "has_unpublished_changes")
+    assert_equal second_version, persona.current_published_version
+    assert_equal %w[publish publish], persona.publication_events.order(:id).pluck(:event_type)
+    assert_equal 2, persona.versions.count
+    assert_equal first_version, persona.draft_restore_events.sole.source_version
+    restored_version_summary = response.parsed_body.dig("persona", "versions").find { |item| item.fetch("id") == first_version.id }
+    assert_equal false, restored_version_summary.fetch("restore_to_draft_allowed")
+    assert_equal "draft_already_matches", restored_version_summary.fetch("restore_blocked_reason")
+    current_version_summary = response.parsed_body.dig("persona", "versions").find { |item| item.fetch("id") == second_version.id }
+    assert_equal false, current_version_summary.fetch("restore_to_draft_allowed")
+    assert_equal "current_version", current_version_summary.fetch("restore_blocked_reason")
 
     post "/api/v1/admin/personas/#{persona.id}/versions/#{first_version.id}/rollback",
       params: {
@@ -494,7 +507,7 @@ class ApiV1AdminMiaPersonasControllerTest < ActionDispatch::IntegrationTest
 
     assert_response :conflict
     assert_equal "persona_rollback_conflict", response.parsed_body.fetch("code")
-    assert_equal 3, persona.versions.count
+    assert_equal 2, persona.versions.count
   end
 
   test "unavailable and unrequested behavioral previews cannot authorize publishing" do

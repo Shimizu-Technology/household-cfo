@@ -92,6 +92,8 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
     response = Net::HTTPOK.new("1.1", "200", "OK")
     response.instance_variable_set(:@read, true)
     response.body = JSON.generate(
+      id: "gen-test-123",
+      model: "anthropic/claude-sonnet-4.5",
       choices: [ { message: { content: "Review the exact facts, then choose one next step." } } ]
     )
     start = lambda do |*_args, **_options, &block|
@@ -113,6 +115,33 @@ class DemoMiaResponderTest < ActiveSupport::TestCase
       captured.fetch("provider")
     )
     assert_equal [], captured.fetch("tools")
+    assert_equal "anthropic/claude-sonnet-4.5", responder.model_identifier
+    assert_equal "~anthropic/claude-sonnet-latest", responder.requested_model_identifier
+    assert_equal "gen-test-123", responder.provider_request_id
+  end
+
+  test "strict privacy rejects a live response that does not identify the concrete model" do
+    response = Net::HTTPOK.new("1.1", "200", "OK")
+    response.instance_variable_set(:@read, true)
+    response.body = JSON.generate(
+      id: "gen-test-unknown-model",
+      choices: [ { message: { content: "Review the exact facts, then choose one next step." } } ]
+    )
+    start = lambda do |*_args, **_options, &block|
+      http = Object.new
+      http.define_singleton_method(:request) { |_request| response }
+      block.call(http)
+    end
+    responder = Demo::MiaResponder.new(api_key: "test-key", strict_privacy: true)
+
+    result = with_net_http_start(start) do
+      responder.call("What should I review?", context: { metrics: {} }.to_json)
+    end
+
+    assert_includes result, "household baseline"
+    assert_equal "deterministic_fallback", responder.response_source
+    assert_nil responder.model_identifier
+    assert_nil responder.provider_request_id
   end
 
   test "fallback discretionary purchase response preserves local demo line when api key is missing" do

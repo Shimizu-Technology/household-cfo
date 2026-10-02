@@ -108,7 +108,8 @@ module Mia
           actor_user: actor,
           event_type: "publish",
           release_gate_version: version.release_gate_version,
-          release_evidence_digest: version.release_evidence_digest
+          release_evidence_digest: version.release_evidence_digest,
+          phrase_audience_attestation_digests: version.phrase_audience_attestation_digests
         )
         version
       end
@@ -187,7 +188,10 @@ module Mia
         behavioral_preview_digest: evidence.behavioral_preview.evidence_digest,
         release_manifest_digest: evidence.candidate.manifest_digest,
         audience_digest: evidence.candidate.audience_digest,
-        release_evidence_digest: evidence.digest
+        release_evidence_digest: evidence.digest,
+        phrase_audience_attestation_digests: evidence.audience_attestations
+          .sort_by { |attestation| attestation.artifact_id.to_s }
+          .map(&:attestation_digest)
       }
     end
 

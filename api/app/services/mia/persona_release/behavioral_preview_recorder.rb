@@ -23,6 +23,7 @@ module Mia
           record = candidate.behavioral_preview_evidences.new(
             generated_by_user: actor, prompt: preview.fetch(:sample_prompt), output: preview.fetch(:sample_reply),
             response_source: preview.fetch(:source), model_identifier: preview.fetch(:model_identifier),
+            provider_request_id: preview[:provider_request_id],
             privacy_scope: CoachPersonaBehavioralPreviewEvidence::PRIVACY_SCOPE,
             context_digest: preview.fetch(:context_digest), candidate_digest: candidate.manifest_digest,
             config_digest: candidate.config_digest, content_manifest_digest: candidate.content_manifest_digest,
