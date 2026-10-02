@@ -62,9 +62,10 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnlyTest < ActiveSupport::TestC
   end
 
 
-  test "clean downgrade and re-upgrade succeeds before append-only evidence is used" do
+  test "pristine downgrade and re-upgrade succeeds before append-only evidence is used" do
     assert_empty CoachPhraseAudienceAttestation.all
     assert_empty CoachPersonaBehavioralPreviewEvidence.all
+    assert_empty CoachPersonaDraftRestoreEvent.all
     migration = MakePersonaRestoresAndAudienceReviewsAppendOnly.new
     migrated_down = false
 
@@ -93,6 +94,52 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnlyTest < ActiveSupport::TestC
     ActiveRecord::Base.connection.schema_cache.clear!
   end
 
+
+  test "downgrade refuses to remove behavioral preview provenance and leaves schema and rows intact" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    candidate = Mia::PersonaRelease::CandidateBuilder.new(persona: persona, actor: owner).call!
+    evidence = Mia::PersonaRelease::BehavioralPreviewRecorder.new(persona: persona, actor: owner).call!(
+      candidate: candidate,
+      preview: {
+        status: "ready", source: "live_model", sample_prompt: "Test this fictional household.",
+        sample_reply: "Review the exact facts and choose one step.", model_identifier: "test-model",
+        provider_request_id: "gen-migration-preview", context_digest: Mia::PersonaPreviewer.context_digest
+      }
+    )
+    assert_empty CoachPhraseAudienceAttestation.all
+    assert_empty CoachPersonaDraftRestoreEvent.all
+    snapshot = evidence.attributes
+
+    error = downgrade_error
+    assert_includes error.message, "behavioral preview provider provenance"
+    assert_equal snapshot, evidence.reload.attributes
+    assert_current_schema_intact
+  end
+
+  test "downgrade refuses to remove draft restore events and leaves schema and rows intact" do
+    owner = persona_user
+    persona = create_persona(creator: owner)
+    first_config = persona.draft_config.deep_dup
+    first_version = legacy_version(persona, owner, first_config, 1)
+    second_config = first_config.deep_merge("voice" => { "energy" => "Warm and encouraging." })
+    persona.update!(draft_config: second_config)
+    second_version = legacy_version(persona, owner, second_config, 2)
+    persona.update!(current_published_version: second_version)
+    event = Mia::PersonaRollback.new(persona: persona, target_version: first_version, actor: owner).call(
+      expected_current_version_id: second_version.id,
+      expected_draft_revision: persona.draft_revision
+    )
+    assert_empty CoachPhraseAudienceAttestation.all
+    assert_empty CoachPersonaBehavioralPreviewEvidence.all
+    snapshot = event.attributes
+
+    error = downgrade_error
+    assert_includes error.message, "draft restore audit events"
+    assert_equal snapshot, event.reload.attributes
+    assert_current_schema_intact
+  end
+
   test "downgrade refuses to collapse superseding audience reviews and leaves schema and rows intact" do
     owner = persona_user
     config = persona_configuration(assistant_name: "Irreversible audience review")
@@ -115,22 +162,50 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnlyTest < ActiveSupport::TestC
     reviews = candidate.phrase_audience_attestations.order(:id).pluck(:id, :decision, :attestation_digest)
     assert_equal %w[approved rejected], reviews.map(&:second)
 
+    preview_rows = CoachPersonaBehavioralPreviewEvidence.order(:id).map(&:attributes)
+    error = downgrade_error
+    assert_includes error.message, "multiple audience review audit records"
+    assert_equal reviews, candidate.phrase_audience_attestations.order(:id).pluck(:id, :decision, :attestation_digest)
+    assert_equal preview_rows, CoachPersonaBehavioralPreviewEvidence.order(:id).map(&:attributes)
+
+    assert_current_schema_intact
+  end
+
+  private
+
+  def downgrade_error
     migration = MakePersonaRestoresAndAudienceReviewsAppendOnly.new
-    error = assert_raises(ActiveRecord::IrreversibleMigration) do
+    assert_raises(ActiveRecord::IrreversibleMigration) do
       migration.suppress_messages { migration.migrate(:down) }
     end
-    assert_includes error.message, "multiple audit records"
-    assert_equal reviews, candidate.phrase_audience_attestations.order(:id).pluck(:id, :decision, :attestation_digest)
+  end
 
+  def assert_current_schema_intact
     connection = ActiveRecord::Base.connection
     connection.schema_cache.clear!
     assert connection.data_source_exists?(:coach_persona_draft_restore_events)
-    assert connection.column_exists?(:coach_persona_behavioral_preview_evidences, :provider_request_id)
+    provider_column = connection.columns(:coach_persona_behavioral_preview_evidences)
+      .find { |column| column.name == "provider_request_id" }
+    assert provider_column
+    refute provider_column.null
     assert connection.column_exists?(:coach_persona_versions, :phrase_audience_attestation_digests)
     assert connection.column_exists?(:coach_persona_publication_events, :phrase_audience_attestation_digests)
     assert connection.indexes(:coach_phrase_audience_attestations)
       .any? { |index| index.name == "idx_phrase_audience_attestations_effective" && !index.unique }
     refute connection.indexes(:coach_phrase_audience_attestations)
       .any? { |index| index.name == "idx_phrase_audience_attestations_artifact" }
+  end
+
+  def legacy_version(persona, owner, config, version_number)
+    version = persona.versions.create!(
+      version_number: version_number,
+      config: config,
+      config_digest: Mia::PersonaSchema.digest(config),
+      content_manifest_digest: CoachPersonaVersion.content_manifest_digest_for([]),
+      phrase_manifest_digest: Mia::PhraseManifest.digest_for([]),
+      published_by_user: owner,
+      release_gate_version: "gate_v1"
+    )
+    version.seal_manifests!
   end
 end

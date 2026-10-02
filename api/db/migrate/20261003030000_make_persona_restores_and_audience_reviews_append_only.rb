@@ -57,12 +57,8 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnly < ActiveRecord::Migration[
   end
 
   def down
-    lock_audience_attestations!
-    if duplicate_audience_review_pairs?
-      raise ActiveRecord::IrreversibleMigration,
-        "Cannot reverse append-only persona audience reviews after a phrase has multiple audit records. " \
-        "Keep migration 20261003030000 applied so every approval and superseding review remains intact."
-    end
+    lock_release_evidence_tables!
+    prevent_evidence_loss!
 
     drop_table :coach_persona_draft_restore_events
 
@@ -89,8 +85,33 @@ class MakePersonaRestoresAndAudienceReviewsAppendOnly < ActiveRecord::Migration[
 
   private
 
-  def lock_audience_attestations!
-    execute "LOCK TABLE coach_phrase_audience_attestations IN ACCESS EXCLUSIVE MODE"
+  def lock_release_evidence_tables!
+    execute <<~SQL.squish
+      LOCK TABLE coach_phrase_audience_attestations,
+        coach_persona_draft_restore_events,
+        coach_persona_behavioral_preview_evidences
+      IN ACCESS EXCLUSIVE MODE
+    SQL
+  end
+
+  def prevent_evidence_loss!
+    if duplicate_audience_review_pairs?
+      irreversible!("a phrase has multiple audience review audit records")
+    elsif table_has_rows?(:coach_persona_draft_restore_events)
+      irreversible!("draft restore audit events have been recorded")
+    elsif table_has_rows?(:coach_persona_behavioral_preview_evidences)
+      irreversible!("behavioral preview provider provenance has been recorded")
+    end
+  end
+
+  def irreversible!(reason)
+    raise ActiveRecord::IrreversibleMigration,
+      "Cannot reverse persona release audit migration after #{reason}. " \
+      "Keep migration 20261003030000 applied so immutable release evidence remains intact."
+  end
+
+  def table_has_rows?(table)
+    select_value("SELECT 1 FROM #{quote_table_name(table)} LIMIT 1").present?
   end
 
   def duplicate_audience_review_pairs?
