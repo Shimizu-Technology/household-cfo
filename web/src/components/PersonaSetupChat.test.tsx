@@ -209,6 +209,26 @@ describe('PersonaSetupChat', () => {
       .toBe(apiMocks.resolveAdminPersonaSetupProposal.mock.calls[0][4])
   })
 
+  it('retains separate retry keys when apply and reject both fail', async () => {
+    apiMocks.createAdminPersonaSetupSession.mockResolvedValue(proposalSession())
+    apiMocks.resolveAdminPersonaSetupProposal
+      .mockRejectedValueOnce(new Error('The apply response was lost.'))
+      .mockRejectedValueOnce(new Error('The reject response was lost.'))
+      .mockResolvedValueOnce({ session: session(), persona: persona() })
+    render(<Harness />)
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply to saved draft' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('The apply response was lost.')
+    await userEvent.click(screen.getByRole('button', { name: 'Reject proposal' }))
+    expect((await screen.findByRole('alert')).textContent).toContain('The reject response was lost.')
+    await userEvent.click(screen.getByRole('button', { name: 'Apply to saved draft' }))
+    await vi.waitFor(() => expect(apiMocks.resolveAdminPersonaSetupProposal).toHaveBeenCalledTimes(3))
+
+    const calls = apiMocks.resolveAdminPersonaSetupProposal.mock.calls
+    expect(calls[2][4]).toBe(calls[0][4])
+    expect(calls[1][4]).not.toBe(calls[0][4])
+  })
+
   it('shows a real retry path when the setup session cannot be loaded', async () => {
     apiMocks.createAdminPersonaSetupSession
       .mockRejectedValueOnce(new Error('Network unavailable.'))

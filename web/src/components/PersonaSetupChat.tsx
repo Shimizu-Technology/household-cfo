@@ -47,7 +47,8 @@ export function PersonaSetupChat({
   const personaIdRef = useRef(persona.id)
   const composerRef = useRef<HTMLTextAreaElement | null>(null)
   const proposalHeadingRef = useRef<HTMLHeadingElement | null>(null)
-  const resolutionRetryRef = useRef<{ proposalId: number; action: 'apply' | 'reject'; key: string } | null>(null)
+  const resolutionRetryKeysRef = useRef<Map<string, string>>(new Map())
+  const resolutionRetryScopeRef = useRef<{ sessionId: number; proposalId: number } | null>(null)
   useLayoutEffect(() => {
     personaIdRef.current = persona.id
   }, [persona.id])
@@ -60,7 +61,8 @@ export function PersonaSetupChat({
 
   useEffect(() => {
     let cancelled = false
-    resolutionRetryRef.current = null
+    resolutionRetryKeysRef.current.clear()
+    resolutionRetryScopeRef.current = null
     queueMicrotask(() => {
       if (cancelled) return
       setLoading(true)
@@ -144,17 +146,21 @@ export function PersonaSetupChat({
     const ticket = beginMutation()
     const sequence = ++requestSequence.current
     const personaId = persona.id
-    const priorAttempt = resolutionRetryRef.current
-    const key = priorAttempt?.proposalId === proposal.id && priorAttempt.action === action
-      ? priorAttempt.key
-      : requestKey()
-    resolutionRetryRef.current = { proposalId: proposal.id, action, key }
+    const retryScope = resolutionRetryScopeRef.current
+    if (retryScope?.sessionId !== session.id || retryScope.proposalId !== proposal.id) {
+      resolutionRetryKeysRef.current.clear()
+      resolutionRetryScopeRef.current = { sessionId: session.id, proposalId: proposal.id }
+    }
+    const retrySlot = `${proposal.id}:${action}`
+    const key = resolutionRetryKeysRef.current.get(retrySlot) ?? requestKey()
+    resolutionRetryKeysRef.current.set(retrySlot, key)
     setPending(action)
     setError(null)
     try {
       const result = await resolveAdminPersonaSetupProposal(personaId, session.id, proposal.id, action, key)
       if (!isCurrent(sequence, personaId, ticket)) return
-      resolutionRetryRef.current = null
+      resolutionRetryKeysRef.current.clear()
+      resolutionRetryScopeRef.current = null
       setSession(result.session)
       if (result.persona) onPersonaChange(result.persona)
       setAnnouncement(action === 'apply' ? 'Proposal applied to the saved draft.' : 'Proposal rejected. You can keep chatting.')
