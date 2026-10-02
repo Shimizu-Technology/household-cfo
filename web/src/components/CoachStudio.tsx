@@ -11,7 +11,7 @@ import {
   publishAdminPersona,
   restoreAdminPhrasePromotion,
   restoreAdminPersona,
-  rollbackAdminPersonaVersion,
+  restoreAdminPersonaVersionToDraft,
   updateAdminCohortPersonaAssignment,
   updateAdminPersona,
 } from '../api'
@@ -58,7 +58,7 @@ const guidedSteps = [
 type GuidedStep = (typeof guidedSteps)[number]['id']
 type EditorMode = 'setup' | 'guided' | 'advanced'
 type PersonaFilter = 'active' | 'draft' | 'published' | 'archived' | 'all'
-type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'rollback' | 'assignment' | 'phrase_restore' | null
+type PendingAction = 'create' | 'save' | 'preview' | 'publish' | 'archive' | 'restore' | 'draft_restore' | 'assignment' | 'phrase_restore' | null
 type StudioSection = 'assistants' | 'library' | 'participant_tools'
 
 export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: CurrentUser; onDirtyChange: (dirty: boolean) => void }) {
@@ -497,20 +497,17 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     }
   }
 
-  async function handleRollback(versionId: number, versionNumber: number) {
+  async function handleRestoreVersionToDraft(versionId: number, versionNumber: number) {
     if (!selectedPersona || pendingAction) return
     if (dirty) {
-      setConflict('Save or discard your unsaved changes before restoring an earlier version.')
+      setConflict('Save or discard your unsaved changes before restoring an earlier version to the draft.')
       return
     }
-    const assignmentImpact = selectedPersona.assignments.length > 0
-      ? ` Future participant messages in ${selectedPersona.assignments.length} assigned cohort${selectedPersona.assignments.length === 1 ? '' : 's'} will use it immediately.`
-      : ''
-    if (!window.confirm(`Publish a new version using the content from version ${versionNumber}? Current history will stay intact.${assignmentImpact}`)) return
-    const mutation = beginMutation('rollback')
+    if (!window.confirm(`Restore version ${versionNumber} into the editable draft? The published assistant stays live. You must preview, run checks, approve, and publish the restored draft before participants see it.`)) return
+    const mutation = beginMutation('draft_restore')
     setError(null)
     try {
-      const response = await rollbackAdminPersonaVersion(selectedPersona.id, versionId, {
+      const response = await restoreAdminPersonaVersionToDraft(selectedPersona.id, versionId, {
         expected_published_version_id: selectedPersona.published_version?.id ?? null,
         draft_revision: selectedPersona.draft_revision ?? 0,
       })
@@ -518,10 +515,9 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       acceptPersona(response.persona)
       setPreview(null)
       setPreviewEvidence(null)
-      setNotice(`Version ${response.published_version.number} is now published from version ${versionNumber}.`)
-      await refreshCohorts(mutation)
+      setNotice(`Version ${versionNumber} was restored to draft revision ${response.draft_restore.restored_draft_revision}. Review it, then complete a fresh release before participants can use it.`)
     } catch (caught) {
-      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The version could not be restored.')
+      if (mutationIsCurrent(mutation)) handleMutationError(caught, 'The version could not be restored to the draft.')
     } finally {
       finishMutation(mutation)
     }
@@ -943,7 +939,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
                 persona={selectedPersona}
                 dirty={dirty}
                 pendingAction={pendingAction}
-                onRollback={(versionId, number) => void handleRollback(versionId, number)}
+                onRestoreVersionToDraft={(versionId, number) => void handleRestoreVersionToDraft(versionId, number)}
                 onArchive={() => void handleArchive()}
                 onRestore={() => void handleRestore()}
               />
@@ -1150,11 +1146,11 @@ function renderEditorSection(
   )
 }
 
-function LifecyclePanel({ persona, dirty, pendingAction, onRollback, onArchive, onRestore }: {
+function LifecyclePanel({ persona, dirty, pendingAction, onRestoreVersionToDraft, onArchive, onRestore }: {
   persona: AdminPersonaDetail
   dirty: boolean
   pendingAction: PendingAction
-  onRollback: (versionId: number, number: number) => void
+  onRestoreVersionToDraft: (versionId: number, number: number) => void
   onArchive: () => void
   onRestore: () => void
 }) {
@@ -1176,10 +1172,17 @@ function LifecyclePanel({ persona, dirty, pendingAction, onRollback, onArchive, 
       <details className="coach-version-history">
         <summary>Version history ({persona.versions.length})</summary>
         <div className="coach-version-list">
+          {persona.versions.length > 0 && <p className="coach-inline-note">Restore copies a historical version into the editable draft. The current published assistant stays live until the restored draft completes a fresh release.</p>}
           {persona.versions.length === 0 ? <p>No published versions yet.</p> : persona.versions.map((version) => (
             <article key={version.id}>
               <div><strong>Version {version.number}</strong><small>{new Date(version.published_at).toLocaleString()} · {version.published_by?.full_name ?? 'Unknown publisher'}</small>{version.restored_from_version && <small>Restored from version {version.restored_from_version.number}</small>}</div>
-              {version.id === persona.published_version?.id ? <StatusBadge status="current" /> : persona.permissions.publish && <Button size="compact" variant="ghost" disabled={dirty || pendingAction !== null} onClick={() => onRollback(version.id, version.number)}>Restore as new version</Button>}
+              {version.id === persona.published_version?.id || version.restore_blocked_reason === 'current_version'
+                ? <StatusBadge status="current" />
+                : version.restore_blocked_reason === 'draft_already_matches'
+                  ? <StatusBadge status="matches draft" />
+                  : version.restore_to_draft_allowed && persona.permissions.edit
+                    ? <Button size="compact" variant="ghost" disabled={dirty || pendingAction !== null} onClick={() => onRestoreVersionToDraft(version.id, version.number)}>{pendingAction === 'draft_restore' ? 'Restoring…' : 'Restore to draft'}</Button>
+                    : null}
             </article>
           ))}
         </div>

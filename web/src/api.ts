@@ -940,6 +940,7 @@ export type AdminPersonaVersion = {
   audience_digest?: string | null
   release_evidence_digest?: string | null
   behavioral_preview_digest?: string | null
+  phrase_audience_attestation_digests?: string[]
   release_evidence_schema?: 'persona_release_evidence_v2' | 'persona_release_evidence_v3' | null
   published_at: string
   published_by: AdminPersonaUser
@@ -948,6 +949,8 @@ export type AdminPersonaVersion = {
     id: number
     number: number
   }
+  restore_to_draft_allowed?: boolean
+  restore_blocked_reason?: 'current_version' | 'draft_already_matches' | null
   content_packs?: AdminContentPackVersion[]
 }
 
@@ -1304,6 +1307,10 @@ export type AdminPersonaAudienceReview = {
   artifact_fingerprint: string
   decision: 'approved' | 'rejected' | null
   reviewed: boolean
+  review_state: 'approved' | 'rejected' | 'stale_authority' | 'invalid' | 'missing'
+  authority_snapshot_valid: boolean
+  authority_current: boolean
+  refresh_required: boolean
   self_review: boolean
   reviewer: AdminPersonaUser | null
   reviewer_role?: string
@@ -1558,9 +1565,28 @@ export type AdminPersonaEvaluationRunResponse = {
   reconciliation?: { request_id: string; replayed: boolean; enqueued: boolean }
 }
 
-export type AdminPersonaRollbackInput = {
+export type AdminPersonaDraftRestoreInput = {
   draft_revision: number
   expected_published_version_id: number | null
+}
+
+export type AdminPersonaDraftRestore = {
+  id: number
+  source_version: { id: number; number: number }
+  previous_draft_revision: number
+  restored_draft_revision: number
+  config_digest: string
+  content_manifest_digest: string
+  phrase_manifest_digest: string
+  restored_by: AdminPersonaUser
+  restored_at: string
+  digest: string
+  valid: boolean
+}
+
+export type AdminPersonaDraftRestoreResponse = {
+  persona: AdminPersonaDetail
+  draft_restore: AdminPersonaDraftRestore
 }
 
 export type PilotSetupStatus = 'not_started' | 'started' | 'complete'
@@ -2585,7 +2611,7 @@ export async function runAdminPersonaEvaluation(personaId: number, requestId = c
     evaluation_run: { request_id: requestId },
   }, {
     timeoutMs: 90_000,
-    timeoutMessage: 'Running the automated guardrail checks took too long.',
+    timeoutMessage: 'Starting the release checks took too long.',
   })
 }
 
@@ -2706,12 +2732,12 @@ export async function fetchAdminPersonaVersion(personaId: number, versionId: num
   return fetchJson<AdminPersonaVersionResponse>(`/api/v1/admin/personas/${personaId}/versions/${versionId}`)
 }
 
-export async function rollbackAdminPersonaVersion(
+export async function restoreAdminPersonaVersionToDraft(
   personaId: number,
   versionId: number,
-  values: AdminPersonaRollbackInput,
-): Promise<AdminPersonaPublicationResponse> {
-  return postJson<AdminPersonaPublicationResponse>(
+  values: AdminPersonaDraftRestoreInput,
+): Promise<AdminPersonaDraftRestoreResponse> {
+  return postJson<AdminPersonaDraftRestoreResponse>(
     `/api/v1/admin/personas/${personaId}/versions/${versionId}/rollback`,
     { rollback: values },
   )

@@ -12,6 +12,7 @@ import {
   runAdminPersonaEvaluation,
 } from '../api'
 import type {
+  AdminPersonaAudienceReview,
   AdminPersonaBehavioralPreviewEvidence,
   AdminPersonaDetail,
   AdminPersonaEvaluationAssertion,
@@ -107,6 +108,10 @@ export function PersonaReleasePanel({
   const [caseName, setCaseName] = useState('')
   const [casePrompt, setCasePrompt] = useState('')
   const [assertionDrafts, setAssertionDrafts] = useState<AssertionDraft[]>([newAssertionDraft('not_fallback')])
+  const [previewEvidenceOverride, setPreviewEvidenceOverride] = useState<{
+    sourceDigest: string | null
+    evidence: AdminPersonaBehavioralPreviewEvidence
+  } | null>(null)
   const requestSequence = useRef(0)
   const personaIdRef = useRef(persona.id)
   const mountedRef = useRef(false)
@@ -124,6 +129,7 @@ export function PersonaReleasePanel({
       ])
       if (sequence !== requestSequence.current || personaIdRef.current !== personaId) return null
       setReadiness(nextReadiness)
+      if (nextReadiness.evaluation_run && TERMINAL_RUN_STATUSES.has(nextReadiness.evaluation_run.status)) setRunRequestId(null)
       setCases(nextCases)
       setRuns(nextRuns)
       const preferredId = options.preferredRunId ?? nextReadiness.evaluation_run?.id ?? nextRuns[0]?.id ?? null
@@ -211,14 +217,14 @@ export function PersonaReleasePanel({
       setNotice(nextRun.execution.recoverable
         ? 'The recovered evaluation stopped before it finished. Its saved request is ready for another safe recovery attempt.'
         : !terminal
-        ? 'The automated checks are still running. Refresh this page or check the run again; its saved request will resume without creating a duplicate.'
+        ? 'The release checks are still running. Refresh this page or check the run again; its saved request will resume without creating a duplicate.'
         : recovering && nextRun.status === 'passed'
           ? 'The stalled evaluation was safely recovered and all checks passed.'
         : nextRun.status === 'passed'
-        ? 'Automated guardrail checks passed for this exact saved draft.'
+        ? 'All configured release checks passed for this exact saved draft.'
         : nextRun.status === 'failed'
-          ? 'One or more automated guardrail checks failed. Review the results before running them again.'
-          : 'The automated checks could not finish. Review the result and try again.')
+          ? 'One or more release checks failed. Review the results before running them again.'
+          : 'The release checks could not finish. Review the result and try again.')
     } catch (caught) {
       if (!mutationLifecycle.isCurrent(ticket) || personaIdRef.current !== persona.id) return
       const reconciled = await loadReleaseState({ quiet: true })
@@ -228,7 +234,7 @@ export function PersonaReleasePanel({
         setSelectedRun(reconciled?.selectedRun ?? latest)
         setNotice('The request may have completed while the connection was interrupted. The latest check result is loaded below.')
       } else {
-        setError(`${errorMessage(caught, 'The automated guardrail checks could not run.')} Refresh the release checks or retry; the same request will not create a duplicate.`)
+        setError(`${errorMessage(caught, 'The release checks could not run.')} Refresh the release checks or retry; the same request will not create a duplicate.`)
       }
     } finally {
       if (mutationLifecycle.isCurrent(ticket)) setAction(null)
@@ -247,6 +253,7 @@ export function PersonaReleasePanel({
       setRuns((current) => replaceRun(current, initialRun))
       const nextRun = TERMINAL_RUN_STATUSES.has(initialRun.status) ? initialRun : await pollRun(initialRun.id, initialRun.execution.poll_after_ms ?? RUN_POLL_INTERVAL_MS) ?? initialRun
       if (!mountedRef.current || personaIdRef.current !== persona.id) return
+      if (TERMINAL_RUN_STATUSES.has(nextRun.status)) setRunRequestId(null)
       await loadReleaseState({ quiet: true, preferredRunId: nextRun.id })
       setNotice(nextRun.execution.recoverable
         ? 'The saved evaluation lease expired before completion. Recover this same request when you are ready; no duplicate run will be created.'
@@ -349,7 +356,7 @@ export function PersonaReleasePanel({
   async function reviewPhrase(artifactId: string, decision: 'approved' | 'rejected') {
     const candidate = readiness?.candidate
     const review = readiness?.phrase_audience_reviews.find((item) => item.artifact_id === artifactId)
-    if (!candidate || !review || review.reviewed || !readiness.permissions.review_phrase_audiences || action || parentBusy) return
+    if (!candidate || !review || (review.reviewed && review.review_state === 'approved') || !readiness.permissions.review_phrase_audiences || action || parentBusy) return
     const ticket = mutationLifecycle.begin()
     setAction(`phrase:${artifactId}:${decision}`)
     setError(null)
@@ -387,9 +394,14 @@ export function PersonaReleasePanel({
     }
   }
 
-  const sealedPreview = previewEvidence ?? readiness?.behavioral_preview_evidence ?? null
-  const currentPreview = Boolean(!dirty && sealedPreview?.valid && readiness?.candidate && sealedPreview.candidate_digest === readiness.candidate.manifest_digest)
-  const evidence = releaseEvidence(readiness)
+  const latestPreviewEvidence = readiness?.behavioral_preview_evidence ?? null
+  const overrideApplies = previewEvidenceOverride?.sourceDigest === (previewEvidence?.digest ?? null)
+  const sealedPreview = overrideApplies ? previewEvidenceOverride.evidence : previewEvidence ?? latestPreviewEvidence
+  const displayedPreviewMatchesCandidate = Boolean(!dirty && sealedPreview?.valid && readiness?.candidate && sealedPreview.candidate_digest === readiness.candidate.manifest_digest)
+  const displayedPreviewMatchesLatest = Boolean(sealedPreview && latestPreviewEvidence && sealedPreview.id === latestPreviewEvidence.id && sealedPreview.digest === latestPreviewEvidence.digest)
+  const concurrentPreviewMismatch = Boolean(displayedPreviewMatchesCandidate && latestPreviewEvidence && !displayedPreviewMatchesLatest)
+  const currentPreview = displayedPreviewMatchesCandidate && displayedPreviewMatchesLatest
+  const evidence = releaseEvidence(readiness, sealedPreview)
   const publishReady = Boolean(persona.has_unpublished_changes !== false && readiness?.permissions.publication_needed !== false && currentPreview && readiness?.ready && evidence && readiness.permissions.publish)
   const publicationCurrent = persona.has_unpublished_changes === false || readiness?.permissions.publication_needed === false
   const releaseStatus = publicationCurrent ? 'Published' : publishReady ? 'Ready to publish' : 'Checks required'
@@ -400,7 +412,7 @@ export function PersonaReleasePanel({
   const totalPhraseCount = readiness?.phrase_audience_reviews.length ?? 0
   const statusItems = useMemo(() => [
     { label: 'Behavioral preview', complete: currentPreview },
-    { label: 'Automated guardrails', complete: readiness?.evaluation_run?.passed === true },
+    { label: 'Release checks', complete: readiness?.evaluation_run?.passed === true },
     { label: 'Phrase audiences', complete: totalPhraseCount === 0 || reviewedPhraseCount === totalPhraseCount },
     { label: 'Human approval', complete: readiness?.approval?.decision === 'approved' && readiness.approval.valid },
   ], [currentPreview, readiness, reviewedPhraseCount, totalPhraseCount])
@@ -430,11 +442,12 @@ export function PersonaReleasePanel({
           <div className="persona-release-actions"><Button variant="secondary" onClick={onPreview} disabled={disabled || readiness?.permissions.publish !== true}>{previewPending ? 'Running preview…' : 'Run exact preview'}</Button></div>
           {readiness?.permissions.publish === false && <p className="coach-inline-note">A workspace owner or authorized publisher must run and save behavioral preview evidence.</p>}
           {preview && (!sealedPreview || preview.status !== 'ready') && <PreviewSummary preview={preview} current={currentPreview} />}
-          {sealedPreview && <BehavioralPreviewEvidence evidence={sealedPreview} current={currentPreview} />}
+          {concurrentPreviewMismatch && <div className="persona-release-alert is-note" role="alert"><span>Another live preview was saved for this draft after the one shown below. Review the latest saved answer before publishing.</span>{latestPreviewEvidence && <Button size="compact" variant="secondary" onClick={() => setPreviewEvidenceOverride({ sourceDigest: previewEvidence?.digest ?? null, evidence: latestPreviewEvidence })}>Show latest saved preview</Button>}</div>}
+          {sealedPreview && <BehavioralPreviewEvidence evidence={sealedPreview} current={currentPreview} superseded={concurrentPreviewMismatch} />}
         </section>
 
         <section className="persona-release-step" aria-labelledby="guardrail-checks-title">
-          <header><div><span>2</span><div><h4 id="guardrail-checks-title">Run automated guardrail checks</h4><p>These fixed checks verify crisis boundaries, digital assistant disclosure, participant control, and cultural language limits. They do not replace the realistic preview above.</p></div></div><StepState complete={readiness?.evaluation_run?.passed === true} label={readiness?.evaluation_run?.passed ? 'Passed' : 'Required'} /></header>
+          <header><div><span>2</span><div><h4 id="guardrail-checks-title">Run release checks</h4><p>Required system checks inspect the saved configuration and fixed safety policy without calling the assistant model. The preview above and any custom scenarios below exercise live assistant behavior.</p></div></div><StepState complete={readiness?.evaluation_run?.passed === true} label={readiness?.evaluation_run?.passed ? 'Passed' : 'Required'} /></header>
           <div className="persona-release-case-list">{builtInCases.map((evaluationCase) => <GuardrailCase key={evaluationCase.system_key ?? evaluationCase.id} evaluationCase={evaluationCase} />)}</div>
           <CustomCaseManager
             cases={existingCustomCases}
@@ -460,12 +473,12 @@ export function PersonaReleasePanel({
 
         <section className="persona-release-step" aria-labelledby="phrase-review-title">
           <header><div><span>3</span><div><h4 id="phrase-review-title">Review phrases for this audience</h4><p>Each phrase must be appropriate for the exact audience and community context sealed with this draft.</p></div></div><StepState complete={totalPhraseCount === 0 || reviewedPhraseCount === totalPhraseCount} label={totalPhraseCount === 0 ? 'No phrases' : `${reviewedPhraseCount}/${totalPhraseCount} approved`} /></header>
-          {readiness?.candidate ? <><AudienceSnapshot readiness={readiness} />{totalPhraseCount === 0 ? <p className="persona-release-empty">This draft has no audience-specific phrases to review.</p> : <div className="persona-release-phrase-list">{readiness.phrase_audience_reviews.map((review) => <article key={review.artifact_id} className="persona-release-phrase"><header><div><strong>{review.phrase.text}</strong><small>{humanize(review.provenance.kind)}</small></div><StepState complete={review.reviewed && review.decision === 'approved'} label={review.decision ?? 'Needs review'} /></header><p>{review.phrase.meaning}</p><dl><div><dt>Use for</dt><dd>{review.phrase.allowed_contexts.map(humanize).join(', ') || 'No approved contexts'}</dd></div><div><dt>Never use for</dt><dd>{review.phrase.prohibited_contexts.map(humanize).join(', ') || 'No prohibited contexts'}</dd></div><div><dt>Frequency</dt><dd>{humanize(review.phrase.frequency)}</dd></div><div><dt>Caution</dt><dd>{review.phrase.caution || 'None recorded'}</dd></div></dl>{review.reviewed ? <p className="persona-release-review-meta">{humanize(review.decision ?? 'reviewed')} by {review.reviewer?.full_name ?? 'workspace reviewer'}{review.reviewer_role ? ` (${humanize(review.reviewer_role)})` : ''} · {formatDate(review.reviewed_at)}{review.self_review ? ' · sole-owner self review' : ''}</p> : readiness.permissions.review_phrase_audiences ? <div className="persona-release-actions"><Button size="compact" onClick={() => void reviewPhrase(review.artifact_id, 'approved')} disabled={disabled}>Approve for this audience</Button><Button size="compact" variant="danger" onClick={() => void reviewPhrase(review.artifact_id, 'rejected')} disabled={disabled}>Reject</Button></div> : <p className="coach-inline-note">Waiting for a workspace owner or reviewer.</p>}</article>)}</div>}</> : <p className="persona-release-empty">Run the automated checks to prepare this draft and open its phrase audience review.</p>}
+          {readiness?.candidate ? <><AudienceSnapshot readiness={readiness} />{totalPhraseCount === 0 ? <p className="persona-release-empty">This draft has no audience-specific phrases to review.</p> : <div className="persona-release-phrase-list">{readiness.phrase_audience_reviews.map((review) => <PhraseAudienceReview key={review.artifact_id} review={review} canReview={readiness.permissions.review_phrase_audiences} disabled={disabled} onReview={(decision) => void reviewPhrase(review.artifact_id, decision)} />)}</div>}</> : <p className="persona-release-empty">Run the release checks to prepare this draft and open its phrase audience review.</p>}
         </section>
 
         <section className="persona-release-step" aria-labelledby="human-approval-title">
           <header><div><span>4</span><div><h4 id="human-approval-title">Approve the passed evaluation</h4><p>A workspace owner or reviewer must approve the exact intact result.</p></div></div><StepState complete={readiness?.approval?.decision === 'approved' && readiness.approval.valid} label={readiness?.approval?.decision ?? 'Required'} /></header>
-          {!selectedRun ? <p className="persona-release-empty">Run the automated guardrail checks first.</p> : !selectedRunIsCurrent ? <p className="persona-release-empty">This is an earlier run kept for reference. Select the latest run before recording a release decision.</p> : !selectedRun.passed ? <p className="persona-release-empty">Only a complete passed run can be approved. Fix the draft or failed check, then run the suite again.</p> : selectedRun.approval ? <p className="persona-release-review-meta">{humanize(selectedRun.approval.decision)} by {selectedRun.approval.reviewer.full_name}{selectedRun.approval.reviewer_role ? ` (${humanize(selectedRun.approval.reviewer_role)})` : ''} · {formatDate(selectedRun.approval.reviewed_at)}{selectedRun.approval.self_review ? ' · sole-owner self review' : ''}</p> : readiness?.permissions.review_evaluations ? <><p className="coach-inline-note">Review every result above before recording this decision. A rejection is permanent for this run.</p><div className="persona-release-actions"><Button onClick={() => void reviewRun('approved')} disabled={disabled}>{action === 'approve' ? 'Approving…' : 'Approve passed evaluation'}</Button><Button variant="danger" onClick={() => void reviewRun('rejected')} disabled={disabled}>{action === 'reject_run' ? 'Rejecting…' : 'Reject evaluation'}</Button></div>{!readiness.permissions.sole_owner_self_review && selectedRun.requested_by && <small className="persona-release-role-note">If {selectedRun.requested_by.full_name} ran these checks, a different owner or reviewer must approve them.</small>}</> : <p className="coach-inline-note">Waiting for a workspace owner or reviewer.</p>}
+          {!selectedRun ? <p className="persona-release-empty">Run the release checks first.</p> : !selectedRunIsCurrent ? <p className="persona-release-empty">This is an earlier run kept for reference. Select the latest run before recording a release decision.</p> : !selectedRun.passed ? <p className="persona-release-empty">Only a complete passed run can be approved. Fix the draft or failed check, then run the suite again.</p> : selectedRun.approval ? <p className="persona-release-review-meta">{humanize(selectedRun.approval.decision)} by {selectedRun.approval.reviewer.full_name}{selectedRun.approval.reviewer_role ? ` (${humanize(selectedRun.approval.reviewer_role)})` : ''} · {formatDate(selectedRun.approval.reviewed_at)}{selectedRun.approval.self_review ? ' · sole-owner self review' : ''}</p> : readiness?.permissions.review_evaluations ? <><p className="coach-inline-note">Review every result above before recording this decision. A rejection is permanent for this run.</p><div className="persona-release-actions"><Button onClick={() => void reviewRun('approved')} disabled={disabled}>{action === 'approve' ? 'Approving…' : 'Approve passed evaluation'}</Button><Button variant="danger" onClick={() => void reviewRun('rejected')} disabled={disabled}>{action === 'reject_run' ? 'Rejecting…' : 'Reject evaluation'}</Button></div>{!readiness.permissions.sole_owner_self_review && selectedRun.requested_by && <small className="persona-release-role-note">If {selectedRun.requested_by.full_name} ran these checks, a different owner or reviewer must approve them.</small>}</> : <p className="coach-inline-note">Waiting for a workspace owner or reviewer.</p>}
         </section>
 
         <section className="persona-release-step is-publish" aria-labelledby="publish-title">
@@ -504,7 +517,7 @@ function CustomCaseManager({ cases, canManage, disabled, action, open, name, pro
   return <section className="persona-release-custom" aria-labelledby="custom-scenarios-title">
     <header><div><h5 id="custom-scenarios-title">Live-model scenarios</h5><p>Add fictional questions that should behave a specific way. Each scenario runs against the configured behavioral model and fails when only fallback output is available.</p></div><span>{activeCount}/{contract.max_active_custom_cases} active</span></header>
     {cases.length > 0 && <div className="persona-release-custom-list">{cases.map((evaluationCase) => <article key={evaluationCase.id} className={!evaluationCase.active ? 'is-retired' : ''}><div><strong>{evaluationCase.name}</strong><small>{evaluationCase.active ? 'Live model · included in the next run' : `Retired · ${formatDate(evaluationCase.retired_at)}`}</small></div><details><summary>Scenario and assertions</summary><p>{evaluationCase.prompt}</p><ul>{evaluationCase.assertions.map((assertion, index) => <li key={`${assertion.type}-${index}`}>{assertionLabel(assertion)}</li>)}</ul>{!evaluationCase.active && evaluationCase.retired_by && <small>Retired by {evaluationCase.retired_by.full_name}. Evidence remains in earlier run results.</small>}</details>{evaluationCase.active && canManage && evaluationCase.id && <Button size="compact" variant="danger" disabled={disabled} onClick={() => onRetire(evaluationCase)}>{action === `retire_case:${evaluationCase.id}` ? 'Retiring…' : 'Retire scenario'}</Button>}</article>)}</div>}
-    {cases.length === 0 && <p className="persona-release-empty">No custom live-model scenarios yet. The required automated guardrails still run every time.</p>}
+    {cases.length === 0 && <p className="persona-release-empty">No custom live-model scenarios yet. The required configuration and policy checks still run every time.</p>}
     {canManage ? <>
       {!open && <div className="persona-release-actions"><Button size="compact" variant="secondary" disabled={disabled || atCapacity} onClick={() => onOpenChange(true)}>Add live-model scenario</Button>{atCapacity && <small>Retire an active scenario before adding another.</small>}</div>}
       {open && <fieldset className="persona-release-case-form" disabled={disabled}>
@@ -540,12 +553,29 @@ function AssertionEditor({ assertion, index, removable, contract, onChange, onRe
 }
 
 function GuardrailCase({ evaluationCase }: { evaluationCase: AdminPersonaEvaluationCase }) {
-  return <details className="persona-release-case"><summary><span>{evaluationCase.name}</span><small>{evaluationCase.required ? 'Required' : evaluationCase.active ? 'Included' : 'Retired'}</small></summary><div><p>{evaluationCase.prompt}</p><ul>{evaluationCase.assertions.map((assertion, index) => <li key={`${assertion.type}-${index}`}>{assertionLabel(assertion)}</li>)}</ul></div></details>
+  return <details className="persona-release-case"><summary><span>{evaluationCase.name}</span><small>{evaluationCase.required ? 'Required policy check' : evaluationCase.active ? 'Included' : 'Retired'}</small></summary><div><p>This scenario checks the saved configuration and fixed system policy. It does not call the live assistant model.</p><p>{evaluationCase.prompt}</p><ul>{evaluationCase.assertions.map((assertion, index) => <li key={`${assertion.type}-${index}`}>{assertionLabel(assertion)}</li>)}</ul></div></details>
 }
 
 function RunResult({ run }: { run: AdminPersonaEvaluationRun }) {
   const active = !TERMINAL_RUN_STATUSES.has(run.status)
-  return <section className={`persona-release-run is-${run.status}`} aria-label="Automated guardrail check results"><header><div><strong>{run.status === 'passed' ? 'All automated guardrails passed' : run.status === 'failed' ? 'Automated checks need attention' : run.status === 'error' ? 'Checks could not finish' : run.execution.recoverable ? 'Evaluation needs recovery' : run.status === 'pending' ? 'Evaluation is queued' : 'Checks are running'}</strong><small>{run.requested_by ? `Run by ${run.requested_by.full_name}` : 'Workspace evaluation'} · {formatDate(run.completed_at ?? run.started_at ?? run.enqueued_at)}</small></div><StepState complete={run.passed} label={run.execution.recoverable ? 'Recovery available' : run.status} /></header>{active && <p className={`persona-release-execution ${run.execution.recoverable ? 'is-recoverable' : ''}`}>{run.execution.recoverable ? 'The worker lease expired before this saved run finished. Recovery safely replays the same request and does not create another run.' : run.execution.active_lease ? `A worker holds the active lease. Status checks use the saved run${run.execution.lease_expires_at ? ` through ${formatDate(run.execution.lease_expires_at)}` : ''}.` : 'The saved run is waiting for a worker. Checking status will not create another run.'}</p>}{run.results?.map((result) => <details key={result.id} className="persona-release-result" open={result.status !== 'passed'}><summary><span>{result.case.name}</span><StepState complete={result.status === 'passed' && !result.fallback_only} label={result.fallback_only ? 'Fallback output' : result.status} /></summary><div><div><small>Test prompt</small><p>{result.case.prompt}</p></div><div><small>Checked output</small><blockquote>{result.output}</blockquote></div><ul>{result.assertion_results.map((assertion, index) => <li key={`${assertion.type}-${index}`} className={assertion.passed ? 'is-passed' : 'is-failed'}>{assertion.passed ? 'Passed' : 'Failed'}: {assertionLabel(result.case.assertions[index] ?? { type: assertion.type })}</li>)}</ul></div></details>)}</section>
+  return <section className={`persona-release-run is-${run.status}`} aria-label="Release check results"><header><div><strong>{run.status === 'passed' ? 'All release checks passed' : run.status === 'failed' ? 'Release checks need attention' : run.status === 'error' ? 'Checks could not finish' : run.execution.recoverable ? 'Evaluation needs recovery' : run.status === 'pending' ? 'Evaluation is queued' : 'Checks are running'}</strong><small>{run.requested_by ? `Run by ${run.requested_by.full_name}` : 'Workspace evaluation'} · {formatDate(run.completed_at ?? run.started_at ?? run.enqueued_at)}</small></div><StepState complete={run.passed} label={run.execution.recoverable ? 'Recovery available' : run.status} /></header>{active && <p className={`persona-release-execution ${run.execution.recoverable ? 'is-recoverable' : ''}`}>{run.execution.recoverable ? 'The worker lease expired before this saved run finished. Recovery safely replays the same request and does not create another run.' : run.execution.active_lease ? `A worker holds the active lease. Status checks use the saved run${run.execution.lease_expires_at ? ` through ${formatDate(run.execution.lease_expires_at)}` : ''}.` : 'The saved run is waiting for a worker. Checking status will not create another run.'}</p>}{run.results?.map((result) => <details key={result.id} className="persona-release-result" open={result.status !== 'passed'}><summary><span>{result.case.name}</span><StepState complete={result.status === 'passed' && !result.fallback_only} label={result.fallback_only ? 'Fallback output' : result.status} /></summary><div><div><small>{result.case.kind === 'system' ? 'Policy scenario' : 'Live-model prompt'}</small><p>{result.case.prompt}</p></div><div><small>{result.case.kind === 'system' ? 'Configuration and policy result' : 'Live-model answer'}</small><blockquote>{result.output}</blockquote></div><ul>{result.assertion_results.map((assertion, index) => <li key={`${assertion.type}-${index}`} className={assertion.passed ? 'is-passed' : 'is-failed'}>{assertion.passed ? 'Passed' : 'Failed'}: {assertionLabel(result.case.assertions[index] ?? { type: assertion.type })}</li>)}</ul></div></details>)}</section>
+}
+
+function PhraseAudienceReview({ review, canReview, disabled, onReview }: {
+  review: AdminPersonaAudienceReview
+  canReview: boolean
+  disabled: boolean
+  onReview: (decision: 'approved' | 'rejected') => void
+}) {
+  const approved = review.reviewed && review.review_state === 'approved'
+  const hasPriorEvidence = review.reviewer != null && review.reviewed_at != null
+  const freshReviewLabel = hasPriorEvidence ? ' with fresh review' : ''
+  const stateLabel = review.review_state === 'approved' ? 'Approved'
+    : review.review_state === 'rejected' ? 'Rejected'
+      : review.review_state === 'stale_authority' ? 'Reviewer access changed'
+        : review.review_state === 'invalid' ? 'Evidence invalid'
+          : 'Needs review'
+  return <article className="persona-release-phrase"><header><div><strong>{review.phrase.text}</strong><small>{humanize(review.provenance.kind)}</small></div><StepState complete={approved} label={stateLabel} /></header><p>{review.phrase.meaning}</p><dl><div><dt>Use for</dt><dd>{review.phrase.allowed_contexts.map(humanize).join(', ') || 'No approved contexts'}</dd></div><div><dt>Never use for</dt><dd>{review.phrase.prohibited_contexts.map(humanize).join(', ') || 'No prohibited contexts'}</dd></div><div><dt>Frequency</dt><dd>{humanize(review.phrase.frequency)}</dd></div><div><dt>Caution</dt><dd>{review.phrase.caution || 'None recorded'}</dd></div></dl>{hasPriorEvidence && <p className="persona-release-review-meta">{humanize(review.decision ?? 'reviewed')} by {review.reviewer?.full_name ?? 'workspace reviewer'}{review.reviewer_role ? ` (${humanize(review.reviewer_role)})` : ''} · {formatDate(review.reviewed_at)}{review.self_review ? ' · sole-owner self review' : ''}</p>}{review.review_state === 'stale_authority' && <p className="persona-release-alert is-note" role="note">This evidence no longer authorizes release because the prior reviewer does not have current review access. A current reviewer must record fresh evidence.</p>}{review.review_state === 'invalid' && <p className="persona-release-alert is-error" role="alert">The prior review evidence did not pass its integrity check. A current reviewer must record fresh evidence.</p>}{review.review_state === 'rejected' && <p className="coach-inline-note">The latest authorized decision rejects this phrase for the sealed audience. A current reviewer may record a fresh decision after review.</p>}{!approved && canReview ? <div className="persona-release-actions"><Button size="compact" onClick={() => onReview('approved')} disabled={disabled}>Approve{freshReviewLabel} for this audience</Button><Button size="compact" variant="danger" onClick={() => onReview('rejected')} disabled={disabled}>Reject{freshReviewLabel}</Button></div> : !approved ? <p className="coach-inline-note">Waiting for a workspace owner or reviewer.</p> : null}</article>
 }
 
 function AudienceSnapshot({ readiness }: { readiness: AdminPersonaReleaseReadiness }) {
@@ -554,8 +584,8 @@ function AudienceSnapshot({ readiness }: { readiness: AdminPersonaReleaseReadine
   return <div className="persona-release-audience" role="note"><strong>Audience sealed with this release</strong><p>{audience.audience}</p><dl><div><dt>Participant term</dt><dd>{audience.client_term}</dd></div><div><dt>Locale context</dt><dd>{audience.culture.locale_label || 'No locale label'}</dd></div><div><dt>Community context</dt><dd>{audience.culture.context || 'No added context'}</dd></div>{audience.culture.local_realities.length > 0 && <div><dt>Local realities</dt><dd>{audience.culture.local_realities.join('; ')}</dd></div>}{audience.culture.references.length > 0 && <div><dt>Reviewed references</dt><dd>{audience.culture.references.join('; ')}</dd></div>}</dl></div>
 }
 
-function BehavioralPreviewEvidence({ evidence, current }: { evidence: AdminPersonaBehavioralPreviewEvidence; current: boolean }) {
-  return <section className="persona-release-preview-evidence" aria-label="Sealed behavioral preview evidence"><header><div><strong>Saved live-model preview</strong><small>{evidence.model} · {formatDate(evidence.generated_at)}</small></div><StepState complete={current} label={current ? 'Evidence intact' : evidence.valid ? 'Earlier candidate' : 'Evidence invalid'} /></header><div><small>Fictional prompt</small><p>{evidence.prompt}</p></div><div><small>Model answer</small><blockquote>{evidence.output}</blockquote></div><dl><div><dt>Privacy scope</dt><dd>No saved participant or household data was used.</dd></div><div><dt>Generated by</dt><dd>{evidence.generated_by.full_name}</dd></div><div><dt>Evidence</dt><dd>{shortDigest(evidence.digest)}</dd></div></dl></section>
+function BehavioralPreviewEvidence({ evidence, current, superseded }: { evidence: AdminPersonaBehavioralPreviewEvidence; current: boolean; superseded: boolean }) {
+  return <section className="persona-release-preview-evidence" aria-label="Sealed behavioral preview evidence"><header><div><strong>Saved live-model preview</strong><small>{evidence.model} · {formatDate(evidence.generated_at)}</small></div><StepState complete={current} label={current ? 'Evidence intact' : superseded ? 'Newer preview saved' : evidence.valid ? 'Earlier candidate' : 'Evidence invalid'} /></header><div><small>Fictional prompt</small><p>{evidence.prompt}</p></div><div><small>Model answer</small><blockquote>{evidence.output}</blockquote></div><dl><div><dt>Privacy scope</dt><dd>No saved participant or household data was used.</dd></div><div><dt>Generated by</dt><dd>{evidence.generated_by.full_name}</dd></div><div><dt>Evidence</dt><dd>{shortDigest(evidence.digest)}</dd></div></dl></section>
 }
 
 function PreviewSummary({ preview, current }: { preview: AdminPersonaPreview; current: boolean }) {
@@ -566,12 +596,15 @@ function StepState({ complete, label }: { complete: boolean; label: string }) {
   return <span className={`persona-release-state ${complete ? 'is-complete' : ''}`}>{label}</span>
 }
 
-function releaseEvidence(readiness: AdminPersonaReleaseReadiness | null): PersonaPublishEvidence | null {
+function releaseEvidence(readiness: AdminPersonaReleaseReadiness | null, displayedPreview: AdminPersonaBehavioralPreviewEvidence | null): PersonaPublishEvidence | null {
   const candidateDigest = readiness?.candidate?.manifest_digest
   const runDigest = readiness?.evaluation_run?.run_digest
   const approvalDigest = readiness?.approval?.approval_digest
-  const behavioralPreviewDigest = readiness?.behavioral_preview_evidence?.digest
-  if (!candidateDigest || !runDigest || !approvalDigest || !behavioralPreviewDigest) return null
+  const latestPreview = readiness?.behavioral_preview_evidence
+  const behavioralPreviewDigest = displayedPreview?.digest
+  if (!candidateDigest || !runDigest || !approvalDigest || !behavioralPreviewDigest || !latestPreview ||
+    displayedPreview.id !== latestPreview.id || behavioralPreviewDigest !== latestPreview.digest ||
+    displayedPreview.candidate_digest !== candidateDigest) return null
   return { release_candidate_digest: candidateDigest, evaluation_run_digest: runDigest, evaluation_approval_digest: approvalDigest, behavioral_preview_digest: behavioralPreviewDigest }
 }
 

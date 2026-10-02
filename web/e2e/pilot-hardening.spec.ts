@@ -22,9 +22,13 @@ async function openSection(page: Page, name: string) {
 
 async function completePersonaReleaseChecks(page: Page) {
   await page.getByRole('button', { name: /Run checks for this draft|Run checks again/ }).click()
-  await expect(page.getByRole('region', { name: 'Automated guardrail check results' })).toContainText('All automated guardrails passed')
-  while (await page.getByRole('button', { name: 'Approve for this audience' }).count()) {
-    await page.getByRole('button', { name: 'Approve for this audience' }).first().click()
+  await expect(page.getByRole('region', { name: 'Release check results' })).toContainText('All release checks passed')
+  const phraseApprovalButtons = page.getByRole('button', { name: 'Approve for this audience' })
+  while (await phraseApprovalButtons.count()) {
+    const previousCount = await phraseApprovalButtons.count()
+    await expect(phraseApprovalButtons.first()).toBeEnabled()
+    await phraseApprovalButtons.first().click()
+    await expect.poll(() => phraseApprovalButtons.count()).toBeLessThan(previousCount)
   }
   await page.getByRole('button', { name: 'Approve passed evaluation' }).click()
   await expect(page.getByText('Ready to publish', { exact: true })).toBeVisible()
@@ -636,6 +640,10 @@ async function mockDemoApi(page: Page) {
         provenance: { kind: 'coach_authored', source_user_id: 900, source_role_at_capture: 'admin' },
         decision: saved?.decision ?? null,
         reviewed: Boolean(saved),
+        review_state: saved?.decision ?? 'missing',
+        authority_snapshot_valid: Boolean(saved),
+        authority_current: Boolean(saved),
+        refresh_required: false,
         self_review: Boolean(saved?.self_review),
         reviewer: saved?.reviewer ?? null,
         reviewed_at: saved?.reviewed_at ?? null,
@@ -667,7 +675,7 @@ async function mockDemoApi(page: Page) {
       phrase_audience_reviews: phraseReviews,
       blockers: ready ? [] : [
         ...(!personaBehavioralPreviewEvidence?.valid ? ['Run a live-model behavioral preview for this draft.'] : []),
-        ...(!personaEvaluationRun?.passed ? ['Run the automated guardrail checks for this draft.'] : []),
+        ...(!personaEvaluationRun?.passed ? ['Run the required release checks for this draft.'] : []),
         ...(!phrasesApproved ? ['Approve every phrase for this audience.'] : []),
         ...(!approved ? ['Approve the passed evaluation.'] : []),
       ],
@@ -1124,8 +1132,9 @@ async function mockDemoApi(page: Page) {
     }
     if (path === '/api/v1/admin/personas/81/publish' && route.request().method() === 'POST') {
       const number = (persona.published_version?.number ?? 0) + 1
-      const version = { id: 100 + number, number, digest: `version-${number}`, published_at: '2026-10-01T01:05:00Z', published_by: persona.owner, config: persona.draft }
-      persona = { ...persona, status: 'published', published_version: version, versions: [version, ...persona.versions], has_unpublished_changes: false, preview_required: false }
+      const version = { id: 100 + number, number, digest: `version-${number}`, content_manifest_digest: `content-${number}`, phrase_manifest_digest: `phrases-${number}`, published_at: '2026-10-01T01:05:00Z', published_by: persona.owner, config: persona.draft, restore_to_draft_allowed: false, restore_blocked_reason: 'current_version' }
+      const earlierVersions = persona.versions.map((earlier: Record<string, unknown>) => ({ ...earlier, restore_to_draft_allowed: true, restore_blocked_reason: null }))
+      persona = { ...persona, status: 'published', published_version: version, versions: [version, ...earlierVersions], has_unpublished_changes: false, preview_required: false }
       return route.fulfill({ status: 200, json: { persona, published_version: version } })
     }
     if (path === '/api/v1/admin/personas/81/restore' && route.request().method() === 'POST') {
@@ -1136,10 +1145,12 @@ async function mockDemoApi(page: Page) {
     const rollbackMatch = path.match(/^\/api\/v1\/admin\/personas\/81\/versions\/(\d+)\/rollback$/)
     if (rollbackMatch && route.request().method() === 'POST') {
       const target = persona.versions.find((version: { id: number }) => version.id === Number(rollbackMatch[1]))
-      const number = (persona.published_version?.number ?? 0) + 1
-      const version = { ...target, id: 100 + number, number, digest: `version-${number}`, published_at: '2026-10-01T01:20:00Z', published_by: persona.owner, restored_from_version: { id: target.id, number: target.number } }
-      persona = { ...persona, status: 'published', name: target.config.identity.assistant_name, draft: target.config, published_version: version, versions: [version, ...persona.versions], has_unpublished_changes: false, preview_required: true, preview: null }
-      return route.fulfill({ status: 200, json: { persona, published_version: version } })
+      const previousDraftRevision = persona.draft_revision
+      const restoredDraftRevision = previousDraftRevision + 1
+      const versions = persona.versions.map((version: { id: number }) => ({ ...version, restore_to_draft_allowed: version.id !== target.id && version.id !== persona.published_version?.id, restore_blocked_reason: version.id === persona.published_version?.id ? 'current_version' : version.id === target.id ? 'draft_already_matches' : null }))
+      persona = { ...persona, name: target.config.identity.assistant_name, draft: structuredClone(target.config), draft_revision: restoredDraftRevision, versions, has_unpublished_changes: true, preview_required: true, preview: null }
+      resetPersonaRelease()
+      return route.fulfill({ status: 200, json: { persona, draft_restore: { id: 801, source_version: { id: target.id, number: target.number }, previous_draft_revision: previousDraftRevision, restored_draft_revision: restoredDraftRevision, config_digest: target.digest, content_manifest_digest: target.content_manifest_digest, phrase_manifest_digest: target.phrase_manifest_digest, restored_by: persona.owner, restored_at: '2026-10-01T01:20:00Z', digest: 'draft-restore-digest', valid: true } } })
     }
     if (path === '/api/v1/admin/cohorts/41/persona_assignment' && route.request().method() === 'PATCH') {
       personaAssignment = { id: 501, cohort: { id: 41, name: 'Household CFO pilot', status: 'active' }, persona: { id: 81, name: persona.name }, published_version: persona.published_version, assigned_at: '2026-10-01T01:10:00Z', updated_at: '2026-10-01T01:10:00Z', assigned_by: persona.owner }
@@ -4282,9 +4293,18 @@ test('Coach Studio preserves coach-authored community context through preview, p
 
   await page.getByText('Version history (2)').click()
   const versionOne = page.locator('.coach-version-list article').filter({ hasText: 'Version 1' })
-  page.once('dialog', (dialog) => dialog.accept())
-  await versionOne.getByRole('button', { name: 'Restore as new version' }).click()
-  await expect(page.getByRole('status').filter({ hasText: 'Version 3 is now published from version 1' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore to draft' })).toHaveCount(1)
+  page.once('dialog', async (dialog) => {
+    expect(dialog.message()).toContain('published assistant stays live')
+    await dialog.accept()
+  })
+  await versionOne.getByRole('button', { name: 'Restore to draft' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Version 1 was restored to draft revision' })).toBeVisible()
+  await expect(page.getByText('Version history (2)')).toBeVisible()
+  await expect(versionOne.getByText('Matches Draft')).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Restore to draft' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Publish next version' })).toBeDisabled()
+  await expect(page.getByText(/complete a fresh release before participants can use it/i)).toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true)
 })
 

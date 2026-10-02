@@ -3,6 +3,7 @@
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { ApiRequestError } from '../api'
 import type { AdminPersonaAudienceReview, AdminPersonaBehavioralPreviewEvidence, AdminPersonaDetail, AdminPersonaEvaluationCase, AdminPersonaEvaluationRun, AdminPersonaPreview, AdminPersonaReleaseReadiness } from '../api'
 import { PersonaReleasePanel, type PersonaPublishEvidence } from './PersonaReleasePanel'
 import type { CoachWorkspaceMutationLifecycle } from './coachWorkspaceMutationLifecycle'
@@ -78,13 +79,29 @@ describe('PersonaReleasePanel', () => {
   it('shows a truthful staged release and publishes only with exact evidence', async () => {
     const onPublish = vi.fn(); renderPanel({ onPublish })
     expect((await screen.findAllByText('Digital assistant disclosure')).length).toBeGreaterThan(0)
-    expect(screen.getByText(/fixed checks verify crisis boundaries/i)).toBeTruthy()
+    expect(screen.getByText(/required system checks inspect the saved configuration/i)).toBeTruthy()
     expect(screen.getByRole('button', { name: 'Add live-model scenario' })).toBeTruthy()
     expect(screen.getByText('Women building a steadier household plan.')).toBeTruthy()
     expect(screen.getByText('Island shipping costs')).toBeTruthy()
     const publish = screen.getByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
     expect(publish.disabled).toBe(false); await userEvent.click(publish)
     expect(onPublish).toHaveBeenCalledWith({ release_candidate_digest: 'candidate-digest', evaluation_run_digest: 'run-digest', evaluation_approval_digest: 'approval-digest', behavioral_preview_digest: 'behavioral-preview-digest' })
+  })
+
+  it('blocks a stale displayed preview until the latest saved evidence is shown', async () => {
+    const latestPreview = { ...previewEvidence, id: 15, output: 'This is the newer saved answer.', digest: 'newer-behavioral-preview-digest' }
+    const latestReadiness = makeReadiness({ behavioral_preview_evidence: latestPreview })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(latestReadiness)
+    const onPublish = vi.fn()
+    renderPanel({ persona: { ...persona, release_readiness: latestReadiness }, onPublish })
+    expect((await screen.findByRole('alert')).textContent).toMatch(/another live preview was saved/i)
+    expect((screen.getByRole('button', { name: 'Publish first version' }) as HTMLButtonElement).disabled).toBe(true)
+    await userEvent.click(screen.getByRole('button', { name: 'Show latest saved preview' }))
+    expect(screen.getByText('This is the newer saved answer.')).toBeTruthy()
+    const publish = screen.getByRole('button', { name: 'Publish first version' }) as HTMLButtonElement
+    expect(publish.disabled).toBe(false)
+    await userEvent.click(publish)
+    expect(onPublish).toHaveBeenCalledWith(expect.objectContaining({ behavioral_preview_digest: 'newer-behavioral-preview-digest' }))
   })
 
   it('blocks release activity while assistant changes are unsaved', async () => {
@@ -96,9 +113,9 @@ describe('PersonaReleasePanel', () => {
   })
 
   it('reviews the exact sealed phrase and refreshes readiness', async () => {
-    const phrase: AdminPersonaAudienceReview = { artifact_id: 'phrase-1', artifact_fingerprint: 'phrase-fingerprint', phrase: { text: 'One step at a time', meaning: 'Choose one practical action.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: 'Avoid urgent safety moments.' }, provenance: { kind: 'coach_authored', source_user_id: 2, source_role_at_capture: 'coach' }, decision: null, reviewed: false, self_review: false, reviewer: null, reviewed_at: null, attestation_digest: null }
+    const phrase: AdminPersonaAudienceReview = { artifact_id: 'phrase-1', artifact_fingerprint: 'phrase-fingerprint', phrase: { text: 'One step at a time', meaning: 'Choose one practical action.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: 'Avoid urgent safety moments.' }, provenance: { kind: 'coach_authored', source_user_id: 2, source_role_at_capture: 'coach' }, decision: null, reviewed: false, review_state: 'missing', authority_snapshot_valid: false, authority_current: false, refresh_required: false, self_review: false, reviewer: null, reviewed_at: null, attestation_digest: null }
     const pending = makeReadiness({ ready: false, phrase_audience_reviews: [phrase], blockers: ['Review every phrase.'] })
-    const approved = makeReadiness({ phrase_audience_reviews: [{ ...phrase, decision: 'approved', reviewed: true, reviewer: { id: 3, full_name: 'Coach Reviewer' }, reviewed_at: '2026-10-02T00:02:00Z', attestation_digest: 'attestation-digest' }] })
+    const approved = makeReadiness({ phrase_audience_reviews: [{ ...phrase, decision: 'approved', reviewed: true, review_state: 'approved', authority_snapshot_valid: true, authority_current: true, reviewer: { id: 3, full_name: 'Coach Reviewer' }, reviewed_at: '2026-10-02T00:02:00Z', attestation_digest: 'attestation-digest' }] })
     apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValueOnce(pending).mockResolvedValue(approved)
     apiMocks.reviewAdminPersonaAudience.mockResolvedValue({}); renderPanel({ persona: { ...persona, release_readiness: pending } })
     await userEvent.click(await screen.findByRole('button', { name: 'Approve for this audience' }))
@@ -106,12 +123,30 @@ describe('PersonaReleasePanel', () => {
     expect((await screen.findAllByText(/Approved by Coach Reviewer/i)).length).toBeGreaterThan(0)
   })
 
+  it('lets a current reviewer replace stale phrase authority with fresh evidence', async () => {
+    const stalePhrase: AdminPersonaAudienceReview = {
+      artifact_id: 'phrase-1', artifact_fingerprint: 'phrase-fingerprint',
+      phrase: { text: 'One step at a time', meaning: 'Choose one practical action.', allowed_contexts: ['general'], prohibited_contexts: ['crisis'], frequency: 'rare', caution: 'Avoid urgent safety moments.' },
+      provenance: { kind: 'coach_authored', source_user_id: 2, source_role_at_capture: 'coach' },
+      decision: 'approved', reviewed: false, review_state: 'stale_authority', authority_snapshot_valid: true,
+      authority_current: false, refresh_required: true, self_review: false, reviewer: { id: 4, full_name: 'Former Reviewer' },
+      reviewer_role: 'reviewer', reviewer_authority_digest: 'old-authority', reviewed_at: '2026-10-02T00:02:00Z', attestation_digest: 'old-attestation',
+    }
+    const stale = makeReadiness({ ready: false, phrase_audience_reviews: [stalePhrase], blockers: ['Record a current phrase review.'] })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(stale)
+    apiMocks.reviewAdminPersonaAudience.mockResolvedValue({})
+    renderPanel({ persona: { ...persona, release_readiness: stale } })
+    expect(await screen.findByText(/prior reviewer does not have current review access/i)).toBeTruthy()
+    await userEvent.click(screen.getByRole('button', { name: 'Approve with fresh review for this audience' }))
+    await waitFor(() => expect(apiMocks.reviewAdminPersonaAudience).toHaveBeenCalledWith(5, expect.objectContaining({ artifact_id: 'phrase-1', decision: 'approved' })))
+  })
+
   it('shows failed assertions and withholds human approval', async () => {
     const failedRun: AdminPersonaEvaluationRun = { ...run, status: 'failed', passed: false, approval: null, results: [{ ...run.results![0], status: 'failed', assertion_results: [{ type: 'includes_any', passed: false }] }] }
     const failed = makeReadiness({ ready: false, evaluation_run: { ...baseReadiness.evaluation_run!, status: 'failed', passed: false }, approval: null, blockers: ['The latest evaluation must pass.'] })
     apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValue(failed); apiMocks.fetchAdminPersonaEvaluationRuns.mockResolvedValue([failedRun]); apiMocks.fetchAdminPersonaEvaluationRun.mockResolvedValue(failedRun)
     renderPanel({ persona: { ...persona, release_readiness: failed } })
-    expect(await screen.findByText(/Automated checks need attention/i)).toBeTruthy()
+    expect(await screen.findByText(/Release checks need attention/i)).toBeTruthy()
     expect(screen.getByText(/Failed: Answer includes at least one of/i)).toBeTruthy()
     expect(screen.getByText(/Only a complete passed run can be approved/i)).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Approve passed evaluation' })).toBeNull()
@@ -159,6 +194,28 @@ describe('PersonaReleasePanel', () => {
     await userEvent.click(await screen.findByRole('button', { name: 'Check saved evaluation status' }))
     await waitFor(() => expect(apiMocks.fetchAdminPersonaEvaluationRun).toHaveBeenCalledWith(5, 9))
     expect(apiMocks.runAdminPersonaEvaluation).not.toHaveBeenCalled()
+  })
+
+  it('uses a fresh request after GET reconciliation observes a terminal run', async () => {
+    const noRun = makeReadiness({ ready: false, evaluation_run: null, approval: null })
+    const pendingRun: AdminPersonaEvaluationRun = { ...run, request_id: 'pending-request', status: 'pending', passed: false, run_digest: null, approval: null, completed_at: null }
+    const pending = makeReadiness({ ready: false, evaluation_run: { id: 9, request_id: 'pending-request', status: 'pending', adapter_kind: run.adapter_kind, run_digest: null, passed: false, completed_at: null, requested_by: run.requested_by, execution: pendingRun.execution }, approval: null })
+    apiMocks.fetchAdminPersonaReleaseReadiness.mockResolvedValueOnce(noRun).mockResolvedValueOnce(pending).mockResolvedValue(makeReadiness())
+    apiMocks.fetchAdminPersonaEvaluationRuns.mockResolvedValueOnce([]).mockResolvedValueOnce([pendingRun]).mockResolvedValue([run])
+    apiMocks.fetchAdminPersonaEvaluationRun
+      .mockRejectedValueOnce(new ApiRequestError('Not found', { status: 404 }))
+      .mockResolvedValueOnce(pendingRun)
+      .mockResolvedValueOnce(run)
+      .mockResolvedValue(run)
+    apiMocks.runAdminPersonaEvaluation
+      .mockResolvedValueOnce({ evaluation_run: pendingRun, reconciliation: { request_id: 'pending-request', replayed: false, enqueued: true } })
+      .mockResolvedValueOnce({ evaluation_run: run, reconciliation: { request_id: 'fresh-request', replayed: false, enqueued: true } })
+    renderPanel({ persona: { ...persona, release_readiness: noRun } })
+    await userEvent.click(await screen.findByRole('button', { name: 'Run checks for this draft' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Check saved evaluation status' }))
+    await userEvent.click(await screen.findByRole('button', { name: 'Run checks again' }))
+    await waitFor(() => expect(apiMocks.runAdminPersonaEvaluation).toHaveBeenCalledTimes(2))
+    expect(apiMocks.runAdminPersonaEvaluation.mock.calls[0][1]).not.toBe(apiMocks.runAdminPersonaEvaluation.mock.calls[1][1])
   })
 
   it('replays the same request only when the server marks a stalled run recoverable', async () => {

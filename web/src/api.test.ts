@@ -51,7 +51,7 @@ import {
   reprocessAdminContentSource,
   retryAdminContentSourceCleanups,
   retryAdminContentSourceUrlIntakeCleanup,
-  rollbackAdminPersonaVersion,
+  restoreAdminPersonaVersionToDraft,
   sendMiaMessage,
   setActiveCoachWorkspaceId,
   setAuthTokenGetter,
@@ -378,6 +378,7 @@ describe('Persona Studio API contract', () => {
     const preview = { digest: 'preview-digest' }
     const behavioralPreviewEvidence = { digest: 'behavioral-preview-digest', valid: true }
     const version = { id: 31, number: 1 }
+    const draftRestore = { id: 41, source_version: { id: 31, number: 1 }, previous_draft_revision: 2, restored_draft_revision: 3, digest: 'restore-digest', valid: true }
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(jsonResponse({ personas: [persona] }))
       .mockResolvedValueOnce(jsonResponse({ persona }))
@@ -388,7 +389,7 @@ describe('Persona Studio API contract', () => {
       .mockResolvedValueOnce(jsonResponse({ persona, preview, behavioral_preview_evidence: behavioralPreviewEvidence }))
       .mockResolvedValueOnce(jsonResponse({ persona, published_version: version }))
       .mockResolvedValueOnce(jsonResponse({ persona, version }))
-      .mockResolvedValueOnce(jsonResponse({ persona, published_version: version }))
+      .mockResolvedValueOnce(jsonResponse({ persona, draft_restore: draftRestore }))
     vi.stubGlobal('fetch', fetchMock)
     setAuthTokenGetter(async () => 'staff-token')
 
@@ -409,10 +410,10 @@ describe('Persona Studio API contract', () => {
       behavioral_preview_digest: 'behavioral-preview-digest',
     })).toEqual({ persona, published_version: version })
     expect(await fetchAdminPersonaVersion(17, 31)).toEqual({ persona, version })
-    expect(await rollbackAdminPersonaVersion(17, 31, {
+    expect(await restoreAdminPersonaVersionToDraft(17, 31, {
       draft_revision: 2,
       expected_published_version_id: 32,
-    })).toEqual({ persona, published_version: version })
+    })).toEqual({ persona, draft_restore: draftRestore })
 
     expect(fetchMock).toHaveBeenCalledTimes(10)
     expect(fetchMock.mock.calls.every((call) => (
