@@ -15,6 +15,7 @@ module CohortReleases
     end
     class Stale < Error; end
     class RequestConflict < Error; end
+    class AlreadyRecorded < Error; end
 
     def initialize(cohort:, actor:, publication_source: "user")
       @cohort = cohort
@@ -29,6 +30,7 @@ module CohortReleases
       validate_reserved_request_key!(key, event_type)
       cohort.with_lock do
         authorize!
+        lock_release_personas!(source_release)
         require_user_preview!(expected_bundle_digest)
         existing = cohort.cohort_releases.find_by(request_key: key)
         replay_digest = expected_bundle_digest.presence || existing&.bundle_digest
@@ -48,6 +50,7 @@ module CohortReleases
         raise Incomplete, candidate.blockers if candidate.blockers.any?
         verify_expectations!(candidate, expected_bundle_digest, expected_assignment_id,
           expected_persona_version_id, expected_experience_version_id)
+        reject_noop!(candidate, event_type, source_release)
 
         fingerprint = request_fingerprint(
           key: key,
@@ -123,6 +126,15 @@ module CohortReleases
 
     attr_reader :cohort, :actor, :publication_source, :actor_role_snapshot
 
+    def lock_release_personas!(source_release)
+      assignment = cohort.cohort_persona_assignment
+      persona_ids = [ assignment&.coach_persona_id, source_release&.coach_persona_id ].compact.uniq.sort
+      persona_ids.each { |persona_id| CoachPersona.lock.find(persona_id) }
+
+      cohort.association(:cohort_persona_assignment).reset
+      source_release&.association(:coach_persona)&.reset
+    end
+
     def authorize!
       if publication_source == "user"
         persisted_actor, role = Authorization.new(cohort: cohort, actor: actor).call!
@@ -193,6 +205,25 @@ module CohortReleases
       elsif source_release
         raise Stale, "A source release is only valid for a restore"
       end
+    end
+
+    def reject_noop!(candidate, event_type, source_release)
+      return unless publication_source == "user"
+
+      latest = cohort.cohort_releases.order(release_number: :desc).first
+      return unless latest
+
+      if event_type == "restore" && source_release.id == latest.id
+        raise AlreadyRecorded, "The selected release is already the latest sealed record"
+      end
+      return unless secure_match?(candidate.bundle_digest, latest.bundle_digest)
+
+      message = if event_type == "restore"
+        "The selected release bundle is already the latest sealed record"
+      else
+        "This exact cohort release bundle is already sealed"
+      end
+      raise AlreadyRecorded, message
     end
 
     def reconcile!(existing, fingerprint)

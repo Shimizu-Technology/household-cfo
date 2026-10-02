@@ -16,6 +16,7 @@ import {
   acceptAdminContentSourceCandidate,
   createAdminContentSourceUrlIntake,
   createAdminContentSourceUrlRequestId,
+  createCohortReleaseRequestId,
   deleteAdminContentSource,
   deleteAdminContentSourceUrlIntake,
   deleteAdminCohortPersonaAssignment,
@@ -35,6 +36,7 @@ import {
   fetchAdminContentSourceUrlIntake,
   fetchAdminContentSourceUrlIntakes,
   fetchAdminContentSources,
+  fetchCohortReleaseStudio,
   fetchAdminContentSourcePhraseProposals,
   fetchAdminPhraseProposal,
   previewAdminPersona,
@@ -52,6 +54,8 @@ import {
   retryAdminContentSourceCleanups,
   retryAdminContentSourceUrlIntakeCleanup,
   restoreAdminPersonaVersionToDraft,
+  restoreCohortRelease,
+  sealCohortRelease,
   sendMiaMessage,
   setActiveCoachWorkspaceId,
   setAuthTokenGetter,
@@ -131,6 +135,105 @@ describe('persona setup idempotency contract', () => {
       '/api/v1/admin/personas/7/setup_sessions/8/proposals/9/apply',
       '/api/v1/admin/personas/7/setup_sessions/8/proposals/9/reject',
     ])
+  })
+})
+
+describe('cohort release API contract', () => {
+  it('normalizes nested readiness evidence and sends exact idempotent seal and restore inputs', async () => {
+    const releasePayload = {
+      cohort_release_studio: {
+        cohort: { id: 12, name: 'Tuesday cohort', status: 'active' },
+        runtime_truth: { changes_participant_runtime: false, message: 'Audit evidence only.' },
+        permissions: { view: true, seal: true, restore: true },
+        readiness: {
+          ready: true,
+          seal_needed: true,
+          latest_release_match: false,
+          expected_latest_release_id: 44,
+          blockers: [],
+          warnings: ['Review the roster.'],
+          checks: [{ key: 'persona', label: 'Assistant voice', ready: true, detail: 'Version 6' }],
+          candidate: {
+            bundle_digest: 'bundle-next',
+            assignment_id: 31,
+            coach_persona_version_id: 6,
+            cohort_experience_version_id: 8,
+            tool_registry_digest: 'registry-v3',
+            tool_registry_version: 3,
+          },
+        },
+        history: { limit: 25, total_count: 100, truncated: true },
+        releases: [{
+          id: 44,
+          release_number: 4,
+          event_type: 'release',
+          released_at: '2026-10-03T01:00:00Z',
+          actor_user_id: 7,
+          bundle_digest: 'bundle-old',
+          coach_persona_version_id: 5,
+          cohort_experience_version_id: 7,
+          tool_registry_digest: 'registry-v2',
+          tool_registry_version: 2,
+          restore_allowed: false,
+          restore_blockers: ['The assistant is archived.', 'Choose another record.'],
+        }],
+      },
+    }
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(jsonResponse(releasePayload))
+      .mockResolvedValueOnce(jsonResponse({ release: { id: 45 } }, 201))
+      .mockResolvedValueOnce(jsonResponse({ release: { id: 46 } }, 201))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const studio = await fetchCohortReleaseStudio(12)
+    expect(studio.candidate).toMatchObject({
+      bundle_digest: 'bundle-next',
+      persona_version_id: 6,
+      experience_version_id: 8,
+      registry_digest: 'registry-v3',
+      registry_version: 3,
+      expected_latest_release_id: 44,
+      ready: true,
+      seal_needed: true,
+    })
+    expect(studio.releases[0]).toMatchObject({
+      actor_user_id: 7,
+      restore_reason: 'The assistant is archived. Choose another record.',
+    })
+    expect(studio.history).toEqual({ limit: 25, total_count: 100, truncated: true })
+
+    await sealCohortRelease(12, {
+      expected_bundle_digest: 'bundle-next',
+      expected_assignment_id: 31,
+      expected_persona_version_id: 6,
+      expected_experience_version_id: 8,
+      expected_tool_registry_digest: 'registry-v3',
+      expected_tool_registry_version: 3,
+      expected_latest_release_id: 44,
+    }, 'seal-attempt')
+    await restoreCohortRelease(12, 44, {
+      expected_latest_release_id: 44,
+      source_bundle_digest: 'bundle-old',
+      source_persona_version_id: 5,
+      source_experience_version_id: 7,
+    }, 'restore-attempt')
+
+    expect(createCohortReleaseRequestId()).toBeTruthy()
+    expect(fetchMock.mock.calls.slice(1).map((call) => String(call[0]).replace(/^.*\/api/, '/api'))).toEqual([
+      '/api/v1/admin/cohorts/12/releases',
+      '/api/v1/admin/cohorts/12/releases/44/restore',
+    ])
+    expect(fetchMock.mock.calls.slice(1).map((call) => ((call[1] as RequestInit).headers as Record<string, string>)['Idempotency-Key'])).toEqual([
+      'seal-attempt', 'restore-attempt',
+    ])
+    expect(JSON.parse(String((fetchMock.mock.calls[2][1] as RequestInit).body))).toEqual({
+      release: {
+        expected_latest_release_id: 44,
+        source_bundle_digest: 'bundle-old',
+        source_persona_version_id: 5,
+        source_experience_version_id: 7,
+      },
+    })
   })
 })
 

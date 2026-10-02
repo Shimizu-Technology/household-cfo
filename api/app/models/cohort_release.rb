@@ -22,6 +22,7 @@ class CohortRelease < ApplicationRecord
     foreign_key: :source_release_id,
     dependent: :restrict_with_exception,
     inverse_of: :source_release
+  has_one :coach_operation_execution, dependent: :restrict_with_exception, inverse_of: :cohort_release
 
   validates :release_number, numericality: { only_integer: true, greater_than: 0 },
     uniqueness: { scope: :cohort_id }

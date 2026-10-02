@@ -1765,6 +1765,87 @@ export type CohortExperiencePreview = {
   modules: ExperienceCapability[]
 }
 
+export type CohortReleaseReadinessCheck = {
+  key: string
+  label: string
+  ready: boolean
+  detail: string | null
+}
+
+export type CohortReleaseCandidate = {
+  bundle_digest: string
+  assignment_id: number | null
+  persona_version_id: number | null
+  experience_version_id: number | null
+  registry_digest: string
+  registry_version: number | null
+  expected_latest_release_id: number | null
+  seal_needed: boolean
+  ready: boolean
+  blockers: string[]
+  warnings: string[]
+  checks: CohortReleaseReadinessCheck[]
+}
+
+export type CohortReleaseRecord = {
+  id: number
+  release_number: number
+  event_type: 'release' | 'restore' | 'reconciliation' | string
+  released_at: string
+  actor: null | { id: number; full_name: string }
+  actor_user_id: number | null
+  bundle_digest: string
+  source_release_id: number | null
+  persona_version_id: number | null
+  experience_version_id: number | null
+  registry_digest: string
+  registry_version: number | null
+  restore_allowed: boolean
+  restore_reason: string | null
+}
+
+export type CohortReleaseStudio = {
+  cohort: {
+    id: number
+    name: string
+    status: AdminCohortStatus
+  }
+  runtime_truth: {
+    changes_participant_runtime: false
+    message: string
+  }
+  permissions: {
+    view: boolean
+    seal: boolean
+    restore: boolean
+  }
+  candidate: CohortReleaseCandidate | null
+  latest_release_match: boolean
+  history: {
+    limit: number
+    total_count: number
+    truncated: boolean
+  }
+  releases: CohortReleaseRecord[]
+}
+
+export type CohortReleaseMutationInput = {
+  expected_bundle_digest: string
+  expected_assignment_id: number | null
+  expected_persona_version_id: number | null
+  expected_experience_version_id: number | null
+  expected_tool_registry_digest: string
+  expected_tool_registry_version: number | null
+  expected_latest_release_id: number | null
+}
+
+export type CohortReleaseRestoreInput = {
+  expected_latest_release_id: number
+  source_bundle_digest: string
+  source_persona_version_id: number | null
+  source_experience_version_id: number | null
+}
+
 export type AdminInviteEmailStatus = 'hidden' | 'not_sent' | 'skipped' | 'sent' | 'failed'
 
 export type AdminUser = CurrentUser & {
@@ -2279,6 +2360,40 @@ export async function rollbackCohortExperienceConfiguration(
   values: { draft_revision: number; expected_published_version_id: number | null },
 ): Promise<{ experience_configuration: CohortExperienceConfiguration; published_version: CohortExperienceVersion }> {
   return postJson(`/api/v1/admin/cohorts/${cohortId}/experience_configuration/versions/${versionId}/rollback`, { experience_configuration: values })
+}
+
+export function createCohortReleaseRequestId() {
+  return clientRequestId()
+}
+
+export async function fetchCohortReleaseStudio(cohortId: number, signal?: AbortSignal): Promise<CohortReleaseStudio> {
+  const payload = await fetchJson<unknown>(`/api/v1/admin/cohorts/${cohortId}/releases`, { signal })
+  return normalizeCohortReleaseStudio(payload)
+}
+
+export async function sealCohortRelease(
+  cohortId: number,
+  values: CohortReleaseMutationInput,
+  requestId: string,
+): Promise<unknown> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/releases`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+    body: JSON.stringify({ release: values }),
+  })
+}
+
+export async function restoreCohortRelease(
+  cohortId: number,
+  sourceReleaseId: number,
+  values: CohortReleaseRestoreInput,
+  requestId: string,
+): Promise<unknown> {
+  return fetchJson(`/api/v1/admin/cohorts/${cohortId}/releases/${sourceReleaseId}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Idempotency-Key': requestId },
+    body: JSON.stringify({ release: values }),
+  })
 }
 
 export async function fetchAdminPersonas(): Promise<AdminPersonaSummary[]> {
@@ -3222,6 +3337,132 @@ function clientRequestId() {
   }
 
   return `request-${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`
+}
+
+function normalizeCohortReleaseStudio(payload: unknown): CohortReleaseStudio {
+  const root = releaseRecord(payload)
+  const rawStudio = releaseRecord(root.cohort_release_studio ?? root.release_studio ?? root)
+  const rawCohort = releaseRecord(rawStudio.cohort)
+  const rawRuntimeTruth = releaseRecord(rawStudio.runtime_truth)
+  const rawPermissions = releaseRecord(rawStudio.permissions)
+  const rawReadiness = releaseRecord(rawStudio.readiness)
+  const rawHistory = releaseRecord(rawStudio.history)
+  const rawCandidateValue = rawStudio.candidate ?? rawReadiness.candidate ?? (Object.keys(rawReadiness).length > 0 ? rawReadiness : null)
+  const rawCandidate = rawCandidateValue == null ? null : releaseRecord(rawCandidateValue)
+  const rawReleases = Array.isArray(rawStudio.releases) ? rawStudio.releases : []
+  const cohortId = releaseInteger(rawCohort.id)
+  const cohortName = releaseString(rawCohort.name)
+
+  if (!cohortId || !cohortName) throw new Error('Cohort release data was incomplete. Reload Coach Studio and try again.')
+
+  const status = releaseString(rawCohort.status)
+  const knownStatuses: AdminCohortStatus[] = ['draft', 'enrolling', 'active', 'completed', 'archived']
+
+  return {
+    cohort: {
+      id: cohortId,
+      name: cohortName,
+      status: knownStatuses.includes(status as AdminCohortStatus) ? status as AdminCohortStatus : 'draft',
+    },
+    runtime_truth: {
+      changes_participant_runtime: false,
+      message: releaseString(rawRuntimeTruth.message)
+        || 'Release records are audit evidence in this phase. Sealing or restoring a record does not change the assistant or tools participants use.',
+    },
+    permissions: {
+      view: releaseBoolean(rawPermissions.view, true),
+      seal: releaseBoolean(rawPermissions.seal),
+      restore: releaseBoolean(rawPermissions.restore),
+    },
+    candidate: rawCandidate ? {
+      bundle_digest: releaseString(rawCandidate.bundle_digest),
+      assignment_id: releaseNullableInteger(rawCandidate.assignment_id),
+      persona_version_id: releaseNullableInteger(rawCandidate.persona_version_id ?? rawCandidate.coach_persona_version_id),
+      experience_version_id: releaseNullableInteger(rawCandidate.experience_version_id ?? rawCandidate.cohort_experience_version_id),
+      registry_digest: releaseString(rawCandidate.registry_digest ?? rawCandidate.tool_registry_digest),
+      registry_version: releaseNullableInteger(rawCandidate.registry_version ?? rawCandidate.tool_registry_version),
+      expected_latest_release_id: releaseNullableInteger(rawCandidate.expected_latest_release_id ?? rawReadiness.expected_latest_release_id ?? rawStudio.latest_release_id),
+      seal_needed: releaseBoolean(rawCandidate.seal_needed ?? rawReadiness.seal_needed, !releaseBoolean(rawReadiness.latest_release_match ?? rawStudio.latest_release_match)),
+      ready: releaseBoolean(rawCandidate.ready ?? rawReadiness.ready),
+      blockers: releaseStrings(rawCandidate.blockers ?? rawReadiness.blockers),
+      warnings: releaseStrings(rawCandidate.warnings ?? rawReadiness.warnings),
+      checks: (Array.isArray(rawCandidate.checks) ? rawCandidate.checks : Array.isArray(rawReadiness.checks) ? rawReadiness.checks : []).map((value, index) => {
+        const check = releaseRecord(value)
+        return {
+          key: releaseString(check.key) || releaseString(check.id) || `check-${index + 1}`,
+          label: releaseString(check.label) || releaseString(check.name) || `Readiness check ${index + 1}`,
+          ready: releaseBoolean(check.ready, releaseString(check.status) === 'ready'),
+          detail: releaseNullableString(check.detail ?? check.message),
+        }
+      }),
+    } : null,
+    latest_release_match: releaseBoolean(rawStudio.latest_release_match ?? rawReadiness.latest_release_match),
+    history: {
+      limit: releaseInteger(rawHistory.limit) ?? rawReleases.length,
+      total_count: releaseInteger(rawHistory.total_count) ?? rawReleases.length,
+      truncated: releaseBoolean(rawHistory.truncated, (releaseInteger(rawHistory.total_count) ?? rawReleases.length) > rawReleases.length),
+    },
+    releases: rawReleases.map((value) => {
+      const release = releaseRecord(value)
+      const actor = releaseRecord(release.actor)
+      const personaSnapshot = releaseRecord(release.persona_snapshot)
+      const experienceSnapshot = releaseRecord(release.experience_snapshot)
+      const registrySnapshot = releaseRecord(release.tool_registry_snapshot ?? release.registry_snapshot)
+      const id = releaseInteger(release.id)
+      if (!id) return null
+
+      const actorId = releaseInteger(actor.id ?? release.actor_user_id)
+      const actorName = releaseString(actor.full_name ?? actor.name)
+      const restoreBlockers = releaseStrings(release.restore_blockers)
+      return {
+        id,
+        release_number: releaseInteger(release.release_number) ?? id,
+        event_type: releaseString(release.event_type) || 'release',
+        released_at: releaseString(release.released_at ?? release.created_at),
+        actor: actorId && actorName ? { id: actorId, full_name: actorName } : null,
+        actor_user_id: actorId,
+        bundle_digest: releaseString(release.bundle_digest),
+        source_release_id: releaseNullableInteger(release.source_release_id),
+        persona_version_id: releaseNullableInteger(release.persona_version_id ?? release.coach_persona_version_id ?? personaSnapshot.version_id),
+        experience_version_id: releaseNullableInteger(release.experience_version_id ?? release.cohort_experience_version_id ?? experienceSnapshot.version_id),
+        registry_digest: releaseString(release.registry_digest ?? release.tool_registry_digest ?? registrySnapshot.digest),
+        registry_version: releaseNullableInteger(release.registry_version ?? release.tool_registry_version ?? registrySnapshot.version),
+        restore_allowed: releaseBoolean(release.restore_allowed),
+        restore_reason: releaseNullableString(release.restore_reason) ?? (restoreBlockers.length > 0 ? restoreBlockers.join(' ') : null),
+      } satisfies CohortReleaseRecord
+    }).filter((release): release is CohortReleaseRecord => release !== null),
+  }
+}
+
+function releaseRecord(value: unknown): Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {}
+}
+
+function releaseString(value: unknown): string {
+  return typeof value === 'string' ? value : ''
+}
+
+function releaseNullableString(value: unknown): string | null {
+  const result = releaseString(value)
+  return result || null
+}
+
+function releaseInteger(value: unknown): number | null {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : null
+}
+
+function releaseNullableInteger(value: unknown): number | null {
+  return value == null ? null : releaseInteger(value)
+}
+
+function releaseBoolean(value: unknown, fallback = false): boolean {
+  return typeof value === 'boolean' ? value : fallback
+}
+
+function releaseStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
 }
 
 function yearQuery(year?: number) {

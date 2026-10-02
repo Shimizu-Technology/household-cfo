@@ -8,6 +8,7 @@ module CohortReleaseSchemaDumper
 
   def trailer(stream)
     dump_cohort_release_immutability(stream) if @connection.table_exists?("cohort_releases")
+    dump_coach_operation_immutability(stream) if @connection.table_exists?("coach_operation_executions")
     super
   end
 
@@ -30,6 +31,29 @@ module CohortReleaseSchemaDumper
           BEFORE UPDATE OR DELETE ON cohort_releases
           FOR EACH ROW
           EXECUTE FUNCTION prevent_cohort_release_mutation()
+        SQL
+    RUBY
+  end
+
+  def dump_coach_operation_immutability(stream)
+    stream.puts <<~'RUBY'
+        execute <<~SQL
+          CREATE OR REPLACE FUNCTION prevent_coach_operation_execution_mutation()
+          RETURNS trigger
+          LANGUAGE plpgsql
+          AS $$
+          BEGIN
+            RAISE EXCEPTION 'coach operation executions are immutable'
+              USING ERRCODE = 'integrity_constraint_violation';
+          END;
+          $$
+        SQL
+        execute <<~SQL
+          DROP TRIGGER IF EXISTS coach_operation_executions_immutable ON coach_operation_executions;
+          CREATE TRIGGER coach_operation_executions_immutable
+          BEFORE UPDATE OR DELETE ON coach_operation_executions
+          FOR EACH ROW
+          EXECUTE FUNCTION prevent_coach_operation_execution_mutation()
         SQL
     RUBY
   end
