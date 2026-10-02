@@ -939,6 +939,8 @@ export type AdminPersonaVersion = {
   release_manifest_digest?: string | null
   audience_digest?: string | null
   release_evidence_digest?: string | null
+  behavioral_preview_digest?: string | null
+  release_evidence_schema?: 'persona_release_evidence_v2' | 'persona_release_evidence_v3' | null
   published_at: string
   published_by: AdminPersonaUser
   config?: PersonaConfiguration
@@ -1202,6 +1204,7 @@ export type AdminPersonaReleasePermissions = {
   review_phrase_audiences: boolean
   publish: boolean
   sole_owner_self_review: boolean
+  publication_needed: boolean
 }
 
 export type AdminPersonaReleaseAudience = {
@@ -1235,6 +1238,18 @@ export type AdminPersonaEvaluationCase = {
   created_at: string | null
 }
 
+export type AdminPersonaEvaluationCaseContract = {
+  name_max_chars: number
+  prompt_max_chars: number
+  max_active_custom_cases: number
+  assertion_types: AdminPersonaEvaluationAssertion['type'][]
+  assertions_min: number
+  assertions_max: number
+  assertion_value_max_chars: number
+  assertion_values_max: number
+  max_chars_range: { min: number; max: number }
+}
+
 export type AdminPersonaEvaluationApproval = {
   id: number
   decision: 'approved' | 'rejected'
@@ -1242,6 +1257,8 @@ export type AdminPersonaEvaluationApproval = {
   approval_digest: string
   self_review: boolean
   reviewer: AdminPersonaUser
+  reviewer_role?: string
+  reviewer_authority_digest?: string
   reviewed_at: string
 }
 
@@ -1272,6 +1289,14 @@ export type AdminPersonaEvaluationRun = {
   requested_by: AdminPersonaUser | null
   approval: AdminPersonaEvaluationApproval | null
   results?: AdminPersonaEvaluationResult[]
+  execution: {
+    active_lease: boolean
+    recoverable: boolean
+    heartbeat_at: string | null
+    lease_expires_at: string | null
+    poll_after_ms: number | null
+    retry_action: 'replay_same_request' | null
+  }
 }
 
 export type AdminPersonaAudienceReview = {
@@ -1281,6 +1306,8 @@ export type AdminPersonaAudienceReview = {
   reviewed: boolean
   self_review: boolean
   reviewer: AdminPersonaUser | null
+  reviewer_role?: string
+  reviewer_authority_digest?: string
   reviewed_at: string | null
   attestation_digest: string | null
   phrase: AdminApprovedPhrase
@@ -1300,8 +1327,29 @@ export type AdminPersonaAudienceAttestation = {
   decision: 'approved' | 'rejected'
   self_review: boolean
   reviewer: AdminPersonaUser | null
+  reviewer_role?: string
+  reviewer_authority_digest?: string
   attestation_digest: string
   reviewed_at: string
+}
+
+export type AdminPersonaBehavioralPreviewEvidence = {
+  id: number
+  candidate_id: number
+  candidate_digest: string
+  config_digest: string
+  content_manifest_digest: string
+  phrase_manifest_digest: string
+  prompt: string
+  output: string
+  source: 'live_model'
+  model: string
+  privacy_scope: 'no_saved_participant_or_household_data'
+  context_digest: string
+  generated_by: AdminPersonaUser
+  generated_at: string
+  digest: string
+  valid: boolean
 }
 
 export type AdminPersonaReleaseReadiness = {
@@ -1315,12 +1363,14 @@ export type AdminPersonaReleaseReadiness = {
     draft_revision: number
     sealed_at: string
   }
-  evaluation_run: null | Pick<AdminPersonaEvaluationRun, 'id' | 'status' | 'adapter_kind' | 'run_digest' | 'passed' | 'completed_at' | 'requested_by'>
+  evaluation_run: null | Pick<AdminPersonaEvaluationRun, 'id' | 'request_id' | 'status' | 'adapter_kind' | 'run_digest' | 'passed' | 'completed_at' | 'requested_by' | 'execution'>
+  behavioral_preview_evidence: AdminPersonaBehavioralPreviewEvidence | null
   approval: null | (AdminPersonaEvaluationApproval & { valid: boolean })
   phrase_audience_reviews: AdminPersonaAudienceReview[]
   blockers: string[]
   permissions: AdminPersonaReleasePermissions
   required_evaluation_cases: AdminPersonaEvaluationCase[]
+  evaluation_case_contract: AdminPersonaEvaluationCaseContract
 }
 
 export type AdminPersonaSummary = {
@@ -1458,6 +1508,7 @@ export type AdminPersonaPreview = {
 
 export type AdminPersonaPreviewResponse = {
   preview: AdminPersonaPreview
+  behavioral_preview_evidence: AdminPersonaBehavioralPreviewEvidence | null
   persona: AdminPersonaDetail
 }
 
@@ -1499,11 +1550,12 @@ export type AdminPersonaPublishInput = {
   release_candidate_digest: string
   evaluation_run_digest: string
   evaluation_approval_digest: string
+  behavioral_preview_digest: string
 }
 
 export type AdminPersonaEvaluationRunResponse = {
   evaluation_run: AdminPersonaEvaluationRun
-  reconciliation?: { request_id: string; replayed: boolean }
+  reconciliation?: { request_id: string; replayed: boolean; enqueued: boolean }
 }
 
 export type AdminPersonaRollbackInput = {

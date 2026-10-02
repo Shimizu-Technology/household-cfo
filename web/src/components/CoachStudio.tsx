@@ -17,6 +17,7 @@ import {
 } from '../api'
 import type {
   AdminPersonaAssignableCohort,
+  AdminPersonaBehavioralPreviewEvidence,
   AdminPersonaDetail,
   AdminPersonaPreview,
   AdminPersonaSummary,
@@ -70,6 +71,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
   const [description, setDescription] = useState('')
   const [cohorts, setCohorts] = useState<AdminPersonaAssignableCohort[]>([])
   const [preview, setPreview] = useState<AdminPersonaPreview | null>(null)
+  const [previewEvidence, setPreviewEvidence] = useState<AdminPersonaBehavioralPreviewEvidence | null>(null)
   const [samplePrompt, setSamplePrompt] = useState('How should I think about spending $100 this weekend? Give me one clear next step.')
   const [mode, setMode] = useState<EditorMode>('guided')
   const [guidedStep, setGuidedStep] = useState<GuidedStep>('identity')
@@ -134,6 +136,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setDraft(persona.draft ?? null)
       setDescription(persona.description)
       setPreview(null)
+      setPreviewEvidence(null)
       setConflict(null)
       setPendingSelectionId(null)
       setPendingLibraryReturn(false)
@@ -260,6 +263,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setSelectedPersona(null)
     setDraft(null)
     setPreview(null)
+    setPreviewEvidence(null)
     setDescription('')
     setError(null)
     setConflict(null)
@@ -381,6 +385,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setDraft(persona.draft ?? draft)
       setDescription(persona.description)
       setPreview(null)
+      setPreviewEvidence(null)
       setPersonas((current) => replacePersonaSummary(current, persona))
       setNotice('Draft saved. Run an exact preview before publishing.')
       return persona
@@ -403,6 +408,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
       setPreview(response.preview)
+      setPreviewEvidence(response.behavioral_preview_evidence)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(response.preview.status === 'ready' ? 'Exact draft preview is ready for review.' : 'The exact draft was checked, but a behavioral sample is unavailable right now.')
     } catch (caught) {
@@ -438,12 +444,15 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       if (!mutationIsCurrent(mutation)) return
       setSelectedPersona(response.persona)
       setDraft(response.persona.draft ?? draft)
+      setPreview(null)
+      setPreviewEvidence(null)
       setPersonas((current) => replacePersonaSummary(current, response.persona))
       setNotice(`${response.persona.name} version ${response.published_version.number} is published.`)
       await refreshCohorts(mutation)
     } catch (caught) {
       if (mutationIsCurrent(mutation)) {
         setPreview(null)
+        setPreviewEvidence(null)
         handleMutationError(caught, 'The assistant could not be published.')
       }
     } finally {
@@ -508,6 +517,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
       if (!mutationIsCurrent(mutation)) return
       acceptPersona(response.persona)
       setPreview(null)
+      setPreviewEvidence(null)
       setNotice(`Version ${response.published_version.number} is now published from version ${versionNumber}.`)
       await refreshCohorts(mutation)
     } catch (caught) {
@@ -586,6 +596,7 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
     setDraft(persona.draft ?? null)
     setDescription(persona.description)
     setPreview(null)
+    setPreviewEvidence(null)
     setPersonas((current) => replacePersonaSummary(current, persona))
   }
 
@@ -913,9 +924,10 @@ export function CoachStudio({ currentUser, onDirtyChange }: { currentUser: Curre
               )}
 
               <PersonaReleasePanel
-                key={`${activeWorkspaceId ?? 'platform'}:${selectedPersona.id}:${selectedPersona.draft_revision ?? 'read-only'}`}
+                key={`${activeWorkspaceId ?? 'platform'}:${selectedPersona.id}:${selectedPersona.draft_revision ?? 'read-only'}:${selectedPersona.published_version?.id ?? 'unpublished'}:${selectedPersona.has_unpublished_changes !== false ? 'changes' : 'current'}:${previewEvidence?.digest ?? 'no-preview-evidence'}`}
                 persona={selectedPersona}
                 preview={preview}
+                previewEvidence={previewEvidence}
                 samplePrompt={samplePrompt}
                 dirty={dirty || personaSourcesDirty || setupDirty}
                 parentBusy={pendingAction !== null || workspaceMutations.pending}
